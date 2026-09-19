@@ -32,6 +32,7 @@
 				v-bind="tooltipProps"
 				class="sync-state-icon"
 				:data-state="descriptor.state"
+				data-test="sync-state"
 			>
 				<v-icon
 					:color="descriptor.color"

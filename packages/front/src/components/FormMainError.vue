@@ -8,7 +8,7 @@
 </script>
 
 <template>
-	<span v-if="form.mainError" class="form-main-error mb-4">
+	<span v-if="form.mainError" class="form-main-error mb-4" data-test="form-main-error">
 		<template v-for="(line, index) of lines" :key="index">
 			<br v-if="index !== 0">{{ line }}
 		</template>

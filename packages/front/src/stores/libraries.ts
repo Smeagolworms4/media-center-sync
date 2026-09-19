@@ -50,7 +50,7 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		if (index === -1) {
 			libraries.value = [...libraries.value, library];
 		} else {
-			libraries.value.splice(index, 1, library);
+			libraries.value[index] = library;
 		}
 	}
 
@@ -58,9 +58,12 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		loading.value = true;
 		error.value = null;
 		try {
-			libraries.value = await caller('api').get<Library[]>('/libraries', {
+			const loadedList = await caller('api').get<Library[]>('/libraries', {
 				keepLastKey: 'libraries|list',
 			});
+			// An empty body parses to `null`, and a gateway that answers nothing must
+			// not leave a page rendering a list that is not one.
+			libraries.value = Array.isArray(loadedList) ? loadedList : [];
 			loaded.value = true;
 			return libraries.value;
 		} catch (loadError) {
@@ -89,9 +92,12 @@ export const useLibrariesStore = defineStore('libraries', () => {
 	async function loadChecks (): Promise<LibraryCheck[]> {
 		checking.value = true;
 		try {
-			checks.value = await caller('api').get<LibraryCheck[]>('/libraries/check', {
+			const loadedChecks = await caller('api').get<LibraryCheck[]>('/libraries/check', {
 				keepLastKey: 'libraries|check',
 			});
+			// An empty body parses to `null`, and every screen that warns about a
+			// library reads this as a list.
+			checks.value = Array.isArray(loadedChecks) ? loadedChecks : [];
 			return checks.value;
 		} finally {
 			checking.value = false;

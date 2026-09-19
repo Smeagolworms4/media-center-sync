@@ -18,7 +18,7 @@ test.describe('transfers', () => {
 		// missing attach, a proxy that drops the upgrade — nothing errors: the page
 		// renders, the queue is right, and the bars simply never move. Only the
 		// handshake itself distinguishes that from an idle gateway.
-		const opened = page.waitForEvent('websocket', { timeout: 15000 });
+		const opened = page.waitForEvent('websocket', { timeout: 15_000 });
 		await page.reload();
 		const socket = await opened;
 		expect(socket.url()).toContain('/api/events');

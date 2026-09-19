@@ -106,11 +106,12 @@
 <template>
 	<v-app class="app">
 		<template v-if="showShell">
-			<v-navigation-drawer v-model="drawer" :width="248">
+			<v-navigation-drawer v-model="drawer" data-test="app-nav" :width="248">
 				<v-list class="app_nav" density="comfortable" nav>
 					<v-list-item
 						v-for="item of navItems"
 						:key="String(item.name)"
+						:data-test="`nav-${String(item.name)}`"
 						:prepend-icon="item.meta?.icon"
 						:title="$t(item.meta?.title ?? '')"
 						:to="{ name: item.name }"
@@ -118,7 +119,7 @@
 				</v-list>
 			</v-navigation-drawer>
 
-			<v-app-bar flat :height="56">
+			<v-app-bar data-test="app-shell" flat :height="56">
 				<v-app-bar-nav-icon @click="drawer = !drawer" />
 				<v-app-bar-title class="app_title">{{ $t('app.name') }}</v-app-bar-title>
 
@@ -147,7 +148,7 @@
 
 				<v-menu location="bottom end">
 					<template #activator="{ props: menuProps }">
-						<v-btn v-bind="menuProps" class="app_account" variant="text">
+						<v-btn v-bind="menuProps" class="app_account" data-test="account-menu" variant="text">
 							<v-icon class="mr-2" icon="mdi-account-circle-outline" />
 							{{ accountName }}
 						</v-btn>
@@ -167,6 +168,7 @@
 						<v-divider class="my-1" />
 
 						<v-list-item
+							data-test="account-logout"
 							prepend-icon="mdi-logout"
 							:title="$t('actions.sign_out')"
 							@click="signOut"

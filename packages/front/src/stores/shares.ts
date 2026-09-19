@@ -31,7 +31,7 @@ export const useSharesStore = defineStore('shares', () => {
 		if (index === -1) {
 			policies.value = [...policies.value, policy];
 		} else {
-			policies.value.splice(index, 1, policy);
+			policies.value[index] = policy;
 		}
 	}
 
@@ -39,9 +39,12 @@ export const useSharesStore = defineStore('shares', () => {
 		loading.value = true;
 		error.value = null;
 		try {
-			policies.value = await caller('api').get<SharePolicy[]>('/shares', {
+			const loadedList = await caller('api').get<SharePolicy[]>('/shares', {
 				keepLastKey: 'shares|list',
 			});
+			// An empty body parses to `null`, and a gateway that answers nothing must
+			// not leave a page rendering a list that is not one.
+			policies.value = Array.isArray(loadedList) ? loadedList : [];
 			loaded.value = true;
 			return policies.value;
 		} catch (loadError) {

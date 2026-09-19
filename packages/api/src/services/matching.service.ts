@@ -239,11 +239,21 @@ export class MatchingService {
 	 * The order of the tests is the order of urgency on screen: something to fetch
 	 * beats something to arbitrate, which beats everything being fine.
 	 */
-	public deriveItemState(proposals: MatchProposal[]): SyncState {
+	/**
+	 * What the icon next to one item should say.
+	 *
+	 * `heldLocally` is not a detail: an item nobody else has means two opposite things
+	 * depending on which side of the gateway it sits. On a service we can write to it
+	 * is `LOCAL_ONLY` — we have it, nobody else does. On somebody else's server it is
+	 * `MISSING` — they have it, we do not, and that is precisely what a sync exists to
+	 * fill. Deriving both from an empty list of matches, as this did, made every remote
+	 * item the gateway could fetch look like something it already held.
+	 */
+	public deriveItemState(proposals: MatchProposal[], heldLocally: boolean): SyncState {
 		const applied = proposals.filter((proposal) => proposal.applied);
 
 		if (applied.length === 0) {
-			return SyncState.LOCAL_ONLY;
+			return heldLocally ? SyncState.LOCAL_ONLY : SyncState.MISSING;
 		}
 
 		for (const state of [SyncState.MISSING, SyncState.OUTDATED, SyncState.CONFLICT]) {

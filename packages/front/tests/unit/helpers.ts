@@ -10,6 +10,7 @@ import piniaExtra from '@/plugins/piniaExtra';
 import validators from '@/plugins/validators';
 import { createAppVuetify } from '@/plugins/vuetify';
 import { routes } from '@/router';
+import { useEventsStore } from '@/stores/events';
 
 import '@/libs/caller/callers';
 
@@ -119,6 +120,80 @@ export function stubFetch (
 		const status = next.status ?? 200;
 		return Promise.resolve(new Response(
 			next.body === undefined || next.body === null ? '' : JSON.stringify(next.body),
+			{ status, headers: { 'Content-Type': 'application/json' } },
+		));
+	});
+	globalThis.fetch = stub as unknown as typeof fetch;
+	return stub;
+}
+
+/**
+ * A WebSocket that never connects to anything.
+ *
+ * The stores reconcile their lists from the event stream, and that behaviour is
+ * only testable if a frame can be pushed on demand. Every suite that emits one
+ * installs this, opens the store's connection, and calls `emitServerEvent`.
+ */
+export class FakeWebSocket {
+	public static instances: FakeWebSocket[] = [];
+
+	public readonly listeners: Record<string, ((event: any) => void)[]> = {};
+
+	constructor (public readonly url: string) {
+		FakeWebSocket.instances.push(this);
+	}
+
+	addEventListener (name: string, handler: (event: any) => void): void {
+		(this.listeners[name] ??= []).push(handler);
+	}
+
+	close (): void {
+		this.emit('close', {});
+	}
+
+	emit (name: string, event: any): void {
+		for (const handler of this.listeners[name] ?? []) {
+			handler(event);
+		}
+	}
+}
+
+/** Installs the fake socket and connects the events store. Returns nothing useful. */
+export function connectFakeSocket (pinia: Pinia): void {
+	FakeWebSocket.instances = [];
+	vi.stubGlobal('WebSocket', FakeWebSocket as unknown as typeof WebSocket);
+	useEventsStore(pinia).connect();
+}
+
+/** Pushes one frame to every open fake socket, as the gateway would. */
+export function emitServerEvent (event: string, payload: unknown): void {
+	for (const socket of FakeWebSocket.instances) {
+		socket.emit('message', { data: JSON.stringify({ event, payload, at: new Date().toISOString() }) });
+	}
+}
+
+/**
+ * A `fetch` that answers by path rather than in order.
+ *
+ * A page fires several calls at once and the order they resolve in is an
+ * implementation detail; keying the answers by path keeps a test about what the
+ * page shows rather than about how many calls it happened to make first. The
+ * longest matching key wins, so `/transfers/stats` can differ from `/transfers`.
+ */
+export function stubFetchRoutes (
+	routeMap: Record<string, { status?: number; body?: unknown }>,
+): ReturnType<typeof vi.fn> {
+	// Longest first, so a specific path is preferred over the prefix it shares
+	// with a broader one. `Object.keys` already hands back a fresh array.
+	// eslint-disable-next-line unicorn/no-array-sort
+	const keys = Object.keys(routeMap).sort((a, b) => b.length - a.length);
+	const stub = vi.fn((input: any) => {
+		const url = String(typeof input === 'string' ? input : input?.url ?? '');
+		const key = keys.find(one => url.includes(one));
+		const answer = key ? routeMap[key] : { status: 404, body: { message: 'error.general' } };
+		const status = answer.status ?? 200;
+		return Promise.resolve(new Response(
+			answer.body === undefined || answer.body === null ? '' : JSON.stringify(answer.body),
 			{ status, headers: { 'Content-Type': 'application/json' } },
 		));
 	});

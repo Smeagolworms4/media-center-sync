@@ -135,6 +135,7 @@
 						v-model="model.provider"
 						v-bind="form.field('provider')"
 						class="login_provider"
+						data-test="login-provider"
 						item-title="label"
 						item-value="key"
 						:items="providers"
@@ -151,6 +152,7 @@
 							v-bind="form.field('username')"
 							autocomplete="username"
 							class="login_username"
+							data-test="login-username"
 							:label="$t('auth.username')"
 							prepend-inner-icon="mdi-account-outline"
 						/>
@@ -161,6 +163,7 @@
 							:append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
 							autocomplete="current-password"
 							class="login_password"
+							data-test="login-password"
 							:label="$t('auth.password')"
 							prepend-inner-icon="mdi-lock-outline"
 							:type="showPassword ? 'text' : 'password'"
@@ -178,6 +181,7 @@
 						block
 						class="login_submit mt-2"
 						color="primary"
+						data-test="login-submit"
 						:loading="form.loading"
 						size="large"
 						type="submit"

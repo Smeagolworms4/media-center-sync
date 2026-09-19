@@ -11,7 +11,7 @@
 </script>
 
 <template>
-	<div class="empty-state text-center py-10">
+	<div class="empty-state text-center py-10" data-test="empty-state">
 		<v-icon class="empty-state_icon mb-3" :icon="icon" size="44" />
 		<p class="text-subtitle-1">{{ title ?? $t('common.empty_title') }}</p>
 		<p class="text-body-2 text-medium-emphasis">{{ text ?? $t('common.empty_text') }}</p>

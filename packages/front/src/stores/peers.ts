@@ -41,7 +41,7 @@ export const usePeersStore = defineStore('peers', () => {
 		if (index === -1) {
 			peers.value = [...peers.value, peer];
 		} else {
-			peers.value.splice(index, 1, peer);
+			peers.value[index] = peer;
 		}
 	}
 
@@ -49,7 +49,10 @@ export const usePeersStore = defineStore('peers', () => {
 		loading.value = true;
 		error.value = null;
 		try {
-			peers.value = await caller('api').get<Peer[]>('/peers', { keepLastKey: 'peers|list' });
+			const loadedList = await caller('api').get<Peer[]>('/peers', { keepLastKey: 'peers|list' });
+			// An empty body parses to `null`, and a gateway that answers nothing must
+			// not leave a page rendering a list that is not one.
+			peers.value = Array.isArray(loadedList) ? loadedList : [];
 			loaded.value = true;
 			return peers.value;
 		} catch (loadError) {

@@ -16,6 +16,7 @@
 						:class="[
 							`components-notify_card--${notify.type}`,
 						]"
+						data-test="notify"
 					>
 						{{ notify.message }}
 					</div>

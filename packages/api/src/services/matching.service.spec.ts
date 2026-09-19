@@ -411,11 +411,18 @@ describe('MatchingService', () => {
 			applied: true,
 		};
 
-		it('says local only when nothing was applied', () => {
-			expect(service.deriveItemState([])).toBe(SyncState.LOCAL_ONLY);
+		it('says local only when nothing was applied and we hold it', () => {
+			expect(service.deriveItemState([], true)).toBe(SyncState.LOCAL_ONLY);
 			expect(
-				service.deriveItemState([{ ...base, state: SyncState.IN_SYNC, applied: false }]),
+				service.deriveItemState([{ ...base, state: SyncState.IN_SYNC, applied: false }], true),
 			).toBe(SyncState.LOCAL_ONLY);
+		});
+
+		it('says missing for the same item on somebody else\'s server', () => {
+			// The same empty list means opposite things on the two sides, and deriving
+			// both from it made every remote item the gateway could fetch look like
+			// something it already held.
+			expect(service.deriveItemState([], false)).toBe(SyncState.MISSING);
 		});
 
 		it('puts something to fetch ahead of something to arbitrate', () => {
@@ -423,7 +430,7 @@ describe('MatchingService', () => {
 				service.deriveItemState([
 					{ ...base, state: SyncState.CONFLICT },
 					{ ...base, state: SyncState.MISSING },
-				]),
+				], true),
 			).toBe(SyncState.MISSING);
 		});
 
@@ -432,12 +439,12 @@ describe('MatchingService', () => {
 				service.deriveItemState([
 					{ ...base, state: SyncState.CONFLICT },
 					{ ...base, state: SyncState.OUTDATED },
-				]),
+				], true),
 			).toBe(SyncState.OUTDATED);
 		});
 
 		it('says in sync when everything agrees', () => {
-			expect(service.deriveItemState([{ ...base, state: SyncState.IN_SYNC }])).toBe(
+			expect(service.deriveItemState([{ ...base, state: SyncState.IN_SYNC }], true)).toBe(
 				SyncState.IN_SYNC,
 			);
 		});

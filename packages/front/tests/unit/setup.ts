@@ -1,5 +1,15 @@
+import { enableAutoUnmount } from '@vue/test-utils';
 import ResizeObserver from 'resize-observer-polyfill';
 import { afterEach, beforeEach, vi } from 'vitest';
+
+/**
+ * Every mounted component is taken down when its test ends.
+ *
+ * A page left mounted keeps its watchers alive, so the next test's `fetch` stub
+ * answers a call the previous page was still waiting on — and the failure lands
+ * in a test that has nothing to do with it.
+ */
+enableAutoUnmount(afterEach);
 
 /**
  * Vuetify measures its own components, and jsdom implements none of the APIs it

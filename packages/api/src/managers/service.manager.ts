@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
 	ErrorKey,
 	EventName,
@@ -19,6 +20,7 @@ import {
 	MediaServiceRepository,
 } from '@/repositories';
 import {
+	FingerprintService,
 	EventGatewayService,
 	HandlerRegistry,
 	QualityService,
@@ -70,6 +72,7 @@ export class ServiceManager {
 		private readonly _services: MediaServiceRepository,
 		private readonly _libraries: LibraryRepository,
 		private readonly _items: MediaItemRepository,
+		private readonly _fingerprints: FingerprintService,
 		private readonly _matches: MediaMatchRepository,
 		private readonly _handlers: HandlerRegistry,
 		private readonly _quality: QualityService,
@@ -303,6 +306,7 @@ export class ServiceManager {
 				await this._libraries.setScanCursor(library.id, refresh.cursor);
 			}
 
+			await this._fingerprint(library);
 			await this._recompute(library);
 			this._progress(service.id, library.id, itemsSeen, true);
 		}
@@ -314,6 +318,79 @@ export class ServiceManager {
 		await this._media.correlateService(service.id);
 
 		this._progress(service.id, null, 0, true);
+	}
+
+	/**
+	 * Derive a content identity for the files the gateway can actually read.
+	 *
+	 * Neither media server publishes one, so without this the only correlation signals
+	 * are identifiers and titles — and two libraries that disagree about both are
+	 * exactly the case content identity exists for. A library with a `localPath` is one
+	 * somebody has told us we can read, which is the whole condition: many households
+	 * run a Plex and a Jellyfin over the same disk, and there the fingerprint is three
+	 * reads away.
+	 *
+	 * Only files that have none are read, so this costs something once and nothing
+	 * afterwards. Every failure is swallowed: an unreadable file is the normal case for
+	 * a library mounted read-only, or half-mounted, or on a NAS that went to sleep, and
+	 * none of that should fail a scan.
+	 */
+	private async _fingerprint(library: LibraryEntity): Promise<void> {
+		if (library.localPath === null || library.localPath === '') {
+			return;
+		}
+
+		const items = await this._items.findFingerprintable(library.id);
+		let done = 0;
+
+		for (const item of items) {
+			const path = this._localPathOf(library, item.file?.path ?? null);
+
+			if (path === null || item.file === null) {
+				continue;
+			}
+
+			try {
+				const { quickHash, size } = await this._fingerprints.fingerprint(path);
+
+				item.file = {
+					...item.file,
+					quickHash,
+					contentId: this._fingerprints.contentId(quickHash, size),
+				};
+
+				await this._items.save(item);
+				done += 1;
+			} catch {
+				continue;
+			}
+		}
+
+		if (done > 0) {
+			this._logger.log(`Fingerprinted ${done} file(s) of library ${library.name}`);
+		}
+	}
+
+	/**
+	 * The path as the gateway sees it, from the path the service reported.
+	 *
+	 * The two differ as soon as the service runs in its own container — Jellyfin says
+	 * `/media/Shows/…`, the gateway sees `/mnt/nas/Shows/…` — and a mapping that
+	 * guesses would read somebody else's file or none at all. Only a reported root the
+	 * library actually declares is rewritten; anything else yields null and is skipped.
+	 */
+	private _localPathOf(library: LibraryEntity, reported: string | null): string | null {
+		if (reported === null || library.localPath === null) {
+			return null;
+		}
+
+		for (const root of library.paths) {
+			if (reported === root || reported.startsWith(`${root}/`)) {
+				return join(library.localPath, reported.slice(root.length));
+			}
+		}
+
+		return null;
 	}
 
 	/**

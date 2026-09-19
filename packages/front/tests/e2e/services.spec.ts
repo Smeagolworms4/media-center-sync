@@ -25,7 +25,7 @@ test.describe('media services', () => {
 		await page.locator(test0('service-probe')).click();
 
 		const error = page.locator(test0('form-main-error'));
-		await expect(error).toBeVisible({ timeout: 20000 });
+		await expect(error).toBeVisible({ timeout: 20_000 });
 		// The API answers a key; if the catalogue is missing it, the raw key shows.
 		await expect(error).not.toContainText('error.service');
 	});

@@ -174,4 +174,23 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			? this.find({ where: { libraryId } })
 			: this.find({ where: { libraryId, externalId: Not(In(seenExternalIds)) } });
 	}
+
+	/**
+	 * Items of one library that hold a file with no content identity yet.
+	 *
+	 * The filter cannot be pushed into SQL: the file lives in a `simple-json` column
+	 * that neither engine can look inside, and adding a column for it would mean a
+	 * migration and a second place for the same truth to be wrong. A library is
+	 * thousands of rows, not millions, and this runs once per file in its lifetime.
+	 */
+	public async findFingerprintable(libraryId: string): Promise<MediaItem[]> {
+		const items = await this.find({ where: { libraryId } });
+
+		return items.filter(
+			(item) =>
+				item.file !== null &&
+				item.file.path !== '' &&
+				(item.file.quickHash === null || item.file.quickHash === ''),
+		);
+	}
 }

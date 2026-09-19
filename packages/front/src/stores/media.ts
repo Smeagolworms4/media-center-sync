@@ -23,7 +23,7 @@ const EMPTY_PAGINATION: Pagination = { page: 1, limit: 50, total: 0, pages: 0 };
 export function buildMediaQuery (query: MediaSearchQuery): string {
 	const params = new URLSearchParams();
 	for (const [key, value] of Object.entries(query)) {
-		if (value === null || value === undefined || value === '') {
+		if (value === null || value === undefined) {
 			continue;
 		}
 		if (Array.isArray(value)) {
@@ -32,7 +32,11 @@ export function buildMediaQuery (query: MediaSearchQuery): string {
 			}
 			continue;
 		}
-		params.set(key, String(value));
+		const text = String(value);
+		if (text.length === 0) {
+			continue;
+		}
+		params.set(key, text);
 	}
 	const serialized = params.toString();
 	return serialized ? `?${serialized}` : '';
@@ -74,8 +78,8 @@ export const useMediaStore = defineStore('media', () => {
 				// the answer to the last one is worth rendering.
 				{ keepLastKey: 'media|search' },
 			);
-			items.value = result.items;
-			pagination.value = result.pagination ?? { ...EMPTY_PAGINATION };
+			items.value = result?.items ?? [];
+			pagination.value = result?.pagination ?? { ...EMPTY_PAGINATION };
 			loaded.value = true;
 			return result;
 		} catch (searchError) {
@@ -130,19 +134,19 @@ export const useMediaStore = defineStore('media', () => {
 	 */
 	events.on(EventName.TRANSFER_STATE, transfer => {
 		switch (transfer.state) {
-		case TransferState.DONE: {
-			patchState(transfer.itemId, SyncState.IN_SYNC);
-			break;
-		}
-		case TransferState.DOWNLOADING:
-		case TransferState.CONNECTING:
-		case TransferState.QUEUED: {
-			patchState(transfer.itemId, SyncState.SYNCING);
-			break;
-		}
-		default: {
-			break;
-		}
+			case TransferState.DONE: {
+				patchState(transfer.itemId, SyncState.IN_SYNC);
+				break;
+			}
+			case TransferState.DOWNLOADING:
+			case TransferState.CONNECTING:
+			case TransferState.QUEUED: {
+				patchState(transfer.itemId, SyncState.SYNCING);
+				break;
+			}
+			default: {
+				break;
+			}
 		}
 	});
 

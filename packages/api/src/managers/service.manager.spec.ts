@@ -15,7 +15,12 @@ import type {
 	MediaMatchRepository,
 	MediaServiceRepository,
 } from '@/repositories';
-import type { EventGatewayService, HandlerRegistry, QualityService } from '@/services';
+import type {
+	EventGatewayService,
+	FingerprintService,
+	HandlerRegistry,
+	QualityService,
+} from '@/services';
 import type { MediaManager } from './media.manager';
 import { ServiceManager } from './service.manager';
 
@@ -111,7 +116,13 @@ const build = (): { manager: ServiceManager; fakes: Fakes } => {
 	const manager = new ServiceManager(
 		fakes.services as unknown as MediaServiceRepository,
 		fakes.libraries as unknown as LibraryRepository,
-		{ countByService: jest.fn().mockResolvedValue(12) } as unknown as MediaItemRepository,
+		{
+			countByService: jest.fn().mockResolvedValue(12),
+			findFingerprintable: jest.fn().mockResolvedValue([]),
+		} as unknown as MediaItemRepository,
+		// Fingerprinting only runs for a library with a local path, and none of these
+		// tests declares one.
+		{} as unknown as FingerprintService,
 		fakes.matches as unknown as MediaMatchRepository,
 		{
 			find: jest.fn(() => ({ probe: fakes.probe })),

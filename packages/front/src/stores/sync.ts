@@ -56,7 +56,7 @@ export const useSyncStore = defineStore('sync', () => {
 		if (index === -1) {
 			plans.value = [...plans.value, plan];
 		} else {
-			plans.value.splice(index, 1, plan);
+			plans.value[index] = plan;
 		}
 	}
 
@@ -64,9 +64,12 @@ export const useSyncStore = defineStore('sync', () => {
 		loadingPlans.value = true;
 		error.value = null;
 		try {
-			plans.value = await caller('api').get<SyncPlan[]>('/sync/plans', {
+			const loadedList = await caller('api').get<SyncPlan[]>('/sync/plans', {
 				keepLastKey: 'sync|plans',
 			});
+			// An empty body parses to `null`, and a gateway that answers nothing must
+			// not leave a page rendering a list that is not one.
+			plans.value = Array.isArray(loadedList) ? loadedList : [];
 			plansLoaded.value = true;
 			return plans.value;
 		} catch (loadError) {
@@ -119,7 +122,7 @@ export const useSyncStore = defineStore('sync', () => {
 		if (index === -1) {
 			jobs.value = [job, ...jobs.value];
 		} else {
-			jobs.value.splice(index, 1, job);
+			jobs.value[index] = job;
 		}
 	}
 
@@ -141,8 +144,8 @@ export const useSyncStore = defineStore('sync', () => {
 				`/sync/jobs${serialized ? `?${serialized}` : ''}`,
 				{ keepLastKey: 'sync|jobs' },
 			);
-			jobs.value = result.items;
-			jobsPagination.value = result.pagination ?? { ...EMPTY_PAGINATION };
+			jobs.value = result?.items ?? [];
+			jobsPagination.value = result?.pagination ?? { ...EMPTY_PAGINATION };
 			jobsLoaded.value = true;
 			return result;
 		} finally {

@@ -68,7 +68,7 @@
 </script>
 
 <template>
-	<div class="transfer-progress" :data-state="progress.state">
+	<div class="transfer-progress" :data-state="progress.state" data-test="transfer-progress">
 		<v-progress-linear
 			class="transfer-progress_bar"
 			:color="color"

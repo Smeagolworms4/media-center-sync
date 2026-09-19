@@ -40,15 +40,20 @@ export const useServicesStore = defineStore('services', () => {
 	});
 
 	/** Lowest priority first, which is the order a sync consults them in. */
-	const byPriority = computed(
-		() => [...services.value].sort((a, b) => a.priority - b.priority));
+	const byPriority = computed(() => {
+		// `toSorted` would be cleaner, but it is not in the library version this
+		// build targets; the copy is what keeps `sort` from reordering the array
+		// under everything that renders it.
+		// eslint-disable-next-line unicorn/no-array-sort
+		return [...services.value].sort((a, b) => a.priority - b.priority);
+	});
 
 	function replace (service: MediaService): void {
 		const index = services.value.findIndex(one => one.id === service.id);
 		if (index === -1) {
 			services.value = [...services.value, service];
 		} else {
-			services.value.splice(index, 1, service);
+			services.value[index] = service;
 		}
 	}
 
@@ -56,9 +61,12 @@ export const useServicesStore = defineStore('services', () => {
 		loading.value = true;
 		error.value = null;
 		try {
-			services.value = await caller('api').get<MediaService[]>('/services', {
+			const loadedList = await caller('api').get<MediaService[]>('/services', {
 				keepLastKey: 'services|list',
 			});
+			// An empty body parses to `null`, and a gateway that answers nothing must
+			// not leave a page rendering a list that is not one.
+			services.value = Array.isArray(loadedList) ? loadedList : [];
 			loaded.value = true;
 			return services.value;
 		} catch (loadError) {

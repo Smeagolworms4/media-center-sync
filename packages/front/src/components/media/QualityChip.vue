@@ -39,6 +39,7 @@
 				class="quality-chip"
 				:color="mixed ? 'state-outdated' : 'state-unknown'"
 				:data-mixed="mixed"
+				data-test="quality-chip"
 				label
 				:size="size"
 				variant="tonal"
@@ -77,6 +78,7 @@
 		v-else
 		class="quality-chip quality-chip--unknown"
 		color="state-unknown"
+		data-test="quality-chip"
 		label
 		:size="size"
 		variant="tonal"

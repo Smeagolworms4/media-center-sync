@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import Login from '@/pages/Login.vue';
 import { useTokenStore } from '@/stores/token';
-import { mountWithApp, stubFetch } from './helpers';
+import { mountWithApp, stubFetch, stubFetchRoutes } from './helpers';
 
 const internal = {
 	key: 'internal',
@@ -131,7 +131,23 @@ describe('pages/Login', () => {
 	});
 
 	it('signs in and keeps the session', async () => {
-		const stub = stubFetch([{ body: [internal] }, { body: tokenPair }]);
+		// Route-keyed rather than ordered: signing in lands on the dashboard, which
+		// loads its own data, and those calls must not fall off the end of a queue.
+		const stub = stubFetchRoutes({
+			'/api/auth/providers': { body: [internal] },
+			'/api/auth/login': { body: tokenPair },
+			'/api/services': { body: [] },
+			'/api/libraries/check': { body: [] },
+			'/api/libraries': { body: [] },
+			'/api/peers': { body: [] },
+			'/api/transfers/stats': {
+				body: { active: 0, queued: 0, paused: 0, failed: 0, rate: 0, bytesRemaining: 0 },
+			},
+			'/api/transfers': { body: { items: [], pagination: null } },
+			'/api/sync/jobs': { body: { items: [], pagination: null } },
+			'/api/media': { body: { items: [], pagination: null } },
+			'/api/settings': { body: {} },
+		});
 		const { wrapper, pinia, router } = mountWithApp(Login);
 		await flush();
 
@@ -139,6 +155,10 @@ describe('pages/Login', () => {
 		await wrapper.find('.login_password input').setValue('secret');
 		await wrapper.find('form').trigger('submit');
 		await flush(8);
+		// The dashboard is a lazy chunk, so the navigation lands some imports later.
+		for (let attempt = 0; attempt < 200 && router.currentRoute.value.name !== 'dashboard'; attempt += 1) {
+			await flush(1);
+		}
 
 		expect(stub.mock.calls[1][0]).toBe('/api/auth/login');
 		expect(JSON.parse((stub.mock.calls[1][1] as RequestInit).body as string)).toEqual({

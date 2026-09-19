@@ -18,7 +18,7 @@
 			<v-icon v-if="icon" class="page-header_icon" :icon="icon" size="28" />
 
 			<div class="page-header_text">
-				<h1 class="page-header_title text-h5">{{ title }}</h1>
+				<h1 class="page-header_title text-h5" data-test="page-title">{{ title }}</h1>
 
 				<p v-if="subtitle" class="page-header_subtitle text-body-2 text-medium-emphasis">
 					{{ subtitle }}

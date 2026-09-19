@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import {
 	ErrorKey,
+	MediaServiceScope,
 	MatchStrategy,
 	SyncState,
 	type MediaFileInfo,
@@ -33,6 +34,16 @@ import {
 	toMediaMatch,
 	toMediaNode,
 } from './mappers';
+
+/** Everything a correlation pass needs, read once rather than per item. */
+interface CorrelationContext {
+	threshold: number;
+	peers: Map<string, string | null>;
+	/** Services whose libraries the gateway can write into. */
+	local: Set<string>;
+	everything: MediaItemEntity[];
+	byContent: Map<string, MediaItemEntity[]>;
+}
 
 /** Artwork, once fetched: bytes rather than a stream, because it is cached. */
 export interface Artwork {
@@ -93,47 +104,98 @@ export class MediaManager {
 		const threshold = await this._settings.getValue('matchThreshold');
 		const services = await this._services.find();
 		const peers = new Map(services.map((service) => [service.id, service.peerId]));
+		const local = new Set(
+			services
+				.filter((service) => service.scope === MediaServiceScope.LOCAL)
+				.map((service) => service.id),
+		);
 		const everything = await this._items.find();
 		const byContent = this._indexByContent(everything);
+		const context = { threshold, peers, local, everything, byContent };
+
 		const mine = everything.filter((item) => item.serviceId === serviceId);
+		const touched = new Set<string>();
 		let written = 0;
 
 		for (const item of mine) {
-			const byTitle = await this._items.findCandidatesForMatch(
-				item.normalizedTitle,
-				item.seasonNumber,
-				item.episodeNumber,
-				serviceId,
+			written += await this._correlateItem(item, context, touched);
+		}
+
+		/*
+		 * The other side of every pair, refreshed in the same pass.
+		 *
+		 * A match is symmetric and a state is not: scanning one service tells us
+		 * something about items on the others, and leaving those alone means the
+		 * answer depends on the order the services happened to be scanned in. Measured
+		 * against the lab: both servers scanned seconds apart, and the first one
+		 * correlated against an index the second had not filled yet — so every one of
+		 * its episodes stayed `local_only` while the second one knew about all of
+		 * them.
+		 *
+		 * Their counterparts are not re-collected: one extra pass settles the pairs
+		 * this scan created, and going further would be a walk of the whole index
+		 * dressed up as an incremental update.
+		 */
+		const counterparts = everything.filter(
+			(item) => item.serviceId !== serviceId && touched.has(item.id),
+		);
+
+		for (const item of counterparts) {
+			await this._correlateItem(item, context, null);
+		}
+
+		return written;
+	}
+
+	/**
+	 * One item against everything else the gateway knows about.
+	 *
+	 * `touched` collects the far side of each proposal so the caller can settle those
+	 * items too; passing null means this call is that settling pass and must not grow
+	 * the set.
+	 */
+	private async _correlateItem(
+		item: MediaItemEntity,
+		context: CorrelationContext,
+		touched: Set<string> | null,
+	): Promise<number> {
+		const byTitle = await this._items.findCandidatesForMatch(
+			item.normalizedTitle,
+			item.seasonNumber,
+			item.episodeNumber,
+			item.serviceId,
+		);
+
+		const candidates = new Map<string, MediaItemEntity>();
+
+		for (const candidate of [...byTitle, ...this._sameContentAs(item, context.byContent)]) {
+			if (candidate.id !== item.id && candidate.serviceId !== item.serviceId) {
+				candidates.set(candidate.id, candidate);
+			}
+		}
+
+		const proposals = this._matching
+			.correlate(
+				this._candidate(item, context.peers),
+				[...candidates.values()].map((candidate) => this._candidate(candidate, context.peers)),
+				{ threshold: context.threshold },
+			)
+			.map((proposal) =>
+				this._overruleMislabelled(item, candidates.get(proposal.remoteItemId), proposal),
 			);
 
-			const candidates = new Map<string, MediaItemEntity>();
+		let written = 0;
 
-			for (const candidate of [...byTitle, ...this._sameContentAs(item, byContent)]) {
-				if (candidate.id !== item.id && candidate.serviceId !== serviceId) {
-					candidates.set(candidate.id, candidate);
-				}
-			}
+		for (const proposal of proposals) {
+			await this._matches.upsertPair(proposal);
+			touched?.add(proposal.remoteItemId);
+			written += 1;
+		}
 
-			const proposals = this._matching
-				.correlate(
-					this._candidate(item, peers),
-					[...candidates.values()].map((candidate) => this._candidate(candidate, peers)),
-					{ threshold },
-				)
-				.map((proposal) =>
-					this._overruleMislabelled(item, candidates.get(proposal.remoteItemId), proposal),
-				);
+		const state = this._matching.deriveItemState(proposals, context.local.has(item.serviceId));
 
-			for (const proposal of proposals) {
-				await this._matches.upsertPair(proposal);
-				written += 1;
-			}
-
-			const state = this._matching.deriveItemState(proposals);
-
-			if (state !== item.syncState) {
-				await this._items.setSyncState([item.id], state);
-			}
+		if (state !== item.syncState) {
+			await this._items.setSyncState([item.id], state);
 		}
 
 		return written;

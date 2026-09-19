@@ -1,0 +1,316 @@
+<script lang="ts" setup>
+	import type { CreateMediaServiceRequest, MediaService, MediaServiceProbe } from '@mcs/shared';
+	import { MediaServiceScope, MediaServiceType } from '@mcs/shared';
+	import { computed, reactive, ref, watch } from 'vue';
+	import { useI18n } from 'vue-i18n';
+	import FormMainError from '@/components/FormMainError.vue';
+	import { useForm } from '@/composables/useForm';
+	import { useValidators } from '@/plugins/validators';
+	import { useServicesStore } from '@/stores/services';
+
+	/**
+	 * Registering or editing a media service.
+	 *
+	 * The connection is probed before anything is written, and the probe's answer —
+	 * server name, version, the libraries it found — is shown as it comes back, so
+	 * somebody learns their token is wrong while they are still typing it rather
+	 * than a week later when their library is still empty and nothing said why.
+	 */
+	const props = withDefaults(defineProps<{
+		service?: MediaService | null;
+	}>(), {
+		service: null,
+	});
+
+	const emit = defineEmits<{
+		saved: [service: MediaService];
+		cancel: [];
+	}>();
+
+	const { t } = useI18n();
+	const servicesStore = useServicesStore();
+	const validators = useValidators();
+
+	const editing = computed(() => props.service !== null);
+	const showToken = ref(false);
+	const probing = ref(false);
+	const probe = ref<MediaServiceProbe | null>(null);
+
+	const model = reactive<CreateMediaServiceRequest>({
+		name: props.service?.name ?? '',
+		type: props.service?.type ?? MediaServiceType.JELLYFIN,
+		scope: props.service?.scope ?? MediaServiceScope.LOCAL,
+		baseUrl: props.service?.baseUrl ?? '',
+		token: '',
+		authProvider: props.service?.authProvider ?? false,
+		priority: props.service?.priority ?? 10,
+	});
+
+	const typeItems = Object.values(MediaServiceType).map(value => ({ value, title: value }));
+	const scopeItems = computed(() => Object.values(MediaServiceScope).map(value => ({
+		value,
+		title: t(`service.scope.${value}`),
+	})));
+
+	/** A probe answer stops describing what is in the form as soon as it changes. */
+	watch(() => [model.baseUrl, model.token, model.type], () => {
+		probe.value = null;
+	});
+
+	function request (): CreateMediaServiceRequest {
+		return {
+			name: model.name,
+			type: model.type,
+			scope: model.scope,
+			baseUrl: model.baseUrl,
+			// Secrets are write-only: an edit that leaves the field empty keeps the
+			// token already registered rather than clearing it.
+			...(model.token ? { token: model.token } : {}),
+			authProvider: model.authProvider,
+			priority: model.priority,
+		};
+	}
+
+	/**
+	 * An edit with no new token cannot use `/services/probe`: that route takes the
+	 * credentials in the body, and the registered token is never given back to us.
+	 * The service's own probe route is the one that can use what is stored.
+	 */
+	async function runProbe (): Promise<MediaServiceProbe> {
+		probing.value = true;
+		try {
+			const result = editing.value && !model.token
+				? await servicesStore.probeService(props.service!.id)
+				: await servicesStore.probe(request());
+			probe.value = result;
+			return result;
+		} finally {
+			probing.value = false;
+		}
+	}
+
+	/**
+	 * Testing the connection and registering the service are the same action up to
+	 * its last step, so they are one handler: both validate the fields, both probe,
+	 * and both report a refusal the same way — through the form's main error rather
+	 * than through a second kind of message nobody would recognise.
+	 */
+	const mode = ref<'probe' | 'save'>('save');
+
+	const form = useForm({
+		fallbackError: 'error.service.unreachable',
+		fields: {
+			name: { rules: [validators.required(), validators.maxlength({ max: 120 })] },
+			type: { rules: [validators.required()] },
+			scope: { rules: [validators.required()] },
+			baseUrl: { rules: [validators.required(), validators.urlWithPort()] },
+			token: { rules: [] },
+			priority: { rules: [validators.onlyInteger(), validators.range({ min: 0, max: 999 })] },
+		},
+		handle: async () => {
+			// Saving a service that cannot be reached registers a row that will never
+			// do anything; the probe runs first and its answer decides. A save that
+			// follows a probe of the same values reuses its answer.
+			const result = mode.value === 'probe' || probe.value === null
+				? await runProbe()
+				: probe.value;
+
+			if (!result.reachable || !result.authenticated) {
+				// A probe that failed answers a shape rather than throwing. Handing the
+				// form the same payload the API would have sent keeps one path for
+				// turning an error key into a sentence — and a service that answered
+				// and refused us is a different sentence from one that never answered.
+				const refusal = result.reachable
+					? 'error.service.unauthorized'
+					: 'error.service.unreachable';
+				throw Response.json({ message: result.error ?? refusal }, { status: 400 });
+			}
+
+			if (mode.value === 'probe') {
+				// The answer is on screen; nothing is written until somebody saves.
+				return;
+			}
+
+			const saved = editing.value
+				? await servicesStore.update(props.service!.id, request())
+				: await servicesStore.create(request());
+			emit('saved', saved);
+		},
+	});
+
+	async function onProbeClick (): Promise<void> {
+		// Set for the length of this run only: the directive that owns the submit
+		// event listens in the capture phase, so a mode set from a submit handler
+		// would arrive after the handler that reads it.
+		mode.value = 'probe';
+		try {
+			await form.handle();
+		} finally {
+			mode.value = 'save';
+		}
+	}
+</script>
+
+<template>
+	<v-form v-form="form" class="service-form">
+		<v-text-field
+			v-model="model.name"
+			v-bind="form.field('name')"
+			class="service-form_name"
+			data-test="service-name"
+			:label="$t('service.field.name')"
+		/>
+
+		<v-row density="compact">
+			<v-col cols="12" sm="6">
+				<v-select
+					v-model="model.type"
+					v-bind="form.field('type')"
+					data-test="service-type"
+					item-title="title"
+					item-value="value"
+					:items="typeItems"
+					:label="$t('service.field.type')"
+				/>
+			</v-col>
+
+			<v-col cols="12" sm="6">
+				<v-select
+					v-model="model.scope"
+					v-bind="form.field('scope')"
+					data-test="service-scope"
+					item-title="title"
+					item-value="value"
+					:items="scopeItems"
+					:label="$t('service.field.scope')"
+				/>
+			</v-col>
+		</v-row>
+
+		<v-text-field
+			v-model="model.baseUrl"
+			v-bind="form.field('baseUrl')"
+			data-test="service-url"
+			:hint="$t('service.field.base_url_hint')"
+			:label="$t('service.field.base_url')"
+			persistent-hint
+		/>
+
+		<v-text-field
+			v-model="model.token"
+			v-bind="form.field('token')"
+			:append-inner-icon="showToken ? 'mdi-eye-off' : 'mdi-eye'"
+			autocomplete="off"
+			class="mt-4"
+			data-test="service-token"
+			:hint="editing ? $t('service.field.token_hint_edit') : $t('service.field.token_hint')"
+			:label="$t('service.field.token')"
+			persistent-hint
+			:type="showToken ? 'text' : 'password'"
+			@click:append-inner="showToken = !showToken"
+		/>
+
+		<v-row class="mt-2" density="compact">
+			<v-col cols="12" sm="6">
+				<v-text-field
+					v-model.number="model.priority"
+					v-bind="form.field('priority')"
+					:hint="$t('service.field.priority_hint')"
+					:label="$t('service.field.priority')"
+					persistent-hint
+					type="number"
+				/>
+			</v-col>
+
+			<v-col cols="12" sm="6">
+				<v-switch
+					v-model="model.authProvider"
+					color="primary"
+					hide-details
+					:label="$t('service.field.auth_provider')"
+				/>
+
+				<p class="text-caption text-medium-emphasis">
+					{{ $t('service.field.auth_provider_hint') }}
+				</p>
+			</v-col>
+		</v-row>
+
+		<v-alert
+			v-if="probe"
+			class="service-form_probe mt-2"
+			data-test="service-probe-result"
+			density="comfortable"
+			:type="probe.reachable && probe.authenticated ? 'success' : 'error'"
+			variant="tonal"
+		>
+			<template v-if="probe.reachable && probe.authenticated">
+				<p class="mb-1">
+					{{ $t('service.probe.ok', {
+						name: probe.serverName ?? $t('common.unknown'),
+						version: probe.version ?? $t('common.unknown'),
+					}) }}
+				</p>
+
+				<p class="mb-1">
+					{{ $t('service.probe.libraries', { count: probe.libraries.length }, probe.libraries.length) }}
+				</p>
+
+				<ul class="service-form_libraries">
+					<li v-for="library of probe.libraries" :key="library.externalId">
+						{{ library.name }} — {{ $t(`library.kind.${library.kind}`) }}
+						<span v-if="library.paths.length > 0" class="text-medium-emphasis">
+							({{ library.paths.join(', ') }})
+						</span>
+					</li>
+				</ul>
+			</template>
+
+			<template v-else>
+				{{ probe.reachable ? $t('service.probe.unauthorized') : $t('service.probe.unreachable') }}
+			</template>
+		</v-alert>
+
+		<FormMainError :form="form" />
+
+		<div class="service-form_actions mt-4">
+			<v-btn
+				data-test="service-probe"
+				:loading="probing || form.loading"
+				variant="tonal"
+				@click="onProbeClick"
+			>
+				{{ $t('service.probe.action') }}
+			</v-btn>
+
+			<v-spacer />
+
+			<v-btn variant="text" @click="emit('cancel')">{{ $t('actions.cancel') }}</v-btn>
+
+			<v-btn
+				color="primary"
+				data-test="service-save"
+				:loading="form.loading"
+				type="submit"
+			>
+				{{ $t('actions.save') }}
+			</v-btn>
+		</div>
+	</v-form>
+</template>
+
+<style lang="scss">
+	.service-form {
+		&_actions {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+
+		&_libraries {
+			margin: 0;
+			padding-left: 18px;
+			font-size: 13px;
+		}
+	}
+</style>
