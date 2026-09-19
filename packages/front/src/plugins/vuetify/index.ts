@@ -12,9 +12,9 @@ import { SyncState } from '@mcs/shared';
  * The plugin rewrites this specifier to `src/styles/settings.scss`, which is where the
  * framework variables are overridden.
  */
-import 'vuetify/styles';
 import { createVuetify, type ThemeDefinition } from 'vuetify';
 import { aliases, mdi } from 'vuetify/iconsets/mdi';
+import 'vuetify/styles';
 
 export const THEMES = ['dark', 'light'] as const;
 export type ThemeName = (typeof THEMES)[number];

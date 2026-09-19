@@ -71,22 +71,38 @@ describe('pages/Login', () => {
 		expect(wrapper.find('.login_form').exists()).toBe(true);
 	});
 
-	it('hides the provider picker when there is only one way in', async () => {
+	it('shows the way in even when there is only one', async () => {
 		stubFetch([{ body: [internal] }]);
 		const { wrapper } = mountWithApp(Login);
 		await flush();
 
-		expect(wrapper.find('.login_provider').exists()).toBe(false);
+		// Hiding it left somebody looking at a bare username field with no way to tell
+		// what it wanted: this gateway's own account, their Jellyfin, or their Plex.
+		expect(wrapper.find('.login_providers').exists()).toBe(true);
+		expect(wrapper.find('[data-test="login-provider-internal"]').exists()).toBe(true);
 		expect(wrapper.find('.login_username').exists()).toBe(true);
 		expect(wrapper.find('.login_password').exists()).toBe(true);
 	});
 
-	it('offers the picker as soon as there are several', async () => {
+	it('offers every way in when there are several', async () => {
 		stubFetch([{ body: [internal, jellyfin] }]);
 		const { wrapper } = mountWithApp(Login);
 		await flush();
 
-		expect(wrapper.find('.login_provider').exists()).toBe(true);
+		expect(wrapper.find(`[data-test="login-provider-${internal.key}"]`).exists()).toBe(true);
+		expect(wrapper.find(`[data-test="login-provider-${jellyfin.key}"]`).exists()).toBe(true);
+	});
+
+	it('says what the selected way in will actually do', async () => {
+		stubFetch([{ body: [internal] }]);
+		const { wrapper } = mountWithApp(Login);
+		await flush();
+
+		// The generic subtitle describes a gateway with media services registered,
+		// which is exactly the state this one is not in yet. Somebody reading it looks
+		// for credentials they were never given and concludes the page is broken.
+		expect(wrapper.text()).toContain('gateway');
+		expect(wrapper.text()).not.toContain('one of your media services');
 	});
 
 	it('explains itself instead of dying when the gateway offers nothing', async () => {
@@ -156,8 +172,14 @@ describe('pages/Login', () => {
 		await wrapper.find('form').trigger('submit');
 		await flush(8);
 		// The dashboard is a lazy chunk, so the navigation lands some imports later.
-		for (let attempt = 0; attempt < 200 && router.currentRoute.value.name !== 'dashboard'; attempt += 1) {
+		//
+		// Yielding to the macrotask queue as well as flushing microtasks is what makes
+		// this reliable: a dynamic import resolves on a task, not a microtask, so a
+		// loop that only drains promises spins without ever letting the module land —
+		// and fails on a count that looks like an arbitrary patience setting.
+		for (let attempt = 0; attempt < 300 && router.currentRoute.value.name !== 'dashboard'; attempt += 1) {
 			await flush(1);
+			await new Promise(resolve => setTimeout(resolve, 0));
 		}
 
 		expect(stub.mock.calls[1][0]).toBe('/api/auth/login');
