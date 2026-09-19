@@ -62,3 +62,27 @@ export interface TokenPair {
 export interface SessionUser extends User {
 	rights: Right[];
 }
+
+/**
+ * Whether this gateway still needs its first administrator.
+ *
+ * A fresh install has no account at all, and the two wrong answers are both common.
+ * Creating `admin` / `admin` puts a default password on something reachable from the
+ * network. Printing a generated one in the logs is better and still assumes somebody
+ * reads logs — which whoever just ran `docker compose up` in a web UI did not.
+ *
+ * So the gateway says it needs setting up, and the interface asks. The route that
+ * creates that first account is open, and is the only one: it refuses the moment an
+ * account exists, which is what stops it being a way in later.
+ */
+export interface SetupState {
+	required: boolean;
+	/** Version, so a setup screen can say what it is about to configure. */
+	version: string;
+}
+
+export interface SetupRequest {
+	username: string;
+	password: string;
+	displayName?: string;
+}

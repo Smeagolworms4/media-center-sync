@@ -47,8 +47,16 @@ volumes:
 docker compose up -d
 ```
 
-Open **http://localhost:4200** and sign in with **`admin` / `admin`**. Change that
-password, register your first media service, and the gateway starts indexing.
+Open **http://localhost:4200**. A fresh gateway has no account, so it asks you to
+create the first administrator — there is deliberately no default password on
+something reachable from your network. Then register your first media service and the
+gateway starts indexing.
+
+For an unattended install, set `MCS_ADMIN_USER` and `MCS_ADMIN_PASSWORD` in the
+compose file and the account is created on the first start instead.
+
+The schema is brought up to date every time the container starts, including the first,
+so there is nothing to run by hand before or after an image update.
 
 > **The `/media` mount is the one thing that has to be right.**
 >
@@ -76,7 +84,8 @@ everyone using it.
 | `REDIS_HOST` `REDIS_PORT` | *(empty)* | Empty means an in-process cache. Only worth setting with several gateways. |
 | `MCS_TRANSFER_ROOT` | `/data/transfer` | Where pieces accumulate before a file is placed. |
 | `MCS_CORS_ORIGINS` | *(empty)* | Comma-separated. Not needed when the interface is served by the API. |
-| `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | `admin` / `admin` | The first account, created on the first start. |
+| `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | *(none)* | An unattended first account. Unset, the interface asks for one. |
+| `DB_MIGRATE_ON_START` | `true` | Bring the schema up to date at startup. Turn it off where a deployment applies migrations itself. |
 
 SQLite and an in-process cache are the defaults on purpose: this is a gateway somebody
 self-hosts next to their media server, not a multi-tenant service. Neither a PostgreSQL

@@ -82,7 +82,20 @@ export const dataSourceOptions = (): DataSourceOptions => {
 		entities: ENTITIES,
 		migrations: MIGRATIONS,
 		synchronize: false,
-		migrationsRun: false,
+		/*
+		 * Migrations run at startup, and for this product that is the right call.
+		 *
+		 * The alternative is telling somebody who just pulled a container to exec into
+		 * it and run a command before it will serve anything — which nobody does, and
+		 * which does not survive the first image update either. Measured before this
+		 * line existed: a fresh container started, reported itself unhealthy, and died
+		 * on `no such table: settings`. The documented quick start did not work.
+		 *
+		 * `synchronize` stays off, and that distinction is the whole point: the schema
+		 * only ever changes through a migration somebody wrote and can read, never by
+		 * TypeORM inferring one from the entities at boot.
+		 */
+		migrationsRun: config.database.migrateOnStart,
 		logging: config.env === 'development' ? (['error', 'warn'] as const) : (['error'] as const),
 	};
 

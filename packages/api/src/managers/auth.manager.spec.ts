@@ -116,6 +116,7 @@ const build = (): { manager: AuthManager; fakes: Fakes } => {
 				refreshTtl: '30d',
 				bcryptRounds: ROUNDS,
 			}),
+			get: () => 'test-version',
 		} as unknown as ConfigService,
 	);
 

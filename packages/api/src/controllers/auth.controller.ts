@@ -1,4 +1,4 @@
-import type { AuthProvider, SessionUser, TokenPair } from '@mcs/shared';
+import type { AuthProvider, SessionUser, SetupState, TokenPair } from '@mcs/shared';
 import {
 	Body,
 	Controller,
@@ -13,6 +13,7 @@ import {
 import {
 	ApiBearerAuth,
 	ApiNoContentResponse,
+	ApiCreatedResponse,
 	ApiOkResponse,
 	ApiOperation,
 	ApiTags,
@@ -22,7 +23,7 @@ import type { Request } from 'express';
 import { ErrorKey } from '@mcs/shared';
 import { CurrentUser, Public } from '@/decorators';
 import { AuthManager } from '@/managers';
-import { ChangePasswordDto, LoginDto, RefreshDto } from '@/models';
+import { ChangePasswordDto, LoginDto, RefreshDto, SetupDto } from '@/models';
 import { SessionGuard } from '@/security';
 
 /**
@@ -63,6 +64,37 @@ export class AuthController {
 	@ApiOkResponse({ description: 'AuthProvider[]' })
 	public providers(): Promise<AuthProvider[]> {
 		return this._auth.providers();
+	}
+
+	@Get('setup')
+	@Public()
+	@ApiOperation({
+		summary: 'Whether this gateway still needs its first administrator',
+		description:
+			'A fresh install has no account at all. Rather than shipping a default password on ' +
+			'something reachable from the network, the gateway says so and the interface asks.',
+	})
+	@ApiOkResponse({ description: 'SetupState' })
+	public setupState(): Promise<SetupState> {
+		return this._auth.setupState();
+	}
+
+	@Post('setup')
+	@Public()
+	@HttpCode(HttpStatus.CREATED)
+	@ApiOperation({
+		summary: 'Create the first administrator',
+		description:
+			'Open, and refused the moment any account exists — which is the only thing that makes ' +
+			'it safe. Answers a session, because telling somebody to go and log in with the ' +
+			'credentials they just typed is a step for nobody.',
+	})
+	@ApiCreatedResponse({ description: 'TokenPair' })
+	public setup(@Body() body: SetupDto, @Req() request: Request): Promise<TokenPair> {
+		return this._auth.setup(body, {
+			userAgent: request.headers['user-agent'] ?? null,
+			address: request.ip ?? null,
+		});
 	}
 
 	@Post('login')

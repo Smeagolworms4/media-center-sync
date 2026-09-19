@@ -22,12 +22,24 @@ Conventions:
 
 | Method | Path | Body | Answers | Right |
 |---|---|---|---|---|
+| GET | `/auth/setup` | — | `SetupState` | *public* |
+| POST | `/auth/setup` | `SetupDto` | `TokenPair` | *public* |
 | GET | `/auth/providers` | — | `AuthProvider[]` | *public* |
 | POST | `/auth/login` | `LoginDto` | `TokenPair` | *public* |
 | POST | `/auth/refresh` | `RefreshDto` | `TokenPair` | *public* |
 | POST | `/auth/logout` | — | `204` | *session* |
 | GET | `/auth/me` | — | `SessionUser` | *session* |
 | POST | `/auth/password` | `ChangePasswordDto` | `204` | *session* |
+
+`/auth/setup` is the one moment this API lets somebody in without credentials, and the
+only thing that makes it safe is that it refuses the instant any account exists — a
+guest account is enough to close it, because the question is whether this gateway has
+been claimed, not whether it has an administrator. A fresh install has no account at
+all: shipping `admin` / `admin` would put a default password on something reachable
+from the network, and printing a generated one in the logs assumes somebody reads logs,
+which whoever just ran `docker compose up` in a web interface did not. An unattended
+install sets `MCS_ADMIN_USER` and `MCS_ADMIN_PASSWORD` instead and never passes through
+here.
 
 `provider` in `LoginDto` is one of the keys `/auth/providers` returned: `internal`, or
 `service:<uuid>` for a registered media service. The interface never guesses it — which

@@ -7,13 +7,17 @@ import {
 	type AuthProvider,
 	type LoginRequest,
 	type SessionUser,
+	type SetupRequest,
+	type SetupState,
 	type TokenPair,
 } from '@mcs/shared';
 import {
 	BadRequestException,
+	ConflictException,
 	ForbiddenException,
 	Injectable,
 	Logger,
+	OnApplicationBootstrap,
 	ServiceUnavailableException,
 	UnauthorizedException,
 } from '@nestjs/common';
@@ -29,6 +33,14 @@ import { toUser } from './mappers';
 
 /** The key of the provider that holds accounts of our own. */
 export const INTERNAL_PROVIDER = 'internal';
+
+/**
+ * The shortest password the gateway will accept for its own accounts.
+ *
+ * Short enough not to be a lecture, long enough that the first administrator of a
+ * machine somebody may later expose to the internet is not `abc`.
+ */
+export const MINIMUM_PASSWORD_LENGTH = 8;
 
 /** `service:<uuid>` — the key a media service is offered under on the sign-in screen. */
 const SERVICE_PROVIDER = /^service:([0-9a-f-]{36})$/i;
@@ -71,10 +83,12 @@ export const durationSeconds = (value: string, fallback: number): number => {
  * just that request.
  */
 @Injectable()
-export class AuthManager {
+export class AuthManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(AuthManager.name);
 
 	private readonly _security: SecurityConfig;
+
+	private readonly _version: string;
 
 	public constructor(
 		private readonly _users: UserRepository,
@@ -85,6 +99,7 @@ export class AuthManager {
 		config: ConfigService,
 	) {
 		this._security = config.getOrThrow<SecurityConfig>('security');
+		this._version = config.get<string>('version') ?? 'dev';
 	}
 
 	/**
@@ -185,6 +200,91 @@ export class AuthManager {
 	 * service, and accepting a new one here would store a credential the gateway never
 	 * issued and that nothing would ever check.
 	 */
+	/**
+	 * Create the administrator an unattended install asked for.
+	 *
+	 * Only when both variables are set, and only when no account exists. A container
+	 * started from a compose file with credentials in it should come up ready to use;
+	 * one started without them comes up asking, which is the safe half of the same
+	 * choice. Neither path ever invents a default password.
+	 */
+	public async onApplicationBootstrap(): Promise<void> {
+		const username = process.env.MCS_ADMIN_USER?.trim();
+		const password = process.env.MCS_ADMIN_PASSWORD;
+
+		if (!username || !password) {
+			return;
+		}
+
+		if ((await this._users.count()) > 0) {
+			return;
+		}
+
+		try {
+			await this.setup({ username, password });
+			this._logger.log(`Administrator "${username}" created from the environment`);
+		} catch (error) {
+			// A refused password must not stop the gateway: it still has to come up so
+			// somebody can reach the setup screen and finish the job by hand.
+			this._logger.warn(`Could not create the administrator from the environment: ${String(error)}`);
+		}
+	}
+
+	/**
+	 * Whether this gateway still needs its first administrator.
+	 *
+	 * Counted rather than remembered in a setting: a flag can be out of step with the
+	 * table it describes, and the only thing that decides whether somebody can get in
+	 * is whether an account exists.
+	 */
+	public async setupState(): Promise<SetupState> {
+		return {
+			required: (await this._users.count()) === 0,
+			version: this._version,
+		};
+	}
+
+	/**
+	 * Create the first administrator, once.
+	 *
+	 * The route is open, and this check is the only thing that makes that safe: it
+	 * refuses the moment any account exists, so the window is the few minutes between
+	 * a container starting and somebody claiming it. The two alternatives are both
+	 * worse — a default password on something reachable from the network, or a
+	 * generated one printed in logs that whoever ran `docker compose up` in a web
+	 * interface will never read.
+	 *
+	 * An unattended install sets MCS_ADMIN_USER and MCS_ADMIN_PASSWORD instead, and
+	 * never passes through here.
+	 */
+	public async setup(request: SetupRequest, context: SessionContext = {}): Promise<TokenPair> {
+		if ((await this._users.count()) > 0) {
+			throw new ConflictException(ErrorKey.AUTH_FORBIDDEN);
+		}
+
+		const username = request.username.trim();
+
+		if (username === '' || request.password.length < MINIMUM_PASSWORD_LENGTH) {
+			throw new BadRequestException(ErrorKey.AUTH_INVALID_CREDENTIALS);
+		}
+
+		const user = await this._users.save(
+			this._users.create({
+				username,
+				displayName: request.displayName?.trim() || username,
+				role: UserRole.ADMIN,
+				provider: INTERNAL_PROVIDER,
+				passwordHash: await hash(request.password, this._security.bcryptRounds),
+			}),
+		);
+
+		this._logger.log(`First administrator created: ${username}`);
+
+		// Signed in straight away, because the alternative is a screen that says "now
+		// go and log in" to somebody who just typed those exact credentials.
+		return this._issue(user, context);
+	}
+
 	public async changePassword(
 		userId: string,
 		currentPassword: string,

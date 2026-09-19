@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Sign-in.
@@ -46,4 +46,32 @@ export class ChangePasswordDto {
 	@IsString()
 	@MaxLength(255)
 	public newPassword!: string;
+}
+
+/**
+ * The first administrator, created once on a gateway that has no account.
+ *
+ * The route behind it is open, which is only safe because it refuses the moment an
+ * account exists. The password floor is the one place this API is opinionated about
+ * credentials, and it is there because this account will often be the only one on a
+ * machine somebody later exposes to the internet.
+ */
+export class SetupDto {
+	@ApiProperty()
+	@IsString()
+	@IsNotEmpty()
+	@MaxLength(255)
+	public username!: string;
+
+	@ApiProperty({ minLength: 8 })
+	@IsString()
+	@MinLength(8)
+	@MaxLength(255)
+	public password!: string;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(120)
+	public displayName?: string;
 }

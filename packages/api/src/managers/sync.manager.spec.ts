@@ -612,15 +612,20 @@ describe('SyncManager', () => {
 	});
 
 	describe('fetching only the companions', () => {
+		/** An item whose only interesting part is where its file sits. */
+		const withFile = (id: string, path: string | null) =>
+			item({
+				id,
+				title: 'Dulcinea',
+				file: path === null ? null : { ...(item().file as NonNullable<MediaItem['file']>), path },
+			});
+
 		it('copies what sits beside a counterpart, without moving the video again', async () => {
 			// The case this exists for: an episode already on the disk that arrived bare,
 			// because it was pulled before the setting was on or from a source that had
 			// none. Re-pulling forty gigabytes to get a .nfo beside it is not an answer.
 			const { manager, fakes } = build({
-				items: [
-					{ id: 'item-local', title: 'Dulcinea', file: { path: '/media/local.mkv' }, externalIds: {} },
-					{ id: 'item-remote', title: 'Dulcinea', file: { path: '/remote/source.mkv' }, externalIds: { tvdb: '1' } },
-				],
+				items: [withFile('item-local', '/media/local.mkv'), withFile('item-remote', '/remote/source.mkv')],
 				matches: [{ localItemId: 'item-local', remoteItemId: 'item-remote' }],
 			});
 
@@ -635,7 +640,7 @@ describe('SyncManager', () => {
 
 		it('says so when nothing anywhere holds a counterpart', async () => {
 			const { manager } = build({
-				items: [{ id: 'item-local', title: 'Dulcinea', file: { path: '/media/local.mkv' }, externalIds: {} }],
+				items: [withFile('item-local', '/media/local.mkv')],
 				matches: [],
 			});
 
@@ -648,7 +653,7 @@ describe('SyncManager', () => {
 			// A series or a season has nothing to put companions beside, and saying
 			// 'nothing copied' would read as a source having none.
 			const { manager } = build({
-				items: [{ id: 'item-series', title: 'The Expanse', file: null, externalIds: {} }],
+				items: [withFile('item-series', null)],
 				matches: [],
 			});
 
@@ -662,9 +667,9 @@ describe('SyncManager', () => {
 			// helped nobody.
 			const { manager, fakes } = build({
 				items: [
-					{ id: 'item-local', title: 'Dulcinea', file: { path: '/media/local.mkv' }, externalIds: {} },
-					{ id: 'item-a', title: 'Dulcinea', file: { path: '/gone/a.mkv' }, externalIds: {} },
-					{ id: 'item-b', title: 'Dulcinea', file: { path: '/remote/b.mkv' }, externalIds: {} },
+					withFile('item-local', '/media/local.mkv'),
+					withFile('item-a', '/gone/a.mkv'),
+					withFile('item-b', '/remote/b.mkv'),
 				],
 				matches: [
 					{ localItemId: 'item-local', remoteItemId: 'item-a' },

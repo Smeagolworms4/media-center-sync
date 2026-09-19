@@ -17,6 +17,14 @@ export interface DatabaseConfig {
 	name: string;
 	user: string;
 	password: string;
+	/**
+	 * Bring the schema up to date when the application starts.
+	 *
+	 * On by default, because the alternative is telling somebody who just pulled a
+	 * container to exec into it before it will serve anything. Turn it off where a
+	 * deployment applies migrations as its own step and wants to know exactly when.
+	 */
+	migrateOnStart: boolean;
 }
 
 export interface CacheConfig {
@@ -63,6 +71,22 @@ const readString = (name: string, fallback: string): string => {
 	const value = process.env[name];
 
 	return value === undefined || value === '' ? fallback : value;
+};
+
+/**
+ * A flag from the environment, where everything is a string.
+ *
+ * `0`, `false`, `no` and `off` are all ways people say no in a compose file, and one
+ * that silently means yes is a setting somebody turns off and watches keep happening.
+ */
+const readBoolean = (name: string, fallback: boolean): boolean => {
+	const value = process.env[name];
+
+	if (value === undefined || value === '') {
+		return fallback;
+	}
+
+	return !['0', 'false', 'no', 'off'].includes(value.trim().toLowerCase());
 };
 
 const readNumber = (name: string, fallback: number): number => {
@@ -118,6 +142,7 @@ export const configuration = (): AppConfig => {
 			name: readString('DB_NAME', 'mcs'),
 			user: readString('DB_USER', 'mcs'),
 			password: readString('DB_PASSWORD', 'mcs'),
+			migrateOnStart: readBoolean('DB_MIGRATE_ON_START', true),
 		}),
 		cache: Object.freeze({
 			redisHost: readString('REDIS_HOST', ''),
