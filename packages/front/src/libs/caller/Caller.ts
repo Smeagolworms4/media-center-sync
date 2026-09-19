@@ -1,13 +1,16 @@
-import { SimpleObserver } from '@/libs/observer'
 import type { Pinia } from 'pinia';
+import { SimpleObserver } from '@/libs/observer';
+import { useI18nStore } from '@/stores/i18n';
 import { useTokenStore } from '@/stores/token';
-import { hToken } from '@/models';
-import { useI18nStore } from '@/stores/i18n.ts';
 
 export interface CallerOptions extends RequestInit {
+	/** Attach the bearer, refreshing it first when it is about to expire. */
 	useAuth?: boolean,
+	/** Do not fan the failure out to the global error observers. */
 	silentError?: boolean
+	/** Starting a call under this key aborts the one already in flight under it. */
 	abortKey?: string
+	/** Only the most recent call under this key is allowed to resolve. */
 	keepLastKey?: string
 	onAbort?: () => any
 }
@@ -57,14 +60,9 @@ export class Caller {
 
 		if (options.useAuth) {
 			const tokenStore = useTokenStore(this._pinia);
-			let token = hToken(tokenStore.token);
-			if (token) {
-				if (!token.isValid) {
-					token = hToken(await tokenStore.refresh());
-				}
-				if (token?.isValid) {
-					headers['Authorization'] = `Bearer ${token?.id}`;
-				}
+			const accessToken = await tokenStore.getAccessToken();
+			if (accessToken) {
+				headers['Authorization'] = `Bearer ${accessToken}`;
 			}
 		}
 

@@ -1,0 +1,142 @@
+name: Build
+
+# Types, lint, tests, journeys, then one image.
+#
+# The repository lives here while the pipeline was written for GitLab first; both
+# files exist and do the same thing, so a mirror keeps working either way. The image
+# this one publishes is the one the README tells people to pull.
+#
+# `main` is a moving tag, deliberately. Every push to the branch republishes `:main`:
+# that is the image you pull to try the latest version without tagging anything. What
+# must stay stable carries a version tag — a stack pointing at `:main` would change
+# code on every merge, without anyone deciding it.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# One group per reference, never a single group. GitHub keeps only one run queued and
+# cancels the previous one as soon as a third arrives: a tagged version could be
+# cancelled before publishing anything, leaving a tag whose image exists nowhere.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  verify:
+    name: Types, lint and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A pinned version, never the major alone. `node-version: 24` follows the latest
+      # published 24.x: the campaign can pass one day and break the next without a
+      # line of the repository changing. Moving up should be a decision.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+
+      - name: Install every package
+        run: npm run ci:all
+
+      - name: Build the contracts
+        run: npm run build:shared
+
+      - run: npm run typecheck
+      - run: npm run lint
+
+      - name: API tests
+        run: npm --prefix packages/api run test:cov
+
+      - name: Interface tests
+        run: npm --prefix packages/front run test:cov
+
+      - name: Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            packages/api/coverage
+            packages/front/coverage
+          retention-days: 7
+
+  journeys:
+    name: Playwright journeys
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stack and journeys
+        run: make e2e/ci
+
+      # Kept even on failure — that is exactly when it is useful: it carries the
+      # screenshots and traces of the journey that fell over.
+      - name: Traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeys
+          path: packages/front/test-results
+          retention-days: 7
+
+  image:
+    name: Image
+    needs: [verify, journeys]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # GitHub keeps the account's casing while a Docker reference must be entirely
+      # lowercase. metadata-action handles its own tags, not arguments built by hand.
+      - id: repo
+        run: echo "lowercase=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Registry login
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.repo.outputs.lowercase }}
+          # `latest` follows published versions, not the branch. If it followed
+          # `main`, tagging v1.0.0 would publish 1.0.0 and then move `latest` to the
+          # last merged commit — a deployment that succeeds and ships something else.
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=long
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/build/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # An image knows nothing about the tag that produced it: without this the
+          # interface cannot say what it is, and you are left comparing digests.
+          build-args: |
+            MCS_VERSION=${{ github.ref_name }}

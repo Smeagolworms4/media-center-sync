@@ -1,13 +1,14 @@
-import { computed, type ComputedRef, type Ref } from 'vue';
-import type { HToken, Token } from '@/models';
-import { hToken } from '@/models';
-import { useTokenStore } from '@/stores/token';
+import { computed, type ComputedRef } from 'vue';
+import { type StoredSession, useTokenStore } from '@/stores/token';
 
-export function useToken(): Ref<Nullable<Token>> {
+/** Read-only view of the stored session, for anything that only needs to look. */
+export function useToken(): ComputedRef<StoredSession | null> {
 	const tokenStore = useTokenStore();
-	return computed(() => tokenStore.token);
+	return computed(() => tokenStore.session);
 }
-export function useHToken(): ComputedRef<Nullable<HToken>> {
-	const token = useToken();
-	return computed(() => hToken(token.value));
+
+/** True while the access token in hand is still worth sending. */
+export function useTokenIsValid(): ComputedRef<boolean> {
+	const tokenStore = useTokenStore();
+	return computed(() => tokenStore.isValid);
 }

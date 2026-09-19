@@ -19,7 +19,7 @@
 
 <script lang="ts" setup>
 	import { ref } from 'vue';
-	import { useNotifierStore } from '@/stores/notifier.ts';
+	import { useNotifierStore } from '@/stores/notifier';
 
 	const el = ref<HTMLElement>()
 	const notifierStore = useNotifierStore();

@@ -1,50 +1,46 @@
-import { useI18n } from 'vue-i18n';
-import { type NotifyType, useNotifierStore } from '@/stores/notifier';
 import { AbortCallerException } from '@/libs/caller';
+import { translate } from '@/plugins/i18n';
+import { type NotifyType, useNotifierStore } from '@/stores/notifier';
 
 export function useNotifier() {
+	const notifierStore = useNotifierStore();
 
-	const storeCommonNotifier = useNotifierStore();
-	const { t } = useI18n();
+	/** `message` is an i18n key; an unknown one falls back to itself, unchanged. */
 	const notify = async (message: string, type: NotifyType = 'success', timeout: number = 5000) => {
-		await storeCommonNotifier.notify({
-			type: type,
-			message: t(message),
-			timeout: timeout
-		});
+		await notifierStore.notify({ type, message: translate(message), timeout });
 	};
 
-	const tryCallback = (
-		callback: (...args: any[]) => any|Promise<any>,
+	/**
+	 * Wraps an action so a failure becomes a toast instead of an unhandled
+	 * rejection. Aborted calls are swallowed on purpose: the interface cancelled
+	 * them itself — a newer search, a page left — and telling the viewer about it
+	 * would report our own behaviour as an error.
+	 */
+	const tryCallback = <Args extends unknown[], R>(
+		callback: (...args: Args) => R | Promise<R>,
 		{
 			onError = null,
 			onComplete = null,
-			message = 'front.error.general'
+			message = 'error.general',
 		}: {
-			onError?: Nullable<(...args: any[]) => any>,
-			onComplete?: Nullable<(...args: any[]) => any>,
-			message?: string
-		} = {}
+			onError?: Nullable<(error: unknown, ...args: Args) => unknown>,
+			onComplete?: Nullable<(...args: Args) => unknown>,
+			message?: string,
+		} = {},
 	) => {
-		return async (...args: any[]) => {
+		return async (...args: Args): Promise<R | undefined> => {
 			try {
 				return await callback(...args);
-			} catch (e) {
-				if (e instanceof AbortCallerException) {
-					console.log('Abort fetch call');
-					return;
+			} catch (error) {
+				if (error instanceof AbortCallerException) {
+					return undefined;
 				}
-				console.error(e);
-				if (typeof window !== 'undefined') {
-					notify(message!, 'error');
-				}
-				if (onError) {
-					onError(e, ...args);
-				}
+				console.error(error);
+				void notify(message, 'error');
+				onError?.(error, ...args);
+				return undefined;
 			} finally {
-				if (onComplete) {
-					onComplete(...args);
-				}
+				onComplete?.(...args);
 			}
 		};
 	};

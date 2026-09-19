@@ -33,6 +33,15 @@ export interface IForm {
 	setFieldErrors: (errors: Record<string, string[]>) => void;
 }
 
+/**
+ * The one way a form is written in this application.
+ *
+ * It owns the three things every form needs and nobody should re-invent: the
+ * loading flag, the main error, and the mapping from backend field errors onto
+ * the matching Vuetify inputs. `field(name)` both declares that the form renders
+ * that field — which is how `useApiError` knows where a message belongs — and
+ * returns the bindings to spread onto the control.
+ */
 export function useForm(options: UseFormOptions): IForm {
 	const { parseApiError } = useApiError();
 	const loading = ref(false);
@@ -44,7 +53,7 @@ export function useForm(options: UseFormOptions): IForm {
 	async function parseError(error: unknown): Promise<void> {
 		console.error(error);
 		const parsed = await parseApiError(error, {
-			fallback: toValue(options.fallbackError) ?? 'front.error.general',
+			fallback: toValue(options.fallbackError) ?? 'error.general',
 			mappedFields,
 		});
 		mainError.value = parsed.mainError;
@@ -104,8 +113,9 @@ export function useForm(options: UseFormOptions): IForm {
 		setFieldErrors,
 	}) as IForm;
 
-	// `component` non-énumérable : la VForm contient un cycle vnode → component qui
-	// crashe JSON.stringify (Storybook source decorator, devtools).
+	// `component` is deliberately non-enumerable: a VForm holds a vnode → component
+	// cycle that makes JSON.stringify throw, which breaks the devtools inspector
+	// and anything else that tries to serialise the form object.
 	Object.defineProperty(form, 'component', {
 		get: () => component.value,
 		set: (v: IForm['component']) => { component.value = v; },

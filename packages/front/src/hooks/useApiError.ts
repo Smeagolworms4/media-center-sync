@@ -1,103 +1,153 @@
-import { useI18n } from '@/hooks';
+import { hasTranslation, translate } from '@/plugins/i18n';
 
-interface ParsedApiError {
+export interface ParsedApiError {
 	mainError: string | null;
 	fieldErrors: Record<string, string[]>;
 }
 
-interface ParseOptions {
+export interface ParseOptions {
+	/** i18n key used when nothing usable can be extracted. */
 	fallback: string;
+	/** Fields the form actually renders; anything else has to go to the main error. */
 	mappedFields: Set<string>;
 }
 
 /**
- * Parse une erreur backend (Response / Error / payload Symfony rest-bundle) en
- * `{ mainError, fieldErrors }` pour useForm. Port à l'identique de la logique
- * `OForm.fromError` / `fromJsonError` historique :
+ * Anything dotted, lowercase and space-free is treated as an error key rather
+ * than as prose. `error.auth.invalid_credentials` is a key; `username should not
+ * be empty` is a sentence a validator wrote.
+ */
+const KEY_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
+
+function looksLikeKey(value: string): boolean {
+	return KEY_PATTERN.test(value);
+}
+
+/**
+ * Parses a NestJS error payload into `{ mainError, fieldErrors }` for `useForm`.
  *
- *  - `Response` → `.json()` puis `parseJson`
- *  - `Error` avec message    → message brut en mainError (pas de traduction)
- *  - Payload string          → mainError, traduit via `t()` si `te()` reconnaît la clé
- *  - Payload exception Symfony `{class,code,file,message,stack}` → message brut en mainError
- *  - Payload `{message, code?}` simple                            → message brut en mainError
- *  - Payload validation `{field: 'msg' | ['msg1','msg2']}` :
- *      • `field` ∈ `mappedFields` → fieldErrors[field]
- *      • sinon                    → repli en mainError (jointure `\n`)
- *  - Sinon                       → fallback (key i18n, traduit via `t()`).
+ * Two shapes come back from the API and they have to be told apart:
  *
- * Le backend renvoie déjà des messages traduits côté Symfony — on ne re-traduit
- * pas les payloads, seulement le fallback (qui est une clé) et la string brute
- * (ancien comportement, rare en pratique).
+ *  - a validation failure, `{ statusCode, message: string[], error }`, where each
+ *    entry is a `class-validator` sentence starting with the property name;
+ *  - a business failure, `{ statusCode, message: 'error.some.key', error }`.
+ *
+ * A key is always translated, and a key the catalogue does not know degrades to
+ * the fallback: showing `error.peer.invite_expired` to somebody is worse than
+ * showing a generic sentence, and it happens every time the API adds a case the
+ * bundled catalogue predates.
  */
 export function useApiError() {
-	const { t, te } = useI18n();
-	const tet = (m: string): string => (te(m) ? t(m) : m);
-
-	async function parseApiError(error: unknown, options: ParseOptions): Promise<ParsedApiError> {
-		try {
-			if (error instanceof Response) {
-				const data = await error.json();
-				return parseJson(data, options);
-			}
-			if (error instanceof Error && error.message) {
-				return { mainError: error.message, fieldErrors: {} };
-			}
-		} catch {
-			// payload non-JSON ou parsing KO → fallback
+	function translateKey(value: string): string | null {
+		if (!looksLikeKey(value)) {
+			return null;
 		}
-		return { mainError: tet(options.fallback), fieldErrors: {} };
+		return hasTranslation(value) ? translate(value) : null;
+	}
+
+	function fallbackMessage(options: ParseOptions): string {
+		return hasTranslation(options.fallback) ? translate(options.fallback) : options.fallback;
+	}
+
+	/** A key becomes its sentence, an unknown key the fallback, prose stays prose. */
+	function toMessage(value: string, options: ParseOptions): string {
+		if (looksLikeKey(value)) {
+			return translateKey(value) ?? fallbackMessage(options);
+		}
+		return value;
+	}
+
+	/**
+	 * Finds which rendered field a `class-validator` sentence belongs to.
+	 *
+	 * The property name is the first token, and nested DTOs produce a dotted path
+	 * (`filter.minYear must be an integer`). A form that renders the whole path as
+	 * one control is matched first; otherwise the leaf is tried, since that is
+	 * what a flattened form names its input.
+	 */
+	function matchField(sentence: string, mappedFields: Set<string>): string | null {
+		const head = sentence.split(/\s+/, 1)[0] ?? '';
+		if (!head) {
+			return null;
+		}
+		if (mappedFields.has(head)) {
+			return head;
+		}
+		const leaf = head.split('.').pop() ?? '';
+		return leaf && mappedFields.has(leaf) ? leaf : null;
+	}
+
+	/**
+	 * Drops the property name the backend put in front of its sentence. Under the
+	 * matching input, "username should not be empty" reads as a stutter.
+	 */
+	function stripFieldPrefix(sentence: string): string {
+		const stripped = sentence.replace(/^\S+\s+/, '');
+		return stripped.length > 0 ? stripped : sentence;
+	}
+
+	function parseMessages(messages: string[], options: ParseOptions): ParsedApiError {
+		const fieldErrors: Record<string, string[]> = {};
+		const unmapped: string[] = [];
+
+		for (const raw of messages) {
+			if (typeof raw !== 'string' || raw.length === 0) {
+				continue;
+			}
+			const field = looksLikeKey(raw) ? null : matchField(raw, options.mappedFields);
+			if (field) {
+				fieldErrors[field] = [...(fieldErrors[field] ?? []), stripFieldPrefix(raw)];
+			} else {
+				unmapped.push(toMessage(raw, options));
+			}
+		}
+
+		if (unmapped.length === 0 && Object.keys(fieldErrors).length === 0) {
+			return { mainError: fallbackMessage(options), fieldErrors: {} };
+		}
+
+		return {
+			mainError: unmapped.length > 0 ? unmapped.join('\n') : null,
+			fieldErrors,
+		};
 	}
 
 	function parseJson(data: unknown, options: ParseOptions): ParsedApiError {
 		if (typeof data === 'string') {
-			return { mainError: tet(data), fieldErrors: {} };
+			return { mainError: toMessage(data, options), fieldErrors: {} };
 		}
 		if (data === null || typeof data !== 'object') {
-			return { mainError: tet(options.fallback), fieldErrors: {} };
+			return { mainError: fallbackMessage(options), fieldErrors: {} };
 		}
 
-		const obj = data as Record<string, unknown>;
+		const { message } = data as { message?: unknown };
 
-		// Exception Symfony complète (présent en dev, masqué en prod)
-		if (typeof obj.class !== 'undefined' && typeof obj.code !== 'undefined'
-			&& typeof obj.file !== 'undefined' && typeof obj.message === 'string'
-			&& typeof obj.stack !== 'undefined') {
-			return { mainError: obj.message, fieldErrors: {} };
+		if (Array.isArray(message)) {
+			return parseMessages(message as string[], options);
+		}
+		if (typeof message === 'string' && message.length > 0) {
+			return parseMessages([message], options);
 		}
 
-		// Payload simple `{message: '...'}` (éventuellement avec code)
-		if (typeof obj.message === 'string' && Object.keys(obj).length <= 2) {
-			return { mainError: obj.message, fieldErrors: {} };
-		}
+		return { mainError: fallbackMessage(options), fieldErrors: {} };
+	}
 
-		// Validation rest-bundle : `{field: 'msg' | ['msg1', 'msg2']}`
-		const fieldErrors: Record<string, string[]> = {};
-		const unmapped: string[] = [];
-		let hasFound = false;
-
-		for (const [name, raw] of Object.entries(obj)) {
-			if (name === 'message' || name === 'code') continue;
-
-			const messages = (typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw : [])
-				.filter((m): m is string => typeof m === 'string');
-			if (messages.length === 0) continue;
-
-			if (options.mappedFields.has(name)) {
-				fieldErrors[name] = [...(fieldErrors[name] ?? []), ...messages];
-			} else {
-				unmapped.push(...messages);
+	async function parseApiError(error: unknown, options: ParseOptions): Promise<ParsedApiError> {
+		try {
+			if (error instanceof Response) {
+				return parseJson(await error.json(), options);
 			}
-			hasFound = true;
+			if (error instanceof Error && error.message) {
+				// A thrown Error is ours — a network failure, a bug — never a payload.
+				return { mainError: error.message, fieldErrors: {} };
+			}
+			if (typeof error === 'string' || (error !== null && typeof error === 'object')) {
+				return parseJson(error, options);
+			}
+		} catch {
+			// The body was not JSON, or the stream was already consumed.
 		}
-
-		if (hasFound) {
-			return {
-				mainError: unmapped.length > 0 ? unmapped.join('\n') : null,
-				fieldErrors,
-			};
-		}
-
-		return { mainError: tet(options.fallback), fieldErrors: {} };
+		return { mainError: fallbackMessage(options), fieldErrors: {} };
 	}
 
 	return { parseApiError };

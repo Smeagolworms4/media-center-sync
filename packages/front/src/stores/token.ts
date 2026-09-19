@@ -1,84 +1,152 @@
-import { defineStore } from 'pinia'
+import type { TokenPair } from '@mcs/shared';
+import { defineStore } from 'pinia';
+import { computed } from 'vue';
+import { cachePromise } from '@/hooks/cachePromise';
+import { useCaller } from '@/hooks/useCaller';
 import { queryTypes, storageRef } from '@/libs/vue3-query-ref';
-import { hToken, type Token } from '@/models';
-import { useUserStore } from '@/stores/user';
-import { useCaller, cachePromise } from '@/hooks';
 
-const LOGOUT_CHANNEL_NAME = 'logout'
-
-let logoutRunning = false
+const SESSION_STORAGE_KEY = 'mcs.session';
+const LOGOUT_CHANNEL_NAME = 'mcs.logout';
 
 /**
- * Store de gestion des tokens d'authentification.
- * Stocke le token et le refresh token dans le localStorage.
- * Gère la déconnexion cross-onglet via BroadcastChannel.
+ * How early an access token is considered stale.
+ *
+ * Refreshing exactly at expiry loses the race against the network: the request
+ * leaves valid and arrives expired. A few seconds of margin costs one extra
+ * refresh a day and removes a class of spurious 401s.
+ */
+const EXPIRY_SKEW_MS = 15_000;
+
+/**
+ * What is persisted between reloads.
+ *
+ * `TokenPair` carries a *relative* lifetime, which is useless once the tab is
+ * closed — so the absolute deadline is computed on receipt and stored alongside.
+ */
+export interface StoredSession extends TokenPair {
+	/** Epoch milliseconds at which `accessToken` stops being accepted. */
+	expiresAt: number;
+}
+
+/**
+ * The raw credentials of the session.
+ *
+ * Deliberately below `stores/auth`: the caller has to be able to attach a bearer
+ * and to refresh it without pulling in the whole session façade, and the session
+ * façade has to be able to reason about the user without knowing how a token is
+ * stored.
  */
 export const useTokenStore = defineStore('token', () => {
-	const { caller } = useCaller()
+	const { caller } = useCaller();
 
-	const token = storageRef<Nullable<Token>>('token', queryTypes.json<Nullable<Token>>());
+	const session = storageRef<StoredSession | null>(
+		SESSION_STORAGE_KEY,
+		queryTypes.json<StoredSession | null>(),
+	);
 
-	// Écoute le logout depuis un autre onglet
-	const logoutChannel = new BroadcastChannel(LOGOUT_CHANNEL_NAME);
-	logoutChannel.onmessage = () => {
-		logout();
-	};
+	const accessToken = computed(() => session.value?.accessToken ?? null);
+	const refreshToken = computed(() => session.value?.refreshToken ?? null);
+	const authenticated = computed(() => session.value !== null);
+	const isValid = computed(
+		() => !!session.value && session.value.expiresAt - EXPIRY_SKEW_MS > Date.now(),
+	);
 
-	const login = async (email: string, password: string): Promise<Token> => {
-		const userStore = useUserStore();
-		logoutRunning = false;
-		token.value = await caller('api').post<Token>('/dev/tokens/login', { email, password }, { useAuth: false })
-		userStore.me = token.value.user;
-		return token.value;
+	/**
+	 * Signing out in one tab has to sign out every other one, otherwise a second
+	 * tab keeps a token the server has already revoked and every call it makes
+	 * fails in a way nobody can explain.
+	 */
+	const logoutChannel = typeof BroadcastChannel === 'undefined'
+		? null
+		: new BroadcastChannel(LOGOUT_CHANNEL_NAME);
+
+	function store(pair: TokenPair): StoredSession {
+		const stored: StoredSession = { ...pair, expiresAt: Date.now() + pair.expiresIn * 1000 };
+		session.value = stored;
+		return stored;
 	}
 
-	const casLogin = async (ticket: string, service: string): Promise<Token> => {
-		const userStore = useUserStore();
-		logoutRunning = false;
-		token.value = await caller('api').post<Token>('/tokens/cas-login', { ticket, service }, { useAuth: false })
-		userStore.me = token.value.user;
-		return token.value;
+	function clear(): void {
+		session.value = null;
 	}
 
-	const logout = () => {
-		if (logoutRunning) {
-			return
+	if (logoutChannel) {
+		logoutChannel.onmessage = () => clear();
+	}
+
+	/**
+	 * Single-flighted: a page that fires five calls at once on a stale token must
+	 * produce one refresh, not five — and four of those five would be racing
+	 * against a refresh token the first one already rotated away.
+	 */
+	const refreshOnce = cachePromise(async (): Promise<StoredSession | null> => {
+		const token = session.value?.refreshToken;
+		if (!token) {
+			clear();
+			return null;
 		}
-		const userStore = useUserStore();
-		logoutRunning = true;
-		token.value = null;
-		userStore.me = null;
-
-		const channel = new BroadcastChannel(LOGOUT_CHANNEL_NAME)
-		channel.postMessage('logout')
-		setTimeout(() => {
-			window.location.reload();
-		}, 300);
-	};
-
-	const checkAndRefresh = async (): Promise<boolean> => {
-		if (token.value && !hToken(token.value)!.isValid) {
-			await refresh();
-			return true;
+		try {
+			const pair = await caller('api').post<TokenPair>(
+				'/auth/refresh',
+				{ refreshToken: token },
+				{ useAuth: false, silentError: true },
+			);
+			return store(pair);
+		} catch (error) {
+			clear();
+			throw error;
 		}
-		return false;
-	};
+	}, true);
 
-	const refresh = (refreshToken: Nullable<string> = null): Promise<Nullable<Token>> => {
-		return cachePromise(async () => {
-			const userStore = useUserStore();
-			token.value = await caller('api').post<Token>('/tokens/refresh', refreshToken ? { id: refreshToken } : token.value?.refreshToken, { useAuth: false });
-			userStore.me = token.value.user;
-			return token.value;
-		}, true)('token|refresh');
-	};
+	function refresh(): Promise<StoredSession | null> {
+		return refreshOnce('token|refresh');
+	}
+
+	/** The bearer to attach, refreshed first when it is about to expire. */
+	async function getAccessToken(): Promise<string | null> {
+		if (!session.value) {
+			return null;
+		}
+		if (!isValid.value) {
+			try {
+				await refresh();
+			} catch {
+				return null;
+			}
+		}
+		return session.value?.accessToken ?? null;
+	}
+
+	/**
+	 * Revokes the session server-side before forgetting it.
+	 *
+	 * The access token is backed by a database row, so telling the API first is
+	 * what actually ends the session; dropping the local copy only hides it.
+	 */
+	async function revoke(): Promise<void> {
+		const hadSession = session.value !== null;
+		try {
+			if (hadSession) {
+				await caller('api').post('/auth/logout', {}, { silentError: true });
+			}
+		} catch {
+			// A gateway that is down must not trap somebody in a signed-in shell.
+		} finally {
+			clear();
+			logoutChannel?.postMessage('logout');
+		}
+	}
 
 	return {
-		token,
-		login,
-		casLogin,
-		logout,
-		checkAndRefresh,
+		session,
+		accessToken,
+		refreshToken,
+		authenticated,
+		isValid,
+		store,
+		clear,
 		refresh,
+		getAccessToken,
+		revoke,
 	};
 });

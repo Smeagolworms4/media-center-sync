@@ -12,7 +12,7 @@ import { Timestampable } from './timestampable.entity';
  * null, and stays null — the gateway never holds a password it did not issue.
  */
 @Entity('users')
-@Index(['provider', 'providerUserId'], { unique: true, where: 'provider_user_id IS NOT NULL' })
+@Index(['provider', 'providerUserId'], { unique: true, where: '"providerUserId" IS NOT NULL' })
 export class User extends Timestampable {
 	@ApiProperty()
 	@PrimaryGeneratedColumn('uuid')

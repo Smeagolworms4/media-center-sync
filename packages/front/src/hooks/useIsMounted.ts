@@ -1,31 +1,36 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue';
-import { useUserStore } from '@/stores/user';
+import { useAuthStore } from '@/stores/auth';
 
+/**
+ * Mount state, plus a hook that fires once a session exists.
+ *
+ * Most screens need their data as soon as they appear, but a screen mounted
+ * during the boot restore has no bearer yet. `onLogged` runs when the session is
+ * there — immediately when it already was, later when it arrives.
+ */
 export function useIsMounted() {
 	const isMounted = ref(false);
 	const isUnmounted = ref(false);
-	const mountedCallbacks = ref<(() => any)[]>([]);
-	const loggedCallbacks = ref<(() => any)[]>([]);
+	const mountedCallbacks: (() => unknown)[] = [];
+	const loggedCallbacks: (() => unknown)[] = [];
 
-	const userStore = useUserStore();
+	const authStore = useAuthStore();
 
-	const onMountedInner = (callback: () => any) => {
-		mountedCallbacks.value.push(callback);
+	const onMountedInner = (callback: () => unknown) => {
+		mountedCallbacks.push(callback);
 	};
 
-	const onLogged = (callback: () => any) => {
-		loggedCallbacks.value.push(callback);
+	const onLogged = (callback: () => unknown) => {
+		loggedCallbacks.push(callback);
 	};
 
 	onMounted(async () => {
 		try {
 			isMounted.value = false;
-			await Promise.all(
-				mountedCallbacks.value.map(mounted => mounted()),
-			);
+			await Promise.all(mountedCallbacks.map(callback => callback()));
 			isMounted.value = true;
-		} catch (e) {
-			console.error(e);
+		} catch (error) {
+			console.error(error);
 		}
 	});
 
@@ -35,14 +40,12 @@ export function useIsMounted() {
 	});
 
 	const checkConnected = async () => {
-		if (userStore.connected) {
-			await Promise.all(
-				loggedCallbacks.value.map(mounted => mounted()),
-			);
+		if (authStore.authenticated) {
+			await Promise.all(loggedCallbacks.map(callback => callback()));
 		}
-	}
+	};
 	onMountedInner(checkConnected);
-	watch(() => userStore.connected, checkConnected);
+	watch(() => authStore.authenticated, checkConnected);
 
 	return { isMounted, isUnmounted, onMounted: onMountedInner, onLogged };
 }

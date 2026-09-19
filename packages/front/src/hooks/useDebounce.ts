@@ -1,7 +1,10 @@
 /**
- * Crée une version debounced d'une fonction async.
- * Seul le dernier appel dans la fenêtre de délai est réellement exécuté.
- * Tous les appels retournent une Promise qui se résout avec le résultat du dernier appel.
+ * Debounced version of an async function.
+ *
+ * Only the last call inside the delay window actually runs, but every caller
+ * still gets a promise — they all resolve with that one result. Callers that
+ * were dropped therefore never hang, which is what makes this safe to put behind
+ * a search field.
  */
 export function useDebounce<Args extends any[], R>(
 	fn: (...args: Args) => Promise<R>,
