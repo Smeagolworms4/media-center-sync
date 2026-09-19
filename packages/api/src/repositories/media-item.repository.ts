@@ -247,8 +247,21 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	public findGroupSeeds(query: GroupSeedQuery): Promise<MediaItemDigest[]> {
 		const builder = this._digestQuery();
 
-		if (query.serviceIds !== undefined && query.serviceIds.length > 0) {
-			builder.andWhere('item.serviceId IN (:...serviceIds)', { serviceIds: query.serviceIds });
+		/*
+		 * An empty list is a filter nothing satisfies, not the absence of one.
+		 *
+		 * Asking for a friend nobody has linked, or a service that does not exist, must
+		 * answer nothing — and `length > 0` answered the whole library instead, which is
+		 * the one way of getting this wrong that looks like the filter being ignored.
+		 * `IN ()` is not valid SQL on either engine, so the impossible condition is
+		 * written out rather than passed through.
+		 */
+		if (query.serviceIds !== undefined) {
+			if (query.serviceIds.length === 0) {
+				builder.andWhere('1 = 0');
+			} else {
+				builder.andWhere('item.serviceId IN (:...serviceIds)', { serviceIds: query.serviceIds });
+			}
 		}
 
 		/*
@@ -258,8 +271,13 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		 * kept in `reported`, so a filter here needs no knowledge of overrides at all —
 		 * which is the point of resolving them on write rather than on read.
 		 */
-		if (query.libraryIds !== undefined && query.libraryIds.length > 0) {
-			builder.andWhere('item.libraryId IN (:...libraryIds)', { libraryIds: query.libraryIds });
+		if (query.libraryIds !== undefined) {
+			if (query.libraryIds.length === 0) {
+				// A category nobody has, for the same reason as above.
+				builder.andWhere('1 = 0');
+			} else {
+				builder.andWhere('item.libraryId IN (:...libraryIds)', { libraryIds: query.libraryIds });
+			}
 		}
 
 		if (query.kind !== undefined) {

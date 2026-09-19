@@ -328,4 +328,30 @@ describe('Browsing the index by media rather than by row', () => {
 
 		expect(response.body).toMatchObject({ message: 'error.media.not_found' });
 	});
+
+	it('answers nothing to a filter nothing satisfies', async () => {
+		// Asking for a friend nobody has linked must answer nothing. Reading an empty
+		// list as "no filter" answered the whole library instead, which is the one way
+		// of getting this wrong that looks like the filter being ignored rather than
+		// like a bug.
+		const page = await groups('/media/groups?origins=friend&limit=50');
+
+		expect(page.pagination.total).toBe(0);
+		expect(page.items).toHaveLength(0);
+	});
+
+	it('answers nothing for a service that exists nowhere', async () => {
+		const page = await groups(
+			'/media/groups?serviceIds=00000000-0000-4000-8000-000000000000&limit=50',
+		);
+
+		expect(page.pagination.total).toBe(0);
+	});
+
+	it('accepts a category key rather than refusing the parameter', async () => {
+		// Whitelisting validation turns a field the manager understands but the DTO does
+		// not into a 400 that blames the caller. The library screen filters on this.
+		await browse('/media/groups?categoryKey=nothing-of-that-name&limit=5').expect(200);
+	});
+
 });

@@ -141,6 +141,20 @@ export class MediaGroupQueryDto {
 	@IsEnum(MediaOrigin, { each: true })
 	public origins?: MediaOrigin[];
 
+	/**
+	 * One merged category — every library of that name, across every service.
+	 *
+	 * This is what a library screen filters on; `libraryId` still names exactly one
+	 * library, which is the question a diagnostic screen asks. A field the manager
+	 * understands but the DTO does not is refused outright by the whitelisting
+	 * validation, with a 400 that blames the caller for a parameter the API documents.
+	 */
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(120)
+	public categoryKey?: string;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsUUID()
