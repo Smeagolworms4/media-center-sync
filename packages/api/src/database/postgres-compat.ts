@@ -22,6 +22,11 @@ import { PostgresDriver } from 'typeorm/driver/postgres/PostgresDriver';
  * Removing any of these leaves a gateway that works on SQLite and fails on PostgreSQL
  * — at startup for the first, at the first insert for the others — with an error that
  * names the driver rather than this choice.
+ *
+ * Verified against PostgreSQL 16 on 19/09/2026: the migration creates all fifteen
+ * tables and their indexes, and the seed writes rows with identifiers the application
+ * produced. Worth redoing after a TypeORM upgrade — this patches a prototype, and
+ * nothing in the type system will notice if the method it overrides is renamed.
  */
 export const applyPostgresCompatibility = (): void => {
 	const driver = PostgresDriver.prototype as unknown as {
