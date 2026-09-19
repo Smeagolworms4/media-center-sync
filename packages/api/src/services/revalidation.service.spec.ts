@@ -1,4 +1,5 @@
 import {
+	MediaServiceType,
 	RevalidationAction,
 	RevalidationOutcome,
 	TransferErrorKind,
@@ -206,5 +207,119 @@ describe('RevalidationService.classify', () => {
 
 	it('confirms whatever is reported when we never knew what it was', () => {
 		expect(service.classify(null, file())).toBe(RevalidationOutcome.CONFIRMED);
+	});
+});
+
+describe('RevalidationService.revalidate', () => {
+	const connection = {
+		id: 'service-1',
+		type: MediaServiceType.JELLYFIN,
+		baseUrl: 'http://jellyfin:8096',
+		token: null,
+		username: null,
+		password: null,
+	};
+
+	function build(handlerItem: unknown, peerAnswer?: unknown) {
+		const getItem = jest.fn(async () => handlerItem);
+		const request = jest.fn(async () => {
+			if (peerAnswer instanceof Error) {
+				throw peerAnswer;
+			}
+
+			return peerAnswer;
+		});
+
+		return {
+			getItem,
+			request,
+			service: new RevalidationService(
+				{ get: () => ({ getItem }) } as unknown as HandlerRegistry,
+				{ request } as unknown as PeerLinkService,
+			),
+		};
+	}
+
+	function target(overrides: Record<string, unknown> = {}) {
+		return {
+			transferId: 't1',
+			sourceServiceId: 'service-1',
+			sourceServiceName: 'Jellyfin',
+			externalId: 'item-1',
+			connection,
+			expected: file(),
+			...overrides,
+		};
+	}
+
+	it('asks a service we reach ourselves, and resumes on a confirmation', async () => {
+		const { service, getItem } = build({ file: file() });
+
+		const record = await service.revalidate(target(), context());
+
+		expect(getItem).toHaveBeenCalledWith(connection, 'item-1');
+		expect(record).toMatchObject({
+			outcome: RevalidationOutcome.CONFIRMED,
+			action: RevalidationAction.RESUME,
+			sourceServiceName: 'Jellyfin',
+			cause: TransferErrorKind.NETWORK,
+		});
+		expect(record.answeredAt).not.toBeNull();
+	});
+
+	it('asks the far end over the link when the source belongs to a peer', async () => {
+		const { service, request } = build(null, { file: file({ path: '/new/path.mkv' }) });
+
+		const record = await service.revalidate(
+			target({ peerId: 'peer-1' }),
+			context({ cause: TransferErrorKind.SOURCE_GONE }),
+		);
+
+		expect(request).toHaveBeenCalledWith('peer-1', 'media.revalidate', {
+			serviceId: 'service-1',
+			externalId: 'item-1',
+		});
+		expect(record).toMatchObject({
+			outcome: RevalidationOutcome.MOVED,
+			action: RevalidationAction.FOLLOW_MOVE,
+		});
+		expect(record.remoteFile?.path).toBe('/new/path.mkv');
+	});
+
+	it('calls a peer that holds nothing gone', async () => {
+		const { service } = build(null, { file: null });
+
+		expect(
+			await service.revalidate(target({ peerId: 'peer-1' }), context()),
+		).toMatchObject({ outcome: RevalidationOutcome.GONE, action: RevalidationAction.ABANDON });
+	});
+
+	it('calls a far end that will not answer unreachable, and leaves it undecided', async () => {
+		const { service } = build(null, new Error('link down'));
+
+		const record = await service.revalidate(target({ peerId: 'peer-1' }), context());
+
+		expect(record).toMatchObject({
+			outcome: RevalidationOutcome.UNREACHABLE,
+			action: RevalidationAction.REQUEUE,
+			answeredAt: null,
+			remoteFile: null,
+		});
+	});
+
+	it('is unreachable when there is no way to ask at all', async () => {
+		const { service } = build(null);
+
+		expect(
+			await service.revalidate(target({ connection: undefined }), context()),
+		).toMatchObject({ outcome: RevalidationOutcome.UNREACHABLE });
+	});
+
+	it('reports a source that no longer holds the item', async () => {
+		const { service } = build(null);
+
+		expect(await service.revalidate(target(), context())).toMatchObject({
+			outcome: RevalidationOutcome.GONE,
+		});
 	});
 });

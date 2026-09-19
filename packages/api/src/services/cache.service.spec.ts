@@ -177,3 +177,129 @@ describe('CacheService (in-memory)', () => {
 		expect(await cache.get('broken')).toBe('fine');
 	});
 });
+
+/**
+ * The Redis path, over a stand-in client.
+ *
+ * Both backends store the same serialised bytes, so these assert the commands
+ * rather than the values: what matters is that a key always carries an expiry in
+ * one statement, and that clearing uses `SCAN` rather than `KEYS` against a Redis
+ * that may well be serving something else too.
+ */
+describe('CacheService (Redis)', () => {
+	const store = new Map<string, string>();
+	let commands: string[];
+	let cache: CacheService;
+
+	beforeEach(() => {
+		store.clear();
+		commands = [];
+
+		jest.resetModules();
+		jest.doMock('ioredis', () => ({
+			__esModule: true,
+			default: class FakeRedis {
+				public async get(key: string): Promise<string | null> {
+					commands.push(`get ${key}`);
+
+					return store.get(key) ?? null;
+				}
+
+				public async set(key: string, value: string, mode: string, ttl: number) {
+					commands.push(`set ${key} ${mode} ${ttl}`);
+					store.set(key, value);
+				}
+
+				public async del(...keys: string[]) {
+					commands.push(`del ${keys.join(',')}`);
+
+					for (const key of keys) {
+						store.delete(key);
+					}
+				}
+
+				public async scan(cursor: string, ...args: (string | number)[]) {
+					commands.push(`scan ${cursor} ${args.join(' ')}`);
+
+					const pattern = String(args[1]).replace('*', '');
+					const keys = [...store.keys()].filter((key) => key.startsWith(pattern));
+
+					return ['0', keys] as [string, string[]];
+				}
+
+				public async quit() {
+					commands.push('quit');
+				}
+
+				public on() {
+					return this;
+				}
+			},
+		}));
+
+		process.env.REDIS_HOST = 'redis';
+
+		// Required after the mock is in place, so the service picks up the stand-in.
+		const { CacheService: Reloaded } = jest.requireActual<typeof import('./cache.service')>(
+			'./cache.service',
+		);
+
+		cache = new Reloaded();
+	});
+
+	afterEach(async () => {
+		await cache.onModuleDestroy();
+		delete process.env.REDIS_HOST;
+		jest.dontMock('ioredis');
+	});
+
+	it('prefixes its keys so it can share a Redis with something else', async () => {
+		await cache.set('key', 'value', 30);
+
+		expect([...store.keys()]).toEqual(['mcs:key']);
+	});
+
+	it('sets the expiry in the same statement as the value', async () => {
+		// Two statements leave a window where a crash between them produces a key that
+		// never expires.
+		await cache.set('key', 'value', 30);
+
+		expect(commands).toContain('set mcs:key EX 30');
+	});
+
+	it('never asks for a lifetime below a second', async () => {
+		await cache.set('key', 'value', 0.2);
+
+		expect(commands.some((command) => command.endsWith('EX 1'))).toBe(true);
+	});
+
+	it('reads back what it wrote', async () => {
+		await cache.set('key', { a: 1 }, 30);
+
+		expect(await cache.get('key')).toEqual({ a: 1 });
+	});
+
+	it('clears a prefix with SCAN rather than KEYS', async () => {
+		await cache.set('plex:a', 1, 30);
+		await cache.set('plex:b', 2, 30);
+		await cache.set('other', 3, 30);
+
+		await cache.clear('plex:');
+
+		expect(commands.some((command) => command.startsWith('scan'))).toBe(true);
+		expect([...store.keys()]).toEqual(['mcs:other']);
+	});
+
+	it('deletes one key', async () => {
+		await cache.set('key', 'value', 30);
+		await cache.delete('key');
+
+		expect(store.has('mcs:key')).toBe(false);
+	});
+
+	it('closes the connection when the module goes down', async () => {
+		await cache.onModuleDestroy();
+
+		expect(commands).toContain('quit');
+	});
+});

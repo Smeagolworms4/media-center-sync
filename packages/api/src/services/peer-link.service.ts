@@ -311,7 +311,20 @@ export class PeerLinkService implements OnModuleDestroy {
 		}
 
 		if (peer.address) {
-			const direct = await this._open(peer, peer.address, PeerLinkMode.DIRECT).catch(() => null);
+			const direct = await this._open(peer, peer.address, PeerLinkMode.DIRECT).catch(
+				(error: unknown) => {
+					// A far end that answered and failed to prove its identity is not a
+					// far end we failed to reach. Falling through to the rendezvous would
+					// reach the same machine, fail the same way, and report it as
+					// unreachable — which sends somebody looking at their firewall for a
+					// problem that is a wrong fingerprint.
+					if (this._isRejection(error)) {
+						throw error;
+					}
+
+					return null;
+				},
+			);
 
 			if (direct) {
 				this._links.set(peer.id, direct);
@@ -385,6 +398,16 @@ export class PeerLinkService implements OnModuleDestroy {
 		}
 
 		this._links.clear();
+	}
+
+	private _isRejection(error: unknown): boolean {
+		if (!(error instanceof ServiceUnavailableException)) {
+			return false;
+		}
+
+		const response = error.getResponse() as { key?: string };
+
+		return response?.key === ErrorKey.PEER_REJECTED;
 	}
 
 	private _link(peerId: string): PeerLink {
