@@ -35,7 +35,7 @@ export const useAuthStore = defineStore('auth', () => {
 	const rights = computed<Right[]>(() => tokenStore.session?.rights ?? []);
 	const authenticated = computed(() => user.value !== null);
 
-	function hasRight(right: Right | Right[]): boolean {
+	function hasRight (right: Right | Right[]): boolean {
 		if (!authenticated.value) {
 			return false;
 		}
@@ -44,7 +44,7 @@ export const useAuthStore = defineStore('auth', () => {
 	}
 
 	/** The ways in offered by this gateway. Public: the sign-in page needs it. */
-	async function loadProviders(): Promise<AuthProvider[]> {
+	async function loadProviders (): Promise<AuthProvider[]> {
 		providers.value = await caller('api').get<AuthProvider[]>('/auth/providers', {
 			useAuth: false,
 			keepLastKey: 'auth|providers',
@@ -53,14 +53,14 @@ export const useAuthStore = defineStore('auth', () => {
 		return providers.value;
 	}
 
-	async function login(request: LoginRequest): Promise<SessionUser> {
+	async function login (request: LoginRequest): Promise<SessionUser> {
 		const pair = await caller('api').post<TokenPair>('/auth/login', request, { useAuth: false });
 		tokenStore.store(pair);
 		ready.value = true;
 		return { ...pair.user, rights: pair.rights };
 	}
 
-	async function logout(): Promise<void> {
+	async function logout (): Promise<void> {
 		await tokenStore.revoke();
 	}
 
@@ -71,7 +71,7 @@ export const useAuthStore = defineStore('auth', () => {
 	 * restarted with a new signing key, or the session revoked from another
 	 * device. One refresh settles it, and a failure simply means "not signed in".
 	 */
-	function restore(): Promise<void> {
+	function restore (): Promise<void> {
 		restoring ??= (async () => {
 			try {
 				if (tokenStore.session && !tokenStore.isValid) {
@@ -87,7 +87,7 @@ export const useAuthStore = defineStore('auth', () => {
 	}
 
 	/** Resolves once the boot-time restore is done, running it if nobody has. */
-	function whenReady(): Promise<void> {
+	function whenReady (): Promise<void> {
 		return ready.value ? Promise.resolve() : restore();
 	}
 

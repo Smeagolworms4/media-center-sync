@@ -1,12 +1,12 @@
 import type { Validator } from '../index';
 import { Native } from '@/libs/utils';
 
-export default function required(
+export default function required (
 	this: any,
 	{
-		message
+		message,
 	}: {
-		message?: string
+		message?: string;
 	} = {}): Validator {
-	return (v: any) => (!Native.empty(v) && v !== false) && !(Array.isArray(v) && v.length === 0) || message || this.$t('front.validators.required');
+	return (v: any) => ((!Native.empty(v) && v !== false) && !(Array.isArray(v) && v.length === 0)) || message || this.$t('validators.required');
 }

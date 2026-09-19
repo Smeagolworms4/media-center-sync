@@ -1,3 +1,11 @@
+<script lang="ts" setup>
+	import { ref } from 'vue';
+	import { useNotifierStore } from '@/stores/notifier';
+
+	const el = ref<HTMLElement>();
+	const notifierStore = useNotifierStore();
+</script>
+
 <template>
 	<teleport to="body">
 		<div ref="el" class="components-notify">
@@ -16,14 +24,6 @@
 		</div>
 	</teleport>
 </template>
-
-<script lang="ts" setup>
-	import { ref } from 'vue';
-	import { useNotifierStore } from '@/stores/notifier';
-
-	const el = ref<HTMLElement>()
-	const notifierStore = useNotifierStore();
-</script>
 
 <style lang="scss">
 

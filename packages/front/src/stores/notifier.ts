@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 
-export type NotifyType = 'error'|'warning'|'success';
+export type NotifyType = 'error' | 'warning' | 'success';
 
 export interface NotifyInterface {
 	type?: NotifyType;
@@ -18,22 +18,21 @@ export const useNotifierStore = defineStore('notifier', {
 	} as CommonNotifierState),
 
 	actions: {
-		addNotify(notify: NotifyInterface) {
+		addNotify (notify: NotifyInterface) {
 			this.notifies.push(notify);
 		},
 
-		removeNotify(notify: NotifyInterface) {
+		removeNotify (notify: NotifyInterface) {
 			const index = this.notifies.indexOf(notify);
 			this.notifies.splice(index, 1);
 		},
 
-
-		async notify(notify: NotifyInterface): Promise<NotifyInterface> {
+		async notify (notify: NotifyInterface): Promise<NotifyInterface> {
 			notify = {
 				...{
-					type:  'success',
+					type: 'success',
 					message: '',
-					timeout: 5000
+					timeout: 5000,
 				} as NotifyInterface,
 				...notify,
 			};
@@ -42,5 +41,5 @@ export const useNotifierStore = defineStore('notifier', {
 			this.removeNotify(notify);
 			return notify;
 		},
-	}
+	},
 });

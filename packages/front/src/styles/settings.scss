@@ -1,0 +1,9 @@
+// Vuetify's SCSS entry point, referenced by `vite.config.mts`.
+//
+// Only variables Vuetify itself reads belong here: this file is compiled into the
+// framework's own stylesheet, so a rule written here would ship with every
+// component's styles rather than once.
+@use 'vuetify/settings' with (
+	$body-font-family: ('Roboto', sans-serif),
+	$border-radius-root: 6px
+);

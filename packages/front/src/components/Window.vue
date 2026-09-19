@@ -1,23 +1,18 @@
 <script lang="ts" setup>
-	/**
-	 * Boîte de dialogue générique (reprise d'un composant maison éprouvé,
-	 * réécrite en `<script setup>` + `defineModel` selon CLAUDE.md).
+/**
+	 * Generic dialog.
 	 *
-	 * Slots :
-	 *  - `default`   : corps de la modale (reçoit `close` pour fermer depuis l'intérieur).
-	 *  - `title`     : remplace le titre par défaut affiché dans la toolbar.
-	 *  - `actions`   : zone d'actions en bas (remplace le footer par défaut).
-	 *  - `activator` : ouvre la modale via un déclencheur custom (sinon contrôle externe via `v-model`).
-	 *
-	 * Tous les autres attributs (`max-width`, `persistent`, etc.) sont transmis à `v-dialog`.
+	 * Slots: `default` (body, receives `close`), `title`, `actions`, `activator`.
+	 * Every other attribute falls through to `v-dialog`, which is why
+	 * `inheritAttrs` is off — otherwise `max-width` would land on the card too.
 	 */
 	defineOptions({ inheritAttrs: false });
 
 	const open = defineModel<boolean>({ default: false });
 
 	withDefaults(defineProps<{
-		title?: string,
-		windowClass?: string,
+		title?: string;
+		windowClass?: string;
 	}>(), {
 		title: '',
 		windowClass: '',
@@ -32,7 +27,7 @@
 		scrollable
 	>
 		<template v-if="$slots.activator" #activator="activatorProps">
-			<slot name="activator" v-bind="activatorProps" :close="() => open = false" />
+			<slot v-bind="activatorProps" :close="() => open = false" name="activator" />
 		</template>
 
 		<v-card class="elevation-12" :class="windowClass">
@@ -40,6 +35,7 @@
 				<v-toolbar-title>
 					<slot name="title">{{ title }}</slot>
 				</v-toolbar-title>
+
 				<v-btn icon size="x-small" @click="open = false">
 					<v-icon>mdi-close</v-icon>
 				</v-btn>
@@ -48,8 +44,9 @@
 			<v-card-text>
 				<slot :close="() => open = false" />
 			</v-card-text>
+
 			<v-card-actions v-if="$slots.actions">
-				<slot name="actions" :close="() => open = false" />
+				<slot :close="() => open = false" name="actions" />
 			</v-card-actions>
 		</v-card>
 	</v-dialog>

@@ -19,7 +19,7 @@ export interface ParseOptions {
  */
 const KEY_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/;
 
-function looksLikeKey(value: string): boolean {
+function looksLikeKey (value: string): boolean {
 	return KEY_PATTERN.test(value);
 }
 
@@ -37,20 +37,20 @@ function looksLikeKey(value: string): boolean {
  * showing a generic sentence, and it happens every time the API adds a case the
  * bundled catalogue predates.
  */
-export function useApiError() {
-	function translateKey(value: string): string | null {
+export function useApiError () {
+	function translateKey (value: string): string | null {
 		if (!looksLikeKey(value)) {
 			return null;
 		}
 		return hasTranslation(value) ? translate(value) : null;
 	}
 
-	function fallbackMessage(options: ParseOptions): string {
+	function fallbackMessage (options: ParseOptions): string {
 		return hasTranslation(options.fallback) ? translate(options.fallback) : options.fallback;
 	}
 
 	/** A key becomes its sentence, an unknown key the fallback, prose stays prose. */
-	function toMessage(value: string, options: ParseOptions): string {
+	function toMessage (value: string, options: ParseOptions): string {
 		if (looksLikeKey(value)) {
 			return translateKey(value) ?? fallbackMessage(options);
 		}
@@ -65,7 +65,7 @@ export function useApiError() {
 	 * one control is matched first; otherwise the leaf is tried, since that is
 	 * what a flattened form names its input.
 	 */
-	function matchField(sentence: string, mappedFields: Set<string>): string | null {
+	function matchField (sentence: string, mappedFields: Set<string>): string | null {
 		const head = sentence.split(/\s+/, 1)[0] ?? '';
 		if (!head) {
 			return null;
@@ -81,12 +81,12 @@ export function useApiError() {
 	 * Drops the property name the backend put in front of its sentence. Under the
 	 * matching input, "username should not be empty" reads as a stutter.
 	 */
-	function stripFieldPrefix(sentence: string): string {
+	function stripFieldPrefix (sentence: string): string {
 		const stripped = sentence.replace(/^\S+\s+/, '');
 		return stripped.length > 0 ? stripped : sentence;
 	}
 
-	function parseMessages(messages: string[], options: ParseOptions): ParsedApiError {
+	function parseMessages (messages: string[], options: ParseOptions): ParsedApiError {
 		const fieldErrors: Record<string, string[]> = {};
 		const unmapped: string[] = [];
 
@@ -112,7 +112,7 @@ export function useApiError() {
 		};
 	}
 
-	function parseJson(data: unknown, options: ParseOptions): ParsedApiError {
+	function parseJson (data: unknown, options: ParseOptions): ParsedApiError {
 		if (typeof data === 'string') {
 			return { mainError: toMessage(data, options), fieldErrors: {} };
 		}
@@ -132,7 +132,7 @@ export function useApiError() {
 		return { mainError: fallbackMessage(options), fieldErrors: {} };
 	}
 
-	async function parseApiError(error: unknown, options: ParseOptions): Promise<ParsedApiError> {
+	async function parseApiError (error: unknown, options: ParseOptions): Promise<ParsedApiError> {
 		try {
 			if (error instanceof Response) {
 				return parseJson(await error.json(), options);

@@ -1,35 +1,43 @@
-import fileFormats from './fileFormats';
-import passwordClass from './passwordClass';
-import password from './password';
-import range from './range';
-import onlyLetters from './onlyLetters';
-import onlyInteger from './onlyInteger';
-import repeatField from './repeatField';
+import absolutePath from './absolutePath';
+import byteSize from './byteSize';
+import cron from './cron';
 import email from './email';
+import fileFormats from './fileFormats';
+import fileSize from './fileSize';
 import maxlength from './maxlength';
 import notNull from './notNull';
-import required from './required';
-import fileSize from './fileSize';
-import regExp from './regExp';
-import url from './url';
 import object from './object';
+import onlyInteger from './onlyInteger';
+import onlyLetters from './onlyLetters';
+import password from './password';
+import passwordClass from './passwordClass';
+import range from './range';
+import regExp from './regExp';
+import repeatField from './repeatField';
+import required from './required';
+import url from './url';
+import urlWithPort from './urlWithPort';
 
 const validators = {
-	fileFormats,
-	passwordClass,
-	password,
-	range,
-	onlyLetters,
-	onlyInteger,
-	repeatField,
+	absolutePath,
+	byteSize,
+	cron,
 	email,
+	fileFormats,
+	fileSize,
 	maxlength,
 	notNull,
-	required,
-	fileSize,
-	regExp,
-	url,
 	object,
-}
-export default validators;
+	onlyInteger,
+	onlyLetters,
+	password,
+	passwordClass,
+	range,
+	regExp,
+	repeatField,
+	required,
+	url,
+	urlWithPort,
+};
 
+export default validators;

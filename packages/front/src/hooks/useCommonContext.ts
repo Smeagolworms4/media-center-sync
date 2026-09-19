@@ -1,13 +1,13 @@
 import type { useI18n as useI18nVue } from 'vue-i18n';
 import type { Router } from 'vue-router';
+import { getActivePinia, type Pinia } from 'pinia';
 import { type App, getCurrentInstance } from 'vue';
-import { type Pinia, getActivePinia } from 'pinia';
 
-export function useCommonContext(): {
-	app: App,
-	i18n: ReturnType<typeof useI18nVue>,
-	router: Router,
-	pinia: Pinia,
+export function useCommonContext (): {
+	app: App;
+	i18n: ReturnType<typeof useI18nVue>;
+	router: Router;
+	pinia: Pinia;
 } {
 	const instance = getCurrentInstance();
 	if (instance) {
@@ -21,7 +21,7 @@ export function useCommonContext(): {
 			i18n,
 			router,
 			pinia,
-		}
+		};
 	}
 	const pinia = getActivePinia();
 	if (pinia) {
@@ -30,22 +30,21 @@ export function useCommonContext(): {
 			i18n: (pinia as any).$i18n.global,
 			router: (pinia as any).$router,
 			pinia,
-		}
+		};
 	}
 
-	throw new Error('Not in context')
+	throw new Error('Not in context');
 }
 
-export function useApp() {
+export function useApp () {
 	return useCommonContext().app;
 }
-export function useI18n() {
+export function useI18n () {
 	return useCommonContext().i18n;
 }
-export function useRouter() {
+export function useRouter () {
 	return useCommonContext().router;
 }
-export function usePinia() {
+export function usePinia () {
 	return useCommonContext().pinia;
 }
-

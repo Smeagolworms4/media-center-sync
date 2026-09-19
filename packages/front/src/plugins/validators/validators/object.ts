@@ -1,12 +1,12 @@
 import type { Validator } from '../index';
 import { Native } from '@/libs/utils';
 
-export default function object(
+export default function object (
 	this: any,
 	{
 		rules,
 	}: {
-		rules: Record<string, Validator[]>,
+		rules: Record<string, Validator[]>;
 	}): Validator {
 	return (v: any) => {
 		if (!Native.empty(v)) {

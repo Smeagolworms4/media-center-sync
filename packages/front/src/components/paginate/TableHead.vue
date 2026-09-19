@@ -1,26 +1,6 @@
-<template>
-	<th
-		class="components-paginate-tableHead"
-		:class="{
-			'components-paginate-tableHead--sticky': !!sticky,
-			'components-paginate-tableHead--sort': !!sortBy,
-			'components-paginate-tableHead--sorted': !!sortBy && sortBy === order,
-			'components-paginate-tableHead--sortDesc': direction === AscDesc.DESC,
-		}"
-		@click="handleOrderBy()"
-	>
-		<div v-ripple="!!sortBy" class="components-paginate-tableHead_container" >
-			<v-icon v-if="!!sortBy" class="components-paginate-tableHead_arrowSort">mdi-arrow-up</v-icon>
-			<div class="components-paginate-tableHead_data">
-				<slot></slot>
-			</div>
-		</div>
-	</th>
-</template>
-
 <script lang="ts" setup>
 	import { computed, inject, type Ref } from 'vue';
-	import { AscDesc } from '@/models';
+	import { AscDesc } from './sort';
 
 	const props = withDefaults(defineProps<{
 		sortBy?: Nullable<string>;
@@ -43,7 +23,7 @@
 	const order = computed(() => paginateTable?.order.value);
 	const direction = computed(() => paginateTable?.direction.value);
 
-	const handleOrderBy = () => {
+	function handleOrderBy () {
 		if (!!props.sortBy && paginateTable) {
 			if (paginateTable.order.value === props.sortBy) {
 				paginateTable.direction.value = paginateTable.direction.value === AscDesc.DESC ? AscDesc.ASC : AscDesc.DESC;
@@ -55,6 +35,27 @@
 		}
 	}
 </script>
+
+<template>
+	<th
+		class="components-paginate-tableHead"
+		:class="{
+			'components-paginate-tableHead--sticky': !!sticky,
+			'components-paginate-tableHead--sort': !!sortBy,
+			'components-paginate-tableHead--sorted': !!sortBy && sortBy === order,
+			'components-paginate-tableHead--sortDesc': direction === AscDesc.DESC,
+		}"
+		@click="handleOrderBy()"
+	>
+		<div v-ripple="!!sortBy" class="components-paginate-tableHead_container">
+			<v-icon v-if="!!sortBy" class="components-paginate-tableHead_arrowSort">mdi-arrow-up</v-icon>
+
+			<div class="components-paginate-tableHead_data">
+				<slot />
+			</div>
+		</div>
+	</th>
+</template>
 
 <style lang="scss">
 	.components-paginate-tableHead {

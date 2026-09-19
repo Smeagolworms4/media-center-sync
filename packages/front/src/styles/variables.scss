@@ -1,0 +1,9 @@
+// Prepended to every SCSS block in the application (see `vite.config.mts`).
+//
+// Variables and mixins only. A rule written here would be emitted once per
+// component that has a `<style>` block, which is every one of them.
+@forward './size';
+@forward './mixins';
+
+$layoutGutter: 16px;
+$cardGap: 16px;

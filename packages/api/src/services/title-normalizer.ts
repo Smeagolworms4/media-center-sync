@@ -24,7 +24,7 @@ const NOISE_TOKENS = new Set([
 	// Source.
 	'bluray', 'blueray', 'bdrip', 'brrip', 'bdremux', 'bd', 'webrip', 'webdl', 'web', 'hdtv',
 	'pdtv', 'dvdrip', 'dvdscr', 'dvd', 'hdrip', 'remux', 'cam', 'camrip', 'telesync', 'telecine',
-	'ts', 'tc', 'r5', 'vod', 'amzn', 'nf', 'dsnp', 'hmax', 'atvp', 'hulu', 'itunes',
+	'ts', 'tc', 'r5', 'vod', 'amzn', 'nf', 'dsnp', 'hmax', 'atvp', 'hulu', 'itunes', 'dl', 'rip',
 	// Video codec.
 	'x264', 'x265', 'h264', 'h265', 'avc', 'hevc', 'xvid', 'divx', 'av1', 'vp9', 'mpeg2',
 	'10bit', '8bit', '12bit', 'hi10p', 'hi10',
@@ -32,7 +32,7 @@ const NOISE_TOKENS = new Set([
 	'hdr', 'hdr10', 'hdr10plus', 'dv', 'dovi', 'sdr', 'hlg',
 	// Audio.
 	'aac', 'aac2', 'ac3', 'eac3', 'ddp', 'ddp5', 'dd5', 'dd', 'dts', 'dtshd', 'dtsma', 'truehd',
-	'atmos', 'flac', 'mp3', 'opus', 'lpcm', 'pcm', '2ch', '6ch', '8ch',
+	'atmos', 'flac', 'mp3', 'opus', 'lpcm', 'pcm', '2ch', '6ch', '8ch', 'ma', 'hra', 'es',
 	// Edition and language markers.
 	'proper', 'repack', 'rerip', 'internal', 'limited', 'extended', 'uncut', 'unrated', 'remastered',
 	'imax', 'theatrical', 'directors', 'director', 'criterion', 'anniversary', 'complete',
@@ -145,6 +145,14 @@ export function normalizeTitle(raw: string): string {
 	// `Rick & Morty`, the next `Rick and Morty`.
 	value = value.replace(/&/g, ' and ');
 
+	// A parenthesised year is metadata, and removing it here rather than as a token
+	// is what keeps `Blade Runner 2049 (2017)` from losing both of its numbers.
+	value = value.replace(/[(\[](19|20)\d{2}[)\]]/g, ' ');
+
+	// Channel layouts have to go before the dots become spaces, or `5.1` arrives as
+	// two perfectly ordinary numbers that nothing would drop.
+	value = value.replace(/\b\d\.\d\b/g, ' ');
+
 	// Separators used as spaces in release names. Apostrophes close up instead, so
 	// `don't` becomes `dont` rather than `don t`.
 	value = value.replace(/['’`]/g, '');
@@ -153,14 +161,17 @@ export function normalizeTitle(raw: string): string {
 	const tokens = value.split(/\s+/).filter((token) => token !== '');
 	const kept: string[] = [];
 
-	for (const token of tokens) {
+	for (const [index, token] of tokens.entries()) {
 		if (isNoiseToken(token)) {
 			continue;
 		}
 
-		// A parenthesised or trailing year is metadata, and it is carried separately
-		// by `extractYear` so a match can weigh it instead of relying on the string.
-		if (YEAR_PATTERN.test(token) && kept.length > 0) {
+		// A bare year is only metadata when release noise follows it — that is the
+		// shape of `Spirited.Away.2001.1080p`. Dropping every four-digit year would
+		// take the `2049` out of `Blade Runner 2049`, which is part of the title.
+		const followedByNoise = tokens.slice(index + 1).some((later) => isNoiseToken(later));
+
+		if (YEAR_PATTERN.test(token) && kept.length > 0 && followedByNoise) {
 			continue;
 		}
 
@@ -236,7 +247,10 @@ export function parseEpisodeNumbers(raw: string): EpisodeNumbers | null {
 
 	const value = foldAccents(raw).replace(/[._]/g, ' ');
 
-	const sxxexx = /\bs(?:eason)?\s*(\d{1,3})\s*[\s._-]*\s*e(?:p(?:isode)?)?\s*(\d{1,4})\b/i.exec(
+	// No trailing word boundary on the episode group: `S02E03E04` is a two-part
+	// episode, and `\b` between `3` and `E` does not exist, so the whole tag would
+	// fail to match rather than yielding its first episode.
+	const sxxexx = /\bs(?:eason)?\s*(\d{1,3})\s*[\s._-]*\s*e(?:p(?:isode)?)?\s*(\d{1,4})(?!\d)/i.exec(
 		value,
 	);
 
@@ -244,14 +258,14 @@ export function parseEpisodeNumbers(raw: string): EpisodeNumbers | null {
 		return { seasonNumber: Number(sxxexx[1]), episodeNumber: Number(sxxexx[2]) };
 	}
 
-	const cross = /\b(\d{1,2})x(\d{1,3})\b/i.exec(value);
+	const cross = /\b(\d{1,2})x(\d{1,3})(?!\d)/i.exec(value);
 
 	if (cross) {
 		return { seasonNumber: Number(cross[1]), episodeNumber: Number(cross[2]) };
 	}
 
 	// `Season 1/Episode 2`, the form a folder tree produces rather than a file name.
-	const spelled = /\bseason\s*(\d{1,3})\b[^\d]{0,12}\bepisode\s*(\d{1,4})\b/i.exec(value);
+	const spelled = /\bseason\s*(\d{1,3})\b[^\d]{0,12}\bepisode\s*(\d{1,4})(?!\d)/i.exec(value);
 
 	if (spelled) {
 		return { seasonNumber: Number(spelled[1]), episodeNumber: Number(spelled[2]) };
@@ -287,7 +301,7 @@ function titlePart(raw: string): string {
 	const markers: number[] = [];
 
 	const episodeTag =
-		/\bs(?:eason)?\s*\d{1,3}\s*[\s._-]*\s*e(?:p(?:isode)?)?\s*\d{1,4}\b/i.exec(spaced) ??
+		/\bs(?:eason)?\s*\d{1,3}\s*[\s._-]*\s*e(?:p(?:isode)?)?\s*\d{1,4}(?!\d)/i.exec(spaced) ??
 		/\b\d{1,2}x\d{1,3}\b/i.exec(spaced) ??
 		/\bseason\s*\d{1,3}\b/i.exec(spaced);
 

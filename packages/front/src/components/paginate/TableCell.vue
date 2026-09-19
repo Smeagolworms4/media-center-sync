@@ -1,18 +1,3 @@
-<template>
-	<td
-		class="components-paginate-tableCell"
-		:class="{
-			'components-paginate-tableCell--sticky': !!sticky,
-		}"
-	>
-		<div class="components-paginate-tableCell_container">
-			<div class="components-paginate-tableCell_data" :class="classContent">
-				<slot></slot>
-			</div>
-		</div>
-	</td>
-</template>
-
 <script lang="ts" setup>
 	withDefaults(defineProps<{
 		sticky?: boolean;
@@ -22,6 +7,21 @@
 		classContent: '',
 	});
 </script>
+
+<template>
+	<td
+		class="components-paginate-tableCell"
+		:class="{
+			'components-paginate-tableCell--sticky': !!sticky,
+		}"
+	>
+		<div class="components-paginate-tableCell_container">
+			<div class="components-paginate-tableCell_data" :class="classContent">
+				<slot />
+			</div>
+		</div>
+	</td>
+</template>
 
 <style lang="scss">
 	.components-paginate-tableCell {

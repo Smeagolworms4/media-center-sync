@@ -1,11 +1,10 @@
 export class Subscription {
-	public constructor(
+	public constructor (
 		public readonly id: number,
 		private _unsubscribe: () => void,
-	) {
-	}
+	) {}
 
-	public unsubscribe(): void {
-		this._unsubscribe()
+	public unsubscribe (): void {
+		this._unsubscribe();
 	}
 }

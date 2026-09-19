@@ -1,5 +1,5 @@
-import { registerCaller } from './register';
 import { Caller } from './Caller';
+import { registerCaller } from './register';
 
 /**
  * Empty by default, and that is the point.

@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/auth';
  * during the boot restore has no bearer yet. `onLogged` runs when the session is
  * there — immediately when it already was, later when it arrives.
  */
-export function useIsMounted() {
+export function useIsMounted () {
 	const isMounted = ref(false);
 	const isUnmounted = ref(false);
 	const mountedCallbacks: (() => unknown)[] = [];

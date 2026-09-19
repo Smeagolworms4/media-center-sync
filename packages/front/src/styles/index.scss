@@ -1,0 +1,23 @@
+// The application's own global rules. Loaded once, from `main.ts`.
+
+html {
+	// Vuetify's layout already manages the scrolling container; letting the page
+	// scroll too produces the double scrollbar every Vuetify shell starts with.
+	overflow-y: auto;
+}
+
+body {
+	margin: 0;
+}
+
+// Long media titles and filesystem paths have no spaces to break on, and one of
+// them is enough to give a whole page a horizontal scrollbar.
+.text-break-anywhere {
+	overflow-wrap: anywhere;
+}
+
+.page-container {
+	padding: $layoutGutter;
+	max-width: 1600px;
+	margin: 0 auto;
+}

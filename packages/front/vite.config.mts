@@ -62,6 +62,10 @@ export default defineConfig(({ mode }) => {
 		test: {
 			environment: 'jsdom',
 			globals: true,
+			// Vuetify ships one stylesheet per component and imports it from the
+			// component module. Left external, those imports reach Node's ESM loader,
+			// which has no idea what a `.css` file is and fails the whole suite.
+			server: { deps: { inline: ['vuetify'] } },
 			setupFiles: ['./tests/unit/setup.ts'],
 			include: ['src/**/*.spec.ts', 'tests/unit/**/*.spec.ts'],
 			coverage: {

@@ -1,21 +1,21 @@
 import type { Validator } from '../index';
 import { byte2Human, Native } from '@/libs/utils';
 
-export default function fileSize(
+export default function fileSize (
 	this: any,
 	{
 		size,
-		message
+		message,
 	}: {
-		size: number,
-		message?: string,
+		size: number;
+		message?: string;
 	}): Validator {
 	return (v: any) => {
 		if (!Native.empty(v)) {
-			v = Array.isArray(v) ? v : [ v ];
+			v = Array.isArray(v) ? v : [v];
 			for (const file of v) {
 				if (file.size > size) {
-					return message || this.$t('front.validators.file_size', { size: (byte2Human(size, this.$t('front.general.byte_unit'))) });
+					return message || this.$t('validators.file_size', { size: (byte2Human(size, this.$t('general.byte_unit'))) });
 				}
 			}
 		}

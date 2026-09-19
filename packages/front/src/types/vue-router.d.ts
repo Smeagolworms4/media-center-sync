@@ -1,10 +1,10 @@
-import type { RouteLocationNormalizedLoaded, Router } from 'vue-router'
+import type { RouteLocationNormalizedLoaded, Router } from 'vue-router';
 
 declare module '@vue/runtime-core' {
 	interface ComponentCustomProperties {
-		$route: RouteLocationNormalizedLoaded
-		$router: Router
+		$route: RouteLocationNormalizedLoaded;
+		$router: Router;
 	}
 }
 
-export {}
+export {};

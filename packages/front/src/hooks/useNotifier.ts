@@ -2,11 +2,11 @@ import { AbortCallerException } from '@/libs/caller';
 import { translate } from '@/plugins/i18n';
 import { type NotifyType, useNotifierStore } from '@/stores/notifier';
 
-export function useNotifier() {
+export function useNotifier () {
 	const notifierStore = useNotifierStore();
 
 	/** `message` is an i18n key; an unknown one falls back to itself, unchanged. */
-	const notify = async (message: string, type: NotifyType = 'success', timeout: number = 5000) => {
+	const notify = async (message: string, type: NotifyType = 'success', timeout = 5000) => {
 		await notifierStore.notify({ type, message: translate(message), timeout });
 	};
 
@@ -23,9 +23,9 @@ export function useNotifier() {
 			onComplete = null,
 			message = 'error.general',
 		}: {
-			onError?: Nullable<(error: unknown, ...args: Args) => unknown>,
-			onComplete?: Nullable<(...args: Args) => unknown>,
-			message?: string,
+			onError?: Nullable<(error: unknown, ...args: Args) => unknown>;
+			onComplete?: Nullable<(...args: Args) => unknown>;
+			message?: string;
 		} = {},
 	) => {
 		return async (...args: Args): Promise<R | undefined> => {

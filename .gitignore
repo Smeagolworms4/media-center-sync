@@ -1,7 +1,13 @@
 node_modules/
 dist/
-build/
 coverage/
+
+# Build output, anchored to each package. An unanchored `build/` also matched
+# `docker/build/`, which is where the production image lives — the Dockerfile was
+# silently never committed, and the pipeline would have failed on a file that exists
+# on every workstation.
+/packages/*/build/
+/build/
 *.log
 *.tsbuildinfo
 junit.xml

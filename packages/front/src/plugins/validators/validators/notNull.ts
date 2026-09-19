@@ -1,11 +1,11 @@
 import type { Validator } from '../index';
 
-export default function notNull(
+export default function notNull (
 	this: any,
 	{
-		message
+		message,
 	}: {
-		message?: string
+		message?: string;
 	} = {}): Validator {
-	return (v: any) => (v !== null) || message || this.$t('front.validators.not_null');
+	return (v: any) => (v !== null) || message || this.$t('validators.not_null');
 }

@@ -5,72 +5,55 @@ import { useTokenStore } from '@/stores/token';
 
 export interface CallerOptions extends RequestInit {
 	/** Attach the bearer, refreshing it first when it is about to expire. */
-	useAuth?: boolean,
+	useAuth?: boolean;
 	/** Do not fan the failure out to the global error observers. */
-	silentError?: boolean
+	silentError?: boolean;
 	/** Starting a call under this key aborts the one already in flight under it. */
-	abortKey?: string
+	abortKey?: string;
 	/** Only the most recent call under this key is allowed to resolve. */
-	keepLastKey?: string
-	onAbort?: () => any
+	keepLastKey?: string;
+	onAbort?: () => any;
 }
 
 export class AbortCallerException extends Error {
-	constructor() {
-		super('Abort call url')
+	constructor () {
+		super('Abort call url');
 	}
 }
 
 export class Caller {
-
-	private _baseUrl: string;
-	private _pinia: Pinia;
-	private _defaultOptions: CallerOptions;
-
-	private _abortCtrls: Record<string, AbortController> = {};
-	private _keepLasts: Record<string, { time: number, abortCtrl: AbortController }[]> = {};
-
+	/**
+	 * Hooks on the whole call lifecycle.
+	 *
+	 * This is how cross-cutting behaviour is attached without every caller knowing
+	 * about it: the global loading bar subscribes to start and complete, the
+	 * notifier to errors. `register.ts` fans them out to application-wide
+	 * subscribers.
+	 */
 	public readonly startObserver = new SimpleObserver();
 	public readonly beforeObserver = new SimpleObserver();
 	public readonly successObserver = new SimpleObserver();
 	public readonly errorObserver = new SimpleObserver();
 	public readonly completeObserver = new SimpleObserver();
 
-	public constructor(
+	private _baseUrl: string;
+	private _pinia: Pinia;
+	private _defaultOptions: CallerOptions;
+
+	private _abortCtrls: Record<string, AbortController> = {};
+	private _keepLasts: Record<string, { time: number; abortCtrl: AbortController }[]> = {};
+
+	public constructor (
 		baseUrl: string,
 		pinia: Pinia,
 		defaultOptions: CallerOptions = {},
 	) {
-		this._baseUrl = baseUrl
-		this._pinia = pinia
-		this._defaultOptions = defaultOptions
-	}
-
-	private async buildHeaders(options: CallerOptions = {}): Promise<Record<string, string>> {
-		const headers: Record<string, string> = {
-			...(options.headers as Record<string, string> ?? {}),
-		};
-
-		if (!headers['Content-Type'] && options.body) {
-			headers['Content-Type'] = 'application/json';
-		}
-
-		const i18nStore = useI18nStore(this._pinia);
-		headers['X-Locale'] = i18nStore.locale;
-
-		if (options.useAuth) {
-			const tokenStore = useTokenStore(this._pinia);
-			const accessToken = await tokenStore.getAccessToken();
-			if (accessToken) {
-				headers['Authorization'] = `Bearer ${accessToken}`;
-			}
-		}
-
-		return headers;
+		this._baseUrl = baseUrl;
+		this._pinia = pinia;
+		this._defaultOptions = defaultOptions;
 	}
 
 	public async request<T = any>(url: string, options: CallerOptions = {}): Promise<T> {
-
 		const event = { url, options };
 		await this.startObserver.trigger(event);
 		url = event.url;
@@ -101,7 +84,7 @@ export class Caller {
 				headers: await this.buildHeaders({ ...this._defaultOptions, ...options }),
 			};
 
-			if (typeof options.body !== 'undefined' && options.body !== null && typeof options.body !== 'string') {
+			if (options.body !== undefined && options.body !== null && typeof options.body !== 'string') {
 				options.body = JSON.stringify(options.body);
 			}
 
@@ -120,7 +103,7 @@ export class Caller {
 							return false;
 						}
 						return keep.time !== time;
-					})
+					});
 				}
 
 				const text = await response.text();
@@ -132,7 +115,6 @@ export class Caller {
 			}
 
 			throw response;
-
 		} catch (error: any) {
 			if (error instanceof DOMException && error.name === 'AbortError') {
 				options.onAbort?.();
@@ -165,5 +147,28 @@ export class Caller {
 
 	public delete<T = any>(url: string, options: CallerOptions = {}): Promise<T> {
 		return this.request<T>(url, { ...options, method: 'DELETE' });
+	}
+
+	private async buildHeaders (options: CallerOptions = {}): Promise<Record<string, string>> {
+		const headers: Record<string, string> = {
+			...options.headers as Record<string, string>,
+		};
+
+		if (!headers['Content-Type'] && options.body) {
+			headers['Content-Type'] = 'application/json';
+		}
+
+		const i18nStore = useI18nStore(this._pinia);
+		headers['X-Locale'] = i18nStore.locale;
+
+		if (options.useAuth) {
+			const tokenStore = useTokenStore(this._pinia);
+			const accessToken = await tokenStore.getAccessToken();
+			if (accessToken) {
+				headers['Authorization'] = `Bearer ${accessToken}`;
+			}
+		}
+
+		return headers;
 	}
 }

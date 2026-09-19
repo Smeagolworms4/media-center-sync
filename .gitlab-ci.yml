@@ -30,8 +30,8 @@ variables:
     # On a workstation you never see it — `node_modules` comes from the host through
     # the volume — but on a runner `npm ci` fails on `gyp ERR! find Python`.
     - apk add --no-cache python3 make g++ git
-    - npm ci --workspaces --include-workspace-root
-    - npm run build --workspace @mcs/shared
+    - npm run ci:all
+    - npm run build:shared
   cache:
     key:
       files:
@@ -55,7 +55,7 @@ test:api:
   extends: .node
   stage: verify
   script:
-    - npm run test:cov --workspace @mcs/api
+    - npm --prefix packages/api run test:cov
   coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
   artifacts:
     when: always
@@ -70,7 +70,7 @@ test:front:
   extends: .node
   stage: verify
   script:
-    - npm run test:cov --workspace @mcs/front
+    - npm --prefix packages/front run test:cov
   coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
   artifacts:
     when: always

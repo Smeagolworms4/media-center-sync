@@ -300,6 +300,11 @@ make init        # install, migrate, seed
 make dev         # run the API and the interface together
 ```
 
+> Install through `make`, not `npm`. `better-sqlite3` compiles a native binding and
+> the containers are Alpine: one built on a glibc host refuses to load inside them,
+> with an error about a missing `ld-linux-x86-64.so.2` that says nothing about where
+> the install came from.
+
 | | |
 |---|---|
 | Interface | http://localhost:3200 |

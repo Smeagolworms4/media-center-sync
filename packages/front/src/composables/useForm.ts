@@ -1,14 +1,14 @@
-import { reactive, readonly, ref, toValue, type MaybeRefOrGetter } from 'vue';
 import type { VForm } from 'vuetify/components';
 import type { ValidationRule } from 'vuetify/framework';
+import { type MaybeRefOrGetter, reactive, readonly, ref, toValue } from 'vue';
 import { useApiError } from '@/hooks/useApiError';
 
 export type RuleResult = string | boolean;
 export type Rule = (value: unknown) => RuleResult | PromiseLike<RuleResult>;
 
 interface UseFormOptionsField {
-	rules?: MaybeRefOrGetter<Rule[]>;
 	[name: string]: MaybeRefOrGetter<unknown>;
+	rules?: MaybeRefOrGetter<Rule[]>;
 }
 
 interface UseFormOptions {
@@ -19,9 +19,9 @@ interface UseFormOptions {
 }
 
 export interface FieldBindings {
-	'error-messages': string[];
-	rules?: ValidationRule[];
 	[name: string]: never | string[] | ValidationRule[] | undefined;
+	'error-messages': string[];
+	'rules'?: ValidationRule[];
 }
 
 export interface IForm {
@@ -42,7 +42,7 @@ export interface IForm {
  * that field — which is how `useApiError` knows where a message belongs — and
  * returns the bindings to spread onto the control.
  */
-export function useForm(options: UseFormOptions): IForm {
+export function useForm (options: UseFormOptions): IForm {
 	const { parseApiError } = useApiError();
 	const loading = ref(false);
 	const mainError = ref<string | null>(null);
@@ -50,7 +50,7 @@ export function useForm(options: UseFormOptions): IForm {
 	const mappedFields = new Set<string>();
 	const component = ref<VForm | null>(null);
 
-	async function parseError(error: unknown): Promise<void> {
+	async function parseError (error: unknown): Promise<void> {
 		console.error(error);
 		const parsed = await parseApiError(error, {
 			fallback: toValue(options.fallbackError) ?? 'error.general',
@@ -60,13 +60,15 @@ export function useForm(options: UseFormOptions): IForm {
 		fieldErrors.value = parsed.fieldErrors;
 	}
 
-	async function handle(): Promise<void> {
+	async function handle (): Promise<void> {
 		mainError.value = null;
 		fieldErrors.value = {};
 		loading.value = true;
 		try {
 			component.value?.resetValidation();
-			if ((await options.beforeValidate?.()) === false) return;
+			if ((await options.beforeValidate?.()) === false) {
+				return;
+			}
 			const result = await component.value?.validate();
 			if (result?.valid !== false) {
 				await options.handle();
@@ -78,11 +80,11 @@ export function useForm(options: UseFormOptions): IForm {
 		}
 	}
 
-	function setFieldErrors(errors: Record<string, string[]>): void {
+	function setFieldErrors (errors: Record<string, string[]>): void {
 		fieldErrors.value = { ...fieldErrors.value, ...errors };
 	}
 
-	function field(name: string): FieldBindings {
+	function field (name: string): FieldBindings {
 		mappedFields.add(name);
 		const raw = toValue(toValue(options.fields ?? {})[name] ?? {});
 		const { rules, 'error-messages': errorMessagesRaw, ...extra } = raw;
@@ -100,7 +102,7 @@ export function useForm(options: UseFormOptions): IForm {
 
 		return {
 			'error-messages': [...(fieldErrors.value[name] ?? []), ...(errorMessages ?? [])],
-			rules: wrappedRules,
+			'rules': wrappedRules,
 			...resolvedExtra,
 		} as FieldBindings;
 	}
@@ -118,7 +120,9 @@ export function useForm(options: UseFormOptions): IForm {
 	// and anything else that tries to serialise the form object.
 	Object.defineProperty(form, 'component', {
 		get: () => component.value,
-		set: (v: IForm['component']) => { component.value = v; },
+		set: (v: IForm['component']) => {
+			component.value = v;
+		},
 		enumerable: false,
 		configurable: true,
 	});

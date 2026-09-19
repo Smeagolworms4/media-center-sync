@@ -1,29 +1,29 @@
+import type { QueryRefParser } from '@/libs/vue3-query-ref/queryRef';
 import { ref, watch } from 'vue';
 import { queryTypes } from './queryTypes';
-import type { QueryRefParser } from '@/libs/vue3-query-ref/queryRef';
 
 export interface StorageRefStorage {
-	storage: 'local'|'session';
+	storage: 'local' | 'session';
 }
-export interface StorageRefOptions<T= string> extends QueryRefParser<T>, StorageRefStorage {
+export interface StorageRefOptions<T = string> extends QueryRefParser<T>, StorageRefStorage {
 }
 
-function getStorage(name: string, storage: 'local'|'session'): any {
+function getStorage (name: string, storage: 'local' | 'session'): any {
 	if (storage === 'local') {
 		try {
 			return JSON.parse(window.localStorage.getItem(name) as any);
-		} catch (_) {
+		} catch {
 			return null;
 		}
 	} else {
 		try {
 			return JSON.parse(window.sessionStorage.getItem(name) as any);
-		} catch (_) {
+		} catch {
 			return null;
 		}
 	}
 }
-function setStorage(name: string, value: any, storage: 'local'|'session'): void {
+function setStorage (name: string, value: any, storage: 'local' | 'session'): void {
 	if (storage === 'local') {
 		window.localStorage.setItem(name, JSON.stringify(value));
 	} else {
@@ -31,16 +31,18 @@ function setStorage(name: string, value: any, storage: 'local'|'session'): void 
 	}
 }
 
-export function storageRef<T = string>(name: string, options: Partial<StorageRefOptions<T>> = {}) {
-
+export function storageRef<T = string> (name: string, options: Partial<StorageRefOptions<T>> = {}) {
 	options = {
 		storage: 'local',
-		...queryTypes.string as any,
+		// Called, not spread: `queryTypes.string` is a factory, and spreading the
+		// function itself leaves `parse` and `serialize` undefined — which makes every
+		// read return the default and silently erases what was just written.
+		...queryTypes.string() as any,
 		defaultValue: null,
-		...options
+		...options,
 	};
 
-	const get = (): T|null => {
+	const get = (): T | null => {
 		if (typeof window === 'undefined') {
 			return (options as any).defaultValue;
 		}
@@ -52,11 +54,11 @@ export function storageRef<T = string>(name: string, options: Partial<StorageRef
 		return defaultValue;
 	};
 
-	const set = (value: T|null) => {
+	const set = (value: T | null) => {
 		if (typeof window === 'undefined') {
 			return;
 		}
-		const valueFinal = value !== null && typeof value !== 'undefined' ? ((options as any).serialize ? (options as any).serialize(value) : value) : null;
+		const valueFinal = value !== null && value !== undefined ? ((options as any).serialize ? (options as any).serialize(value) : value) : null;
 		setStorage(name, valueFinal, options.storage!);
 	};
 

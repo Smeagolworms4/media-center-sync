@@ -1,47 +1,47 @@
 import type { WritableComputedRef } from 'vue';
 import type { Router } from 'vue-router';
 import { computed, ref, watch } from 'vue';
-import { queryTypes } from './queryTypes';
 import { useRouter } from '@/hooks';
+import { queryTypes } from './queryTypes';
 
 export interface QueryRefParser<T = string> {
-	parse: (value: string|string[]) => T | null;
-	serialize: (value: T) => string|string[];
-	defaultValue: T|null;
+	parse: (value: string | string[]) => T | null;
+	serialize: (value: T) => string | string[];
+	defaultValue: T | null;
 }
 export interface QueryRefHistory {
-	history: 'replace'|'push';
+	history: 'replace' | 'push';
 }
-export interface QueryRefOptions<T= string> extends QueryRefParser<T>, QueryRefHistory {
+export interface QueryRefOptions<T = string> extends QueryRefParser<T>, QueryRefHistory {
 }
 
-function getParamByRouter(router: Router, name: string): string|string[]|null  {
+function getParamByRouter (router: Router, name: string): string | string[] | null {
 	const query = getRouterQuery(router);
 	return name in query ? query[name] as any : null;
 }
 
-function setParam(
+function setParam (
 	name: string,
-	value: string|string[]|null,
+	value: string | string[] | null,
 	query: Nullable<any> = null,
-): any  {
+): any {
 	query = { ...query };
 	if (value === null) {
 		delete query[name];
 	} else
-	if (Array.isArray(value)) {
-		query[name] = value;
-	} else {
-		query[name] = value;
-	}
+		if (Array.isArray(value)) {
+			query[name] = value;
+		} else {
+			query[name] = value;
+		}
 	return query;
 }
 
-function getRouterQuery(router: Router) {
+function getRouterQuery (router: Router) {
 	return (router as any).__queryRef__?.query || router.currentRoute.value.query;
 }
 
-async function setUrl(router: Router, query: any, options: Partial<QueryRefHistory>) {
+async function setUrl (router: Router, query: any, options: Partial<QueryRefHistory>) {
 	let routerQueryRef: any = (router as any).__queryRef__;
 	if (!routerQueryRef) {
 		routerQueryRef = {
@@ -71,17 +71,20 @@ async function setUrl(router: Router, query: any, options: Partial<QueryRefHisto
 	}
 }
 
-export function queryRef<T = string>(name: string, options: Partial<QueryRefOptions<T>> = {}) {
+export function queryRef<T = string> (name: string, options: Partial<QueryRefOptions<T>> = {}) {
 	const router = useRouter();
 
 	options = {
 		history: 'replace',
-		...queryTypes.string as any,
+		// Called, not spread: `queryTypes.string` is a factory, and spreading the
+		// function itself leaves `parse` and `serialize` undefined — which makes every
+		// read return the default and silently erases what was just written.
+		...queryTypes.string() as any,
 		defaultValue: null,
-		...options
+		...options,
 	};
 
-	const get = (): T|null => {
+	const get = (): T | null => {
 		const value = getParamByRouter(router, name);
 		const defaultValue = options.defaultValue ?? null;
 		if (value !== null) {
@@ -90,8 +93,8 @@ export function queryRef<T = string>(name: string, options: Partial<QueryRefOpti
 		return defaultValue;
 	};
 
-	const set = (value: T|null) => {
-		const valueString = value !== null && typeof value !== 'undefined' ? (options.serialize ? options.serialize(value) : String(value)) : null;
+	const set = (value: T | null) => {
+		const valueString = value !== null && value !== undefined ? (options.serialize ? options.serialize(value) : String(value)) : null;
 		const query = setParam(name, valueString, getRouterQuery(router));
 		setUrl(router, query, options);
 	};
@@ -99,7 +102,9 @@ export function queryRef<T = string>(name: string, options: Partial<QueryRefOpti
 	const value = ref(get());
 	let syncingFromRoute = false;
 	watch(value, () => {
-		if (syncingFromRoute) return;
+		if (syncingFromRoute) {
+			return;
+		}
 		set(value.value);
 	});
 	watch(
@@ -111,7 +116,7 @@ export function queryRef<T = string>(name: string, options: Partial<QueryRefOpti
 				value.value = newValue;
 				syncingFromRoute = false;
 			}
-		}
+		},
 	);
 
 	return value;
@@ -125,19 +130,19 @@ type KeyMapNullable<T> = {
 	[K in keyof T]: T[K] | null;
 };
 
-export function queriesRef<const KeyMap extends Record<string, any>>(keyMap: QueriesRefOptions<KeyMap>, options: { prefixQuery? :string } & Partial<QueryRefHistory> = {}): WritableComputedRef<KeyMapNullable<KeyMap>> {
+export function queriesRef<const KeyMap extends Record<string, any>> (keyMap: QueriesRefOptions<KeyMap>, options: { prefixQuery?: string } & Partial<QueryRefHistory> = {}): WritableComputedRef<KeyMapNullable<KeyMap>> {
 	const router = useRouter();
 
 	options = {
 		prefixQuery: '',
 		history: 'replace',
-		...options
+		...options,
 	};
 	const dirty = ref(false);
 	const keys = Object.keys(keyMap);
 	const keySet = new Set(keys);
 
-	function getKey(name: keyof KeyMap): any|null {
+	function getKey (name: keyof KeyMap): any | null {
 		const value = getParamByRouter(router, options!.prefixQuery! + (name as string));
 		const defaultValue = keyMap[name]!.defaultValue ?? null;
 		const parse = keyMap[name]?.parse ?? null;
@@ -147,25 +152,25 @@ export function queriesRef<const KeyMap extends Record<string, any>>(keyMap: Que
 		return defaultValue;
 	}
 
-	function setKey(
+	function setKey (
 		name: keyof KeyMap,
 		value: any,
-		query: any|null = null,
+		query: any | null = null,
 	) {
 		query = query || getRouterQuery(router);
 		const serialize = keyMap[name]?.serialize ?? null;
-		const valueString = value !== null && typeof value !== 'undefined' ? (serialize ? serialize(value) : String(value)) : null;
+		const valueString = value !== null && value !== undefined ? (serialize ? serialize(value) : String(value)) : null;
 		return setParam(options!.prefixQuery! + (name as string), valueString, query);
 	}
 
 	const proxy = () => new Proxy({}, {
-		get(target: any, key) {
+		get (target: any, key) {
 			if (typeof key === 'string' && keySet.has(key)) {
 				return getKey(key as keyof KeyMap);
 			}
 			return target[key];
 		},
-		set: function (target: any, key, value) {
+		set (target: any, key, value) {
 			if (typeof key === 'string' && keySet.has(key)) {
 				const query = setKey(key as keyof KeyMap, value);
 				setUrl(router, query, options);
@@ -174,27 +179,27 @@ export function queriesRef<const KeyMap extends Record<string, any>>(keyMap: Que
 			target[key] = value;
 			return true;
 		},
-		has: function (_, key) {
+		has (_, key) {
 			return typeof key === 'string' && keySet.has(key);
 		},
-		ownKeys: function () {
+		ownKeys () {
 			return keys;
 		},
-		getOwnPropertyDescriptor(_target: any, key: PropertyKey) {
+		getOwnPropertyDescriptor (_target: any, key: PropertyKey) {
 			if (typeof key === 'string' && keySet.has(key)) {
-				return { enumerable: true, configurable: true }
+				return { enumerable: true, configurable: true };
 			}
-			return undefined
+			return undefined;
 		},
 	});
 
 	return computed<KeyMapNullable<KeyMap>>({
-		get(): KeyMapNullable<KeyMap> {
+		get (): KeyMapNullable<KeyMap> {
 			void dirty.value;
 			void router.currentRoute.value.fullPath;
 			return proxy() as any;
 		},
-		set(value: KeyMapNullable<KeyMap>) {
+		set (value: KeyMapNullable<KeyMap>) {
 			let query = getRouterQuery(router);
 			for (const key of keys) {
 				const v = (value as any)?.[key] ?? null;
@@ -202,6 +207,6 @@ export function queriesRef<const KeyMap extends Record<string, any>>(keyMap: Que
 			}
 			setUrl(router, query, options);
 			dirty.value = !dirty.value;
-		}
+		},
 	});
 }

@@ -1,5 +1,5 @@
 export class HTMLHelper {
-	public static findParentByTag(element: HTMLElement, tagName: string): Nullable<HTMLElement> {
+	public static findParentByTag (element: HTMLElement, tagName: string): Nullable<HTMLElement> {
 		tagName = tagName.toUpperCase();
 		while (element && element !== document.documentElement) {
 			if (element.tagName === tagName) {

@@ -1,12 +1,12 @@
 import type { Validator } from '../index';
 import { Native } from '@/libs/utils';
 
-export default function onlyLetters(
+export default function onlyLetters (
 	this: any,
 	{
-		message
+		message,
 	}: {
-		message?: string
+		message?: string;
 	} = {}): Validator {
-	return (v: any) => (/^[a-zA-ZÀ-ÿ\- ]*$/gm.test(v) || Native.empty(v)) || message || this.$t('front.validators.only_letters');
+	return (v: any) => (/^[\p{Letter}\- ]*$/mu.test(v) || Native.empty(v)) || message || this.$t('validators.only_letters');
 }

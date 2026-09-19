@@ -1,30 +1,26 @@
 import type { Validator } from '../index';
 import { Native } from '@/libs/utils';
 
-export default function range(
+export default function range (
 	this: any,
 	{
 		min,
 		max,
 		messageMin,
-		messageMax
+		messageMax,
 	}: {
-		min?: number,
-		max?: number,
-		messageMin?: string,
-		messageMax?: string
+		min?: number;
+		max?: number;
+		messageMin?: string;
+		messageMax?: string;
 	} = {}): Validator {
 	return (v: number) => {
 		if (!Native.empty(v)) {
-			if (min !== null && typeof min !== 'undefined') {
-				if (v < min) {
-					return messageMin || this.$t('front.validators.range.min', { min });
-				}
+			if (min !== null && min !== undefined && v < min) {
+				return messageMin || this.$t('validators.range.min', { min });
 			}
-			if (max !== null && typeof max !== 'undefined') {
-				if (v > max) {
-					return messageMax || this.$t('front.validators.range.max', { max });
-				}
+			if (max !== null && max !== undefined && v > max) {
+				return messageMax || this.$t('validators.range.max', { max });
 			}
 		}
 		return true;

@@ -60,19 +60,17 @@ export const useTokenStore = defineStore('token', () => {
 		? null
 		: new BroadcastChannel(LOGOUT_CHANNEL_NAME);
 
-	function store(pair: TokenPair): StoredSession {
+	function store (pair: TokenPair): StoredSession {
 		const stored: StoredSession = { ...pair, expiresAt: Date.now() + pair.expiresIn * 1000 };
 		session.value = stored;
 		return stored;
 	}
 
-	function clear(): void {
+	function clear (): void {
 		session.value = null;
 	}
 
-	if (logoutChannel) {
-		logoutChannel.onmessage = () => clear();
-	}
+	logoutChannel?.addEventListener('message', () => clear());
 
 	/**
 	 * Single-flighted: a page that fires five calls at once on a stale token must
@@ -98,12 +96,12 @@ export const useTokenStore = defineStore('token', () => {
 		}
 	}, true);
 
-	function refresh(): Promise<StoredSession | null> {
+	function refresh (): Promise<StoredSession | null> {
 		return refreshOnce('token|refresh');
 	}
 
 	/** The bearer to attach, refreshed first when it is about to expire. */
-	async function getAccessToken(): Promise<string | null> {
+	async function getAccessToken (): Promise<string | null> {
 		if (!session.value) {
 			return null;
 		}
@@ -123,7 +121,7 @@ export const useTokenStore = defineStore('token', () => {
 	 * The access token is backed by a database row, so telling the API first is
 	 * what actually ends the session; dropping the local copy only hides it.
 	 */
-	async function revoke(): Promise<void> {
+	async function revoke (): Promise<void> {
 		const hadSession = session.value !== null;
 		try {
 			if (hadSession) {

@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { type APIRequestContext, expect, type Page } from '@playwright/test';
 
 /**
  * The journeys address elements through `data-test` attributes, never through class
@@ -28,16 +28,16 @@ export const ADMIN = {
  * follows. A journey that starts already signed in cannot tell you that nobody can
  * sign in.
  */
-export async function signIn(page: Page, user = ADMIN): Promise<void> {
+export async function signIn (page: Page, user = ADMIN): Promise<void> {
 	await page.goto('/login');
 	await page.locator(test0('login-username')).fill(user.username);
 	await page.locator(test0('login-password')).fill(user.password);
 	await page.locator(test0('login-submit')).click();
-	await expect(page.locator(test0('app-shell'))).toBeVisible({ timeout: 15000 });
+	await expect(page.locator(test0('app-shell'))).toBeVisible({ timeout: 15_000 });
 }
 
 /** A bearer token for the fixtures that set up state through the API. */
-export async function apiToken(request: APIRequestContext, user = ADMIN): Promise<string> {
+export async function apiToken (request: APIRequestContext, user = ADMIN): Promise<string> {
 	const response = await request.post(`${API_URL}/auth/login`, {
 		data: { provider: 'internal', username: user.username, password: user.password },
 	});

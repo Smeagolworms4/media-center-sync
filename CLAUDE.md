@@ -117,6 +117,12 @@ make e2e          # journeys, against the stack you already have up
 
 ## Running things
 
+Everything is in containers, **including `npm`**. This is not a style preference:
+`better-sqlite3` compiles a native binding, the containers are Alpine, and a binding
+built on a glibc host does not load on musl. The error names a missing
+`ld-linux-x86-64.so.2` and says nothing about where the install came from, which
+costs an hour the first time. Run `make install`, not `npm install`.
+
 Everything is in containers. `make` with no target lists the lot; the ones you need
 daily are in the README. Two habits worth keeping:
 

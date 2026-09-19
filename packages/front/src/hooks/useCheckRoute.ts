@@ -11,8 +11,8 @@ import { useAuthStore } from '@/stores/auth';
  * Returning a location rather than calling the router keeps it testable and lets
  * the caller decide whether to redirect or to render something else.
  */
-export function useCheckRoute(
-	{ app, pinia }: { app?: App, pinia?: Pinia } = {},
+export function useCheckRoute (
+	{ app, pinia }: { app?: App; pinia?: Pinia } = {},
 ) {
 	const resolvedPinia = pinia ?? usePinia();
 	const routeGranted = useRouteGranted(app);

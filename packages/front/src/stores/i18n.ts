@@ -21,7 +21,7 @@ export const useI18nStore = defineStore('i18n', () => {
 	const availableLocales = ref<SupportedLocale[]>([...SUPPORTED_LOCALES]);
 	const defaultLocale = ref<SupportedLocale>(DEFAULT_LOCALE);
 
-	function setLocale(value: SupportedLocale): void {
+	function setLocale (value: SupportedLocale): void {
 		if (!availableLocales.value.includes(value)) {
 			return;
 		}

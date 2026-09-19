@@ -1,102 +1,80 @@
-import type { App } from 'vue';
-import { useTokenStore } from '@/stores/token';
-import type { Token } from '@/models';
+import type { Right } from '@mcs/shared';
 import type { Pinia } from 'pinia';
+import type { App } from 'vue';
 import type { Router, RouteRecordRaw } from 'vue-router';
-import { useCheckRoute } from '@/hooks';
-import { useUserStore } from '@/stores/user';
+import { useAuthStore } from '@/stores/auth';
 
 export * from './useIsGranted';
 export * from './useRouteGranted';
 
+export type GrantedHandler = (right: Right, rights: Right[]) => boolean;
 
-const simpleRightHandler = (right: string, token: Token) => {
-	return token.rights.indexOf(right) !== -1;
-};
+/** The rule that covers everything the API models today: the right is held, or it is not. */
+const simpleRightHandler: GrantedHandler = (right, rights) => rights.includes(right);
 
+/**
+ * Rights, for the template and for the router.
+ *
+ * Everything is decided on rights and never on a role, exactly as the API does:
+ * `hasRight(Right.SERVICE_MANAGE)` keeps meaning the same thing when the role
+ * bundles change, `role === 'admin'` does not.
+ *
+ * Extra handlers exist for the rules that cannot be expressed as set membership —
+ * "this peer, but only while it is linked", say — without every caller learning
+ * about them.
+ */
 export default {
-	install(app: App, {
+	install (app: App, {
 		pinia,
 		router,
 		handlers = [],
 	}: {
-		pinia: Pinia,
-		router: Router,
-		handlers?: ((right: string, token: Token) => boolean)[],
+		pinia: Pinia;
+		router: Router;
+		handlers?: GrantedHandler[];
 	}) {
+		const grantedHandlers: GrantedHandler[] = [simpleRightHandler, ...handlers];
 
-		const _grantedHandlers: ((right: string, token: Token) => boolean)[] = [
-			simpleRightHandler,
-			...handlers,
-		];
-
-		function isGranted(rights: string | string[]) {
-			const tokenStore = useTokenStore(pinia);
-			const token = tokenStore.token;
-			if (typeof rights === 'string') {
-				rights = [ rights ];
+		function isGranted (rights: Right | Right[]): boolean {
+			const authStore = useAuthStore(pinia);
+			if (!authStore.authenticated) {
+				return false;
 			}
-			if (token) {
-				for (const right of rights) {
-					let success = false;
-					for (const handler of _grantedHandlers) {
-						if (handler(right, token)) {
-							success = true;
-						}
-					}
-					if (!success) {
-						return false;
-					}
-				}
-				return true;
-			}
-			return false;
+			const held = authStore.rights;
+			const needed = Array.isArray(rights) ? rights : [rights];
+			return needed.every(right => grantedHandlers.some(handler => handler(right, held)));
 		}
-		function routeGranted(routeName: string) {
-			const searchRoutes = (routeName: string, routes: readonly RouteRecordRaw[]): any => {
+
+		/**
+		 * Walks the route tree collecting the rights of every ancestor, because a
+		 * child of a guarded section inherits its guard — declaring the right once on
+		 * the parent has to be enough.
+		 */
+		function routeGranted (routeName: string): boolean {
+			const search = (
+				name: string,
+				routes: readonly RouteRecordRaw[],
+			): { granted: Right[] } | null => {
 				for (const route of routes) {
-					if (route.name === routeName) {
-						return route;
+					const own = (route.meta?.granted ?? []) as Right[];
+					if (route.name === name) {
+						return { granted: own };
 					}
-					// Si la route a des enfants, les parcourir également
 					if (route.children) {
-						const foundRoute: any = searchRoutes(routeName, route.children);
-						if (foundRoute) {
-							return {
-								...foundRoute,
-								meta: {
-									granted: [
-										...((route.meta as any)?.granted ?? []),
-										...((foundRoute.meta as any)?.granted ?? []),
-									]
-								}
-							};
+						const found = search(name, route.children);
+						if (found) {
+							return { granted: [...own, ...found.granted] };
 						}
 					}
 				}
 				return null;
 			};
-			const route = searchRoutes(routeName, router.options.routes);
-			return !route || (!route?.meta?.granted || isGranted(route.meta.granted));
+
+			const found = search(routeName, router.options.routes);
+			return !found || found.granted.length === 0 || isGranted(found.granted);
 		}
 
 		app.config.globalProperties.$isGranted = isGranted;
 		app.config.globalProperties.$routeGranted = routeGranted;
-
-
-		router.beforeEach((to) => {
-			const checkRoute = useCheckRoute({
-				app,
-				pinia
-			});
-			const useStore = useUserStore(pinia);
-			if (useStore.firstCalled) {
-				const guard = checkRoute(to);
-				if (guard) {
-					console.log('Error access to route:', to.name)
-					return guard;
-				}
-			}
-		});
-	}
+	},
 };

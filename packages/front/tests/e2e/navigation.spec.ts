@@ -18,7 +18,7 @@ test.describe('navigation', () => {
 	for (const route of ROUTES) {
 		test(`the ${route} page opens`, async ({ page }) => {
 			const errors: string[] = [];
-			page.on('pageerror', (error) => errors.push(error.message));
+			page.on('pageerror', error => errors.push(error.message));
 
 			await page.locator(test0(`nav-${route}`)).click();
 			await expect(page).toHaveURL(new RegExp(`/${route}`));

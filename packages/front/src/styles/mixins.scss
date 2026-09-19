@@ -10,19 +10,25 @@
 
 @mixin clearfix {
 	&:after {
-		content: " ";
+		content: ' ';
 		display: block;
 		clear: both;
 	}
 }
 
 @mixin screen-sm { @media (max-width: #{$screenSm}) { @content; } }
-@mixin screen-sm { @media (max-width: #{$screenSm}) { @content; } }
 @mixin screen-md { @media (max-width: #{$screenMd}) { @content; } }
 @mixin screen-lg { @media (max-width: #{$screenLg}) { @content; } }
 @mixin screen-xl { @media (max-width: #{$screenXl}) { @content; } }
 @mixin not-screen-sm { @media (min-width: #{$screenSm}) { @content; } }
-@mixin not-screen-sm { @media (min-width: #{$screenSm}) { @content; } }
 @mixin not-screen-md { @media (min-width: #{$screenMd}) { @content; } }
 @mixin not-screen-lg { @media (min-width: #{$screenLg}) { @content; } }
 @mixin not-screen-xl { @media (min-width: #{$screenXl}) { @content; } }
+
+// One line of text, cut with an ellipsis. Used by every title that sits in a row
+// whose width is decided by something else.
+@mixin truncate {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

@@ -1,14 +1,19 @@
-import 'vue-router'
+import type { Right } from '@mcs/shared';
+import 'vue-router';
 
 declare module 'vue-router' {
 	interface RouteMeta {
-		/** Page accessible sans authentification */
-		publicPage?: boolean
-		/** Page réservée aux utilisateurs non connectés (login) */
-		disconnectPage?: boolean
-		/** Titre de la page */
-		title?: string
-		/** Rights requis pour accéder à la page */
-		granted?: string[]
+		/** Reachable without a session. */
+		publicPage?: boolean;
+		/** Reserved for visitors without a session, such as the sign-in page. */
+		disconnectPage?: boolean;
+		/** i18n key of the page title. */
+		title?: string;
+		/** Rights the viewer must hold, all of them, to reach this route. */
+		granted?: Right[];
+		/** Icon shown next to this entry in the navigation drawer. */
+		icon?: string;
+		/** Shown in the navigation drawer when true. */
+		nav?: boolean;
 	}
 }

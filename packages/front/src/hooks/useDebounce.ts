@@ -6,7 +6,7 @@
  * were dropped therefore never hang, which is what makes this safe to put behind
  * a search field.
  */
-export function useDebounce<Args extends any[], R>(
+export function useDebounce<Args extends any[], R> (
 	fn: (...args: Args) => Promise<R>,
 	delay: number,
 ): (...args: Args) => Promise<R> {
@@ -32,9 +32,13 @@ export function useDebounce<Args extends any[], R>(
 
 				try {
 					const result = await fn(...args);
-					resolves.forEach(r => r(result));
-				} catch (e) {
-					rejects.forEach(r => r(e));
+					for (const r of resolves) {
+						r(result);
+					}
+				} catch (error) {
+					for (const r of rejects) {
+						r(error);
+					}
 				}
 			}, delay);
 		});

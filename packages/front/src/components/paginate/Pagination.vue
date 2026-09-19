@@ -1,57 +1,3 @@
-<template>
-	<div
-		class="components-paginate-pagination"
-		:class="{
-			'components-paginate-pagination--dense': dense,
-		}"
-	>
-		<span>{{ label }}</span>
-
-		<v-select
-			v-model="limit_sync"
-			@update:model-value="limit_sync = $event; page_sync = 0;"
-			:items="[10, 20, 50, 100, 200]"
-			variant="outlined"
-			hide-details
-	  	>
-		</v-select>
-
-		{{ page_sync * limit_sync + 1 }}-{{ page_sync * limit_sync + limit_sync }} / {{ total }}
-
-		<span class="paginate-pagination-action">
-			<v-btn
-				icon="mdi-page-first"
-				size="smallest"
-				variant="flat"
-				:disabled="page_sync === 0"
-				@click="page_sync = 0"
-			/>
-			<v-btn
-				icon="mdi-chevron-left"
-				size="smallest"
-				variant="flat"
-				:disabled="page_sync === 0"
-				@click="page_sync -= 1"
-			/>
-			<v-btn
-				icon="mdi-chevron-right"
-				size="smallest"
-				variant="flat"
-				:disabled="(page_sync + 1) * limit_sync >= total!"
-				@click="page_sync += 1"
-			/>
-			<v-btn
-				icon="mdi-page-last"
-				size="smallest"
-				variant="flat"
-				:disabled="(page_sync + 1) * limit_sync >= total!"
-				@click="page_sync = Math.ceil(total! / limit_sync) - 1"
-			/>
-		</span>
-
-	</div>
-</template>
-
 <script lang="ts" setup>
 	withDefaults(defineProps<{
 		label?: string;
@@ -65,6 +11,62 @@
 	const page_sync = defineModel<number>('page', { required: true });
 	const limit_sync = defineModel<number>('limit', { required: true });
 </script>
+
+<template>
+	<div
+		class="components-paginate-pagination"
+		:class="{
+			'components-paginate-pagination--dense': dense,
+		}"
+	>
+		<span>{{ label }}</span>
+
+		<v-select
+			v-model="limit_sync"
+			hide-details
+			:items="[10, 20, 50, 100, 200]"
+			variant="outlined"
+			@update:model-value="limit_sync = $event; page_sync = 0;"
+		/>
+
+		{{ page_sync * limit_sync + 1 }}-{{ page_sync * limit_sync + limit_sync }} / {{ total }}
+
+		<span class="paginate-pagination-action">
+			<v-btn
+				:disabled="page_sync === 0"
+				icon="mdi-page-first"
+				size="smallest"
+				variant="flat"
+				@click="page_sync = 0"
+			/>
+
+			<v-btn
+				:disabled="page_sync === 0"
+				icon="mdi-chevron-left"
+				size="smallest"
+				variant="flat"
+				@click="page_sync -= 1"
+			/>
+
+			<v-btn
+				:disabled="(page_sync + 1) * limit_sync >= total!"
+				icon="mdi-chevron-right"
+				size="smallest"
+				variant="flat"
+				@click="page_sync += 1"
+			/>
+
+			<v-btn
+				:disabled="(page_sync + 1) * limit_sync >= total!"
+				icon="mdi-page-last"
+				size="smallest"
+				variant="flat"
+				@click="page_sync = Math.ceil(total! / limit_sync) - 1"
+			/>
+		</span>
+
+	</div>
+</template>
 
 <style lang="scss">
 	.components-paginate-pagination {

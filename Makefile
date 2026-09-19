@@ -28,15 +28,24 @@ init: install db/migrate db/seed
 	@echo "  pgAdmin        make tools/up then http://localhost:$${PGADMIN_PORT:-7795}"
 	@echo ""
 
-## Install dependencies (npm workspaces, one install for everything)
+## Install dependencies for all three packages
+##
+## Inside the container, and that matters: `better-sqlite3` compiles a native binding,
+## the containers are Alpine, and one built on a glibc host refuses to load in them —
+## with an error naming a missing `ld-linux-x86-64.so.2` and nothing about where the
+## install came from.
 install:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm install
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run build --workspace @mcs/shared
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run install:all
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run build:shared
 
-## Clean reinstall from the lockfile
+## Clean reinstall from the lockfiles
 install/ci:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm ci --workspaces --include-workspace-root
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run build --workspace @mcs/shared
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run ci:all
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run build:shared
+
+## Rebuild the native modules for the container, after an install done on the host
+install/rebuild:
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) sh -lc 'cd /app/packages/api && npm rebuild better-sqlite3'
 
 ## Run the API and the interface together
 dev:
@@ -50,11 +59,12 @@ typecheck:
 
 ## Lint every package
 lint:
-	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm run lint
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run lint
 
 ## Lint and fix what can be fixed
 lint/fix:
-	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm run lint:fix --workspace @mcs/front
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run lint:fix
+	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm --prefix packages/front run lint:fix
 
 ## Whole unit and functional test campaign
 test: api/test front/test
@@ -88,15 +98,15 @@ api/dev:
 
 ## Unit and functional tests of the API
 api/test:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm test --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api test
 
 ## API tests in watch mode
 api/test-watch:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run test:watch --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run test:watch
 
 ## API tests with coverage
 api/coverage:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run test:cov --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run test:cov
 
 ## Restart the API container
 api/restart:
@@ -120,15 +130,15 @@ front/dev:
 
 ## Unit tests of the interface
 front/test:
-	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm test --workspace @mcs/front
+	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm --prefix packages/front test
 
 ## Interface tests in watch mode
 front/test-watch:
-	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm run test:watch --workspace @mcs/front
+	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm --prefix packages/front run test:watch
 
 ## Production build `front`
 front/build:
-	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm run build --workspace @mcs/front
+	$(COMPOSE) exec -u node front env $(FIX_SHELL) npm --prefix packages/front run build
 
 #######
 # E2E #
@@ -153,12 +163,12 @@ e2e:
 ## reason that has nothing to do with what it checks.
 e2e/ci:
 	USER_ID=$$(id -u) USER_GID=$$(id -g) $(COMPOSE) up -d db cache api front
-	$(COMPOSE) exec -T -u node api sh -lc 'npm ci --workspaces --include-workspace-root'
-	$(COMPOSE) exec -T -u node api sh -lc 'npm run build --workspace @mcs/shared'
-	$(COMPOSE) exec -T -u node api sh -lc 'npm run migration:run --workspace @mcs/api'
-	$(COMPOSE) exec -T -u node api sh -lc 'npm run seed --workspace @mcs/api'
-	$(COMPOSE) exec -d -u node api sh -lc 'npm run dev --workspace @mcs/api'
-	$(COMPOSE) exec -d -u node front sh -lc 'npm run dev --workspace @mcs/front'
+	$(COMPOSE) exec -T -u node api sh -lc 'npm run ci:all'
+	$(COMPOSE) exec -T -u node api sh -lc 'npm run build:shared'
+	$(COMPOSE) exec -T -u node api sh -lc 'npm --prefix packages/api run migration:run'
+	$(COMPOSE) exec -T -u node api sh -lc 'npm --prefix packages/api run seed'
+	$(COMPOSE) exec -d -u node api sh -lc 'npm --prefix packages/api run dev'
+	$(COMPOSE) exec -d -u node front sh -lc 'npm --prefix packages/front run dev'
 	$(COMPOSE) --profile e2e run --rm --no-deps e2e sh -lc '\
 		for i in $$(seq 1 90); do \
 			curl -sf http://api:4200/api/docs-json >/dev/null && curl -sf http://front:3200 >/dev/null && break; \
@@ -188,19 +198,19 @@ db/shell:
 
 ## Run pending migrations
 db/migrate:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run migration:run --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run migration:run
 
 ## Revert the last migration
 db/revert:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run migration:revert --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run migration:revert
 
 ## Generate a migration: make db/migration NAME=AddSomething
 db/migration:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run migration:generate --workspace @mcs/api -- src/database/migrations/$(NAME)
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run migration:generate -- src/database/migrations/$(NAME)
 
 ## Install the admin account and the demo dataset
 db/seed:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run seed --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run seed
 
 ## Dump the database to var/dump.sql
 db/dump:
@@ -236,7 +246,7 @@ library/list:
 
 ## Check every declared library is readable and writable from the gateway
 library/check:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run library:check --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run library:check
 
 ## Explain how to declare a mount (NFS, SMB, bind)
 library/help:
@@ -260,15 +270,15 @@ library/help:
 
 ## List registered media services and their reachability
 service/list:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run service:list --workspace @mcs/api
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run service:list
 
 ## Probe one service: make service/probe ID=<uuid>
 service/probe:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run service:probe --workspace @mcs/api -- $(ID)
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run service:probe -- $(ID)
 
 ## Rescan a service library: make service/scan ID=<uuid>
 service/scan:
-	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm run service:scan --workspace @mcs/api -- $(ID)
+	$(COMPOSE) exec -u node api env $(FIX_SHELL) npm --prefix packages/api run service:scan -- $(ID)
 
 ##############
 # Diagnostic #

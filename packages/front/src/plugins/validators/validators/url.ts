@@ -1,12 +1,12 @@
 import type { Validator } from '../index';
 import { Native } from '@/libs/utils';
 
-export default function url(
+export default function url (
 	this: any,
 	{
-		message
+		message,
 	}: {
-		message?: string
+		message?: string;
 	} = {}): Validator {
 	return (v: any) => {
 		if (Native.empty(v)) {
@@ -15,8 +15,8 @@ export default function url(
 		try {
 			new URL(v);
 			return true;
-		} catch(_e) {
-			return message || this.$t('front.validators.url');
+		} catch {
+			return message || this.$t('validators.url');
 		}
 	};
 }
