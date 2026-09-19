@@ -1,4 +1,18 @@
 import { SyncState } from '@mcs/shared';
+/*
+ * Vuetify's base layer, and it is not optional.
+ *
+ * The Vite plugin auto-imports each component's own stylesheet, which is enough for a
+ * component to look roughly right and not enough for it to be right: the shared rules
+ * that size an input, place its prefix icon and draw its outline live here. Without
+ * this line every field renders oversized, its icon sits above its label, and a stub
+ * of the outline is left floating under the box — all of it looking like a theme
+ * somebody wrote badly rather than a stylesheet nobody imported.
+ *
+ * The plugin rewrites this specifier to `src/styles/settings.scss`, which is where the
+ * framework variables are overridden.
+ */
+import 'vuetify/styles';
 import { createVuetify, type ThemeDefinition } from 'vuetify';
 import { aliases, mdi } from 'vuetify/iconsets/mdi';
 

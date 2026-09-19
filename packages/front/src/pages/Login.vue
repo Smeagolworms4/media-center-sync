@@ -1,6 +1,7 @@
 <script lang="ts" setup>
-	import type { AuthProvider } from '@mcs/shared';
+	import { type AuthProvider, AuthProviderType } from '@mcs/shared';
 	import { computed, onMounted, reactive, ref } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import { useRouter } from 'vue-router';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -21,6 +22,7 @@
 	const router = useRouter();
 	const authStore = useAuthStore();
 	const validators = useValidators();
+	const { t } = useI18n();
 
 	const loadingProviders = ref(true);
 	const providersError = ref(false);
@@ -45,8 +47,30 @@
 	const hasProviders = computed(() => providers.value.length > 0);
 	const needsCredentials = computed(() => selected.value?.credentials !== false);
 
-	/** One provider is the common case; a select with a single option is noise. */
-	const showProviderChoice = computed(() => providers.value.length > 1);
+	/**
+	 * What this sign-in is actually going to do, said plainly.
+	 *
+	 * A gateway with only its internal account was telling people to use the account
+	 * they already have on one of their media services — which they do not have yet,
+	 * because that is the state before the first service is registered. A subtitle
+	 * that describes a different gateway is worse than none: somebody reads it, looks
+	 * for credentials they were never given, and concludes the page is broken.
+	 */
+	const subtitle = computed(() => {
+		const provider = selected.value;
+
+		if (!provider) {
+			return t('auth.subtitle');
+		}
+
+		if (provider.type === AuthProviderType.INTERNAL) {
+			return t('auth.subtitle_internal');
+		}
+
+		return provider.credentials
+			? t('auth.subtitle_service', { provider: provider.label })
+			: t('auth.subtitle_external', { provider: provider.label });
+	});
 
 	const providerIcons: Record<string, string> = {
 		jellyfin: 'mdi-jellyfish-outline',
@@ -128,23 +152,40 @@
 				</EmptyState>
 
 				<v-form v-else v-form="form" class="login_form">
-					<p class="text-body-2 text-medium-emphasis mb-4">{{ $t('auth.subtitle') }}</p>
+					<!--
+						The way in is always shown, even when there is only one.
 
-					<v-select
-						v-if="showProviderChoice"
-						v-model="model.provider"
-						v-bind="form.field('provider')"
-						class="login_provider"
-						data-test="login-provider"
-						item-title="label"
-						item-value="key"
-						:items="providers"
-						:label="$t('auth.provider')"
-					>
-						<template #item="{ props: itemProps, item }">
-							<v-list-item v-bind="itemProps" :prepend-icon="iconOf(item)" />
-						</template>
-					</v-select>
+						Hiding it left somebody looking at a bare username field with no way
+						to tell what it wanted: the gateway's own account, their Jellyfin, or
+						their Plex. One button is not noise here — it is the answer to the
+						first question anybody asks on this page.
+					-->
+					<div class="login_providers mb-4">
+						<div class="text-caption text-medium-emphasis mb-1">{{ $t('auth.provider') }}</div>
+
+						<v-btn-toggle
+							v-model="model.provider"
+							class="login_providers_group"
+							data-test="login-provider"
+							divided
+							mandatory
+							variant="outlined"
+						>
+							<v-btn
+								v-for="provider of providers"
+								:key="provider.key"
+								class="login_providers_option"
+								:data-test="`login-provider-${provider.key}`"
+								:prepend-icon="iconOf(provider)"
+								size="small"
+								:value="provider.key"
+							>
+								{{ provider.label }}
+							</v-btn>
+						</v-btn-toggle>
+					</div>
+
+					<p class="text-body-2 text-medium-emphasis mb-4">{{ subtitle }}</p>
 
 					<template v-if="needsCredentials">
 						<v-text-field
@@ -204,6 +245,16 @@
 
 		&_title {
 			font-weight: 600;
+		}
+
+		// The ways in wrap rather than overflow: three providers on a narrow phone is
+		// an ordinary gateway, and a toggle that scrolls sideways hides the one option
+		// somebody is looking for.
+		&_providers_group {
+			display: flex;
+			flex-wrap: wrap;
+			height: auto;
+			width: 100%;
 		}
 	}
 </style>

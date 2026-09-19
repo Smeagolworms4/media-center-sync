@@ -41,7 +41,11 @@ const fr: typeof en = {
 	auth: {
 		title: 'Connexion',
 		subtitle: 'Utilisez le compte que vous avez déjà sur l\'un de vos services média.',
+		subtitle_internal: 'Connexion avec le compte propre à cette passerelle.',
+		subtitle_service: 'Connexion avec votre compte {provider}.',
+		subtitle_external: 'Connexion via {provider}.',
 		provider: 'Se connecter avec',
+		provider_only: 'Le seul accès que cette passerelle propose pour l\'instant.',
 		username: 'Identifiant',
 		password: 'Mot de passe',
 		redirect: 'Continuer',

@@ -42,7 +42,11 @@ export default {
 	auth: {
 		title: 'Sign in',
 		subtitle: 'Use the account you already have on one of your media services.',
+		subtitle_internal: 'Signing in with this gateway\'s own account.',
+		subtitle_service: 'Signing in with your {provider} account.',
+		subtitle_external: 'Signing in through {provider}.',
 		provider: 'Sign in with',
+		provider_only: 'The only way in this gateway offers right now.',
 		username: 'Username',
 		password: 'Password',
 		redirect: 'Continue',
