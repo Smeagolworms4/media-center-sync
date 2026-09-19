@@ -4,26 +4,24 @@ build/
 coverage/
 *.log
 *.tsbuildinfo
+junit.xml
 
-# Environnement local — jamais versionné : il porte les adresses et les mots de
-# passe de la machine, pas ceux du projet.
+# Local environment — never versioned: it holds machine addresses and secrets,
+# not project ones.
 .env.local
 .env.*.local
 
-# Outillage
+# Tooling
 docker/.makefiles/
 docker/.*_history
+docker/docker-compose.override.yml
 .idea/
 .vscode/
 .DS_Store
 
-# Sorties de tests
+# Test output
 test-results/
 playwright-report/
-packages/front/test-results/
-packages/front/playwright-report/
 
-# Données d'exécution (bibliothèques montées, fichiers en transit)
+# Runtime data: SQLite file, transfers in flight
 var/
-packages/api/var/
-docker/docker-compose.override.yml

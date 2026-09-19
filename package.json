@@ -2,21 +2,18 @@
 	"name": "media-center-sync",
 	"version": "0.1.0",
 	"private": true,
-	"description": "Passerelle de synchronisation entre serveurs de médias — locale et distante, de pair à pair",
-	"workspaces": [
-		"packages/shared",
-		"packages/api",
-		"packages/front"
-	],
+	"description": "Sync gateway between media services — local and remote, peer to peer",
 	"scripts": {
-		"dev": "npm run dev --workspace @mcs/api & npm run dev --workspace @mcs/front",
-		"dev:api": "npm run dev --workspace @mcs/api",
-		"dev:front": "npm run dev --workspace @mcs/front",
-		"build": "npm run build --workspaces --if-present",
-		"typecheck": "npm run build --workspace @mcs/shared && npm run typecheck --workspaces --if-present",
-		"lint": "npm run lint --workspaces --if-present",
-		"test": "npm run build --workspace @mcs/shared && npm test --workspace @mcs/api",
-		"seed": "npm run seed --workspace @mcs/api"
+		"install:all": "npm --prefix packages/shared install && npm --prefix packages/api install && npm --prefix packages/front install",
+		"ci:all": "npm --prefix packages/shared ci && npm --prefix packages/api ci && npm --prefix packages/front ci",
+		"build:shared": "npm --prefix packages/shared run build",
+		"build": "npm run build:shared && npm --prefix packages/api run build && npm --prefix packages/front run build",
+		"dev:api": "npm --prefix packages/api run dev",
+		"dev:front": "npm --prefix packages/front run dev",
+		"dev": "npm run dev:api & npm run dev:front",
+		"typecheck": "npm run build:shared && npm --prefix packages/api run typecheck && npm --prefix packages/front run typecheck",
+		"lint": "npm --prefix packages/api run lint && npm --prefix packages/front run lint",
+		"test": "npm --prefix packages/api test && npm --prefix packages/front test"
 	},
 	"engines": {
 		"node": ">=22"
