@@ -286,8 +286,10 @@ export class CacheService implements OnModuleDestroy {
 		try {
 			// Required rather than imported so that a gateway with no Redis never loads
 			// the client at all, and so the in-memory path stays the one that works
-			// with nothing installed beyond what the API already needs.
-			// eslint-disable-next-line @typescript-eslint/no-var-requires
+			// with nothing installed beyond what the API already needs. A top-level
+			// import would pull the driver into every process, including the one that
+			// will never speak to a Redis.
+			// eslint-disable-next-line @typescript-eslint/no-require-imports -- see above
 			const { default: Redis } = require('ioredis') as {
 				default: new (options: Record<string, unknown>) => RedisLike;
 			};

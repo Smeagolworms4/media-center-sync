@@ -1,1 +1,12 @@
-export {};
+export * from './auth.manager';
+export * from './library.manager';
+export * from './mappers';
+export * from './media.manager';
+export * from './peer.manager';
+export * from './peer-exchange.manager';
+export * from './service.manager';
+export * from './settings.manager';
+export * from './share.manager';
+export * from './sync.manager';
+export * from './transfer.manager';
+export * from './user.manager';

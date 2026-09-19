@@ -2,7 +2,7 @@
 	"name": "@mcs/api",
 	"version": "0.1.0",
 	"private": true,
-	"description": "Sync gateway API — service handlers, correlation, transfers, peer links",
+	"description": "Sync gateway API \u2014 service handlers, correlation, transfers, peer links",
 	"scripts": {
 		"dev": "dotenv -e ../../.env -e ../../.env.local -- nest start --watch",
 		"build": "nest build",
@@ -21,7 +21,8 @@
 		"peer:identity": "dotenv -e ../../.env -e ../../.env.local -- ts-node -r tsconfig-paths/register src/commands/peer-identity.ts",
 		"migration:generate": "dotenv -e ../../.env -e ../../.env.local -- node -r ts-node/register -r tsconfig-paths/register $(node -p \"require.resolve('typeorm/cli.js')\") migration:generate -d src/database/data-source.ts",
 		"migration:run": "dotenv -e ../../.env -e ../../.env.local -- node -r ts-node/register -r tsconfig-paths/register $(node -p \"require.resolve('typeorm/cli.js')\") migration:run -d src/database/data-source.ts",
-		"migration:revert": "dotenv -e ../../.env -e ../../.env.local -- node -r ts-node/register -r tsconfig-paths/register $(node -p \"require.resolve('typeorm/cli.js')\") migration:revert -d src/database/data-source.ts"
+		"migration:revert": "dotenv -e ../../.env -e ../../.env.local -- node -r ts-node/register -r tsconfig-paths/register $(node -p \"require.resolve('typeorm/cli.js')\") migration:revert -d src/database/data-source.ts",
+		"lab:probe": "ts-node -r tsconfig-paths/register src/commands/lab-probe.ts"
 	},
 	"dependencies": {
 		"@mcs/shared": "file:../shared",

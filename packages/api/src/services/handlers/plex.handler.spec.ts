@@ -186,7 +186,10 @@ describe('PlexHandler', () => {
 				parentExternalId: '45230',
 				kind: MediaKind.EPISODE,
 				title: 'Back to the Butcher',
-				normalizedTitle: 'back to the butcher',
+				// The show, not the episode. Plex names an unmatched episode
+				// `Episode 1`, so normalising on the episode's own title would make
+				// every first episode in a library look like every other.
+				normalizedTitle: 'expanse',
 				year: 2015,
 				seasonNumber: 1,
 				episodeNumber: 2,

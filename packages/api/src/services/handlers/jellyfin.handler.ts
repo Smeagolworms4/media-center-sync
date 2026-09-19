@@ -447,6 +447,22 @@ export class JellyfinHandler implements MediaServiceHandler {
 		const title = asString(raw.Name) ?? (path ? parseTitle(path).title : externalId);
 		const fromPath = path ? parseTitle(path) : null;
 
+		/*
+		 * The normalised form of a season or an episode is the SHOW's title, never its
+		 * own.
+		 *
+		 * Correlation joins on normalised title plus season plus episode number, so an
+		 * episode carrying its own name matches nothing: `the meadow` here against
+		 * `episode 1` on the other server, for the same episode of the same show. The
+		 * display title stays what it is — people read episode names — but the form
+		 * used for comparison has to identify the show, because that is what the two
+		 * libraries can be expected to agree on.
+		 */
+		const showTitle =
+			kind === MediaKind.EPISODE || kind === MediaKind.SEASON
+				? (asString(raw.SeriesName) ?? fromPath?.title ?? title)
+				: title;
+
 		return {
 			externalId,
 			// An episode belongs to its season, a season to its series; `ParentId` says
@@ -455,7 +471,7 @@ export class JellyfinHandler implements MediaServiceHandler {
 				asString(firstOf(raw, 'SeasonId', 'SeriesId', 'ParentId')) ?? null,
 			kind,
 			title,
-			normalizedTitle: normalizeTitle(title),
+			normalizedTitle: normalizeTitle(showTitle),
 			year: asNumber(raw.ProductionYear) ?? fromPath?.year ?? null,
 			// `ParentIndexNumber` is the season of an episode and `IndexNumber` its
 			// number. Both are missing often enough on badly named files that the path
@@ -503,6 +519,21 @@ export class JellyfinHandler implements MediaServiceHandler {
 		// collection, or an item Jellyfin has not analysed. That is a null file, not
 		// an empty one, and the difference drives the whole browsing tree.
 		if (!path) {
+			return null;
+		}
+
+		/*
+		 * A series and a season have a path too — their directory — and Jellyfin
+		 * returns it exactly like a file's.
+		 *
+		 * Taking it produced a file with a path, no codec, no dimensions and a size of
+		 * zero, which is worse than none: the quality summary counts files, so every
+		 * series and every season contributed a phantom variant, and a season whose
+		 * episodes all shared one encoding came out `mixed`. Nothing failed, and the
+		 * chip simply lied. `IsFolder` is on every item Jellyfin returns, and a
+		 * playable item always carries a media source.
+		 */
+		if (raw.IsFolder === true || !source) {
 			return null;
 		}
 

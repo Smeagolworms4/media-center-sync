@@ -242,17 +242,17 @@ export class PlexHandler implements MediaServiceHandler {
 			const container =
 				since === null
 					? await this._container(connection, `/library/sections/${library.externalId}/newest`, {
-							type: PLEX_TYPE_BY_KIND[kind],
-							'X-Plex-Container-Start': 0,
-							'X-Plex-Container-Size': 100,
-						})
+						type: PLEX_TYPE_BY_KIND[kind],
+						'X-Plex-Container-Start': 0,
+						'X-Plex-Container-Size': 100,
+					})
 					: await this._container(connection, `/library/sections/${library.externalId}/all`, {
-							type: PLEX_TYPE_BY_KIND[kind],
-							'updatedAt>=': since,
-							sort: 'updatedAt:asc',
-							'X-Plex-Container-Start': 0,
-							'X-Plex-Container-Size': 200,
-						});
+						type: PLEX_TYPE_BY_KIND[kind],
+						'updatedAt>=': since,
+						sort: 'updatedAt:asc',
+						'X-Plex-Container-Start': 0,
+						'X-Plex-Container-Size': 200,
+					});
 
 			for (const raw of asRecordArray(container.Metadata)) {
 				const normalised = this._toItem(connection, raw);
@@ -325,9 +325,9 @@ export class PlexHandler implements MediaServiceHandler {
 
 		return partKey
 			? buildUrl(connection.baseUrl, partKey, {
-					download: 1,
-					'X-Plex-Token': connection.token,
-				})
+				download: 1,
+				'X-Plex-Token': connection.token,
+			})
 			: null;
 	}
 
@@ -532,6 +532,27 @@ export class PlexHandler implements MediaServiceHandler {
 		const title = asString(raw.title) ?? fromPath?.title ?? externalId;
 		const addedAt = asNumber(raw.addedAt);
 
+		/*
+		 * The normalised form of a season or an episode is the SHOW's title, never its
+		 * own.
+		 *
+		 * Correlation joins on normalised title plus season plus episode number, and
+		 * Plex names an unmatched episode `Episode 1`: every episode of every show in
+		 * the library would normalise to the same handful of strings, and a title match
+		 * would pair them with each other. The display title stays what it is; the form
+		 * used for comparison has to identify the show, because that is what two
+		 * libraries can be expected to agree on.
+		 *
+		 * `grandparentTitle` is the show behind an episode, `parentTitle` the show
+		 * behind a season.
+		 */
+		const showTitle =
+			kind === MediaKind.EPISODE
+				? (asString(raw.grandparentTitle) ?? fromPath?.title ?? title)
+				: kind === MediaKind.SEASON
+					? (asString(raw.parentTitle) ?? fromPath?.title ?? title)
+					: title;
+
 		return {
 			externalId,
 			// A season points at its show, an episode at its season. Plex fills
@@ -541,7 +562,7 @@ export class PlexHandler implements MediaServiceHandler {
 				asString(firstOf(raw, 'parentRatingKey', 'grandparentRatingKey')) ?? null,
 			kind,
 			title,
-			normalizedTitle: normalizeTitle(title),
+			normalizedTitle: normalizeTitle(showTitle),
 			year: asNumber(raw.year) ?? fromPath?.year ?? null,
 			// `index` is the season number on a season and the episode number on an
 			// episode, which is why it cannot be read without knowing the kind.

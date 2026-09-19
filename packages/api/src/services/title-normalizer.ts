@@ -1,3 +1,9 @@
+/* eslint-disable no-useless-escape -- Inside a character class, escaping `[` and `-`
+ * is unnecessary and kept on purpose. These classes are dense and get edited: an
+ * unescaped `-` between two members silently becomes a range, and the bug it causes
+ * is a title that normalises differently on one server than on another — which
+ * surfaces as a correlation that stopped working, nowhere near this file. The escapes
+ * cost nothing and make every member obviously a member. */
 /**
  * Turning what a library calls a file into something two libraries can agree on.
  *

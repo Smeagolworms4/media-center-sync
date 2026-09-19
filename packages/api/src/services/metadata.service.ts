@@ -109,9 +109,9 @@ export class MetadataService {
 			const name = FOLDER_ARTWORK.has(entry.toLowerCase())
 				? entry
 				: // Renamed to follow the media file, or the servers stop associating
-					// them: a subtitle called after the source's name next to a file
-					// called something else is a subtitle nobody sees.
-					`${targetBase}${suffix}${extension}`;
+			// them: a subtitle called after the source's name next to a file
+			// called something else is a subtitle nobody sees.
+				`${targetBase}${suffix}${extension}`;
 
 			const size = await stat(full)
 				.then((stats) => stats.size)

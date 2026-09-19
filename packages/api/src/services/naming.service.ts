@@ -1,3 +1,7 @@
+/* eslint-disable no-control-regex -- The control characters are the point: a filename
+ * arriving from another gateway can contain anything, and a byte below 0x20 in a path
+ * is how a crafted name escapes a directory or breaks a shell somewhere downstream.
+ * Stripping them is exactly what this rule assumes is a mistake. */
 import { MediaKind, NamingScheme } from '@mcs/shared';
 import { Injectable } from '@nestjs/common';
 import { basename, stripExtension } from './title-normalizer';

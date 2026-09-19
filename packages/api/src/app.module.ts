@@ -67,6 +67,12 @@ const injectables = (barrel: Record<string, unknown>): Type[] =>
 		// everything else.
 		{ provide: APP_GUARD, useClass: security.RightsGuard },
 		{ provide: APP_GUARD, useClass: security.PeerGuard },
+		// Without this binding the peer guard has no verifier and refuses every peer
+		// route — correctly, since an unchecked peer credential hands the catalogue to
+		// whoever guesses a fingerprint. It is a token rather than a class so that the
+		// guard, which lives under `security/`, does not have to know that a manager is
+		// what answers it.
+		{ provide: security.PEER_CREDENTIAL_VERIFIER, useExisting: managers.PeerManager },
 	],
 })
 export class AppModule {}

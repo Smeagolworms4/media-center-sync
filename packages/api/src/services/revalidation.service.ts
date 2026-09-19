@@ -102,37 +102,37 @@ export function decideRevalidationAction(
 			// resuming into it would interleave two encodings of the same episode.
 			return context.hasAlternativeSources
 				? {
-						action: RevalidationAction.SWITCH_SOURCE,
-						note: 'the source re-encoded its copy; another source still holds the version we started',
-					}
+					action: RevalidationAction.SWITCH_SOURCE,
+					note: 'the source re-encoded its copy; another source still holds the version we started',
+				}
 				: {
-						action: RevalidationAction.ABANDON,
-						note: 'the source re-encoded its copy and nobody else holds the version we started',
-					};
+					action: RevalidationAction.ABANDON,
+					note: 'the source re-encoded its copy and nobody else holds the version we started',
+				};
 
 		case RevalidationOutcome.GONE:
 			return context.hasAlternativeSources
 				? {
-						action: RevalidationAction.SWITCH_SOURCE,
-						note: 'the source no longer holds it; another one does',
-					}
+					action: RevalidationAction.SWITCH_SOURCE,
+					note: 'the source no longer holds it; another one does',
+				}
 				: {
-						action: RevalidationAction.ABANDON,
-						note: 'nobody holds it any more',
-					};
+					action: RevalidationAction.ABANDON,
+					note: 'nobody holds it any more',
+				};
 
 		case RevalidationOutcome.UNREACHABLE:
 			// Nothing is decided by silence. Waiting is right up to the point where
 			// waiting forever becomes a transfer nobody ever looks at again.
 			return context.attempt >= maxAttempts
 				? {
-						action: RevalidationAction.ABANDON,
-						note: `no answer after ${context.attempt} attempts`,
-					}
+					action: RevalidationAction.ABANDON,
+					note: `no answer after ${context.attempt} attempts`,
+				}
 				: {
-						action: RevalidationAction.REQUEUE,
-						note: 'no answer yet; asking again later',
-					};
+					action: RevalidationAction.REQUEUE,
+					note: 'no answer yet; asking again later',
+				};
 	}
 }
 

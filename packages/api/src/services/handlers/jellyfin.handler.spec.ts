@@ -22,6 +22,7 @@ const library: NormalisedLibrary = {
 const EPISODE = {
 	Id: 'item-1',
 	Name: 'Back to the Butcher',
+	SeriesName: 'The Expanse',
 	Type: 'Episode',
 	SeriesId: 'series-1',
 	SeasonId: 'season-1',
@@ -185,6 +186,35 @@ describe('JellyfinHandler', () => {
 	});
 
 	describe('scanLibrary', () => {
+		it('gives a series no file, although Jellyfin reports its directory as a path', async () => {
+			stubFetch(() => ({
+				Items: [
+					{
+						Id: 'series-1',
+						Name: 'The Expanse',
+						Type: 'Series',
+						IsFolder: true,
+						Path: '/media/Shows/The Expanse',
+						ProductionYear: 2015,
+					},
+				],
+				TotalRecordCount: 1,
+			}));
+
+			const items = [];
+			for await (const item of handler.scanLibrary(connection, library)) {
+				items.push(item);
+			}
+
+			// A phantom file here is not harmless: the quality summary counts files, so
+			// every series and every season would contribute a variant with no codec
+			// and a size of zero, and a season whose episodes all share one encoding
+			// would be reported as mixed. Nothing fails; the chip simply lies.
+			expect(items).toHaveLength(1);
+			expect(items[0].kind).toBe(MediaKind.SERIES);
+			expect(items[0].file).toBeNull();
+		});
+
 		it('maps a full item onto the normalised shape', async () => {
 			stubFetch(() => ({ Items: [EPISODE], TotalRecordCount: 1 }));
 
@@ -200,7 +230,10 @@ describe('JellyfinHandler', () => {
 				parentExternalId: 'season-1',
 				kind: MediaKind.EPISODE,
 				title: 'Back to the Butcher',
-				normalizedTitle: 'back to the butcher',
+				// The show, not the episode. See `_toItem`: correlation joins on this
+				// plus the season and episode numbers, and two libraries agree about
+				// the name of a show far more often than about the name of an episode.
+				normalizedTitle: 'expanse',
 				year: 2015,
 				seasonNumber: 1,
 				episodeNumber: 2,
