@@ -1,3 +1,5 @@
+import type { LibraryKind } from './library.model';
+
 /**
  * The kind of media service behind a registration.
  *
@@ -77,7 +79,14 @@ export interface MediaServiceProbe {
 	type: MediaServiceType | null;
 	version: string | null;
 	serverName: string | null;
-	libraries: { externalId: string; name: string; kind: string; paths: string[] }[];
+	/**
+	 * What the service says it holds, before anything is registered.
+	 *
+	 * `kind` is the same enum a registered library carries: losing it here would
+	 * mean the form that shows a probe result and the screen that shows the saved
+	 * library disagree about what a library is, for no reason beyond the boundary.
+	 */
+	libraries: { externalId: string; name: string; kind: LibraryKind; paths: string[] }[];
 	/** Error key when the probe failed. */
 	error: string | null;
 }

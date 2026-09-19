@@ -33,9 +33,23 @@ export interface MediaFileInfo {
 	width: number | null;
 	height: number | null;
 	durationMs: number | null;
+	/**
+	 * Bits per second, always.
+	 *
+	 * The unit has to be stated because the services disagree: Jellyfin reports
+	 * bits per second and Plex kilobits, so a handler that passes either through
+	 * untouched makes the quality comparator rank every Plex copy a thousand times
+	 * below every Jellyfin one — silently, and in a way that looks like a scoring
+	 * bug rather than a unit.
+	 */
 	bitrate: number | null;
 	/**
-	 * Cheap fingerprint: a few sampled ranges plus the exact size.
+	 * Cheap fingerprint: a few sampled ranges plus the exact size, SHA-256, prefixed
+	 * with the sampling version.
+	 *
+	 * The prefix matters: two gateways must never compare values produced by two
+	 * different sampling schemes. Changing what is sampled changes the prefix, and
+	 * old values simply stop matching instead of matching wrongly.
 	 *
 	 * Hashing a forty-gigabyte episode to find out whether a friend has the same one
 	 * would cost more than downloading it. Sampling the head, the middle and the tail
@@ -73,8 +87,16 @@ export interface QualityVariant {
 	videoCodec: string | null;
 	/** `2160p`, `1080p`, `720p`… derived from the height, not from the title. */
 	resolution: string | null;
+	/**
+	 * `HDR10`, `DV`, `HLG`, when it can be told at all.
+	 *
+	 * Neither service reports it as a field, so it is read off the filename. That
+	 * makes it a hint worth showing and never a signal worth ranking on: a release
+	 * named `HDR` that is not is common enough to matter.
+	 */
 	hdr: string | null;
 	audioCodec: string | null;
+	/** `5.1`, `7.1`, `2.0` — read off the filename too, and just as untrustworthy. */
 	audioChannels: string | null;
 	container: string | null;
 	/** How many files under this node carry exactly this encoding. */

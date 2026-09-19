@@ -75,6 +75,30 @@ export interface AcceptPeerInviteRequest {
 	name?: string;
 }
 
+/**
+ * One row of what a peer exposes to us.
+ *
+ * Deliberately thinner than a `MediaItem`: a peer tells us what it holds, not how it
+ * files it. Paths, library identifiers and internal item identifiers are theirs and
+ * stay theirs — sending them would leak the shape of somebody's disk for no gain, and
+ * would tempt us into addressing their library by path rather than by content.
+ */
+export interface CatalogueEntry {
+	/** Their identifier for the item. Opaque to us; we hand it back to ask for bytes. */
+	externalId: string;
+	kind: string;
+	title: string;
+	year: number | null;
+	seasonNumber: number | null;
+	episodeNumber: number | null;
+	parentExternalId: string | null;
+	externalIds: Record<string, string>;
+	/** Present only when they share the files, absent when they share the catalogue. */
+	contentId: string | null;
+	size: number | null;
+	quality: string | null;
+}
+
 /** This gateway's own identity, shown in the peers screen. */
 export interface PeerIdentity {
 	fingerprint: string;

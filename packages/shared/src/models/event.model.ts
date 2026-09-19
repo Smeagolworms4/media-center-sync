@@ -1,7 +1,13 @@
 import type { Peer } from './peer.model';
 import type { MediaService } from './service.model';
 import type { SyncJob } from './sync.model';
-import type { Transfer, TransferProgress, TransferQueueStats } from './transfer.model';
+import type {
+	Revalidation,
+	Transfer,
+	TransferProgress,
+	TransferQueueStats,
+	TransferVerification,
+} from './transfer.model';
 
 /**
  * What the gateway pushes to open interfaces.
@@ -18,6 +24,17 @@ export const EventName = {
 	SERVICE_STATUS: 'service.status',
 	PEER_STATUS: 'peer.status',
 	SCAN_PROGRESS: 'scan.progress',
+	/**
+	 * A verification pass finished, with what it found.
+	 *
+	 * Separate from the transfer state because the answer is interesting even when
+	 * the state does not change: a file that verifies clean tells you the source was
+	 * fine and the problem is elsewhere, and that is invisible if the only signal is
+	 * the transfer going back to `done`.
+	 */
+	TRANSFER_VERIFIED: 'transfer.verified',
+	/** The far end answered a revalidation, and what was decided as a result. */
+	TRANSFER_REVALIDATED: 'transfer.revalidated',
 } as const;
 
 export type EventNameValue = (typeof EventName)[keyof typeof EventName];
@@ -38,6 +55,8 @@ export interface EventPayloads {
 	[EventName.SERVICE_STATUS]: Pick<MediaService, 'id' | 'status' | 'lastProbeAt'>;
 	[EventName.PEER_STATUS]: Pick<Peer, 'id' | 'status' | 'linkMode' | 'lastSeenAt'>;
 	[EventName.SCAN_PROGRESS]: ScanProgress;
+	[EventName.TRANSFER_VERIFIED]: TransferVerification;
+	[EventName.TRANSFER_REVALIDATED]: Revalidation;
 }
 
 export interface ServerEvent<K extends EventNameValue = EventNameValue> {

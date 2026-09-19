@@ -96,7 +96,7 @@ export interface TransferChunk {
 	sourceServiceId: string | null;
 	attempts: number;
 	/**
-	 * Expected hash of this piece, when the source could tell us one.
+	 * Expected SHA-256 of this piece, when the source could tell us one.
 	 *
 	 * Without it a bad byte is only discovered at the end, on the whole-file hash,
 	 * and nothing says which part to fetch again. With it, verification is local to
@@ -115,6 +115,12 @@ export interface Transfer {
 	 */
 	contentId: string | null;
 	title: string;
+	/**
+	 * The item's kind, resolved when the transfer is created.
+	 *
+	 * It is not on the transfer row: the item already carries it, and a copy would
+	 * be one more thing to keep in step. The manager fills it on the way out.
+	 */
 	kind: string;
 	state: TransferState;
 	targetPath: string;
