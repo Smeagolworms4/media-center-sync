@@ -1,11 +1,11 @@
 import type { Library, MediaService, SyncPlan } from '@mcs/shared';
 import {
 	LibraryKind,
+	MediaServiceMode,
 	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
-	SyncTrigger,
-} from '@mcs/shared';
+	SyncTrigger } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 import LibraryPathField from '@/components/library/LibraryPathField.vue';
@@ -32,6 +32,7 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
 		scope: MediaServiceScope.LOCAL,
+		mode: MediaServiceMode.LOCAL,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: null,

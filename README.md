@@ -15,6 +15,18 @@ your own server already watches.
 
 *[Version française](README.fr.md)*
 
+![The library: every service's shelves merged into categories, with what you are missing marked on the poster](docs/images/library.png)
+
+Libraries of the same name become one category, however many servers they live on,
+and a poster carries what it is worth knowing at a glance: whether you hold it,
+where the copies are, and `x265 · 1080p` — or `mixed`, when the sources disagree.
+
+![Media services: one Jellyfin whose folders the gateway can write into, one Plex it can only read](docs/images/services.png)
+
+A service whose library folders this gateway can reach is a place files can land. One
+you merely have an account on is a place to read from and pull out of. The difference
+is stated on the row, because it decides what a sync can do.
+
 ---
 
 ## Install

@@ -1,10 +1,10 @@
 import type { MediaService } from '@mcs/shared';
 import {
 	EventName,
+	MediaServiceMode,
 	MediaServiceScope,
 	MediaServiceStatus,
-	MediaServiceType,
-} from '@mcs/shared';
+	MediaServiceType } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useServicesStore } from '@/stores/services';
 import { connectFakeSocket, createStoreContext, emitServerEvent, stubFetch } from './helpers';
@@ -15,6 +15,7 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
 		scope: MediaServiceScope.LOCAL,
+		mode: MediaServiceMode.LOCAL,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: '10.9',

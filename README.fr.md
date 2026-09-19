@@ -15,6 +15,18 @@ la fois, directement dans le dossier de bibliothèque que votre propre serveur
 surveille déjà.
 
 *[English version](README.md)*
+![La médiathèque : les bibliothèques de chaque service fondues en catégories, avec ce qui manque marqué sur l'affiche](docs/images/library.png)
+
+Les bibliothèques de même nom deviennent une seule catégorie, quel que soit le nombre
+de serveurs où elles vivent, et chaque affiche porte l'essentiel : si vous l'avez, où
+sont les copies, et `x265 · 1080p` — ou `mixed`, quand les sources ne s'accordent pas.
+
+![Services média : un Jellyfin dont la passerelle peut écrire les dossiers, un Plex qu'elle ne fait que lire](docs/images/services.png)
+
+Un service dont la passerelle atteint les dossiers est un endroit où des fichiers
+peuvent atterrir. Un service où l'on a seulement un compte est un endroit où lire et
+puiser. La différence est affichée sur la ligne, parce qu'elle décide de ce qu'une
+synchronisation peut faire.
 
 ---
 

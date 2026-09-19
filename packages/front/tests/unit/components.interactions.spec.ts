@@ -1,14 +1,14 @@
 import type { Library, MediaService, SyncPlan } from '@mcs/shared';
 import {
 	LibraryKind,
+	MediaServiceMode,
 	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	ShareVisibility,
 	SyncTrigger,
 	TransferErrorKind,
-	TransferState,
-} from '@mcs/shared';
+	TransferState } from '@mcs/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import CopyField from '@/components/common/CopyField.vue';
@@ -43,6 +43,7 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		name: 'First',
 		type: MediaServiceType.JELLYFIN,
 		scope: MediaServiceScope.LOCAL,
+		mode: MediaServiceMode.LOCAL,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: null,

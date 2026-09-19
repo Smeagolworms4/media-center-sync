@@ -67,6 +67,13 @@
 				// screen offering to create an account on a gateway that already has one
 				// is wrong for as long as it is on screen, however briefly.
 				claimed.value = true;
+				// And the loader with it, before awaiting the navigation rather than in
+				// the `finally` after it. A router transition takes several ticks, and
+				// until it settles `loading` would still be true — so the one thing this
+				// visitor needs, the way in, is behind a spinner for exactly as long as
+				// the redirect takes, on the screen that exists to say they do not need
+				// this form.
+				loading.value = false;
 				await router.replace({ name: 'login' });
 			}
 		} finally {

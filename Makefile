@@ -176,6 +176,17 @@ e2e/ci:
 		done; \
 		npx playwright test'
 
+# The pictures in the README are generated, not pasted: when a screen changes, this
+# brings them back into line without anybody having to remember which window size was
+# used the first time. It needs a stack with real content — the lab is what it was
+# written against — and it writes into `docs/images/`, which is why it is a target you
+# ask for and never part of a test run. E2E_BASE_URL and E2E_API_URL choose the stack.
+##
+## Re-take the README's screenshots from a running stack
+docs/screenshots:
+	$(COMPOSE) --profile e2e run --rm --no-deps e2e \
+		npx playwright test --config playwright.docs.config.ts $(ARGS)
+
 ## Open a shell in the Playwright container
 e2e/bash:
 	$(COMPOSE) --profile e2e run --rm --no-deps e2e sh -l

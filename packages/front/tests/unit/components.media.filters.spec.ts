@@ -3,11 +3,11 @@ import {
 	LibraryKind,
 	MediaKind,
 	MediaOrigin,
+	MediaServiceMode,
 	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
-	SyncState,
-} from '@mcs/shared';
+	SyncState } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import GroupSources from '@/components/media/GroupSources.vue';
 import MediaFilters from '@/components/media/MediaFilters.vue';
@@ -21,6 +21,7 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
 		scope: MediaServiceScope.LOCAL,
+		mode: MediaServiceMode.LOCAL,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: null,
