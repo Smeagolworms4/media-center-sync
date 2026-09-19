@@ -3,14 +3,16 @@ import { nextTick } from 'vue';
 import { useTokenStore } from '@/stores/token';
 import { createStoreContext, stubFetch } from './helpers';
 
-const pair = (overrides: Record<string, unknown> = {}) => ({
-	accessToken: 'access-1',
-	refreshToken: 'refresh-1',
-	expiresIn: 900,
-	user: { id: 'u1', username: 'ada' },
-	rights: [],
-	...overrides,
-});
+function pair (overrides: Record<string, unknown> = {}) {
+	return {
+		accessToken: 'access-1',
+		refreshToken: 'refresh-1',
+		expiresIn: 900,
+		user: { id: 'u1', username: 'ada' },
+		rights: [],
+		...overrides,
+	};
+}
 
 describe('stores/token', () => {
 	beforeEach(() => {

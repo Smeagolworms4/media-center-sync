@@ -18,8 +18,8 @@ export function toDate (
 }
 
 /**
- * Date courte (jj/mm/aaaa). Renvoie `fallback` si la valeur est vide ou invalide
- * (RCU renvoie souvent une chaîne vide, ex. `dateResiliation`).
+ * Short date. Falls back rather than printing `Invalid Date`: an API that has
+ * never seen an event for a row sends an empty string, not a null.
  */
 export function toShortDate (
 	value: number | Date | null | string | undefined,
@@ -87,7 +87,7 @@ export function toCaretDate (value: number | string | Date, utc = false): string
 	}
 
 	const year = utc ? value.getUTCFullYear() : value.getFullYear();
-	const month = String((utc ? value.getUTCMonth() : value.getMonth()) + 1).padStart(2, '0'); // Les mois commencent à 0
+	const month = String((utc ? value.getUTCMonth() : value.getMonth()) + 1).padStart(2, '0'); // Months are zero-based.
 	const day = String(utc ? value.getUTCDate() : value.getDate()).padStart(2, '0');
 
 	return `${year}-${month}-${day}`;

@@ -2,12 +2,12 @@ export function slugify (input: string): string {
 	return input
 		.trim()
 		.toLowerCase()
-		// 1) enlève les accents (NFD sépare lettre + diacritique)
+		// Strip accents: NFD splits a letter from its diacritic, which then drops.
 		.normalize('NFD')
 		.replace(/[\u0300-\u036F]/g, '')
-		// 2) remplace tout ce qui n'est pas alphanum par des tirets
+		// Anything that is not alphanumeric becomes a hyphen,
 		.replace(/[^a-z0-9]+/g, '-')
-		// 3) supprime les tirets en trop
+		// and runs of hyphens collapse.
 		.replace(/^-+|-+$/g, '')
 		.replace(/-+/g, '-');
 }

@@ -7,18 +7,20 @@ import { describeSyncState, SYNC_STATE_ICON } from '@/composables/useSyncState';
 import { SYNC_STATE_COLOR } from '@/plugins/vuetify';
 import { mountWithApp, tooltipStub } from './helpers';
 
-const variant = (overrides: Partial<QualityVariant> = {}): QualityVariant => ({
-	label: 'x265 · 1080p',
-	videoCodec: 'hevc',
-	resolution: '1080p',
-	hdr: null,
-	audioCodec: 'eac3',
-	audioChannels: '5.1',
-	container: 'mkv',
-	count: 8,
-	bytes: 8 * 1024 ** 3,
-	...overrides,
-});
+function variant (overrides: Partial<QualityVariant> = {}): QualityVariant {
+	return {
+		label: 'x265 · 1080p',
+		videoCodec: 'hevc',
+		resolution: '1080p',
+		hdr: null,
+		audioCodec: 'eac3',
+		audioChannels: '5.1',
+		container: 'mkv',
+		count: 8,
+		bytes: 8 * 1024 ** 3,
+		...overrides,
+	};
+}
 
 describe('useSyncState', () => {
 	it('describes every one of the seven states', () => {

@@ -3,9 +3,17 @@ import { AbortCallerException, getCaller } from '@/libs/caller';
 import { useTokenStore } from '@/stores/token';
 import { createStoreContext } from './helpers';
 
+/** Reads one recorded `fetch` call; the mock's own tuple type says nothing useful. */
+function callArgs (stub: { mock: { calls: unknown[][] } }, index: number): { url: string; init: RequestInit } {
+	const call = stub.mock.calls[index] ?? [];
+	return { url: call[0] as string, init: (call[1] ?? {}) as RequestInit };
+}
+
 /** Lets every pending microtask run, so a call has actually reached `fetch`. */
 function flush (): Promise<void> {
-	return new Promise(resolve => { setTimeout(resolve, 0); });
+	return new Promise(resolve => {
+		setTimeout(resolve, 0);
+	});
 }
 
 function session (overrides: Record<string, unknown> = {}) {
@@ -42,7 +50,7 @@ describe('Caller', () => {
 		const result = await getCaller('api', context.pinia).get('/health', { useAuth: false });
 
 		expect(result).toEqual({ ok: true });
-		expect(stub.mock.calls[0][0]).toBe('/api/health');
+		expect(callArgs(stub, 0).url).toBe('/api/health');
 	});
 
 	it('attaches the bearer when the session is valid', async () => {
@@ -52,7 +60,7 @@ describe('Caller', () => {
 
 		await getCaller('api', context.pinia).get('/services');
 
-		const headers = (stub.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+		const headers = callArgs(stub, 0).init.headers as Record<string, string>;
 		expect(headers.Authorization).toBe('Bearer access-1');
 		expect(headers['X-Locale']).toBe('en');
 	});
@@ -64,7 +72,7 @@ describe('Caller', () => {
 
 		await getCaller('api', context.pinia).get('/auth/providers', { useAuth: false });
 
-		const headers = (stub.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+		const headers = callArgs(stub, 0).init.headers as Record<string, string>;
 		expect(headers.Authorization).toBeUndefined();
 	});
 
@@ -74,7 +82,7 @@ describe('Caller', () => {
 
 		const stub = vi.fn((url: string) => {
 			if (url === '/api/auth/refresh') {
-				return Promise.resolve(new Response(JSON.stringify(session({ accessToken: 'access-2' })), { status: 200 }));
+				return Promise.resolve(Response.json(session({ accessToken: 'access-2' }), { status: 200 }));
 			}
 			return Promise.resolve(new Response('{}', { status: 200 }));
 		});
@@ -82,8 +90,8 @@ describe('Caller', () => {
 
 		await getCaller('api', context.pinia).get('/services');
 
-		expect(stub.mock.calls[0][0]).toBe('/api/auth/refresh');
-		const headers = (stub.mock.calls[1][1] as RequestInit).headers as Record<string, string>;
+		expect(callArgs(stub, 0).url).toBe('/api/auth/refresh');
+		const headers = callArgs(stub, 1).init.headers as Record<string, string>;
 		expect(headers.Authorization).toBe('Bearer access-2');
 	});
 
@@ -93,7 +101,7 @@ describe('Caller', () => {
 
 		await getCaller('api', context.pinia).post('/services', { name: 'attic' }, { useAuth: false });
 
-		const init = stub.mock.calls[0][1] as RequestInit;
+		const init = callArgs(stub, 0).init;
 		expect(init.method).toBe('POST');
 		expect(init.body).toBe('{"name":"attic"}');
 		expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
@@ -106,7 +114,7 @@ describe('Caller', () => {
 
 		const error = await getCaller('api', context.pinia)
 			.get('/media/nope', { useAuth: false, silentError: true })
-			.catch((thrown: unknown) => thrown);
+			.catch((error_: unknown) => error_);
 
 		expect(error).toBeInstanceOf(Response);
 		expect((error as Response).status).toBe(404);
@@ -131,9 +139,9 @@ describe('Caller', () => {
 		globalThis.fetch = stub as unknown as typeof fetch;
 		const caller = getCaller('api', context.pinia);
 
-		const first = caller.get('/search?q=a', { useAuth: false, abortKey: 'search' }).catch((e: unknown) => e);
+		const first = caller.get('/search?q=a', { useAuth: false, abortKey: 'search' }).catch((error: unknown) => error);
 		await flush();
-		const second = caller.get('/search?q=ab', { useAuth: false, abortKey: 'search' }).catch((e: unknown) => e);
+		const second = caller.get('/search?q=ab', { useAuth: false, abortKey: 'search' }).catch((error: unknown) => error);
 		await flush();
 
 		await expect(first).resolves.toBeInstanceOf(AbortCallerException);
@@ -161,7 +169,7 @@ describe('Caller', () => {
 		})) as unknown as typeof fetch;
 
 		const caller = getCaller('api', context.pinia);
-		const slow = caller.get('/page?p=1', { useAuth: false, keepLastKey: 'page' }).catch((e: unknown) => e);
+		const slow = caller.get('/page?p=1', { useAuth: false, keepLastKey: 'page' }).catch((error: unknown) => error);
 		// Two calls started in the same millisecond cannot be ordered, and ordering
 		// is the whole point of a keep-last key.
 		await flush();

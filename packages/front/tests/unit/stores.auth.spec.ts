@@ -18,14 +18,16 @@ const user = {
 	updatedAt: '2026-01-01T00:00:00.000Z',
 };
 
-const tokenPair = (overrides: Record<string, unknown> = {}) => ({
-	accessToken: 'access-1',
-	refreshToken: 'refresh-1',
-	expiresIn: 900,
-	user,
-	rights: [Right.LIBRARY_READ, Right.MEDIA_READ],
-	...overrides,
-});
+function tokenPair (overrides: Record<string, unknown> = {}) {
+	return {
+		accessToken: 'access-1',
+		refreshToken: 'refresh-1',
+		expiresIn: 900,
+		user,
+		rights: [Right.LIBRARY_READ, Right.MEDIA_READ],
+		...overrides,
+	};
+}
 
 describe('stores/auth', () => {
 	beforeEach(() => {

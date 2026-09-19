@@ -11,18 +11,20 @@ import TransferProgress from '@/components/transfer/TransferProgress.vue';
 import { useI18nStore } from '@/stores/i18n';
 import { mountWithApp, tooltipStub } from './helpers';
 
-const progress = (overrides: Record<string, unknown> = {}) => ({
-	id: 't1',
-	state: TransferState.DOWNLOADING,
-	bytesDone: 512 * 1024 ** 2,
-	bytesTotal: 1024 ** 3,
-	rate: 4 * 1024 ** 2,
-	etaSeconds: 128,
-	chunksDone: 12,
-	chunksTotal: 24,
-	sourceCount: 2,
-	...overrides,
-});
+function progress (overrides: Record<string, unknown> = {}) {
+	return {
+		id: 't1',
+		state: TransferState.DOWNLOADING,
+		bytesDone: 512 * 1024 ** 2,
+		bytesTotal: 1024 ** 3,
+		rate: 4 * 1024 ** 2,
+		etaSeconds: 128,
+		chunksDone: 12,
+		chunksTotal: 24,
+		sourceCount: 2,
+		...overrides,
+	};
+}
 
 describe('ByteSize', () => {
 	it('renders a human size', () => {

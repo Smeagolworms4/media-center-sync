@@ -101,7 +101,9 @@ describe('storageRef', () => {
 /** The URL is written through `router.replace`, which settles a tick later. */
 async function flush (): Promise<void> {
 	await nextTick();
-	await new Promise(resolve => { setTimeout(resolve, 0); });
+	await new Promise(resolve => {
+		setTimeout(resolve, 0);
+	});
 	await nextTick();
 }
 

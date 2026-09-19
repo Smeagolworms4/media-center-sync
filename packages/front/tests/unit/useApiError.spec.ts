@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { useApiError } from '@/hooks/useApiError';
 
-const options = (fields: string[] = []) => ({
-	fallback: 'error.general',
-	mappedFields: new Set(fields),
-});
+function options (fields: string[] = []) {
+	return {
+		fallback: 'error.general',
+		mappedFields: new Set(fields),
+	};
+}
 
 function jsonResponse (body: unknown, status = 400): Response {
-	return new Response(JSON.stringify(body), {
+	return Response.json(body, {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
@@ -131,7 +133,7 @@ describe('useApiError', () => {
 	});
 
 	it('translates a bare string payload that is a key', async () => {
-		const parsed = await parseApiError(new Response(JSON.stringify('error.peer.unreachable'), {
+		const parsed = await parseApiError(Response.json('error.peer.unreachable', {
 			status: 400,
 			headers: { 'Content-Type': 'application/json' },
 		}), options());

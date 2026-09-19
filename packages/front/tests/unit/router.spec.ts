@@ -120,7 +120,9 @@ describe('router', () => {
 });
 
 describe('plugins/granted', () => {
-	beforeEach(() => { createStoreContext(); });
+	beforeEach(() => {
+		createStoreContext();
+	});
 
 	it('answers false for everything while nobody is signed in', () => {
 		const app = createApp({ render: () => null });

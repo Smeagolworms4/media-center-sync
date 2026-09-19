@@ -1,6 +1,6 @@
+import type { Router } from 'vue-router';
 import { Right, UserRole } from '@mcs/shared';
 import { describe, expect, it, vi } from 'vitest';
-import type { Router } from 'vue-router';
 import { nextTick } from 'vue';
 import App from '@/App.vue';
 import Dashboard from '@/pages/Dashboard.vue';
@@ -24,7 +24,9 @@ import { mountWithApp, stubFetch } from './helpers';
 async function settle (times = 4): Promise<void> {
 	for (let index = 0; index < times; index += 1) {
 		await nextTick();
-		await new Promise(resolve => { setTimeout(resolve, 0); });
+		await new Promise(resolve => {
+			setTimeout(resolve, 0);
+		});
 	}
 }
 
@@ -35,7 +37,9 @@ async function untilRoute (router: Router, name: string): Promise<void> {
 			return;
 		}
 		await nextTick();
-		await new Promise(resolve => { setTimeout(resolve, 5); });
+		await new Promise(resolve => {
+			setTimeout(resolve, 5);
+		});
 	}
 }
 
@@ -117,7 +121,9 @@ describe('App', () => {
 	});
 
 	it('shows only the sections the viewer may open', async () => {
-		vi.stubGlobal('WebSocket', class { addEventListener () {} close () {} } as unknown as typeof WebSocket);
+		vi.stubGlobal('WebSocket', class {
+			addEventListener () {} close () {}
+		} as unknown as typeof WebSocket);
 		stubFetch([{ body: {} }]);
 		const { wrapper, pinia, router } = mountWithApp(App);
 		await router.push({ name: 'dashboard' });
@@ -139,7 +145,9 @@ describe('App', () => {
 	});
 
 	it('names the gateway, the account and the connection state in the bar', async () => {
-		vi.stubGlobal('WebSocket', class { addEventListener () {} close () {} } as unknown as typeof WebSocket);
+		vi.stubGlobal('WebSocket', class {
+			addEventListener () {} close () {}
+		} as unknown as typeof WebSocket);
 		stubFetch([{ body: {} }]);
 		const { wrapper, pinia, router } = mountWithApp(App);
 		await router.push({ name: 'dashboard' });

@@ -34,8 +34,12 @@ const Harness = defineComponent({
 	render () {
 		return h(VForm, { onVnodeMounted: undefined }, {
 			default: () => [
-				h(VTextField, { modelValue: this.username, 'onUpdate:modelValue': (v: string) => { this.username = v; }, ...this.form.field('username') }),
-				h(VTextField, { modelValue: this.password, 'onUpdate:modelValue': (v: string) => { this.password = v; }, ...this.form.field('password') }),
+				h(VTextField, { 'modelValue': this.username, 'onUpdate:modelValue': (v: string) => {
+					this.username = v;
+				}, ...this.form.field('username') }),
+				h(VTextField, { 'modelValue': this.password, 'onUpdate:modelValue': (v: string) => {
+					this.password = v;
+				}, ...this.form.field('password') }),
 			],
 		});
 	},
@@ -51,12 +55,14 @@ function mountForm (props: HarnessProps) {
 
 async function flush (): Promise<void> {
 	await nextTick();
-	await new Promise(resolve => { setTimeout(resolve, 0); });
+	await new Promise(resolve => {
+		setTimeout(resolve, 0);
+	});
 	await nextTick();
 }
 
 function errorResponse (body: unknown, status = 400): Response {
-	return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+	return Response.json(body, { status, headers: { 'Content-Type': 'application/json' } });
 }
 
 describe('useForm', () => {
@@ -140,7 +146,9 @@ describe('useForm', () => {
 
 	it('holds the loading flag for as long as the handler runs', async () => {
 		let release!: () => void;
-		const pending = new Promise<void>(resolve => { release = resolve; });
+		const pending = new Promise<void>(resolve => {
+			release = resolve;
+		});
 		const wrapper = mountForm({ handle: () => pending });
 		wrapper.vm.username = 'ada';
 		wrapper.vm.password = 'secret';

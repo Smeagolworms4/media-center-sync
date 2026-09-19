@@ -3,8 +3,8 @@ import {
 	formatBytes,
 	formatDateTime,
 	formatDuration,
-	formatRelativeDate,
 	formatRate,
+	formatRelativeDate,
 } from '@/composables/useFormat';
 
 describe('formatBytes', () => {

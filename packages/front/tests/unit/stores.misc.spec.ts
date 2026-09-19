@@ -29,34 +29,40 @@ const settings = {
 };
 
 describe('stores/loader', () => {
-	beforeEach(() => { createStoreContext(); });
+	beforeEach(() => {
+		createStoreContext();
+	});
 
 	it('stays loading until every pending call has finished', () => {
 		const loader = useLoaderStore();
 		expect(loader.loading).toBe(false);
 
-		loader.push();
-		loader.push();
+		// Two calls in flight, so one of them finishing must not stop the bar.
+		loader.start();
+		loader.start();
 		expect(loader.loading).toBe(true);
 
-		loader.pop();
-		expect(loader.loading).toBe(true);
-		loader.pop();
+		loader.stop();
+		expect(loader.loading, 'one call is still pending').toBe(true);
+
+		loader.stop();
 		expect(loader.loading).toBe(false);
 	});
 
-	it('never goes negative when something pops twice', () => {
+	it('never goes negative when something stops twice', () => {
 		const loader = useLoaderStore();
-		loader.pop();
-		loader.pop();
-		loader.push();
+		loader.stop();
+		loader.stop();
+		loader.start();
 
 		expect(loader.loading).toBe(true);
 	});
 });
 
 describe('stores/notifier', () => {
-	beforeEach(() => { createStoreContext(); });
+	beforeEach(() => {
+		createStoreContext();
+	});
 
 	it('shows a notification and removes it when its time is up', async () => {
 		vi.useFakeTimers();
@@ -74,7 +80,9 @@ describe('stores/notifier', () => {
 });
 
 describe('stores/i18n', () => {
-	beforeEach(() => { createStoreContext(); });
+	beforeEach(() => {
+		createStoreContext();
+	});
 
 	it('switches the catalogue and remembers the choice', () => {
 		const i18nStore = useI18nStore();
@@ -98,7 +106,9 @@ describe('stores/i18n', () => {
 });
 
 describe('stores/settings', () => {
-	beforeEach(() => { createStoreContext(); });
+	beforeEach(() => {
+		createStoreContext();
+	});
 
 	it('reads the gateway settings once', async () => {
 		const stub = stubFetch([{ body: settings }]);

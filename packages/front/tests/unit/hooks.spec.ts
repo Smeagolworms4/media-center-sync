@@ -18,14 +18,16 @@ import { useNotifierStore } from '@/stores/notifier';
 import { useTokenStore } from '@/stores/token';
 import { createStoreContext, mountWithApp, stubFetch } from './helpers';
 
-const pair = (overrides: Record<string, unknown> = {}) => ({
-	accessToken: 'access-1',
-	refreshToken: 'refresh-1',
-	expiresIn: 900,
-	user: { id: 'u1', username: 'ada' },
-	rights: [],
-	...overrides,
-});
+function pair (overrides: Record<string, unknown> = {}) {
+	return {
+		accessToken: 'access-1',
+		refreshToken: 'refresh-1',
+		expiresIn: 900,
+		user: { id: 'u1', username: 'ada' },
+		rights: [],
+		...overrides,
+	};
+}
 
 describe('useDebounce', () => {
 	it('runs only the last call but answers every caller', async () => {
@@ -43,10 +45,12 @@ describe('useDebounce', () => {
 
 	it('rejects every caller when the last call fails', async () => {
 		vi.useFakeTimers();
-		const search = useDebounce(async () => { throw new Error('nope'); }, 10);
+		const search = useDebounce(async () => {
+			throw new Error('nope');
+		}, 10);
 
-		const first = search().catch((e: Error) => e.message);
-		const second = search().catch((e: Error) => e.message);
+		const first = search().catch((error: Error) => error.message);
+		const second = search().catch((error: Error) => error.message);
 		await vi.advanceTimersByTimeAsync(10);
 
 		expect(await first).toBe('nope');
@@ -91,7 +95,10 @@ describe('useInterval and useNativeEvent', () => {
 		vi.useFakeTimers();
 		const tick = vi.fn();
 		const Harness = defineComponent({
-			setup () { useInterval(tick, 50); return () => null; },
+			setup () {
+				useInterval(tick, 50);
+				return () => null;
+			},
 		});
 
 		const { wrapper } = mountWithApp(Harness);
@@ -106,7 +113,10 @@ describe('useInterval and useNativeEvent', () => {
 	it('binds a native listener and releases it on unmount', async () => {
 		const handler = vi.fn();
 		const Harness = defineComponent({
-			setup () { useNativeEvent(window, 'resize', handler); return () => null; },
+			setup () {
+				useNativeEvent(window, 'resize', handler);
+				return () => null;
+			},
 		});
 
 		const { wrapper } = mountWithApp(Harness);
@@ -122,7 +132,10 @@ describe('useInterval and useNativeEvent', () => {
 		const handler = vi.fn();
 		const target = ref<EventTarget | null>(null);
 		const Harness = defineComponent({
-			setup () { useNativeEvent(target, 'click', handler); return () => null; },
+			setup () {
+				useNativeEvent(target, 'click', handler);
+				return () => null;
+			},
 		});
 
 		mountWithApp(Harness);
@@ -136,7 +149,9 @@ describe('useInterval and useNativeEvent', () => {
 });
 
 describe('useNotifier', () => {
-	beforeEach(() => { createStoreContext(); });
+	beforeEach(() => {
+		createStoreContext();
+	});
 
 	it('translates the key it is given', async () => {
 		vi.useFakeTimers();
@@ -153,7 +168,9 @@ describe('useNotifier', () => {
 		const onError = vi.fn();
 		const { tryCallback } = useNotifier();
 
-		await tryCallback(() => { throw new Error('boom'); }, { onError })();
+		await tryCallback(() => {
+			throw new Error('boom');
+		}, { onError })();
 
 		expect(onError).toHaveBeenCalled();
 		expect(useNotifierStore().notifies).toHaveLength(1);
@@ -162,7 +179,9 @@ describe('useNotifier', () => {
 	it('says nothing about a call the interface cancelled itself', async () => {
 		const { tryCallback } = useNotifier();
 
-		await tryCallback(() => { throw new AbortCallerException(); })();
+		await tryCallback(() => {
+			throw new AbortCallerException();
+		})();
 
 		expect(useNotifierStore().notifies).toHaveLength(0);
 	});
@@ -189,7 +208,7 @@ describe('useLoading and useToken', () => {
 		expect(wrapper.vm.loading).toBe(false);
 		expect(wrapper.vm.token).toBeNull();
 
-		useLoaderStore(pinia).push();
+		useLoaderStore(pinia).start();
 		useTokenStore(pinia).store(pair() as never);
 
 		expect(wrapper.vm.loading).toBe(true);
@@ -212,7 +231,9 @@ describe('useIsMounted', () => {
 
 		const { wrapper, pinia } = mountWithApp<any>(Harness);
 		// The mount hook awaits its callbacks, so the flag lands a microtask later.
-		await new Promise(resolve => { setTimeout(resolve, 0); });
+		await new Promise(resolve => {
+			setTimeout(resolve, 0);
+		});
 		expect(wrapper.vm.isMounted).toBe(true);
 		expect(onLoggedSpy).not.toHaveBeenCalled();
 
@@ -248,12 +269,16 @@ describe('useEvents', () => {
 describe('useAppInit', () => {
 	beforeEach(() => {
 		createStoreContext();
-		vi.stubGlobal('WebSocket', class { addEventListener () {} close () {} } as unknown as typeof WebSocket);
+		vi.stubGlobal('WebSocket', class {
+			addEventListener () {} close () {}
+		} as unknown as typeof WebSocket);
 	});
 
 	it('resolves with no session rather than blocking the sign-in page', async () => {
 		const Harness = defineComponent({
-			setup () { return useAppInit(); },
+			setup () {
+				return useAppInit();
+			},
 			render: () => null,
 		});
 		const { wrapper } = mountWithApp<any>(Harness);
@@ -266,7 +291,9 @@ describe('useAppInit', () => {
 
 	it('loads the settings and opens the stream once a session is restored', async () => {
 		const Harness = defineComponent({
-			setup () { return useAppInit(); },
+			setup () {
+				return useAppInit();
+			},
 			render: () => null,
 		});
 		const { wrapper, pinia } = mountWithApp<any>(Harness);
@@ -282,7 +309,9 @@ describe('useAppInit', () => {
 
 	it('still resolves when the settings cannot be read', async () => {
 		const Harness = defineComponent({
-			setup () { return useAppInit(); },
+			setup () {
+				return useAppInit();
+			},
 			render: () => null,
 		});
 		const { wrapper, pinia } = mountWithApp<any>(Harness);

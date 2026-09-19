@@ -53,7 +53,9 @@ const tokenPair = {
 async function flush (times = 4): Promise<void> {
 	for (let index = 0; index < times; index += 1) {
 		await nextTick();
-		await new Promise(resolve => { setTimeout(resolve, 0); });
+		await new Promise(resolve => {
+			setTimeout(resolve, 0);
+		});
 	}
 }
 

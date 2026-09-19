@@ -1,7 +1,7 @@
+import { mount, type VueWrapper } from '@vue/test-utils';
 import { createPinia, type Pinia, setActivePinia } from 'pinia';
 import { type App, type Component, createApp } from 'vue';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
-import { mount, type VueWrapper } from '@vue/test-utils';
 import FormMainError from '@/components/FormMainError.vue';
 import { vForm } from '@/composables/vForm';
 import granted from '@/plugins/granted';
@@ -77,7 +77,7 @@ export function mountWithApp<T> (
 		global: {
 			...globalOptions,
 			plugins: [{ install: context.install }, ...(globalOptions.plugins ?? [])],
-			stubs: { teleport: true, ...(globalOptions.stubs ?? {}) },
+			stubs: { teleport: true, ...globalOptions.stubs },
 		},
 	}) as VueWrapper<T>;
 
@@ -94,8 +94,19 @@ export function mountWithApp<T> (
  */
 export const tooltipStub = {
 	VTooltip: {
-		template: '<div class="tooltip-stub"><slot name="activator" :props="{}" /><slot /></div>',
+		props: ['text'],
+		template: '<div class="tooltip-stub"><slot name="activator" :props="{}" /><slot>{{ text }}</slot></div>',
 	},
+};
+
+/**
+ * A `v-dialog` that renders its content inline.
+ *
+ * The real one only builds its body once an overlay is open and attached, which
+ * jsdom cannot lay out; stubbing it keeps the assertions on our own markup.
+ */
+export const dialogStub = {
+	VDialog: { template: '<div class="dialog-stub"><slot /></div>' },
 };
 
 /** A `fetch` that answers one queued response per call, in order. */

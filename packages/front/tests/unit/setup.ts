@@ -34,6 +34,11 @@ if (!globalThis.visualViewport) {
 	});
 }
 
+// jsdom has no layout, so it implements neither of these; components that keep a
+// list scrolled to the top call them on every update.
+Element.prototype.scrollTo ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
 globalThis.CSS ??= {} as typeof globalThis.CSS;
 globalThis.CSS.supports ??= () => false;
 

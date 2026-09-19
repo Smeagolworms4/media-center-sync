@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { SimpleObserver } from '@/libs/observer';
 import {
 	byte2Human,
+	capitalize,
 	fromCaretDate,
 	HTMLHelper,
 	human2Byte,
 	Native,
-	capitalize,
 	slugify,
 	toCaretDate,
 	toDateTime,
@@ -148,7 +148,9 @@ describe('SimpleObserver', () => {
 	it('swallows a failing subscriber rather than breaking the trigger', async () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 		const observer = new SimpleObserver();
-		observer.subscribe(() => { throw new Error('boom'); });
+		observer.subscribe(() => {
+			throw new Error('boom');
+		});
 
 		await expect(observer.trigger()).resolves.toBeUndefined();
 	});

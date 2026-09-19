@@ -123,7 +123,9 @@ describe('stores/events', () => {
 	it('survives a handler that throws, and still calls the others', () => {
 		const eventsStore = useEventsStore();
 		const second = vi.fn();
-		eventsStore.on(EventName.QUEUE_STATS, () => { throw new Error('boom'); });
+		eventsStore.on(EventName.QUEUE_STATS, () => {
+			throw new Error('boom');
+		});
 		eventsStore.on(EventName.QUEUE_STATS, second);
 		eventsStore.connect();
 		vi.spyOn(console, 'error').mockImplementation(() => {});
