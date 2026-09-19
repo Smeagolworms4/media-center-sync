@@ -5,7 +5,8 @@ disagrees with the other on purpose.
 
 ```bash
 make lab/media   # generate the fixtures, about a megabyte
-make lab/up      # start both servers
+make lab/up      # start both servers and configure Jellyfin
+make lab/setup   # re-run the configuration on its own
 make lab/down    # remove everything, fixtures included
 ```
 
@@ -52,17 +53,18 @@ bug that the other six cases would never have revealed.
 
 ## Setting the servers up
 
-Both need their one-time setup through their own web interface — neither can be
-configured from a compose file, and automating a setup wizard would mean pinning a
-version of it.
+**Jellyfin is configured for you.** `make lab/up` runs the wizard, creates the account
+`lab` / `lab`, adds the two libraries and mints an API key, then prints it. A lab you
+have to click through is a lab nobody re-creates.
 
-**Jellyfin**, at `http://localhost:8096`: run the wizard, create any account, then add
-two libraries pointing at `/media/shows` and `/media/movies`. Create an API key under
-*Dashboard → API keys*; that is what the gateway needs.
+The cost is that the script speaks to the startup endpoints of one Jellyfin
+generation, which is why the version is pinned in the compose file. If it breaks after
+a bump, the wizard changed — and the handler probably did too, which is worth knowing.
 
-**Plex**, at `http://localhost:32400/web`: the container runs unclaimed, which is what
-lets it answer on the local network without a Plex account. Add two libraries pointing
-at `/media/shows` and `/media/movies`.
+**Plex still needs a hand**, at `http://localhost:32400/web`: the container runs
+unclaimed, which is what lets it answer on the local network without a Plex account,
+but an unclaimed server has no token to script against. Add two libraries pointing at
+`/media/shows` and `/media/movies`.
 
 Then register both in the gateway as **remote** services — the lab libraries are
 mounted read-only, deliberately, so that a media server reorganising the fixtures

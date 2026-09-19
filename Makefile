@@ -361,14 +361,21 @@ lab/media:
 	@./docker/lab/seed-media.sh "$(PROJECT_PATH)var/lab/media"
 
 ## Start the lab: Jellyfin and Plex, with the generated libraries
+##
+## The configuration directories are created here, before Compose does. A bind mount
+## whose source does not exist is created by the daemon, owned by root — and both
+## servers run under the host user, so the first thing either of them does is fail to
+## write its own log directory, in a restart loop whose message never mentions a
+## mount.
 lab/up: lab/media
+	@mkdir -p var/lab/jellyfin/config var/lab/jellyfin/cache var/lab/plex/config var/lab/plex/transcode
 	USER_ID=$$(id -u) USER_GID=$$(id -g) $(LAB_COMPOSE) up -d
-	@echo ""
-	@echo "  Jellyfin   http://localhost:$${LAB_JELLYFIN_PORT:-8096}   (run the setup wizard once)"
-	@echo "  Plex       http://localhost:$${LAB_PLEX_PORT:-32400}/web"
-	@echo ""
-	@echo "  Both take a minute to come up the first time. Then add each /media folder"
-	@echo "  as a library, and register the two servers in the gateway."
+	@$(MAKE) --no-print-directory lab/setup
+
+## Configure the lab servers: wizard, libraries, API key
+lab/setup:
+	@./docker/lab/setup-jellyfin.sh "http://localhost:$${LAB_JELLYFIN_PORT:-8096}"
+	@echo "  Plex      http://localhost:$${LAB_PLEX_PORT:-32400}/web  (add /media/shows and /media/movies)"
 	@echo ""
 
 ## Stop the lab, keeping its configuration
@@ -380,8 +387,13 @@ lab/logs:
 	$(LAB_COMPOSE) logs -f
 
 ## Remove the lab entirely, configuration and generated media included
+##
+## The removal goes through a container: Plex writes parts of its configuration as
+## root whatever the container user is, and a plain `rm -rf` from the workstation
+## stops on the first of them.
 lab/down:
 	$(LAB_COMPOSE) down -v
+	docker run --rm -v $(PROJECT_PATH)var/lab:/lab alpine:3 sh -c 'rm -rf /lab/*' || true
 	rm -rf var/lab
 
 ##########
