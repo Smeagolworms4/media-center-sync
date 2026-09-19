@@ -18,10 +18,20 @@ test.describe('transfers', () => {
 		// missing attach, a proxy that drops the upgrade — nothing errors: the page
 		// renders, the queue is right, and the bars simply never move. Only the
 		// handshake itself distinguishes that from an idle gateway.
-		const opened = page.waitForEvent('websocket', { timeout: 15_000 });
+		//
+		// Matched on the URL, because in development the first socket a page opens is
+		// Vite's own hot-reload channel. Taking whichever arrives first passes against
+		// the wrong connection, and would keep passing with the event stream switched
+		// off entirely.
+		const opened = page.waitForEvent('websocket', {
+			predicate: socket => socket.url().includes('/api/events'),
+			timeout: 15_000,
+		});
+
 		await page.reload();
+
 		const socket = await opened;
-		expect(socket.url()).toContain('/api/events');
+
 		expect(socket.isClosed()).toBe(false);
 	});
 });

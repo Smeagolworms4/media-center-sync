@@ -12,6 +12,18 @@ import { type APIRequestContext, expect, type Page } from '@playwright/test';
  */
 export const test0 = (name: string): string => `[data-test="${name}"]`;
 
+/**
+ * The control inside a marked field.
+ *
+ * A Vuetify input puts unknown attributes on its root, which is a `div` wrapping the
+ * real `<input>`. Marking the field is the right thing for a page to do — one
+ * attribute, on the component somebody actually wrote — but a journey that types into
+ * it fails with "Element is not an <input>", and the failure names Playwright rather
+ * than the mismatch. So the contract is: pages mark the field, journeys reach through
+ * to the control.
+ */
+export const field0 = (name: string): string => `${test0(name)} input, ${test0(name)} textarea`;
+
 export const API_URL = process.env.E2E_API_URL ?? 'http://localhost:4200/api';
 
 /** The account `npm run seed` creates. Overridable, because a runner may seed another. */
@@ -30,8 +42,8 @@ export const ADMIN = {
  */
 export async function signIn (page: Page, user = ADMIN): Promise<void> {
 	await page.goto('/login');
-	await page.locator(test0('login-username')).fill(user.username);
-	await page.locator(test0('login-password')).fill(user.password);
+	await page.locator(field0('login-username')).fill(user.username);
+	await page.locator(field0('login-password')).fill(user.password);
 	await page.locator(test0('login-submit')).click();
 	await expect(page.locator(test0('app-shell'))).toBeVisible({ timeout: 15_000 });
 }

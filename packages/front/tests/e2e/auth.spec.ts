@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { ADMIN, signIn, test0 } from './helpers';
+import { ADMIN, field0, signIn, test0 } from './helpers';
 
 test.describe('signing in', () => {
 	test('wrong credentials are refused, and say so in the form', async ({ page }) => {
 		await page.goto('/login');
-		await page.locator(test0('login-username')).fill(ADMIN.username);
-		await page.locator(test0('login-password')).fill('not-the-password');
+		await page.locator(field0('login-username')).fill(ADMIN.username);
+		await page.locator(field0('login-password')).fill('not-the-password');
 		await page.locator(test0('login-submit')).click();
 
 		// The API answers an error key; the interface must have turned it into a

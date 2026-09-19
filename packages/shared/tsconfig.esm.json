@@ -1,0 +1,19 @@
+// The same contracts, emitted a second time as modules.
+//
+// The API is a CommonJS NestJS application and the interface is bundled by Vite, so
+// one output cannot serve both: asking Vite for a named export out of a CommonJS file
+// fails at load with "does not provide an export named", and nothing in a test catches
+// it — vitest happily interoperates, and only a browser refuses.
+//
+// Relative imports are emitted without extensions, which a bundler resolves and plain
+// Node ESM would not. That is the deliberate limit of this output: it exists for the
+// interface's bundler, and the API keeps the CommonJS one.
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"module": "ES2022",
+		"moduleResolution": "Bundler",
+		"outDir": "dist/esm",
+		"declaration": false
+	}
+}

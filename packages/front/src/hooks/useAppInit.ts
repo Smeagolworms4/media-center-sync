@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useEventsStore } from '@/stores/events';
 import { useSettingsStore } from '@/stores/settings';
@@ -28,7 +28,6 @@ export function useAppInit () {
 				await settingsStore.load().catch(loadError => {
 					error.value = loadError;
 				});
-				eventsStore.connect();
 			}
 		} catch (initError) {
 			error.value = initError;
@@ -36,6 +35,27 @@ export function useAppInit () {
 			ready.value = true;
 		}
 	}
+
+	/*
+	 * The stream follows the session, rather than the boot.
+	 *
+	 * Connecting inside `init` covered only the case of arriving with a session
+	 * already restored. The ordinary path — land on the sign-in page, sign in — left
+	 * the stream closed for the rest of the visit: every screen worked, every list
+	 * filled, and no progress bar ever moved until somebody reloaded the page. Nothing
+	 * reported an error, because nothing had failed.
+	 */
+	watch(
+		() => authStore.authenticated,
+		authenticated => {
+			if (authenticated) {
+				eventsStore.connect();
+			} else {
+				eventsStore.disconnect();
+			}
+		},
+		{ immediate: true },
+	);
 
 	return { ready, error, init };
 }

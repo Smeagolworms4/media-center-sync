@@ -14,6 +14,13 @@ has nothing to do with what it verifies.
 Pages must therefore carry these attributes. Adding one is cheap; renaming one is a
 change to this contract and breaks journeys on purpose.
 
+**Fields are marked on the field, reached through to the control.** A Vuetify input
+puts unknown attributes on its root, which is a `div` wrapping the real `<input>`.
+Marking the field is the right thing for a page to do — one attribute, on the
+component somebody actually wrote — so journeys use `field0(name)` rather than
+`test0(name)` to type into one. A journey that forgets fails with "Element is not an
+<input>", naming Playwright rather than the mismatch.
+
 | Attribute | Where | What it marks |
 |---|---|---|
 | `app-shell` | `App.vue` | the shell, visible only once a session exists |

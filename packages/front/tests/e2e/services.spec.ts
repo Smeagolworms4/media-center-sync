@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { API_URL, apiToken, signIn, test0 } from './helpers';
+import { API_URL, apiToken, field0, signIn, test0 } from './helpers';
 
 /**
  * Registering a service, and failing to.
@@ -18,10 +18,10 @@ test.describe('media services', () => {
 
 	test('a service that cannot be reached is refused, and says why', async ({ page }) => {
 		await page.locator(test0('service-add')).click();
-		await page.locator(test0('service-name')).fill('Nowhere');
+		await page.locator(field0('service-name')).fill('Nowhere');
 		// A port nothing listens on, on an address that resolves instantly. A public
 		// host would make this test depend on the network being up.
-		await page.locator(test0('service-url')).fill('http://127.0.0.1:1');
+		await page.locator(field0('service-url')).fill('http://127.0.0.1:1');
 		await page.locator(test0('service-probe')).click();
 
 		const error = page.locator(test0('form-main-error'));
