@@ -25,3 +25,10 @@ playwright-report/
 
 # Runtime data: SQLite file, transfers in flight
 var/
+
+# The gateway's own keypair, generated on first boot. It is the identity peers
+# authenticate — committing it would hand anyone who cloned the repository the
+# ability to impersonate this gateway to every friend it ever linked to.
+packages/api/data/
+*.pem
+*.key

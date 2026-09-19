@@ -102,8 +102,12 @@ export const dataSourceOptions = (): DataSourceOptions => {
 
 	// A relative path is resolved against the working directory, which is what an
 	// operator writing `DB_FILE=var/gateway.db` in an env file expects. The image
-	// passes an absolute path under its data volume and is unaffected.
-	const file = resolve(process.cwd(), config.database.file);
+	// passes an absolute path under its data volume and is unaffected. `:memory:` is
+	// not a path at all — resolving it would turn the test database into a file.
+	const file =
+		config.database.file === ':memory:'
+			? ':memory:'
+			: resolve(process.cwd(), config.database.file);
 
 	ensureParentDirectory(file);
 
