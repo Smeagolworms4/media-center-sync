@@ -17,6 +17,7 @@ import type {
 	MatchPair,
 } from '@/repositories';
 import { QualityService, type SettingsService } from '@/services';
+import type { LibraryManager } from './library.manager';
 import { MediaGroupManager } from './media-group.manager';
 
 /** One correlation as the table holds it, before anything decides whether it applies. */
@@ -200,6 +201,11 @@ const build = (
 			{ find: jest.fn(() => Promise.resolve(full.peers)) } as unknown as PeerRepository,
 			new QualityService(),
 			{ getValue: jest.fn(() => Promise.resolve(full.threshold)) } as unknown as SettingsService,
+			// Categories are the library manager's business; these tests filter by
+			// library identifier, which never reaches it.
+			{
+				librariesOfCategory: jest.fn(() => Promise.resolve([])),
+			} as unknown as LibraryManager,
 		),
 		world: full,
 		reads: { items, matches },

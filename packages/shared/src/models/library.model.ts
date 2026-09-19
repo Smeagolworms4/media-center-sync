@@ -67,3 +67,29 @@ export interface LibraryCheck {
 	freeBytes: number | null;
 	error: string | null;
 }
+
+/**
+ * Libraries of the same name, seen as one thing.
+ *
+ * A household with two servers has two libraries called `Shows`, and a friend makes a
+ * third. They are one category to the person looking at them, and showing three bands
+ * called `Shows` is showing them the plumbing. So libraries merge on their name —
+ * their alias when one is set, since that is the name somebody chose — and the
+ * category is what a library screen is built from.
+ *
+ * `position` is the lowest of the merged libraries', which is what decides the order
+ * categories appear in, and which one wins when the same media is filed in two.
+ */
+export interface MediaCategory {
+	/** Derived from the merged name: stable across restarts, usable in a URL. */
+	key: string;
+	/** The alias when one was set, otherwise the name the services report. */
+	name: string;
+	kind: LibraryKind;
+	position: number;
+	libraryIds: string[];
+	serviceIds: string[];
+	itemCount: number;
+	/** True when at least one of the merged libraries is one we can write into. */
+	local: boolean;
+}

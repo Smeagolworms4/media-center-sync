@@ -23,6 +23,7 @@ import {
 	type MediaItemDigest,
 } from '@/repositories';
 import { QualityService, SettingsService } from '@/services';
+import { LibraryManager } from './library.manager';
 import { pageBounds, paginate } from './mappers';
 
 /**
@@ -188,6 +189,7 @@ export class MediaGroupManager {
 		private readonly _peers: PeerRepository,
 		private readonly _quality: QualityService,
 		private readonly _settings: SettingsService,
+		private readonly _libraries: LibraryManager,
 	) {}
 
 	public async groups(query: MediaGroupQuery): Promise<ResultList<MediaGroup>> {
@@ -198,7 +200,7 @@ export class MediaGroupManager {
 
 		const seeds = await this._items.findGroupSeeds({
 			serviceIds: this._servicesFor(query, context),
-			libraryIds: query.libraryId === undefined ? undefined : [query.libraryId],
+			libraryIds: await this._librariesFor(query),
 			kind: query.kind,
 			rootsOnly: query.rootsOnly,
 			search: query.search,
@@ -280,6 +282,28 @@ export class MediaGroupManager {
 					.map((service) => service.id),
 			),
 		};
+	}
+
+	/**
+	 * The libraries a query is allowed to look at.
+	 *
+	 * A category names every library of that name across every service, which is the
+	 * filter a library screen uses; `libraryId` names exactly one, which is what a
+	 * diagnostic screen wants. Both are worth asking, and asking both means the
+	 * intersection.
+	 */
+	private async _librariesFor(query: MediaGroupQuery): Promise<string[] | undefined> {
+		if (query.categoryKey === undefined) {
+			return query.libraryId === undefined ? undefined : [query.libraryId];
+		}
+
+		const inCategory = await this._libraries.librariesOfCategory(query.categoryKey);
+
+		if (query.libraryId === undefined) {
+			return inCategory;
+		}
+
+		return inCategory.filter((id) => id === query.libraryId);
 	}
 
 	/**

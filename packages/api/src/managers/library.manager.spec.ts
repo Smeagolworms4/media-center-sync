@@ -1,10 +1,10 @@
 import { mkdtemp, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ErrorKey, LibraryKind } from '@mcs/shared';
+import { ErrorKey, LibraryKind, MediaServiceScope } from '@mcs/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { Library } from '@/entities';
-import type { LibraryRepository } from '@/repositories';
+import type { LibraryRepository, MediaServiceRepository } from '@/repositories';
 import { LibraryManager } from './library.manager';
 
 const library = (overrides: Partial<Library> = {}): Library =>
@@ -35,21 +35,31 @@ interface Fakes {
 		save: jest.Mock;
 		clearDefaultTarget: jest.Mock;
 	};
+	services: { find: jest.Mock };
 }
 
-const build = (row: Library = library()): { manager: LibraryManager; fakes: Fakes } => {
+const build = (
+	row: Library | Library[] = library(),
+): { manager: LibraryManager; fakes: Fakes } => {
+	const rows = Array.isArray(row) ? row : [row];
 	const fakes: Fakes = {
 		libraries: {
-			find: jest.fn().mockResolvedValue([row]),
-			findOne: jest.fn().mockResolvedValue(row),
-			findByService: jest.fn().mockResolvedValue([row]),
+			find: jest.fn().mockResolvedValue(rows),
+			findOne: jest.fn().mockResolvedValue(rows[0]),
+			findByService: jest.fn().mockResolvedValue(rows),
 			save: jest.fn((value: Library) => Promise.resolve(value)),
 			clearDefaultTarget: jest.fn().mockResolvedValue(undefined),
 		},
+		services: { find: jest.fn().mockResolvedValue([{ id: 'jellyfin', scope: MediaServiceScope.LOCAL }]) },
 	};
 
 	return {
-		manager: new LibraryManager(fakes.libraries as unknown as LibraryRepository),
+		manager: new LibraryManager(
+			fakes.libraries as unknown as LibraryRepository,
+			// Categories are the only thing that asks about services, and the tests that
+			// care declare their own.
+			fakes.services as unknown as MediaServiceRepository,
+		),
 		fakes,
 	};
 };
@@ -181,4 +191,87 @@ describe('LibraryManager', () => {
 
 		await expect(manager.read('ghost')).rejects.toThrow(ErrorKey.LIBRARY_NOT_FOUND);
 	});
+
+	describe('categories', () => {
+		it('merges libraries of the same name across services', () => {
+			// Two servers both call their library Shows, and a friend makes a third. They
+			// are one category to whoever is looking at them; three bands called Shows is
+			// showing somebody the plumbing rather than their media.
+			const { manager } = build([
+				library({ id: 'a', serviceId: 'jellyfin', name: 'Shows', itemCount: 10 }),
+				library({ id: 'b', serviceId: 'plex', name: 'Shows', itemCount: 4 }),
+			]);
+
+			return expect(manager.categories()).resolves.toEqual([
+				expect.objectContaining({
+					name: 'Shows',
+					libraryIds: ['a', 'b'],
+					serviceIds: ['jellyfin', 'plex'],
+					itemCount: 14,
+				}),
+			]);
+		});
+
+		it('merges across case and accents, because those are not two categories', async () => {
+			const { manager } = build([
+				library({ id: 'a', name: 'Animes' }),
+				library({ id: 'b', serviceId: 'other', name: 'animés' }),
+			]);
+
+			const categories = await manager.categories();
+
+			expect(categories).toHaveLength(1);
+			expect(categories[0].libraryIds).toEqual(['a', 'b']);
+		});
+
+		it('prefers the alias, since that is the name somebody chose', async () => {
+			const { manager } = build([library({ id: 'a', name: 'Video2', alias: 'Documentaires' })]);
+
+			const [category] = await manager.categories();
+
+			expect(category.name).toBe('Documentaires');
+			expect(category.key).toBe('documentaires');
+		});
+
+		it('lets the lowest position decide the order and the merged name', async () => {
+			// Whichever library somebody put first is the one they meant this category to
+			// be — and the same rule answers which category wins when a media is filed in
+			// two of them.
+			const { manager } = build([
+				library({ id: 'a', name: 'Shows', position: 200 }),
+				library({ id: 'b', serviceId: 'other', name: 'shows', position: 10 }),
+				library({ id: 'c', serviceId: 'third', name: 'Films', position: 50 }),
+			]);
+
+			const categories = await manager.categories();
+
+			expect(categories.map((category) => category.name)).toEqual(['shows', 'Films']);
+			expect(categories[0].position).toBe(10);
+		});
+
+		it('keeps an aliased library out of the category it was renamed away from', async () => {
+			// Renaming is how somebody separates: aliasing one of two libraries called
+			// Shows to Séries says these are not the same category, and merging them
+			// anyway would make the alias do nothing.
+			const { manager } = build([
+				library({ id: 'a', name: 'Shows' }),
+				library({ id: 'b', serviceId: 'other', name: 'Shows', alias: 'Séries' }),
+			]);
+
+			const categories = await manager.categories();
+
+			expect(categories.map((category) => category.name).sort()).toEqual(['Shows', 'Séries']);
+		});
+
+		it('says whether anything in the category is ours to write into', async () => {
+			const { manager, fakes } = build([library({ id: 'a', serviceId: 'remote' })]);
+
+			fakes.services.find.mockResolvedValue([{ id: 'remote', scope: MediaServiceScope.REMOTE }]);
+
+			const [category] = await manager.categories();
+
+			expect(category.local).toBe(false);
+		});
+	});
+
 });

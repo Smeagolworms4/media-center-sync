@@ -353,6 +353,14 @@ export interface MediaGroupQuery {
 	serviceIds?: string[];
 	/** Restrict by where a copy comes from, which is a different question to which server. */
 	origins?: MediaOrigin[];
+	/**
+	 * One merged category — every library of that name, across every service.
+	 *
+	 * This is what a library screen filters on. `libraryId` still addresses exactly one
+	 * library, which is what a diagnostic screen wants; they are different questions and
+	 * both are worth asking.
+	 */
+	categoryKey?: string;
 	libraryId?: string;
 	kind?: MediaKind;
 	/** Children of this group, addressed by the parent's representative item. */

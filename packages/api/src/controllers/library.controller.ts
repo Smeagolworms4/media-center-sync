@@ -1,4 +1,9 @@
-import { Right, type Library, type LibraryCheck } from '@mcs/shared';
+import {
+	Right,
+	type Library,
+	type LibraryCheck,
+	type MediaCategory,
+} from '@mcs/shared';
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch } from '@nestjs/common';
 import {
 	ApiBearerAuth,
@@ -32,6 +37,20 @@ export class LibraryController {
 	 * path and the media server's path do not designate the same directory accepts
 	 * transfers the server will never see, and nothing anywhere reports an error.
 	 */
+	@Get('categories')
+	@Granted(Right.LIBRARY_READ)
+	@ApiOperation({
+		summary: 'Libraries of the same name, merged into one category',
+		description:
+			'A household with two servers has two libraries called Shows, and a friend makes a ' +
+			'third. They are one category to whoever is looking at them, and this is what a ' +
+			'library screen is built from.',
+	})
+	@ApiOkResponse({ description: 'MediaCategory[]' })
+	public categories(): Promise<MediaCategory[]> {
+		return this._libraries.categories();
+	}
+
 	@Get('check')
 	@Granted(Right.LIBRARY_READ)
 	@ApiOperation({ summary: 'Probe every declared local path: exists, readable, writable, free' })

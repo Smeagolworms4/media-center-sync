@@ -97,7 +97,21 @@ in the response would say so.
 | GET | `/libraries` | — | `Library[]` | `LIBRARY_READ` |
 | GET | `/libraries/:id` | — | `Library` | `LIBRARY_READ` |
 | PATCH | `/libraries/:id` | `UpdateLibraryDto` | `Library` | `LIBRARY_MANAGE` |
+| GET | `/libraries/categories` | — | `MediaCategory[]` | `LIBRARY_READ` |
 | GET | `/libraries/check` | — | `LibraryCheck[]` | `LIBRARY_READ` |
+
+**Categories are what a library screen is built from.** A household with two servers
+has two libraries called `Shows`, and a friend makes a third; they are one category to
+whoever is looking at them, and three bands all called `Shows` shows somebody the
+plumbing rather than their media. So libraries merge on the name a person reads — the
+alias when one was set, compared without case or accents, because `Animes` and `animés`
+are not two categories. Aliasing one of two identically named libraries is therefore
+how somebody separates them on purpose.
+
+The lowest `position` among the merged libraries decides the order categories appear
+in, and answers which category wins when the same media is filed in two of them.
+`MediaGroupQuery.categoryKey` filters a browse to one category; `libraryId` still
+names exactly one library, which is a different question and worth keeping.
 
 `/libraries/check` probes each declared `localPath`: does it exist, can it be read,
 can it be written, how much room is left. This is the answer to the failure that
