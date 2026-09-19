@@ -3,13 +3,14 @@ import { join } from 'node:path';
 import {
 	ErrorKey,
 	EventName,
+	MediaKind,
+	MediaServiceScope,
 	SyncJobState,
 	SyncState,
 	SyncTrigger,
 	TransferState,
 	TransferTransport,
 	type CreateSyncPlanRequest,
-	type MediaKind,
 	type ResultList,
 	type RunSyncRequest,
 	type SyncFilter,
@@ -55,6 +56,7 @@ import {
 	SchedulerService,
 	SettingsService,
 	TransferEngineService,
+	toLocalPath,
 	type PlacementLibrary,
 	type TransferSourceRef,
 } from '@/services';
@@ -591,21 +593,34 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const items: PlannedItem[] = [];
 		let bytesPlanned = 0;
 
-		for (const entry of wanted.slice(0, MAX_PLANNED_ITEMS)) {
-			const relativeName = this._naming.render(settings.naming, {
+		const planned = wanted.slice(0, MAX_PLANNED_ITEMS);
+		const seriesTitles = await this._seriesTitles(planned.map((entry) => entry.item));
+		const siblings = await this._localSiblings(planned.map((entry) => entry.item));
+
+		for (const entry of planned) {
+			const nameable = {
 				kind: entry.item.kind,
 				title: entry.item.title,
 				year: entry.item.year,
 				seasonNumber: entry.item.seasonNumber,
 				episodeNumber: entry.item.episodeNumber,
+				seriesTitle: seriesTitles.get(entry.item.id) ?? null,
 				sourcePath: entry.item.file?.path ?? null,
-			});
+			};
+
+			// Our own copy of the same show, if we have one: it is what the naming
+			// service imitates, so a pulled episode lands beside its siblings in the
+			// folders that library actually uses rather than in the ones a template
+			// would have invented.
+			const siblingPath =
+				entry.local?.file?.path ?? siblings.get(entry.item.normalizedTitle) ?? null;
 
 			const target = await this._placement.resolve({
 				kind: entry.item.kind,
 				settings,
 				libraries,
-				relativeName,
+				relativeName: (libraryRoot) =>
+					this._naming.render(settings.naming, nameable, { libraryRoot, siblingPath }),
 				existingPath: entry.local?.file?.path ?? null,
 				preferredLibraryId: effective.targetLibraryId,
 				requiredBytes: entry.item.file?.size ?? 0,
@@ -891,4 +906,101 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 
 		return job;
 	}
+
+	/**
+	 * The show's title for each episode, resolved through the parent chain.
+	 *
+	 * An episode's own title is the episode's — `Back to the Butcher` — and filing a
+	 * season under it would give a library one folder per episode. The series row has
+	 * the title that belongs on the folder, two hops up.
+	 *
+	 * Batched because the alternative is two queries per planned item, and a plan is
+	 * five hundred of them.
+	 */
+	private async _seriesTitles(items: MediaItem[]): Promise<Map<string, string>> {
+		const episodes = items.filter(
+			(item) => item.kind === MediaKind.EPISODE && item.parentId !== null,
+		);
+
+		if (episodes.length === 0) {
+			return new Map();
+		}
+
+		const seasons = await this._items.find({
+			where: { id: In([...new Set(episodes.map((item) => item.parentId as string))]) },
+		});
+		const seasonById = new Map(seasons.map((season) => [season.id, season]));
+		const seriesIds = [
+			...new Set(seasons.map((season) => season.parentId).filter((id): id is string => id !== null)),
+		];
+		const series = seriesIds.length
+			? await this._items.find({ where: { id: In(seriesIds) } })
+			: [];
+		const seriesById = new Map(series.map((one) => [one.id, one]));
+
+		const titles = new Map<string, string>();
+
+		for (const episode of episodes) {
+			const season = seasonById.get(episode.parentId as string);
+			const show = season?.parentId ? seriesById.get(season.parentId) : undefined;
+			const title = show?.title ?? season?.title ?? null;
+
+			if (title) {
+				titles.set(episode.id, title);
+			}
+		}
+
+		return titles;
+	}
+
+	/**
+	 * One local file per show, for the naming service to imitate.
+	 *
+	 * Keyed on the normalised title because that is what makes two libraries agree
+	 * about which show something belongs to — the display titles differ, the normalised
+	 * form is what correlation already joins on.
+	 */
+	private async _localSiblings(items: MediaItem[]): Promise<Map<string, string>> {
+		const titles = [...new Set(items.map((item) => item.normalizedTitle))].filter(
+			(title) => title !== '',
+		);
+
+		if (titles.length === 0) {
+			return new Map();
+		}
+
+		const localServices = (await this._services.find())
+			.filter((service) => service.scope === MediaServiceScope.LOCAL)
+			.map((service) => service.id);
+
+		if (localServices.length === 0) {
+			return new Map();
+		}
+
+		const rows = await this._items.find({
+			where: { normalizedTitle: In(titles), serviceId: In(localServices) },
+		});
+		const libraries = new Map(
+			(await this._libraries.find()).map((library) => [library.id, library]),
+		);
+		const siblings = new Map<string, string>();
+
+		for (const row of rows) {
+			const library = libraries.get(row.libraryId);
+
+			// Translated, because the path on the row is the one the media service
+			// reported — its own. Jellyfin says `/media/Shows/…` where the gateway sees
+			// `/mnt/nas/Shows/…`, and an untranslated path simply never matches the
+			// destination root: the imitation is skipped in silence and every pull
+			// lands in a folder a template invented.
+			const path = library ? toLocalPath(library, row.file?.path ?? null) : null;
+
+			if (path && !siblings.has(row.normalizedTitle)) {
+				siblings.set(row.normalizedTitle, path);
+			}
+		}
+
+		return siblings;
+	}
+
 }

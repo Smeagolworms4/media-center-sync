@@ -187,16 +187,23 @@ const build = (
 
 	const fakes: World['fakes'] = {
 		placement: {
-			resolve: jest.fn(({ relativeName }: { relativeName: string }) =>
-				Promise.resolve({
-					libraryId: 'library-local',
-					libraryName: 'Shows',
-					directory: '/media/shows',
-					path: `/media/shows/${relativeName}`,
-					strategy: PlacementStrategy.BESIDE_EXISTING,
-					fallback: false,
-					reason: null,
-				}),
+			// The real service renders the name once it has picked a root, because the
+			// gateway files a pulled episode where that library already files the
+			// others. A fake that treated the factory as a string would let a caller
+			// pass one and never notice.
+			resolve: jest.fn(
+				({ relativeName }: { relativeName: string | ((root: string) => string) }) =>
+					Promise.resolve({
+						libraryId: 'library-local',
+						libraryName: 'Shows',
+						directory: '/media/shows',
+						path: `/media/shows/${
+							typeof relativeName === 'function' ? relativeName('/media/shows') : relativeName
+						}`,
+						strategy: PlacementStrategy.BESIDE_EXISTING,
+						fallback: false,
+						reason: null,
+					}),
 			),
 			prepare: jest.fn().mockResolvedValue(undefined),
 		},

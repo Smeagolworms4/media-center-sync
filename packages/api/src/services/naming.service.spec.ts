@@ -30,9 +30,54 @@ describe('NamingService', () => {
 	const service = new NamingService();
 
 	describe('SOURCE', () => {
-		it('keeps the name the source used, ugly as it is', () => {
+		it('keeps the name the source used, ugly as it is, and still files it', () => {
+			// The name is the source's; the folders are not negotiable. A library whose
+			// episodes land in its root is not a library, and both media servers read
+			// the season from the folder when the filename is ambiguous.
 			expect(service.render(NamingScheme.SOURCE, episode())).toBe(
-				'The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv',
+				'The Expanse (2015)/Season 01/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv',
+			);
+		});
+
+		it('imitates the folders the library already uses, spelling and all', () => {
+			// Inferring a template is how a season ends up split across two folders
+			// differing by a space. An existing file is taken literally instead.
+			const rendered = service.render(NamingScheme.SOURCE, episode({ seasonNumber: 2 }), {
+				libraryRoot: '/media/shows',
+				siblingPath: '/media/shows/The Expanse/Saison 1/whatever.mkv',
+			});
+
+			expect(rendered).toBe('The Expanse/Saison 2/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
+		});
+
+		it('keeps the padding the library uses for its seasons', () => {
+			const rendered = service.render(NamingScheme.SOURCE, episode({ seasonNumber: 2 }), {
+				libraryRoot: '/media/shows',
+				siblingPath: '/media/shows/The Expanse (2015)/Season 01/whatever.mkv',
+			});
+
+			expect(rendered).toContain('The Expanse (2015)/Season 02/');
+		});
+
+		it('leaves a library that files a whole show in one folder alone', () => {
+			const rendered = service.render(NamingScheme.SOURCE, episode({ seasonNumber: 3 }), {
+				libraryRoot: '/media/shows',
+				siblingPath: '/media/shows/The Expanse/whatever.mkv',
+			});
+
+			expect(rendered).toBe('The Expanse/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
+		});
+
+		it('ignores a sibling that is not inside the destination library', () => {
+			// Following it would write outside the root, and it says nothing about how
+			// this library is organised.
+			const rendered = service.render(NamingScheme.SOURCE, episode(), {
+				libraryRoot: '/media/shows',
+				siblingPath: '/somewhere/else/The Expanse/Season 01/whatever.mkv',
+			});
+
+			expect(rendered).toBe(
+				'The Expanse (2015)/Season 01/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv',
 			);
 		});
 
@@ -78,7 +123,9 @@ describe('NamingService', () => {
 				samples: ['The Expanse - S01E01 - Dulcinea [1080p x265].mkv'],
 			});
 
-			expect(rendered).toBe('The Expanse - S01E02 - Back to the Butcher.mkv');
+			expect(rendered).toBe(
+				'The Expanse (2015)/Season 01/The Expanse - S01E02 - Back to the Butcher.mkv',
+			);
 		});
 
 		it('keeps the separator convention of the sample', () => {
@@ -86,7 +133,9 @@ describe('NamingService', () => {
 				samples: ['The.Expanse.S01E01.Dulcinea.mkv'],
 			});
 
-			expect(rendered).toBe('The.Expanse.S01E02.Back to the Butcher.mkv');
+			expect(rendered).toBe(
+				'The Expanse (2015)/Season 01/The.Expanse.S01E02.Back to the Butcher.mkv',
+			);
 		});
 
 		it('falls back to the standard scheme with nothing to imitate', () => {

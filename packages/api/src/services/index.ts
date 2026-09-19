@@ -3,6 +3,7 @@ export * from './chunk-planner';
 export * from './event-gateway.service';
 export * from './fingerprint.service';
 export * from './handlers';
+export * from './library-path';
 export * from './matching.service';
 export * from './metadata.service';
 export * from './naming.service';

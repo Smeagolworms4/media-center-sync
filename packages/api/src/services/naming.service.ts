@@ -27,6 +27,20 @@ export interface NamingContext {
 	 * has nothing to imitate.
 	 */
 	samples?: string[];
+
+	/**
+	 * A file our own library already holds for this show or collection.
+	 *
+	 * This is what makes the gateway file a pulled episode where the others live,
+	 * rather than where a template says they should. A library that spells its folders
+	 * `Saison 1` keeps spelling them `Saison 1`; one that puts everything flat stays
+	 * flat. Imitating beats inferring, because inferring is how a season ends up split
+	 * across two folders that differ by a space.
+	 */
+	siblingPath?: string | null;
+
+	/** Root of the destination library, so a sibling path can be made relative to it. */
+	libraryRoot?: string | null;
 }
 
 /**
@@ -72,7 +86,111 @@ export class NamingService {
 		context: NamingContext = {},
 	): string {
 		const extension = this._extension(item.sourcePath);
+		const name = this._fileName(scheme, item, context, extension);
+		const directory = this._directory(item, context);
 
+		return directory === '' ? name : `${directory}/${name}`;
+	}
+
+	/**
+	 * Where the file goes, which is a separate question from what it is called.
+	 *
+	 * The scheme decides the name and nothing else. Folders are not negotiable: a
+	 * library whose episodes land in its root is not a library, and both media servers
+	 * identify a file partly by the folders above it — a season folder is how they know
+	 * which season, when the filename is ambiguous. Dropping files flat was what the
+	 * `SOURCE` scheme used to do, and it produced a directory of scene names that
+	 * neither server grouped into anything.
+	 *
+	 * An existing local file for the same show wins over any template. If the library
+	 * already spells its folders a certain way, that spelling is the right answer here
+	 * by definition, whatever a standard would have produced.
+	 */
+	private _directory(item: NameableItem, context: NamingContext): string {
+		const imitated = this._imitatedDirectory(item, context);
+
+		if (imitated !== null) {
+			return imitated;
+		}
+
+		if (item.kind === MediaKind.EPISODE) {
+			const series = this.sanitise(item.seriesTitle?.trim() || item.title);
+			const seriesFolder = this.sanitise(item.year ? `${series} (${item.year})` : series);
+
+			return `${seriesFolder}/${this.sanitise(`Season ${this._pad(item.seasonNumber ?? 0)}`)}`;
+		}
+
+		if (item.kind === MediaKind.MOVIE) {
+			// A film gets its own folder because that is where its artwork, subtitles
+			// and `.nfo` go, and both servers expect to find them beside it.
+			const title = this.sanitise(item.title);
+
+			return this.sanitise(item.year ? `${title} (${item.year})` : title);
+		}
+
+		return '';
+	}
+
+	/**
+	 * The folders our own library already uses for this show, adapted to this item.
+	 *
+	 * Only the season number is rewritten, and only when the sibling's last folder
+	 * actually looks like a season — so `Saison 1` becomes `Saison 2` and `Season 01`
+	 * becomes `Season 02`, each keeping its own spelling and padding. A library that
+	 * files a whole show in one folder has no season segment, nothing is rewritten, and
+	 * the new episode lands beside the others exactly as that library likes it.
+	 */
+	private _imitatedDirectory(item: NameableItem, context: NamingContext): string | null {
+		const { siblingPath, libraryRoot } = context;
+
+		if (!siblingPath || !libraryRoot) {
+			return null;
+		}
+
+		const root = libraryRoot.replace(/\/+$/, '');
+		const directory = siblingPath.slice(0, Math.max(0, siblingPath.lastIndexOf('/')));
+
+		// A sibling outside the destination library says nothing about how that library
+		// is organised, and following it would write outside the root.
+		if (directory === '' || !(directory === root || directory.startsWith(`${root}/`))) {
+			return null;
+		}
+
+		const relative = directory.slice(root.length).replace(/^\/+/, '');
+
+		if (relative === '') {
+			return null;
+		}
+
+		if (item.kind !== MediaKind.EPISODE || item.seasonNumber === null) {
+			return relative;
+		}
+
+		const segments = relative.split('/');
+		const last = segments[segments.length - 1] ?? '';
+		const season = /^(season|saison|series|s)\s*\.?\s*(\d{1,3})$/i.exec(last);
+
+		if (!season) {
+			return relative;
+		}
+
+		// Keep the sibling's own padding: a library writing `Season 1` gets `Season 2`,
+		// one writing `Season 01` gets `Season 02`.
+		const padded = season[2].length > 1
+			? String(item.seasonNumber ?? 0).padStart(season[2].length, '0')
+			: String(item.seasonNumber ?? 0);
+
+		segments[segments.length - 1] = last.replace(/\d{1,3}$/, padded);
+
+		return segments.join('/');
+	}
+
+	private _fileName(
+		scheme: NamingScheme,
+		item: NameableItem,
+		context: NamingContext,
+		extension: string,
+	): string {
 		switch (scheme) {
 			case NamingScheme.SOURCE:
 				return this._fromSource(item, extension);
@@ -168,28 +286,21 @@ export class NamingService {
 		return this.sanitise(`${assembled}${extension}`);
 	}
 
-	/** `Show (Year)/Season 01/Show - S01E02 - Title.ext`, the shape both servers read. */
+	/** `Show - S01E02 - Title.ext`, the shape both servers read. Folders are `_directory`'s. */
 	private _standard(item: NameableItem, extension: string): string {
 		if (item.kind === MediaKind.EPISODE) {
 			const series = this.sanitise(item.seriesTitle?.trim() || item.title);
-			const seriesFolder = item.year ? `${series} (${item.year})` : series;
 			const season = this._pad(item.seasonNumber ?? 0);
 			const episode = this._pad(item.episodeNumber ?? 0);
 			const episodeTitle = item.title?.trim() ? ` - ${this.sanitise(item.title)}` : '';
 
-			return [
-				this.sanitise(seriesFolder),
-				this.sanitise(`Season ${season}`),
-				this.sanitise(`${series} - S${season}E${episode}${episodeTitle}${extension}`),
-			].join('/');
+			return this.sanitise(`${series} - S${season}E${episode}${episodeTitle}${extension}`);
 		}
 
 		const title = this.sanitise(item.title);
 		const named = item.year ? `${title} (${item.year})` : title;
 
-		// A film gets its own folder because that is where its artwork, subtitles and
-		// `.nfo` go, and both Jellyfin and Plex expect to find them beside it.
-		return [this.sanitise(named), this.sanitise(`${named}${extension}`)].join('/');
+		return this.sanitise(`${named}${extension}`);
 	}
 
 	private _pad(value: number): string {

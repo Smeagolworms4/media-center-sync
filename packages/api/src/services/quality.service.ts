@@ -161,6 +161,54 @@ export class QualityService {
 			}
 		}
 
+		return this._assemble(grouped, present.length, totalBytes);
+	}
+
+	/**
+	 * Fold summaries that already exist into one.
+	 *
+	 * Grouping needs this and cannot use `summarise`: a group's chip has to describe
+	 * what exists across every server that holds the media, and a series or a season
+	 * row carries an aggregate with no file of its own — there is nothing left to
+	 * re-summarise from. Folding the variant lists keeps one definition of what
+	 * `mixed` means, which is the point: a group that reads `x265 · 1080p` while the
+	 * season under it reads `mixed` would be two answers to the same question.
+	 */
+	public merge(summaries: (QualitySummary | null | undefined)[]): QualitySummary {
+		const grouped = new Map<string, QualityVariant>();
+		let fileCount = 0;
+		let totalBytes = 0;
+
+		for (const summary of summaries) {
+			if (!summary) {
+				continue;
+			}
+
+			fileCount += summary.fileCount;
+			totalBytes += summary.totalBytes;
+
+			for (const variant of summary.variants) {
+				const key = this._variantKey(variant);
+				const existing = grouped.get(key);
+
+				if (existing) {
+					existing.count += variant.count;
+					existing.bytes += variant.bytes;
+				} else {
+					// Copied, because the caller's summary is not ours to grow.
+					grouped.set(key, { ...variant });
+				}
+			}
+		}
+
+		return this._assemble(grouped, fileCount, totalBytes);
+	}
+
+	private _assemble(
+		grouped: Map<string, QualityVariant>,
+		fileCount: number,
+		totalBytes: number,
+	): QualitySummary {
 		// Most common first, and the larger group wins a tie: when a season is split
 		// evenly between two encodings, the one holding more bytes is the one somebody
 		// chose, and the other is the leftover.
@@ -175,7 +223,7 @@ export class QualityService {
 			mixed: variants.length > 1,
 			dominant,
 			variants,
-			fileCount: present.length,
+			fileCount,
 			totalBytes,
 		};
 	}

@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import {
 	ErrorKey,
 	EventName,
@@ -21,6 +20,7 @@ import {
 } from '@/repositories';
 import {
 	FingerprintService,
+	toLocalPath,
 	EventGatewayService,
 	HandlerRegistry,
 	QualityService,
@@ -344,7 +344,7 @@ export class ServiceManager {
 		let done = 0;
 
 		for (const item of items) {
-			const path = this._localPathOf(library, item.file?.path ?? null);
+			const path = toLocalPath(library, item.file?.path ?? null);
 
 			if (path === null || item.file === null) {
 				continue;
@@ -369,28 +369,6 @@ export class ServiceManager {
 		if (done > 0) {
 			this._logger.log(`Fingerprinted ${done} file(s) of library ${library.name}`);
 		}
-	}
-
-	/**
-	 * The path as the gateway sees it, from the path the service reported.
-	 *
-	 * The two differ as soon as the service runs in its own container — Jellyfin says
-	 * `/media/Shows/…`, the gateway sees `/mnt/nas/Shows/…` — and a mapping that
-	 * guesses would read somebody else's file or none at all. Only a reported root the
-	 * library actually declares is rewritten; anything else yields null and is skipped.
-	 */
-	private _localPathOf(library: LibraryEntity, reported: string | null): string | null {
-		if (reported === null || library.localPath === null) {
-			return null;
-		}
-
-		for (const root of library.paths) {
-			if (reported === root || reported.startsWith(`${root}/`)) {
-				return join(library.localPath, reported.slice(root.length));
-			}
-		}
-
-		return null;
 	}
 
 	/**

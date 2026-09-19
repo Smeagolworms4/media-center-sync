@@ -391,6 +391,53 @@ describe('TransferEngineService', () => {
 		expect(engine.stats()).toMatchObject({ active: 0, queued: 0, bytesRemaining: 0 });
 	});
 
+	/**
+	 * A bandwidth cap is a live control, not a setting read when a transfer starts.
+	 *
+	 * Held open on the first chunk so the cap is applied while bytes are genuinely in
+	 * flight — applying it before anything ran would prove only that the constructor
+	 * read it. A kilobyte a second cannot move this file in a fifth of a second by any
+	 * margin worth worrying about, and lifting the cap has to release the workers that
+	 * are already waiting on it rather than leave them serving out the old allowance.
+	 */
+	it('throttles a transfer that is already running, and releases it when the cap goes', async () => {
+		let open = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			open = resolve;
+		});
+
+		fetchRange.mockImplementation(
+			async (_source: TransferSourceRef, range: { start: number; end: number }) => {
+				if (range.start === 0) {
+					await gate;
+				}
+
+				return {
+					stream: Readable.from([content.subarray(range.start, range.end + 1)]),
+					wholeFile: false,
+					length: range.end - range.start + 1,
+				};
+			},
+		);
+
+		await engine.enqueue('t1');
+
+		for (let attempt = 0; attempt < 100 && fetchRange.mock.calls.length === 0; attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+
+		engine.applyRateLimits({ downloadRateLimit: 1024 });
+		open();
+
+		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		expect((transfers.get('t1') as Transfer).state).not.toBe(TransferState.DONE);
+
+		engine.applyRateLimits({ downloadRateLimit: 0 });
+
+		expect((await runToEnd()).state).toBe(TransferState.DONE);
+	});
+
 	it('honours the piece hashes a source gave us', async () => {
 		const checksums = new Map<number, string>([
 			[0, createHash('sha256').update(content.subarray(0, CHUNK)).digest('hex')],

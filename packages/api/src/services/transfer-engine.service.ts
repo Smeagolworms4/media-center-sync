@@ -115,16 +115,27 @@ class RateLimiter {
 		this._bytesPerSecond = Math.max(0, bytesPerSecond);
 	}
 
+	/**
+	 * Pay for a read, waiting until the bucket can afford it.
+	 *
+	 * The limit is re-read on every turn of the loop rather than once on entry, and
+	 * both readings matter. Lifting the cap has to release whoever is already waiting
+	 * — a person who sets a limit, watches the transfer crawl and then removes it
+	 * would otherwise wait out the old allowance with nothing saying why. And the
+	 * ceiling is never below the read being paid for: capped at one second's
+	 * allowance, a limit smaller than one buffer could never be reached, and the
+	 * transfer would not slow down, it would stop forever.
+	 */
 	public async take(bytes: number): Promise<void> {
-		if (this._bytesPerSecond <= 0) {
-			return;
-		}
-
 		for (;;) {
+			if (this._bytesPerSecond <= 0) {
+				return;
+			}
+
 			const now = Date.now();
 
 			this._tokens = Math.min(
-				this._bytesPerSecond,
+				Math.max(this._bytesPerSecond, bytes),
 				this._tokens + ((now - this._last) / 1000) * this._bytesPerSecond,
 			);
 			this._last = now;
@@ -306,6 +317,20 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			etaSeconds: running.rate > 0 ? Math.round(remaining / running.rate) : null,
 			sources: running.sources.map(toPublicSource),
 		};
+	}
+
+	/**
+	 * A new bandwidth cap, on the transfers already running.
+	 *
+	 * The bucket is read on every chunk, so moving its limit takes effect within one
+	 * chunk rather than on the next transfer — which is how every torrent client
+	 * behaves and what the interface promises by exposing the field as a live control.
+	 * Without this, the only places the limit was ever pushed in were the bootstrap and
+	 * the pump, so a person throttling a running download would watch the number they
+	 * just saved change nothing until the queue moved on.
+	 */
+	public applyRateLimits(settings: Pick<Settings, 'downloadRateLimit'>): void {
+		this._limiter.limit = settings.downloadRateLimit;
 	}
 
 	public stats(): TransferQueueStats {

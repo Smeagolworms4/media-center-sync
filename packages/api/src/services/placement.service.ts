@@ -20,7 +20,15 @@ export interface PlacementRequest {
 	settings: Settings;
 	libraries: PlacementLibrary[];
 	/** Path inside the destination library, from the naming service. */
-	relativeName: string;
+	/**
+	 * The path inside the chosen library, or a function given that library's root.
+	 *
+	 * The function form exists because naming and placement are not independent: the
+	 * gateway files a pulled episode where that library already files the others, and
+	 * which library is chosen is decided right here. A caller that has to name the file
+	 * before knowing the destination can only imitate the wrong one.
+	 */
+	relativeName: string | ((libraryRoot: string) => string);
 	/**
 	 * Where our own copy of the same series or collection already lives.
 	 *
@@ -74,7 +82,12 @@ export class PlacementService {
 		const rejected: string[] = [];
 
 		for (const attempt of attempts) {
-			const directory = dirname(join(attempt.root, this._safeRelative(request.relativeName)));
+			// Rendered per candidate, because the name depends on the destination: the
+			// gateway files a pulled episode where that library already files the
+			// others, and which library that is only becomes known here. A name fixed
+			// before this loop would imitate whichever root was tried first.
+			const relativeName = this._nameFor(request, attempt.root);
+			const directory = dirname(join(attempt.root, this._safeRelative(relativeName)));
 			const probe = await this._probe(directory, request.requiredBytes ?? 0);
 
 			if (probe.writable) {
@@ -82,7 +95,7 @@ export class PlacementService {
 					libraryId: attempt.library.id,
 					libraryName: attempt.library.name,
 					directory,
-					path: join(attempt.root, this._safeRelative(request.relativeName)),
+					path: join(attempt.root, this._safeRelative(relativeName)),
 					strategy: attempt.strategy,
 					fallback: attempt.strategy !== request.settings.placement || attempt.fallback,
 					reason: rejected.length > 0 ? rejected.join('; ') : null,
@@ -101,6 +114,12 @@ export class PlacementService {
 			key: outOfSpace ? ErrorKey.TRANSFER_NO_SPACE : ErrorKey.LIBRARY_PATH_NOT_WRITABLE,
 			detail: rejected.length > 0 ? rejected : 'no local library is writable',
 		});
+	}
+
+	private _nameFor(request: PlacementRequest, root: string): string {
+		return typeof request.relativeName === 'function'
+			? request.relativeName(root)
+			: request.relativeName;
 	}
 
 	/** Creates the destination directory. Separated so a dry run can skip it. */
