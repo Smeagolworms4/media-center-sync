@@ -530,6 +530,7 @@ export class MediaGroupManager {
 			// An episode carries a file and no aggregate; a season carries the aggregate
 			// and no file. Both have to answer the same question here.
 			quality: this._summary(item),
+			companions: item.companions,
 			bytes: item.file?.size ?? null,
 			local: context.local.has(item.serviceId),
 			sync: item.syncState,

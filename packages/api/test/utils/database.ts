@@ -1,6 +1,6 @@
 import { DataSource } from 'typeorm';
 import { ENTITIES } from '@/database';
-import { InitialSchema1758240000000 } from '@/database/migrations/1758240000000-InitialSchema';
+import { MIGRATIONS } from '@/database/migrations';
 
 /**
  * A throwaway database with the real schema.
@@ -15,7 +15,7 @@ export const createTestDataSource = async (): Promise<DataSource> => {
 		type: 'better-sqlite3',
 		database: ':memory:',
 		entities: ENTITIES,
-		migrations: [InitialSchema1758240000000],
+		migrations: MIGRATIONS,
 		synchronize: false,
 	});
 

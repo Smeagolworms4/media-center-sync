@@ -125,6 +125,36 @@ export interface QualitySummary {
 	totalBytes: number;
 }
 
+/**
+ * What sits beside a media file, and whether we have it.
+ *
+ * A media server reads far more than the video: the `.nfo` carries the titles,
+ * the overview and the identifiers that stop it guessing; the poster and the fanart
+ * are what a library looks like; the subtitles are what makes it watchable. A file
+ * pulled without them is a file that arrives correctly and then shows up as an
+ * unnamed episode with a grey rectangle where the artwork should be.
+ *
+ * Knowing what is missing is therefore worth a column, not a guess — and it is what
+ * lets the interface offer to fetch only the companions, without moving the video
+ * again.
+ */
+export interface MediaCompanions {
+	nfo: boolean;
+	poster: boolean;
+	fanart: boolean;
+	/** How many subtitle files sit beside it, in any language. */
+	subtitles: number;
+	/**
+	 * Present on a source and absent here, by extension or role.
+	 *
+	 * Empty does not mean complete: it means nothing better is known to exist. The
+	 * difference matters before a scan has ever read the other side.
+	 */
+	missing: string[];
+	/** When this was last read off the disk. Null while never inspected. */
+	checkedAt: string | null;
+}
+
 export interface MediaItem {
 	id: string;
 	serviceId: string;
@@ -146,6 +176,11 @@ export interface MediaItem {
 	 * episode, every episode for a season or a series. Null while unscanned.
 	 */
 	quality: QualitySummary | null;
+	/**
+	 * What sits beside the file. Null until the gateway has read the directory, which
+	 * it can only do for a library somebody told it where to find.
+	 */
+	companions: MediaCompanions | null;
 	addedAt: string | null;
 	/** Correlation result against the other registered services. */
 	sync: SyncState;
@@ -175,6 +210,7 @@ export interface MediaGroupSource {
 	peerId: string | null;
 	peerName: string | null;
 	quality: QualitySummary | null;
+	companions: MediaCompanions | null;
 	bytes: number | null;
 	local: boolean;
 	/**

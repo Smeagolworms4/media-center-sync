@@ -131,6 +131,7 @@ export const toMediaItem = (item: MediaItem): MediaItemModel => ({
 	artworkUrl: item.artworkUrl,
 	file: item.file,
 	quality: item.quality,
+	companions: item.companions,
 	addedAt: iso(item.addedAt),
 	sync: item.syncState,
 	createdAt: item.createdAt.toISOString(),

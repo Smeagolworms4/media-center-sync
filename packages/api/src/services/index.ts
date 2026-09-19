@@ -1,6 +1,7 @@
 export * from './bandwidth.service';
 export * from './cache.service';
 export * from './chunk-planner';
+export * from './companions';
 export * from './event-gateway.service';
 export * from './fingerprint.service';
 export * from './handlers';

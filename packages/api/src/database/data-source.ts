@@ -1,7 +1,8 @@
 import { mkdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { configuration } from '@/config';
+import { MIGRATIONS } from './migrations';
 import {
 	Library,
 	MediaItem,
@@ -51,7 +52,7 @@ export const ENTITIES = [
  * Both extensions on purpose: the CLI and the tests run the TypeScript sources, the
  * shipped image runs what `nest build` produced.
  */
-const MIGRATIONS = [join(__dirname, 'migrations', '*.{ts,js}')];
+
 
 /**
  * Makes sure the directory holding the SQLite file exists.

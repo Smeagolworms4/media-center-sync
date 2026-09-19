@@ -4,6 +4,7 @@ import {
 	LibraryKind,
 	MediaServiceStatus,
 	type CreateMediaServiceRequest,
+	type MediaCompanions,
 	type Library,
 	type MediaService,
 	type MediaServiceProbe,
@@ -18,7 +19,10 @@ import {
 	MediaMatchRepository,
 	MediaServiceRepository,
 } from '@/repositories';
+import { readdir } from 'node:fs/promises';
+import { basename, dirname } from 'node:path';
 import {
+	detectCompanions,
 	FingerprintService,
 	toLocalPath,
 	EventGatewayService,
@@ -334,6 +338,11 @@ export class ServiceManager {
 	 * afterwards. Every failure is swallowed: an unreadable file is the normal case for
 	 * a library mounted read-only, or half-mounted, or on a NAS that went to sleep, and
 	 * none of that should fail a scan.
+	 *
+	 * The same pass reads what sits beside each file — the `.nfo`, the poster, the
+	 * subtitles — because it is already in the directory and the answer cannot be got
+	 * any other way: no media server reports whether a description file exists, only
+	 * what it managed to read out of one.
 	 */
 	private async _fingerprint(library: LibraryEntity): Promise<void> {
 		if (library.localPath === null || library.localPath === '') {
@@ -358,6 +367,7 @@ export class ServiceManager {
 					quickHash,
 					contentId: this._fingerprints.contentId(quickHash, size),
 				};
+				item.companions = await this._companionsOf(path);
 
 				await this._items.save(item);
 				done += 1;
@@ -368,6 +378,21 @@ export class ServiceManager {
 
 		if (done > 0) {
 			this._logger.log(`Fingerprinted ${done} file(s) of library ${library.name}`);
+		}
+	}
+
+	/**
+	 * What sits beside one file, or null when the directory cannot be read.
+	 *
+	 * Null and "nothing there" are different answers and the interface acts on the
+	 * difference — one asks for a scan, the other offers to fetch the companions — so
+	 * an unreadable directory must not be reported as an empty one.
+	 */
+	private async _companionsOf(path: string): Promise<MediaCompanions | null> {
+		try {
+			return detectCompanions(await readdir(dirname(path)), basename(path));
+		} catch {
+			return null;
 		}
 	}
 

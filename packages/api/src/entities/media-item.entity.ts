@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import type { ExternalIds, MediaFileInfo, QualitySummary } from '@mcs/shared';
+import type { ExternalIds, MediaCompanions, MediaFileInfo, QualitySummary } from '@mcs/shared';
 import { MediaKind, SyncState } from '@mcs/shared';
 import { Library } from './library.entity';
 import { MediaService } from './media-service.entity';
@@ -105,6 +105,18 @@ export class MediaItem extends Timestampable {
 	@ApiProperty({ nullable: true })
 	@Column({ type: 'simple-json', nullable: true })
 	public quality!: QualitySummary | null;
+
+	/**
+	 * What sits beside the file: the `.nfo`, the poster, the subtitles.
+	 *
+	 * Read off the disk, so it only exists for a library somebody told us where to
+	 * find. Null means never inspected, which is not the same as nothing there — the
+	 * interface has to be able to tell those apart or it will report a complete
+	 * library as missing everything.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'simple-json', nullable: true })
+	public companions!: MediaCompanions | null;
 
 	@ApiProperty({ enum: SyncState })
 	@Column({ type: 'varchar', default: SyncState.UNKNOWN })
