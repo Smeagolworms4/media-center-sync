@@ -453,7 +453,7 @@
 			"rendezvous": "Punto de encuentro",
 			"direct_address": "Dirección directa",
 			"direct_ok": "Las conexiones directas son posibles, así que las transferencias no pasan por el relé.",
-			"relay_only": "Solo son posibles los enlaces con relé. Todo funciona, pero las transferencias comparten el punto de encuentro con todos los demás. Abrir el puerto de pares eliminaría esa limitación."
+			"relay_only": "Solo son posibles los enlaces con relé. Todo funciona, pero las transferencias comparten el punto de encuentro con todos los demás. Hacer accesible esta pasarela — un solo puerto, el de la interfaz — eliminaría esa limitación."
 		},
 		"invite": {
 			"open": "Enlazar una pasarela",
@@ -549,6 +549,7 @@
 		"saved": "Ajustes guardados.",
 		"group": {
 			"placement": "Dónde aterrizan los archivos",
+			"gateway": "Dirección y carpeta por defecto",
 			"transfers": "Transferencias",
 			"categories": "Categorías",
 			"peers": "Pares y compartición",
@@ -567,6 +568,13 @@
 		},
 		"fixed_path": "Ruta fija",
 		"fixed_path_help": "Una ruta absoluta en la que la pasarela pueda escribir, por ejemplo /media/incoming.",
+		"public_url": "Dirección pública",
+		"public_url_help": "Por dónde llegan tus amigos a esta pasarela desde fuera — solo la dirección, por ejemplo https://mcs.example.org. Es lo que llevan una invitación, un enlace de compartición y un anuncio; sin ella, una invitación nombra esta pasarela sin dar a nadie la forma de alcanzarla.",
+		"public_url_suggested": "Sugerida a partir de la dirección que estás usando ahora mismo ({origin}). Cámbiala si tus amigos llegan a esta pasarela con otro nombre.",
+		"peer_address": "Dirección de pares",
+		"peer_address_help": "host:puerto para el tráfico entre pares, por ejemplo mcs.example.org:4210. Déjala vacía para deducirla de la dirección pública de arriba.",
+		"default_target": "Carpeta por defecto",
+		"default_target_help": "Una ruta absoluta en la que esta pasarela pueda escribir, donde aterriza una descarga cuando nada más lo decide — una categoría sin biblioteca escribible, por ejemplo.",
 		"naming": "Nomenclatura",
 		"naming_value": {
 			"source": "Conservar el nombre de la fuente",
@@ -962,7 +970,8 @@
 			"unreachable": "El par no ha respondido.",
 			"rejected": "El par ha rechazado el enlace.",
 			"awaiting_them": "Todavía no han respondido, así que no hay nada que aprobar.",
-			"protocol_unsupported": "Este par habla una versión del protocolo que esta pasarela no conoce."
+			"protocol_unsupported": "Este par habla una versión del protocolo que esta pasarela no conoce.",
+			"method_unsupported": "Este par pidió algo que esta pasarela no implementa."
 		},
 		"sync": {
 			"plan_not_found": "Este plan de sincronización ya no existe.",
@@ -980,7 +989,11 @@
 			"checksum_mismatch": "El archivo descargado no coincide con su suma de comprobación."
 		},
 		"settings": {
-			"invalid": "Estos ajustes han sido rechazados."
+			"invalid": "Estos ajustes han sido rechazados.",
+			"public_url_invalid": "Introduce la dirección completa, con el esquema, por ejemplo https://mcs.example.org.",
+			"peer_address_invalid": "Introduce un host y un puerto, por ejemplo mcs.example.org:4210 — sin esquema.",
+			"target_path_invalid": "Introduce una ruta absoluta, por ejemplo /media/incoming.",
+			"target_path_not_writable": "La pasarela no puede escribir en esta carpeta."
 		},
 		"user": {
 			"not_found": "Esta cuenta ya no existe.",

@@ -453,7 +453,7 @@
 			"rendezvous": "会合服务器",
 			"direct_address": "直连地址",
 			"direct_ok": "可以直接连接，因此传输不经过中继。",
-			"relay_only": "只能经由中继连接。一切都能用，但传输要和所有其他使用者共享会合服务器。转发对等端口可以消除这一点。"
+			"relay_only": "只能经由中继连接。一切都能用，但传输要和所有其他使用者共享会合服务器。让本网关可被访问——只需一个端口，就是界面所用的那个——可以消除这一点。"
 		},
 		"invite": {
 			"open": "连接一个网关",
@@ -549,6 +549,7 @@
 		"saved": "设置已保存。",
 		"group": {
 			"placement": "文件存放位置",
+			"gateway": "地址与默认文件夹",
 			"transfers": "传输",
 			"categories": "分类",
 			"peers": "对等网关与共享",
@@ -567,6 +568,13 @@
 		},
 		"fixed_path": "固定路径",
 		"fixed_path_help": "网关可写入的绝对路径，例如 /media/incoming。",
+		"public_url": "公开地址",
+		"public_url_help": "朋友从外部访问此网关的方式——只填地址，例如 https://mcs.example.org。邀请、分享链接和广播都携带它；没有它，邀请虽写明了这个网关，却没人知道该往哪里连。",
+		"public_url_suggested": "根据您此刻正在使用的地址推荐（{origin}）。如果朋友以别的名称访问此网关，请改成那个地址。",
+		"peer_address": "对等端地址",
+		"peer_address_help": "对等流量的 主机:端口，例如 mcs.example.org:4210。留空则由上方的公开地址推导。",
+		"default_target": "默认文件夹",
+		"default_target_help": "此网关可写入的绝对路径；当没有其他规则决定去向时，拉取的文件就落在这里——例如某个分类没有可写的媒体库。",
 		"naming": "命名",
 		"naming_value": {
 			"source": "沿用来源的名称",
@@ -962,7 +970,8 @@
 			"unreachable": "对等网关没有响应。",
 			"rejected": "对等网关拒绝了连接。",
 			"awaiting_them": "对方尚未回应，因此没有可批准的内容。",
-			"protocol_unsupported": "此对等网关使用的协议版本，本网关不认识。"
+			"protocol_unsupported": "此对等网关使用的协议版本，本网关不认识。",
+			"method_unsupported": "此对等网关请求了本网关未实现的功能。"
 		},
 		"sync": {
 			"plan_not_found": "此同步计划已不存在。",
@@ -980,7 +989,11 @@
 			"checksum_mismatch": "下载的文件与其校验和不匹配。"
 		},
 		"settings": {
-			"invalid": "这些设置被拒绝。"
+			"invalid": "这些设置被拒绝。",
+			"public_url_invalid": "请输入完整地址，包含协议，例如 https://mcs.example.org。",
+			"peer_address_invalid": "请输入主机和端口，例如 mcs.example.org:4210——不要带协议。",
+			"target_path_invalid": "请输入绝对路径，例如 /media/incoming。",
+			"target_path_not_writable": "网关无法写入此文件夹。"
 		},
 		"user": {
 			"not_found": "此账号已不存在。",

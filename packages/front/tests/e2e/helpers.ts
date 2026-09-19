@@ -21,8 +21,15 @@ export const test0 = (name: string): string => `[data-test="${name}"]`;
  * it fails with "Element is not an <input>", and the failure names Playwright rather
  * than the mismatch. So the contract is: pages mark the field, journeys reach through
  * to the control.
+ *
+ * The hidden textarea is excluded on purpose: an auto-growing Vuetify textarea keeps
+ * a second, `aria-hidden` copy of itself to measure the height against, and a
+ * selector that takes both fails as a strict-mode violation naming two textareas
+ * nobody wrote.
  */
-export const field0 = (name: string): string => `${test0(name)} input, ${test0(name)} textarea`;
+export function field0 (name: string): string {
+	return `${test0(name)} input, ${test0(name)} textarea:not([aria-hidden="true"])`;
+}
 
 export const API_URL = process.env.E2E_API_URL ?? 'http://localhost:4200/api';
 
@@ -56,4 +63,45 @@ export async function apiToken (request: APIRequestContext, user = ADMIN): Promi
 	expect(response.ok(), `sign-in failed: ${response.status()}`).toBeTruthy();
 	const body = await response.json();
 	return body.accessToken as string;
+}
+
+/**
+ * Every API answer a page was not entitled to get, collected while it renders.
+ *
+ * The pattern `navigation.spec.ts` established, offered here because every journey
+ * needs it: a screen that renders its heading and its empty state while the call
+ * underneath answers 500 passes any assertion made about what is on screen. Only
+ * watching the network tells "there is nothing" apart from "the query failed".
+ *
+ * Deliberately strict about what it collects — 5xx and requests that never completed
+ * — because those are never acceptable and never ambiguous, unlike a 404, which some
+ * screens ask for on purpose.
+ */
+export function watchApi (page: Page): string[] {
+	const failures: string[] = [];
+
+	page.on('response', response => {
+		if (response.url().includes('/api/') && response.status() >= 500) {
+			failures.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+		}
+	});
+
+	page.on('requestfailed', request => {
+		// The progress stream is closed by the browser on navigation, which is not a
+		// failure of anything; only its own journey has anything to say about it.
+		if (!request.url().includes('/api/') || request.url().includes('/api/events')) {
+			return;
+		}
+		// Neither is a request the browser itself cancelled. Leaving a page while its
+		// posters are still arriving aborts them by design, and counting that as a
+		// gateway failure makes every journey that navigates twice fail for the
+		// gateway's good behaviour.
+		const reason = request.failure()?.errorText ?? '';
+		if (reason.includes('ERR_ABORTED')) {
+			return;
+		}
+		failures.push(`failed ${request.method()} ${request.url()} — ${reason}`);
+	});
+
+	return failures;
 }

@@ -46,6 +46,35 @@ export class PeerRepository extends Repository<Peer> {
 		return this.find({ where: { status: PeerStatus.PENDING }, order: { createdAt: 'DESC' } });
 	}
 
+	/**
+	 * What a handshake established, written once the far end has proved who it is.
+	 *
+	 * Separate from `setStatus` because it answers a different question: not whether we
+	 * can reach them, but what they turned out to be able to do. It is also the only
+	 * place the public key is learned for a peer added by fingerprint alone — without
+	 * it, nothing on our side could ever verify one of their requests.
+	 */
+	public async recordHandshake(
+		id: string,
+		handshake: {
+			nodeId: string | null;
+			protocol: number;
+			capabilities: string[];
+			publicKey?: string | null;
+		},
+	): Promise<void> {
+		await this.update(
+			{ id },
+			{
+				nodeId: handshake.nodeId,
+				protocol: handshake.protocol,
+				capabilities: handshake.capabilities,
+				lastSeenAt: new Date(),
+				...(handshake.publicKey ? { publicKey: handshake.publicKey } : {}),
+			},
+		);
+	}
+
 	public async setStatus(
 		id: string,
 		status: PeerStatus,

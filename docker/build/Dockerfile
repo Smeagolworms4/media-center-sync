@@ -112,8 +112,7 @@ ENV MCS_MEDIA_ROOT=/media
 USER node
 
 ENV API_PORT=4200
-ENV PEER_PORT=4210
-EXPOSE 4200 4210
+EXPOSE 4200
 
 # Checks that the API answers and that its database is reachable, not merely that
 # the process is alive: a broken database leaves the server standing but unusable.

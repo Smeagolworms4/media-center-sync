@@ -51,11 +51,17 @@
 		allowFriendsOfFriends: true,
 		allowSwarm: true,
 		rendezvousUrl: '',
+		publicUrl: '',
+		peerAddress: '',
+		defaultTargetPath: '',
 		transferHistoryDays: 30,
 		refreshIntervalMinutes: 15,
 		fullScanCron: '',
 		cacheTtlSeconds: 60,
 	});
+
+	/** Empty when there is no browser, which is how the unit tests mount this page. */
+	const browserOrigin = typeof window === 'undefined' ? '' : window.location.origin;
 
 	function apply (): void {
 		const settings = settingsStore.settings;
@@ -76,6 +82,16 @@
 		model.allowFriendsOfFriends = settings.allowFriendsOfFriends;
 		model.allowSwarm = settings.allowSwarm;
 		model.rendezvousUrl = settings.rendezvousUrl ?? '';
+		// Offered, never assumed. The browser reached this gateway somehow and that
+		// address is almost always the right answer — but a gateway administered over
+		// http://192.168.0.12:4200 and reached by friends over a domain name would
+		// otherwise announce a private address to everybody, so a caption says where
+		// the suggestion came from and saving is what accepts it. A value that is
+		// already set is never overwritten: it was chosen deliberately, and this screen
+		// is opened from every machine on the network.
+		model.publicUrl = settings.publicUrl ?? browserOrigin;
+		model.peerAddress = settings.peerAddress ?? '';
+		model.defaultTargetPath = settings.defaultTargetPath ?? '';
 		model.transferHistoryDays = settings.transferHistoryDays;
 		model.refreshIntervalMinutes = settings.refreshIntervalMinutes;
 		model.fullScanCron = settings.fullScanCron ?? '';
@@ -108,6 +124,15 @@
 
 	const fixedPathNeeded = computed(() => model.placement === PlacementStrategy.FIXED_PATH);
 
+	/**
+	 * True only while the box still holds the suggestion and nothing has been stored.
+	 * It stops explaining itself the moment somebody types their own address, which is
+	 * when the explanation would start being wrong.
+	 */
+	const publicUrlSuggested = computed(
+		() => !settingsStore.settings?.publicUrl && model.publicUrl === browserOrigin && browserOrigin !== '',
+	);
+
 	const form = useForm({
 		fallbackError: 'error.settings.invalid',
 		fields: {
@@ -123,6 +148,21 @@
 			uploadRateLimit: { rules: [validators.byteSize()] },
 			matchThreshold: { rules: [validators.range({ min: 0, max: 1 })] },
 			rendezvousUrl: { rules: [validators.url()] },
+			// The same wording the API answers with, so accepting the value on this side
+			// and having it refused on the other cannot say two different things.
+			publicUrl: {
+				rules: computed(() => [validators.urlWithPort({
+					requirePort: false,
+					message: t('error.settings.public_url_invalid'),
+				})]),
+			},
+			peerAddress: {
+				rules: computed(() => [validators.regExp({
+					regExp: /^[^\s/]+:\d{1,5}$/,
+					message: t('error.settings.peer_address_invalid'),
+				})]),
+			},
+			defaultTargetPath: { rules: [validators.absolutePath()] },
 			transferHistoryDays: { rules: [validators.range({ min: 0, max: 3650 })] },
 			refreshIntervalMinutes: { rules: [validators.range({ min: 1, max: 1440 })] },
 			fullScanCron: { rules: [validators.cron()] },
@@ -146,6 +186,10 @@
 				allowFriendsOfFriends: model.allowFriendsOfFriends,
 				allowSwarm: model.allowSwarm,
 				rendezvousUrl: model.rendezvousUrl || null,
+				// An emptied box is a setting being cleared, which the API spells null.
+				publicUrl: model.publicUrl || null,
+				peerAddress: model.peerAddress || null,
+				defaultTargetPath: model.defaultTargetPath || null,
 				transferHistoryDays: Number(model.transferHistoryDays),
 				refreshIntervalMinutes: Number(model.refreshIntervalMinutes),
 				fullScanCron: model.fullScanCron || null,
@@ -243,6 +287,57 @@
 					<p class="text-caption text-medium-emphasis mb-0">
 						{{ $t('settings.prefer_source_metadata_help') }}
 					</p>
+				</v-card-text>
+			</v-card>
+
+			<v-card class="settings_card mt-4">
+				<v-card-title class="text-subtitle-1">{{ $t('settings.group.gateway') }}</v-card-title>
+
+				<v-card-text>
+					<v-text-field
+						v-model="model.publicUrl"
+						v-bind="form.field('publicUrl')"
+						data-test="settings-public-url"
+						:hint="$t('settings.public_url_help')"
+						:label="$t('settings.public_url')"
+						persistent-hint
+						placeholder="https://mcs.example.org"
+					/>
+
+					<!--
+						Where the value in the box came from, said out loud. Without it the
+						suggestion reads as something the gateway already knew about itself,
+						and nobody checks a fact they were never told was a guess.
+					-->
+					<p
+						v-if="publicUrlSuggested"
+						class="text-caption text-medium-emphasis mt-1 mb-0"
+						data-test="settings-public-url-suggested"
+					>
+						{{ $t('settings.public_url_suggested', { origin: browserOrigin }) }}
+					</p>
+
+					<v-text-field
+						v-model="model.peerAddress"
+						v-bind="form.field('peerAddress')"
+						class="mt-4"
+						data-test="settings-peer-address"
+						:hint="$t('settings.peer_address_help')"
+						:label="$t('settings.peer_address')"
+						persistent-hint
+						placeholder="mcs.example.org:4210"
+					/>
+
+					<v-text-field
+						v-model="model.defaultTargetPath"
+						v-bind="form.field('defaultTargetPath')"
+						class="mt-4"
+						data-test="settings-default-target"
+						:hint="$t('settings.default_target_help')"
+						:label="$t('settings.default_target')"
+						persistent-hint
+						placeholder="/media/incoming"
+					/>
 				</v-card-text>
 			</v-card>
 

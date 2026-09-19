@@ -17,6 +17,16 @@ export enum Right {
 	LIBRARY_READ = 'library.read',
 	LIBRARY_MANAGE = 'library.manage',
 	MEDIA_READ = 'media.read',
+	/**
+	 * Correct what a media server got wrong: the title, the year, the library a media
+	 * is filed in, whether an episode counts at all.
+	 *
+	 * Separate from `MEDIA_READ` because it was not, and a guest could therefore
+	 * rewrite the catalogue. The correction is written into the fields everything
+	 * reads — correlation, filing, the folder a pull lands in — so it is as much a
+	 * write as a transfer is, and browsing is not a reason to be trusted with it.
+	 */
+	MEDIA_WRITE = 'media.write',
 	PEER_READ = 'peer.read',
 	PEER_MANAGE = 'peer.manage',
 	SHARE_MANAGE = 'share.manage',
@@ -36,6 +46,7 @@ export const ROLE_RIGHTS: Record<UserRole, Right[]> = {
 		Right.SERVICE_READ,
 		Right.LIBRARY_READ,
 		Right.MEDIA_READ,
+		Right.MEDIA_WRITE,
 		Right.PEER_READ,
 		Right.SYNC_READ,
 		Right.SYNC_RUN,

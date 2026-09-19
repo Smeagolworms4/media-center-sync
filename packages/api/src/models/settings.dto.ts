@@ -106,6 +106,48 @@ export class UpdateSettingsDto {
 	@MaxLength(512)
 	public rendezvousUrl?: string | null;
 
+	/**
+	 * Declared here or unreachable over HTTP.
+	 *
+	 * The validation pipe runs with `whitelist`, so a key the DTO does not name is
+	 * stripped from the body before anything sees it: the request answers 200, the
+	 * settings come back unchanged, and nothing anywhere reports a problem. It has
+	 * happened three times in this repository — `alias`, `position`, `relay` — and each
+	 * time the setting looked implemented everywhere except where it was used.
+	 *
+	 * The shape of the three values is checked in the service rather than here, because
+	 * an empty string has to mean "cleared" and `@IsUrl` would refuse it.
+	 */
+	@ApiPropertyOptional({
+		description:
+			'How this gateway is reached from outside. Any http or https URL is accepted and ' +
+			'stored as its origin — no path, no trailing slash. Empty clears it.',
+	})
+	@IsOptional()
+	@IsString()
+	@MaxLength(512)
+	public publicUrl?: string | null;
+
+	@ApiPropertyOptional({
+		description:
+			'host:port for peer traffic. Empty derives it from the public URL and the ' +
+			'configured peer port.',
+	})
+	@IsOptional()
+	@IsString()
+	@MaxLength(255)
+	public peerAddress?: string | null;
+
+	@ApiPropertyOptional({
+		description:
+			'Absolute path a pull lands in when nothing else decides. Probed, and refused ' +
+			'when it cannot be written. Empty clears it.',
+	})
+	@IsOptional()
+	@IsString()
+	@MaxLength(1024)
+	public defaultTargetPath?: string | null;
+
 	@ApiPropertyOptional({ minimum: 0, maximum: 365 })
 	@IsOptional()
 	@IsInt()

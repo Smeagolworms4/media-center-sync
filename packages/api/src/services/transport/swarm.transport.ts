@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { ErrorKey, PeerTrust, TransferTransport as TransportKind } from '@mcs/shared';
+import { ErrorKey, PeerCapability, PeerTrust, TransferTransport as TransportKind } from '@mcs/shared';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import type { ByteRange } from '../handlers/media-handler.interface';
 import { PeerLinkService } from '../peer-link.service';
@@ -63,6 +63,16 @@ export interface SwarmSession {
  * in-process implementation below simply asks each peer for the range it wants.
  */
 export interface SwarmWire {
+	/**
+	 * May this peer be asked for pieces at all?
+	 *
+	 * Separate from `bitfield` because the answer is not about the file: a gateway
+	 * that never advertised the swarm capability is not a peer with no pieces, it is a
+	 * peer that will refuse the question. Asking anyway costs a round trip per piece
+	 * and fills the log with refusals that look like a network problem.
+	 */
+	usable(peer: ContentHolder): boolean;
+
 	/** Which pieces this peer holds. An empty answer means "all of it". */
 	bitfield(peer: ContentHolder, contentId: string, pieceCount: number): Promise<number[] | null>;
 
@@ -86,6 +96,18 @@ export interface SwarmWire {
 @Injectable()
 export class PeerLinkSwarmWire implements SwarmWire {
 	public constructor(private readonly _links: PeerLinkService) {}
+
+	/**
+	 * Only a peer that said it speaks the swarm.
+	 *
+	 * This is the third of the three rules the protocol grows by, and the one that has
+	 * to be enforced somewhere rather than remembered: a feature is used because the
+	 * far end advertised it, never because we have it. A peer with no capabilities has
+	 * not completed a handshake, which is the same answer as having said no.
+	 */
+	public usable(peer: ContentHolder): boolean {
+		return this._links.supports(peer.peerId, PeerCapability.SWARM);
+	}
 
 	public async bitfield(
 		peer: ContentHolder,
@@ -181,6 +203,12 @@ export class SwarmTransport implements ByteTransport {
 
 		await Promise.all(
 			holders.map(async (holder) => {
+				if (!this._wire.usable(holder)) {
+					this._logger.debug(`${holder.peerName} does not speak the swarm; not asking it`);
+
+					return;
+				}
+
 				const pieces = await this._wire.bitfield(holder, contentId, pieceCount);
 
 				session.peers.set(holder.peerId, {

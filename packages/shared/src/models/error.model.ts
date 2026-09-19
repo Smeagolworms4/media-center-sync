@@ -90,8 +90,39 @@ export const ErrorKey = {
 	SHARE_RELAY_NOT_AGREED: 'error.share.relay_not_agreed',
 
 	PEER_PROTOCOL_UNSUPPORTED: 'error.peer.protocol_unsupported',
+	/**
+	 * A method the far end asked for and this gateway does not implement.
+	 *
+	 * It is an answer, not a failure: the link stays open and everything else keeps
+	 * working. That is what lets one side gain a method without the other side having
+	 * to be upgraded first — the whole reason the protocol version does not move for
+	 * every addition.
+	 */
+	PEER_METHOD_UNSUPPORTED: 'error.peer.method_unsupported',
 
 	SETTINGS_INVALID: 'error.settings.invalid',
+	/**
+	 * The public URL is not a URL, or not one anything can dial.
+	 *
+	 * Its own key rather than the generic settings refusal because this is the one
+	 * value that leaves the gateway: an invitation, a share link and a torrent announce
+	 * all carry it. "These settings were refused" under the field says nothing about
+	 * what to type instead, and the person is being asked for an address they have
+	 * probably never had to write down before.
+	 */
+	SETTINGS_PUBLIC_URL_INVALID: 'error.settings.public_url_invalid',
+	/** `host:port`, and neither half may be guessed — a scheme here is the usual slip. */
+	SETTINGS_PEER_ADDRESS_INVALID: 'error.settings.peer_address_invalid',
+	SETTINGS_TARGET_PATH_INVALID: 'error.settings.target_path_invalid',
+	/**
+	 * The fallback target exists and this gateway cannot write into it.
+	 *
+	 * Distinct from the refusal above because the fix is different — a typo versus a
+	 * permission or a mount — and because this one was answered by the filesystem
+	 * rather than by a pattern. Accepting it would buy a download that completes and
+	 * then has nowhere to put its file.
+	 */
+	SETTINGS_TARGET_PATH_NOT_WRITABLE: 'error.settings.target_path_not_writable',
 	GENERAL: 'error.general',
 } as const;
 

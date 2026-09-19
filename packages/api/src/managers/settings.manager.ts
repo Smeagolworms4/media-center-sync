@@ -1,11 +1,13 @@
-import type { Settings, UpdateSettingsRequest } from '@mcs/shared';
-import { Injectable, Logger } from '@nestjs/common';
+import { ErrorKey, type Settings, type UpdateSettingsRequest } from '@mcs/shared';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
 	BandwidthService,
+	normaliseTargetPath,
 	SchedulerService,
 	SettingsService,
 	TransferEngineService,
 } from '@/services';
+import { LibraryManager } from './library.manager';
 
 /**
  * Reading and writing the gateway's settings.
@@ -18,6 +20,11 @@ import {
  * when it starts a transfer, so a limit saved while something is downloading has to be
  * handed to the running token bucket or it is a control that does nothing until the
  * queue moves on.
+ *
+ * The third is the default target folder, which is a path on a real filesystem and so
+ * has to be probed before it is believed. That probe lives with the library paths,
+ * which is why a manager reaches for another manager here: two probes of the same
+ * question drift apart, and this one already answers it.
  */
 @Injectable()
 export class SettingsManager {
@@ -28,6 +35,7 @@ export class SettingsManager {
 		private readonly _scheduler: SchedulerService,
 		private readonly _engine: TransferEngineService,
 		private readonly _bandwidth: BandwidthService,
+		private readonly _libraries: LibraryManager,
 	) {}
 
 	public read(): Promise<Settings> {
@@ -42,6 +50,10 @@ export class SettingsManager {
 	 * with nothing reporting anything.
 	 */
 	public async write(patch: UpdateSettingsRequest): Promise<Settings> {
+		if (patch.defaultTargetPath !== undefined) {
+			await this._requireWritable(normaliseTargetPath(patch.defaultTargetPath));
+		}
+
 		const settings = await this._settings.update(patch);
 
 		if (patch.refreshIntervalMinutes !== undefined || patch.fullScanCron !== undefined) {
@@ -61,5 +73,30 @@ export class SettingsManager {
 		}
 
 		return settings;
+	}
+
+	/**
+	 * A fallback nobody can write into is worse than no fallback at all.
+	 *
+	 * It is the placement of last resort: whatever reaches it has already been chosen,
+	 * queued and downloaded in full, and a directory that refuses the write turns that
+	 * into a completed transfer with nowhere to put its file. Probed at the moment
+	 * somebody types it, exactly as a library path is, rather than discovered then.
+	 */
+	private async _requireWritable(path: string | null): Promise<void> {
+		if (path === null) {
+			return;
+		}
+
+		const probe = await this._libraries.probe(path);
+
+		if (!probe.writable) {
+			this._logger.warn(`Refused ${path} as the default target: ${probe.error ?? 'not writable'}`);
+
+			throw new BadRequestException({
+				key: ErrorKey.SETTINGS_TARGET_PATH_NOT_WRITABLE,
+				field: 'defaultTargetPath',
+			});
+		}
 	}
 }

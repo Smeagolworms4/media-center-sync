@@ -453,7 +453,7 @@
 			"rendezvous": "Rendez-vous",
 			"direct_address": "Adresse directe",
 			"direct_ok": "Les connexions directes sont possibles : les transferts ne passent pas par le relais.",
-			"relay_only": "Seuls les liens relayés sont possibles. Tout fonctionne, mais les transferts partagent le rendez-vous avec tous les autres. Ouvrir le port des pairs supprimerait cette limite."
+			"relay_only": "Seuls les liens relayés sont possibles. Tout fonctionne, mais les transferts partagent le rendez-vous avec tous les autres. Rendre cette passerelle joignable — un seul port, celui de l'interface — supprimerait cette limite."
 		},
 		"invite": {
 			"open": "Relier une passerelle",
@@ -549,6 +549,7 @@
 		"saved": "Paramètres enregistrés.",
 		"group": {
 			"placement": "Où atterrissent les fichiers",
+			"gateway": "Adresse et dossier par défaut",
 			"transfers": "Transferts",
 			"categories": "Catégories",
 			"peers": "Pairs et partage",
@@ -567,6 +568,13 @@
 		},
 		"fixed_path": "Chemin fixe",
 		"fixed_path_help": "Un chemin absolu où la passerelle peut écrire, par exemple /media/incoming.",
+		"public_url": "Adresse publique",
+		"public_url_help": "Par où vos amis joignent cette passerelle depuis l'extérieur — l'adresse seule, par exemple https://mcs.example.org. C'est ce que transportent une invitation, un lien de partage et une annonce ; sans elle, une invitation nomme cette passerelle sans donner à personne le moyen de l'atteindre.",
+		"public_url_suggested": "Proposée d'après l'adresse que vous utilisez en ce moment ({origin}). Changez-la si vos amis joignent cette passerelle sous un autre nom.",
+		"peer_address": "Adresse des pairs",
+		"peer_address_help": "hôte:port pour le trafic entre pairs, par exemple mcs.example.org:4210. Laissez vide pour la déduire de l'adresse publique ci-dessus.",
+		"default_target": "Dossier par défaut",
+		"default_target_help": "Un chemin absolu où cette passerelle peut écrire, là où atterrit un téléchargement quand rien d'autre n'en décide — une catégorie sans médiathèque accessible en écriture, par exemple.",
 		"naming": "Nommage",
 		"naming_value": {
 			"source": "Garder le nom de la source",
@@ -962,7 +970,8 @@
 			"unreachable": "Le pair n'a pas répondu.",
 			"rejected": "Le pair a refusé le lien.",
 			"awaiting_them": "Ils n'ont pas encore répondu, il n'y a donc rien à approuver.",
-			"protocol_unsupported": "Ce pair parle une version du protocole que cette passerelle ne connaît pas."
+			"protocol_unsupported": "Ce pair parle une version du protocole que cette passerelle ne connaît pas.",
+			"method_unsupported": "Ce pair a demandé quelque chose que cette passerelle n'implémente pas."
 		},
 		"sync": {
 			"plan_not_found": "Ce plan de synchronisation n'existe plus.",
@@ -980,7 +989,11 @@
 			"checksum_mismatch": "Le fichier téléchargé ne correspond pas à son empreinte."
 		},
 		"settings": {
-			"invalid": "Ces paramètres ont été refusés."
+			"invalid": "Ces paramètres ont été refusés.",
+			"public_url_invalid": "Saisissez l'adresse complète, protocole compris, par exemple https://mcs.example.org.",
+			"peer_address_invalid": "Saisissez un hôte et un port, par exemple mcs.example.org:4210 — sans protocole.",
+			"target_path_invalid": "Saisissez un chemin absolu, par exemple /media/incoming.",
+			"target_path_not_writable": "La passerelle ne peut pas écrire dans ce dossier."
 		},
 		"user": {
 			"not_found": "Ce compte n'existe plus.",

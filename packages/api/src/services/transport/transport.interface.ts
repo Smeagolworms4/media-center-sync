@@ -54,6 +54,17 @@ export interface TransportCapabilities {
 	 * byte is only found at the end, and nothing says which piece to fetch again.
 	 */
 	pieceChecksums?: ReadonlyMap<number, string> | null;
+	/**
+	 * How many bytes each of those hashes was computed over.
+	 *
+	 * Load-bearing rather than informational, and it has to travel with the hashes:
+	 * they are indexed by piece number, the piece number is a function of the far
+	 * end's chunk size, and our own chunk size is a local setting. Applying piece
+	 * seventeen's hash to our chunk seventeen when the two sides cut the file
+	 * differently does not fail loudly — it condemns a piece that arrived perfectly
+	 * well, and sends the transfer into repair passes it can never win.
+	 */
+	pieceSize?: number | null;
 }
 
 export interface TransportFetchOptions {

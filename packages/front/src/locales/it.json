@@ -453,7 +453,7 @@
 			"rendezvous": "Rendezvous",
 			"direct_address": "Indirizzo diretto",
 			"direct_ok": "Le connessioni dirette sono possibili, quindi i trasferimenti non passano dal relay.",
-			"relay_only": "Sono possibili solo collegamenti tramite relay. Tutto funziona, ma i trasferimenti condividono il rendezvous con tutti gli altri. Aprire la porta dei peer eliminerebbe questo limite."
+			"relay_only": "Sono possibili solo collegamenti tramite relay. Tutto funziona, ma i trasferimenti condividono il rendezvous con tutti gli altri. Rendere raggiungibile questo gateway — una sola porta, quella dell'interfaccia — eliminerebbe questo limite."
 		},
 		"invite": {
 			"open": "Collega un gateway",
@@ -549,6 +549,7 @@
 		"saved": "Impostazioni salvate.",
 		"group": {
 			"placement": "Dove finiscono i file",
+			"gateway": "Indirizzo e cartella predefinita",
 			"transfers": "Trasferimenti",
 			"categories": "Categorie",
 			"peers": "Peer e condivisione",
@@ -567,6 +568,13 @@
 		},
 		"fixed_path": "Percorso fisso",
 		"fixed_path_help": "Un percorso assoluto in cui il gateway può scrivere, ad esempio /media/incoming.",
+		"public_url": "Indirizzo pubblico",
+		"public_url_help": "Come gli amici raggiungono questo gateway dall'esterno — solo l'indirizzo, ad esempio https://mcs.example.org. È ciò che portano con sé un invito, un collegamento di condivisione e un annuncio; senza di esso un invito nomina questo gateway senza dare a nessuno il modo di raggiungerlo.",
+		"public_url_suggested": "Suggerito dall'indirizzo che stai usando in questo momento ({origin}). Cambialo se i tuoi amici raggiungono questo gateway con un altro nome.",
+		"peer_address": "Indirizzo dei peer",
+		"peer_address_help": "host:porta per il traffico tra peer, ad esempio mcs.example.org:4210. Lascialo vuoto per ricavarlo dall'indirizzo pubblico qui sopra.",
+		"default_target": "Cartella predefinita",
+		"default_target_help": "Un percorso assoluto in cui questo gateway può scrivere, dove atterra un download quando nient'altro lo decide — una categoria senza una libreria scrivibile, ad esempio.",
 		"naming": "Denominazione",
 		"naming_value": {
 			"source": "Mantieni il nome della sorgente",
@@ -962,7 +970,8 @@
 			"unreachable": "Il peer non ha risposto.",
 			"rejected": "Il peer ha rifiutato il collegamento.",
 			"awaiting_them": "Non hanno ancora risposto, quindi non c'è nulla da approvare.",
-			"protocol_unsupported": "Questo peer parla una versione del protocollo che questo gateway non conosce."
+			"protocol_unsupported": "Questo peer parla una versione del protocollo che questo gateway non conosce.",
+			"method_unsupported": "Questo peer ha chiesto qualcosa che questo gateway non implementa."
 		},
 		"sync": {
 			"plan_not_found": "Questo piano di sincronizzazione non esiste più.",
@@ -980,7 +989,11 @@
 			"checksum_mismatch": "Il file scaricato non corrisponde al suo checksum."
 		},
 		"settings": {
-			"invalid": "Queste impostazioni sono state rifiutate."
+			"invalid": "Queste impostazioni sono state rifiutate.",
+			"public_url_invalid": "Inserisci l'indirizzo completo, schema compreso, ad esempio https://mcs.example.org.",
+			"peer_address_invalid": "Inserisci un host e una porta, ad esempio mcs.example.org:4210 — senza schema.",
+			"target_path_invalid": "Inserisci un percorso assoluto, ad esempio /media/incoming.",
+			"target_path_not_writable": "Il gateway non può scrivere in questa cartella."
 		},
 		"user": {
 			"not_found": "Questo account non esiste più.",

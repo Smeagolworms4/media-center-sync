@@ -164,7 +164,7 @@ export class MediaController {
 	}
 
 	@Put(':id/override')
-	@Granted(Right.MEDIA_READ)
+	@Granted(Right.MEDIA_WRITE)
 	@HttpCode(HttpStatus.OK)
 	@ApiOperation({
 		summary: 'Correct what a media server got wrong, locally',
@@ -182,7 +182,7 @@ export class MediaController {
 	}
 
 	@Delete(':id/override')
-	@Granted(Right.MEDIA_READ)
+	@Granted(Right.MEDIA_WRITE)
 	@HttpCode(HttpStatus.OK)
 	@ApiOperation({
 		summary: 'Put back what the service reported',

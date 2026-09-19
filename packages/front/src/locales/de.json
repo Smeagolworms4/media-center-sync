@@ -453,7 +453,7 @@
 			"rendezvous": "Rendezvous",
 			"direct_address": "Direkte Adresse",
 			"direct_ok": "Direkte Verbindungen sind möglich, Übertragungen laufen also nicht über das Relay.",
-			"relay_only": "Möglich sind nur Verbindungen über das Relay. Alles funktioniert, aber Übertragungen teilen sich das Rendezvous mit allen anderen, die es nutzen. Den Peer-Port weiterzuleiten würde das beheben."
+			"relay_only": "Möglich sind nur Verbindungen über das Relay. Alles funktioniert, aber Übertragungen teilen sich das Rendezvous mit allen anderen, die es nutzen. Dieses Gateway erreichbar zu machen — ein Port, derselbe wie der der Oberfläche — würde das beheben."
 		},
 		"invite": {
 			"open": "Gateway verbinden",
@@ -549,6 +549,7 @@
 		"saved": "Einstellungen gespeichert.",
 		"group": {
 			"placement": "Wohin Dateien kommen",
+			"gateway": "Adresse und Standardordner",
 			"transfers": "Übertragungen",
 			"categories": "Kategorien",
 			"peers": "Peers und Freigaben",
@@ -567,6 +568,13 @@
 		},
 		"fixed_path": "Fester Pfad",
 		"fixed_path_help": "Ein absoluter Pfad, in den das Gateway schreiben kann, etwa /media/incoming.",
+		"public_url": "Öffentliche Adresse",
+		"public_url_help": "Wie Freunde dieses Gateway von außen erreichen — nur die Adresse, etwa https://mcs.example.org. Sie ist das, was eine Einladung, ein Freigabelink und eine Ankündigung mit sich tragen; ohne sie nennt eine Einladung dieses Gateway, ohne jemandem einen Weg dorthin zu geben.",
+		"public_url_suggested": "Vorgeschlagen anhand der Adresse, die Sie gerade verwenden ({origin}). Ändern Sie sie, wenn Ihre Freunde dieses Gateway unter einem anderen Namen erreichen.",
+		"peer_address": "Peer-Adresse",
+		"peer_address_help": "host:port für den Peer-Verkehr, etwa mcs.example.org:4210. Leer lassen, um sie aus der öffentlichen Adresse oben abzuleiten.",
+		"default_target": "Standardordner",
+		"default_target_help": "Ein absoluter Pfad, in den dieses Gateway schreiben kann und in dem ein Abruf landet, wenn nichts anderes darüber entscheidet — etwa eine Kategorie ohne beschreibbare Bibliothek.",
 		"naming": "Benennung",
 		"naming_value": {
 			"source": "Namen der Quelle behalten",
@@ -962,7 +970,8 @@
 			"unreachable": "Der Peer hat nicht geantwortet.",
 			"rejected": "Der Peer hat die Verbindung abgelehnt.",
 			"awaiting_them": "Die Gegenseite hat noch nicht geantwortet, es gibt also nichts zu bestätigen.",
-			"protocol_unsupported": "Dieser Peer spricht eine Version des Protokolls, die dieses Gateway nicht kennt."
+			"protocol_unsupported": "Dieser Peer spricht eine Version des Protokolls, die dieses Gateway nicht kennt.",
+			"method_unsupported": "Dieser Peer hat etwas angefordert, das dieses Gateway nicht implementiert."
 		},
 		"sync": {
 			"plan_not_found": "Diesen Sync-Plan gibt es nicht mehr.",
@@ -980,7 +989,11 @@
 			"checksum_mismatch": "Die heruntergeladene Datei stimmt nicht mit ihrer Prüfsumme überein."
 		},
 		"settings": {
-			"invalid": "Diese Einstellungen wurden abgelehnt."
+			"invalid": "Diese Einstellungen wurden abgelehnt.",
+			"public_url_invalid": "Geben Sie die vollständige Adresse samt Schema ein, etwa https://mcs.example.org.",
+			"peer_address_invalid": "Geben Sie einen Host und einen Port ein, etwa mcs.example.org:4210 — ohne Schema.",
+			"target_path_invalid": "Geben Sie einen absoluten Pfad ein, etwa /media/incoming.",
+			"target_path_not_writable": "Das Gateway kann in diesen Ordner nicht schreiben."
 		},
 		"user": {
 			"not_found": "Dieses Konto gibt es nicht mehr.",

@@ -55,7 +55,6 @@ export interface AppConfig {
 	env: string;
 	port: number;
 	prefix: string;
-	peerPort: number;
 	database: DatabaseConfig;
 	cache: CacheConfig;
 	security: SecurityConfig;
@@ -133,7 +132,6 @@ export const configuration = (): AppConfig => {
 		env,
 		port: readNumber('API_PORT', 4200),
 		prefix: 'api',
-		peerPort: readNumber('PEER_PORT', 4210),
 		database: Object.freeze({
 			type: databaseType,
 			file: readString('DB_FILE', 'var/media-center-sync.db'),

@@ -1,3 +1,4 @@
+import { ErrorKey } from '@mcs/shared';
 import {
 	DEFAULT_SETTINGS,
 	type BandwidthService,
@@ -5,6 +6,7 @@ import {
 	type SettingsService,
 	type TransferEngineService,
 } from '@/services';
+import type { LibraryManager } from './library.manager';
 import { SettingsManager } from './settings.manager';
 
 interface Fakes {
@@ -12,6 +14,7 @@ interface Fakes {
 	scheduler: { reload: jest.Mock };
 	engine: { applyRateLimits: jest.Mock };
 	bandwidth: { apply: jest.Mock };
+	libraries: { probe: jest.Mock };
 }
 
 const build = (): { manager: SettingsManager; fakes: Fakes } => {
@@ -25,6 +28,15 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 		scheduler: { reload: jest.fn().mockResolvedValue(undefined) },
 		engine: { applyRateLimits: jest.fn() },
 		bandwidth: { apply: jest.fn() },
+		libraries: {
+			probe: jest.fn().mockResolvedValue({
+				exists: true,
+				readable: true,
+				writable: true,
+				freeBytes: 1_000,
+				error: null,
+			}),
+		},
 	};
 
 	return {
@@ -33,6 +45,7 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 			fakes.scheduler as unknown as SchedulerService,
 			fakes.engine as unknown as TransferEngineService,
 			fakes.bandwidth as unknown as BandwidthService,
+			fakes.libraries as unknown as LibraryManager,
 		),
 		fakes,
 	};
@@ -97,6 +110,53 @@ describe('SettingsManager', () => {
 		await manager.write({ maxParallelTransfers: 8 });
 
 		expect(fakes.engine.applyRateLimits).not.toHaveBeenCalled();
+	});
+
+	it('probes the fallback target before believing it', async () => {
+		const { manager, fakes } = build();
+
+		await manager.write({ defaultTargetPath: '/media/incoming/' });
+
+		// The normalised path, not what was typed: the probe and the row have to be
+		// asking about the same directory.
+		expect(fakes.libraries.probe).toHaveBeenCalledWith('/media/incoming');
+	});
+
+	it('refuses a fallback target it cannot write into, and writes nothing', async () => {
+		const { manager, fakes } = build();
+
+		fakes.libraries.probe.mockResolvedValue({
+			exists: true,
+			readable: true,
+			writable: false,
+			freeBytes: null,
+			error: ErrorKey.LIBRARY_PATH_NOT_WRITABLE,
+		});
+
+		await expect(manager.write({ defaultTargetPath: '/media/incoming' })).rejects.toMatchObject({
+			response: {
+				key: ErrorKey.SETTINGS_TARGET_PATH_NOT_WRITABLE,
+				field: 'defaultTargetPath',
+			},
+		});
+		expect(fakes.settings.update).not.toHaveBeenCalled();
+	});
+
+	it('probes nothing when the fallback target is being cleared', async () => {
+		const { manager, fakes } = build();
+
+		await manager.write({ defaultTargetPath: '' });
+
+		expect(fakes.libraries.probe).not.toHaveBeenCalled();
+		expect(fakes.settings.update).toHaveBeenCalledWith({ defaultTargetPath: '' });
+	});
+
+	it('leaves the filesystem alone for a setting that is not a path', async () => {
+		const { manager, fakes } = build();
+
+		await manager.write({ publicUrl: 'https://mcs.example.org' });
+
+		expect(fakes.libraries.probe).not.toHaveBeenCalled();
 	});
 
 	it('reads through to the service that owns the defaults', async () => {

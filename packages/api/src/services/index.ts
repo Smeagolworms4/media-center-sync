@@ -11,6 +11,7 @@ export * from './media-override';
 export * from './metadata.service';
 export * from './naming.service';
 export * from './peer-catalogue.service';
+export * from './peer-gateway.service';
 export * from './peer-link.service';
 export * from './placement.service';
 export * from './quality.service';
@@ -34,6 +35,7 @@ import { MatchingService } from './matching.service';
 import { MetadataService } from './metadata.service';
 import { NamingService } from './naming.service';
 import { PeerCatalogueService } from './peer-catalogue.service';
+import { PeerGatewayService } from './peer-gateway.service';
 import { PeerLinkService } from './peer-link.service';
 import { PlacementService } from './placement.service';
 import { QualityService } from './quality.service';
@@ -69,6 +71,7 @@ export const SERVICE_PROVIDERS = [
 	RevalidationService,
 	RendezvousClient,
 	PeerLinkService,
+	PeerGatewayService,
 	PeerCatalogueService,
 	TransferEngineService,
 	...MEDIA_HANDLER_PROVIDERS,

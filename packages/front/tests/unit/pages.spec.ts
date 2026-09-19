@@ -881,38 +881,109 @@ describe('pages/SettingsUsers', () => {
 });
 
 describe('pages/Settings', () => {
-	it('shows the fixed path only when the placement needs one', async () => {
-		stubFetchRoutes({
-			'/api/settings': {
-				body: {
-					placement: PlacementStrategy.FIXED_PATH,
-					fixedPath: '/media/incoming',
-					naming: NamingScheme.STANDARD,
-					pullMetadata: true,
-					preferSourceMetadata: false,
-					maxParallelTransfers: 2,
-					maxConnectionsPerSource: 4,
-					chunkSize: 4_194_304,
-					downloadRateLimit: 0,
-					uploadRateLimit: 0,
-					matchThreshold: 0.8,
-					allowFriendsOfFriends: true,
-					allowSwarm: true,
-					rendezvousUrl: null,
-					transferHistoryDays: 30,
-					refreshIntervalMinutes: 15,
-					fullScanCron: '0 4 * * *',
-					cacheTtlSeconds: 60,
-				},
-			},
-		});
-		const { wrapper } = mountWithApp(Settings, { global: { stubs: tooltipStub } });
+	const settingsBody = (overrides: Record<string, unknown> = {}) => ({
+		placement: PlacementStrategy.FIXED_PATH,
+		fixedPath: '/media/incoming',
+		naming: NamingScheme.STANDARD,
+		pullMetadata: true,
+		preferSourceMetadata: false,
+		maxParallelTransfers: 2,
+		maxConnectionsPerSource: 4,
+		chunkSize: 4_194_304,
+		downloadRateLimit: 0,
+		uploadRateLimit: 0,
+		matchThreshold: 0.8,
+		allowFriendsOfFriends: true,
+		allowSwarm: true,
+		rendezvousUrl: null,
+		publicUrl: null,
+		peerAddress: null,
+		defaultTargetPath: null,
+		transferHistoryDays: 30,
+		refreshIntervalMinutes: 15,
+		fullScanCron: '0 4 * * *',
+		cacheTtlSeconds: 60,
+		...overrides,
+	});
+
+	const openSettings = async (overrides: Record<string, unknown> = {}) => {
+		stubFetchRoutes({ '/api/settings': { body: settingsBody(overrides) } });
+		const mounted = mountWithApp(Settings, { global: { stubs: tooltipStub } });
 		await settle();
+		return mounted;
+	};
+
+	const valueOf = (wrapper: ReturnType<typeof mountWithApp>['wrapper'], test: string) =>
+		(wrapper.find(`[data-test="${test}"] input`).element as HTMLInputElement).value;
+
+	it('shows the fixed path only when the placement needs one', async () => {
+		const { wrapper } = await openSettings();
 
 		expect(wrapper.find('[data-test="settings-fixed-path"]').exists()).toBe(true);
 		// A chunk size is shown the way somebody would type it, not as 4194304.
 		expect(wrapper.text()).toContain('Chunk size');
 		expect(wrapper.find('[data-test="cron-hint"]').text()).toContain('04:00');
+	});
+
+	it('offers the browser’s own origin when no public address has been set', async () => {
+		const { wrapper } = await openSettings({ publicUrl: null });
+
+		expect(valueOf(wrapper, 'settings-public-url')).toBe(window.location.origin);
+	});
+
+	it('says the address is a suggestion and where it came from', async () => {
+		// Offered, not assumed: a gateway administered over a private address and
+		// reached by friends over a domain name would otherwise announce the wrong one
+		// to everybody, and nobody checks a fact they were never told was a guess.
+		const { wrapper } = await openSettings({ publicUrl: null });
+		const caption = wrapper.find('[data-test="settings-public-url-suggested"]');
+
+		expect(caption.exists()).toBe(true);
+		expect(caption.text()).toContain(window.location.origin);
+	});
+
+	it('never overwrites an address somebody has already set', async () => {
+		const { wrapper } = await openSettings({ publicUrl: 'https://mcs.example.org' });
+
+		expect(valueOf(wrapper, 'settings-public-url')).toBe('https://mcs.example.org');
+		expect(valueOf(wrapper, 'settings-public-url')).not.toBe(window.location.origin);
+		// And it does not claim to be a suggestion, because it is not one.
+		expect(wrapper.find('[data-test="settings-public-url-suggested"]').exists()).toBe(false);
+	});
+
+	it('stops calling it a suggestion once somebody types their own', async () => {
+		const { wrapper } = await openSettings({ publicUrl: null });
+
+		await wrapper.find('[data-test="settings-public-url"] input').setValue('https://elsewhere.example');
+		await settle();
+
+		expect(wrapper.find('[data-test="settings-public-url-suggested"]').exists()).toBe(false);
+	});
+
+	it('fills the peer address and the fallback folder from what is stored', async () => {
+		const { wrapper } = await openSettings({
+			peerAddress: 'mcs.example.org:4210',
+			defaultTargetPath: '/media/incoming',
+		});
+
+		expect(valueOf(wrapper, 'settings-peer-address')).toBe('mcs.example.org:4210');
+		expect(valueOf(wrapper, 'settings-default-target')).toBe('/media/incoming');
+	});
+
+	it('sends an emptied box as a clearing rather than as an empty string', async () => {
+		const stub = stubFetchRoutes({
+			'/api/settings': { body: settingsBody({ peerAddress: 'mcs.example.org:4210' }) },
+		});
+		const { wrapper } = mountWithApp(Settings, { global: { stubs: tooltipStub } });
+		await settle();
+
+		await wrapper.find('[data-test="settings-peer-address"] input').setValue('');
+		await wrapper.find('form').trigger('submit');
+		await settle();
+
+		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+
+		expect(JSON.parse(String(patch?.[1]?.body)).peerAddress).toBeNull();
 	});
 });
 

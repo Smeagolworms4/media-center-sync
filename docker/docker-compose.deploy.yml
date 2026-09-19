@@ -7,12 +7,10 @@ services:
         image: ghcr.io/smeagolworms4/media-center-sync:main
         restart: unless-stopped
         ports:
-            # The interface and the API, on the same origin.
+            # The interface, the API and the peer links, all on the same origin. There
+            # is no second port: a peer link is a WebSocket upgrade on this one, so a
+            # reverse proxy and its certificate cover peer traffic for free.
             - 4200:4200
-            # Inbound peer connections. Forward this one on the router to receive
-            # direct links; without it, transfers fall back to the rendezvous relay,
-            # which works but shares its bandwidth between everyone using it.
-            - 4210:4210
         environment:
             # Change this. It signs the sessions; the default would let anyone who
             # read this file mint a valid token.

@@ -1,7 +1,13 @@
 import { NamingScheme, PlacementStrategy } from '@mcs/shared';
 import type { SettingRepository } from '@/repositories';
 import { CacheService } from './cache.service';
-import { DEFAULT_SETTINGS, SettingsService } from './settings.service';
+import {
+	DEFAULT_SETTINGS,
+	normalisePeerAddress,
+	normalisePublicUrl,
+	normaliseTargetPath,
+	SettingsService,
+} from './settings.service';
 
 describe('SettingsService', () => {
 	let stored: Map<string, string>;
@@ -143,5 +149,149 @@ describe('SettingsService', () => {
 
 	it('answers a single value', async () => {
 		expect(await service.getValue('allowSwarm')).toBe(DEFAULT_SETTINGS.allowSwarm);
+	});
+
+	it('stores the address the gateway is reached at, normalised', async () => {
+		await service.update({ publicUrl: 'https://mcs.example.org/interface/' });
+
+		expect((await service.get()).publicUrl).toBe('https://mcs.example.org');
+	});
+
+	it('refuses an address nothing could dial, naming the field', async () => {
+		await expect(service.update({ publicUrl: 'mcs.example.org' })).rejects.toMatchObject({
+			response: { key: 'error.settings.public_url_invalid', field: 'publicUrl' },
+		});
+	});
+
+	it('takes an emptied box as a clearing rather than as an empty address', async () => {
+		await service.update({ publicUrl: 'https://mcs.example.org' });
+		await service.update({ publicUrl: '' });
+
+		// Null and not the empty string: an origin of '' concatenated into a share link
+		// makes a link to this gateway's own interface, which looks like it worked.
+		expect(repository.putMany).toHaveBeenLastCalledWith({ publicUrl: 'null' });
+		expect((await service.get()).publicUrl).toBeNull();
+	});
+
+	it('clears the peer address and the fallback target the same way', async () => {
+		await service.update({ peerAddress: '   ', defaultTargetPath: '  ' });
+
+		const settings = await service.get();
+
+		expect(settings.peerAddress).toBeNull();
+		expect(settings.defaultTargetPath).toBeNull();
+	});
+
+	it('refuses a peer address written as a URL', async () => {
+		await expect(
+			service.update({ peerAddress: 'https://mcs.example.org:4210' }),
+		).rejects.toMatchObject({
+			response: { key: 'error.settings.peer_address_invalid', field: 'peerAddress' },
+		});
+	});
+
+	it('refuses a fallback target that is not absolute', async () => {
+		await expect(service.update({ defaultTargetPath: 'incoming' })).rejects.toMatchObject({
+			response: { key: 'error.settings.target_path_invalid', field: 'defaultTargetPath' },
+		});
+	});
+
+	it('drops a text setting it cannot make sense of instead of refusing to start', async () => {
+		// Written by hand or by an older version. Refusing it on read would lock somebody
+		// out of the one screen where they would have corrected it.
+		stored.set('publicUrl', '"not a url at all"');
+
+		expect((await service.get()).publicUrl).toBeNull();
+	});
+
+	it('does not hold an unusable stored value against a later write', async () => {
+		stored.set('publicUrl', '"not a url at all"');
+
+		await expect(service.update({ maxParallelTransfers: 5 })).resolves.toBeDefined();
+	});
+});
+
+/**
+ * The three addresses, pinned one input at a time.
+ *
+ * Table-driven because what matters is the whole set of shapes people type — a
+ * trailing slash, a path, a scheme in the wrong box — and a table says which one
+ * regressed without a stack of near-identical cases.
+ */
+describe('normalisePublicUrl', () => {
+	it.each([
+		['https://mcs.example.org', 'https://mcs.example.org'],
+		// Everything downstream concatenates onto this, so the slash and the path go.
+		['https://mcs.example.org/', 'https://mcs.example.org'],
+		['https://mcs.example.org/sub/path?q=1', 'https://mcs.example.org'],
+		['http://192.168.0.12:4200', 'http://192.168.0.12:4200'],
+		// A default port is not part of an origin, and writing it back would make two
+		// spellings of one address.
+		['http://mcs.example.org:80', 'http://mcs.example.org'],
+		['  https://mcs.example.org  ', 'https://mcs.example.org'],
+		['', null],
+		['   ', null],
+		[null, null],
+		[undefined, null],
+	])('normalises %p to %p', (input, expected) => {
+		expect(normalisePublicUrl(input)).toBe(expected);
+	});
+
+	it.each([
+		['mcs.example.org'],
+		['192.168.0.12:4200'],
+		['ftp://mcs.example.org'],
+		['javascript:alert(1)'],
+		['not a url'],
+	])('refuses %p', (input) => {
+		expect(() => normalisePublicUrl(input)).toThrow();
+	});
+});
+
+describe('normalisePeerAddress', () => {
+	it.each([
+		['mcs.example.org:4210', 'mcs.example.org:4210'],
+		['192.168.0.12:4210', '192.168.0.12:4210'],
+		['[2001:db8::1]:4210', '[2001:db8::1]:4210'],
+		['MCS.Example.ORG:4210', 'mcs.example.org:4210'],
+		['', null],
+		[null, null],
+	])('normalises %p to %p', (input, expected) => {
+		expect(normalisePeerAddress(input)).toBe(expected);
+	});
+
+	it.each([
+		// No default port to fall back on: peer traffic is not HTTP.
+		['mcs.example.org'],
+		['https://mcs.example.org:4210'],
+		['mcs.example.org:0'],
+		['mcs.example.org:70000'],
+		['mcs.example.org:port'],
+		['mcs.example.org:4210/path'],
+	])('refuses %p', (input) => {
+		expect(() => normalisePeerAddress(input)).toThrow();
+	});
+});
+
+describe('normaliseTargetPath', () => {
+	it.each([
+		['/media/incoming', '/media/incoming'],
+		['/media/incoming/', '/media/incoming'],
+		['  /media/incoming  ', '/media/incoming'],
+		['/', '/'],
+		['', null],
+		[null, null],
+	])('normalises %p to %p', (input, expected) => {
+		expect(normaliseTargetPath(input)).toBe(expected);
+	});
+
+	it.each([
+		// Relative resolves against whatever directory the process was started in.
+		['incoming'],
+		['./incoming'],
+		// A fallback that can climb out of where it was pointed can write anywhere.
+		['/media/../etc'],
+	])('refuses %p', (input) => {
+		expect(() => normaliseTargetPath(input)).toThrow();
 	});
 });

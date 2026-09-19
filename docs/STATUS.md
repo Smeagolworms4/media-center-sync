@@ -77,13 +77,22 @@ Three states are used:
 |---|---|
 | Identity by public key fingerprint | built |
 | One-shot expiring invitations | built |
-| Direct link | built |
+| Inbound peer endpoint, on the HTTP port — no second port | built |
+| Outbound link, direct | built |
 | Relayed link through the rendezvous | built |
+| Versioned handshake, with capabilities stored on the peer | built |
 | Friend-of-a-friend discovery | built |
 | Sharing per library, with allow and deny lists | built |
 | Per-library bandwidth caps | built |
 | Audit: what would this peer see of me | built |
+| **A peer's catalogue imported as services and items on our side** | **absent** — the link answers `catalogue.list`, nothing calls it |
+| **WebRTC for two ends both behind NAT** | **absent** — such a pair falls back to the relay |
 | **The rendezvous server itself** | **not included** — the gateway is a client of one |
+
+Both gateways of a link speak the same wire whichever way the socket was opened, and
+the protocol grows by capability rather than by version: an unknown field is ignored,
+an unknown method answers "not supported" and leaves the link open, and a feature is
+used only when the far end advertised it. `API.md` has the frames.
 
 ## Swarm
 
@@ -125,5 +134,5 @@ written where it matters.
 | Migrations that run on both engines | built |
 | Health check that fails when the database is unreachable | built |
 | Library mount checking | built |
-| A lab with two real media servers | built — see `LAB.md` |
+| A lab with four real media servers and two gateways | built — see `LAB.md` |
 | Unit, functional and browser journeys, all in the pipeline | built |

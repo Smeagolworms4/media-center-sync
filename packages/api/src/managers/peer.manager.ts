@@ -6,9 +6,12 @@ import {
 	PeerDirection,
 	PeerStatus,
 	PeerTrust,
+	negotiateProtocol,
 	type MediaService,
 	type AddPeerRequest,
 	type Peer,
+	type PeerHandshake,
+	type PeerHello,
 	type PeerIdentity,
 	type PeerInvite,
 } from '@mcs/shared';
@@ -28,7 +31,14 @@ import {
 	PeerRepository,
 } from '@/repositories';
 import type { PeerCredentialVerifier } from '@/security';
-import { EventGatewayService, PeerLinkService, SettingsService } from '@/services';
+import {
+	EventGatewayService,
+	PeerLinkService,
+	SettingsService,
+	type PeerAdmission,
+	type PeerCredential,
+	type PeerLinkAuthority,
+} from '@/services';
 import { toMediaService, toPeer } from './mappers';
 
 /** Default life of an invitation. Long enough to send, short enough to forget about. */
@@ -52,7 +62,7 @@ const INVITE_SCHEME = 'mcs://invite/';
  * that a code had already been redeemed.
  */
 @Injectable()
-export class PeerManager implements PeerCredentialVerifier {
+export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	private readonly _logger = new Logger(PeerManager.name);
 
 	public constructor(
@@ -402,6 +412,19 @@ export class PeerManager implements PeerCredentialVerifier {
 			);
 
 			await this._peers.setStatus(peer.id, PeerStatus.LINKED, state.mode, state.address);
+
+			// Written here rather than inside the link service: a version and a list of
+			// capabilities are facts about a peer, and where facts about a peer are kept
+			// is this layer's business. Null protocol cannot happen on an established
+			// link — the handshake refuses before returning one — but the state type
+			// allows it, and asserting otherwise here would be a lie waiting to be true.
+			if (state.protocol !== null) {
+				await this._peers.recordHandshake(peer.id, {
+					nodeId: state.nodeId,
+					protocol: state.protocol,
+					capabilities: state.capabilities,
+				});
+			}
 		} catch (error) {
 			this._logger.warn(`Peer ${peer.name} could not be reached: ${String(error)}`);
 
@@ -442,6 +465,80 @@ export class PeerManager implements PeerCredentialVerifier {
 	 * at all, and an unchecked peer route hands the catalogue to whoever guesses a
 	 * fingerprint, which is public by design. So that answers false.
 	 */
+	/**
+	 * Somebody opened a socket on the peer endpoint. Are they anybody?
+	 *
+	 * The cryptography is checked first and by the link service, which owns the keys:
+	 * the presented key has to hash to the fingerprint, the signature has to verify,
+	 * and the challenge has to be recent. Everything after that is a decision about
+	 * trust, which is why it is here and not in the thing holding the socket.
+	 *
+	 * An unknown gateway is recorded as a request and refused, which is the same
+	 * answer `requested` gives everywhere else: the only thing a stranger can do is
+	 * ask, and somebody has to say yes before a single catalogue row crosses.
+	 *
+	 * `UNREACHABLE` is admitted alongside `LINKED` — the repository already treats the
+	 * two as one for exactly this reason. It means *we* failed to reach *them*, which
+	 * says nothing about whether they are a friend, and refusing them here would make
+	 * a gateway that went offline once unable to ever call back in.
+	 */
+	public async admit(credential: PeerCredential): Promise<PeerAdmission | null> {
+		if (!this._links.verifyCredential(credential)) {
+			return null;
+		}
+
+		// Records a stranger, and settles a request of ours they are answering by
+		// connecting. Both are the same fact seen from two sides.
+		await this.requested(credential.fingerprint, '', credential.address);
+
+		const peer = await this._peers.findByFingerprint(credential.fingerprint);
+
+		if (peer === null || (peer.status !== PeerStatus.LINKED && peer.status !== PeerStatus.UNREACHABLE)) {
+			// One answer for an unknown fingerprint, a peer still pending and a blocked
+			// one. Telling them apart would let somebody learn they are blocked by
+			// watching what happens.
+			return null;
+		}
+
+		return { peerId: peer.id, name: peer.name };
+	}
+
+	/**
+	 * Answer their hello with ours, and remember what they said.
+	 *
+	 * Null when the version is not one we speak, and the caller closes the link. There
+	 * is exactly one version before the first release: a mismatch is a flat refusal
+	 * rather than a downgrade, because carrying compatibility for versions nobody ever
+	 * ran is weight with no cargo.
+	 */
+	public async greet(
+		peerId: string,
+		hello: PeerHello,
+		challenge: string,
+	): Promise<PeerHandshake | null> {
+		const protocol = negotiateProtocol(hello.protocol);
+
+		if (protocol === null) {
+			this._logger.warn(`Peer ${peerId} speaks protocol ${hello.protocol}, which we do not`);
+
+			return null;
+		}
+
+		await this._peers.recordHandshake(peerId, {
+			nodeId: hello.nodeId || null,
+			protocol,
+			capabilities: hello.capabilities,
+		});
+
+		return {
+			hello: this._links.hello(),
+			publicKey: this._links.publicKey,
+			// Their challenge, not one of ours: it is the only thing that proves this
+			// answer was produced now, by whoever holds the key, for them.
+			signature: this._links.sign(challenge),
+		};
+	}
+
 	public async verify(fingerprint: string, token: string): Promise<boolean> {
 		const peer = await this._peers.findByFingerprint(fingerprint);
 

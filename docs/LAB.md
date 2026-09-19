@@ -1,13 +1,15 @@
 # The lab
 
 Four real media servers — two Jellyfin, two Plex — each holding a library that
-disagrees with the others on purpose.
+disagrees with the others on purpose, and two real gateways to run them against.
 
 ```bash
 make lab/media     # generate the fixtures, a few megabytes
-make lab/up        # start all four servers and configure all four
-make lab/setup     # re-run the configuration on its own
-make lab/services  # reprint the URLs, keys and scopes for registration
+make lab/up        # start the servers and both gateways, and configure the servers
+make lab/setup     # re-run the media server configuration on its own
+make lab/services  # reprint the URLs, keys, scopes and the two gateways
+make lab/link      # link the two gateways to each other and print what they agreed
+make lab/pull      # pull a range of one file from the other gateway, over the link
 make lab/down      # remove everything, fixtures included
 ```
 
@@ -19,6 +21,79 @@ It is not part of the development stack and never starts with it.
 | `plex-local` | 32400 | B | ours | local |
 | `jellyfin-remote` | 8097 | C | a friend's | remote |
 | `plex-remote` | 32401 | D | a friend's | remote |
+| `gateway-local` | 4300 | — | ours | — |
+| `gateway-remote` | 4301 | — | a friend's | — |
+
+## Two gateways
+
+Peer exchange cannot be proven from one node. A unit test pins the framing, a
+functional test proves the endpoint answers over a real socket — and neither of them
+shows two identities, two databases and two media servers agreeing on a protocol
+version and moving bytes between them. Until these two existed, that had never
+happened outside a test double.
+
+The one a developer already runs is the **development stack**, and its database is not
+somewhere a lab should be writing peers, media services and pulled files. So the lab
+brings up both ends itself: `gateway-local` and `gateway-remote`, same image, same
+code, different identity.
+
+What makes each of them a distinct participant is its **data directory** — the Ed25519
+key pair and the node identifier live there, the fingerprint is derived from the key,
+and the fingerprint is the identity. Throw that directory away and the gateway comes
+back as somebody else, which is worth knowing before wondering why a link that worked
+yesterday is refused today.
+
+They link on the port they serve their interface on. There is no second port: a peer
+link is a WebSocket upgrade on `/api/peer/link`, next to the event stream on
+`/api/events`.
+
+```bash
+make lab/link
+#   gateway-local   d9b901352e8c432eb4c04bdf52acb994030150c71dccd565820861251151e38b
+#   gateway-remote  c1c1817b439ad497d0aca69010c96477c5f1957783113adbe053a75a02f028b4
+#
+#   name          Lab friend
+#   status        linked
+#   link          direct at gateway-remote:4200
+#   protocol      1
+#   capabilities  content, catalogue, revalidate, announce, swarm
+```
+
+`lab/link` is the two calls the interface makes — each gateway is told the other's
+fingerprint, then one of them dials — rather than an invitation, which is one-shot and
+expiring and therefore wrong for something that has to be re-runnable.
+
+**They run on PostgreSQL, and that is not a preference.** `better-sqlite3` is a native
+binding; one compiled on a glibc workstation does not load in an Alpine container, and
+the error names a missing `ld-linux-x86-64.so.2` while saying nothing about where the
+install came from. The lab mounts whatever `node_modules` the repository happens to
+hold, so the one engine it can rely on either way is the one whose driver is pure
+JavaScript. The side effect is welcome: the lab is the only thing that routinely runs
+against the engine the README says is supported.
+
+**A gateway needs something of its own to share.** `gateway-remote` is the one to
+register `jellyfin-remote` in — as *its* local service, since it is that household's
+own server — and then share its libraries. Inside the lab the containers reach each
+other by service name (`http://jellyfin-remote:8096`); `localhost` is the workstation,
+and a service registered at a localhost URL is a service the gateway cannot reach.
+
+### Pulling across the link
+
+```bash
+make lab/pull
+#   catalogue     8 entries they let us see
+#   pulled        Big Buck Bunny
+#   range         0-162172 of 162173 bytes
+#   received      162173 bytes in 50 ms
+```
+
+`lab/pull` asks the far end for its catalogue, picks the first entry with a file, and
+pulls a range of it over the link. It goes through `PeerLinkService` rather than
+through the transfer engine, and that is not laziness: the engine needs a plan, a
+source and a target, and a peer's catalogue is **not imported as services and items on
+our side** — the link answers `catalogue.list` and nothing in the application calls
+it. That gap is real, it is the next thing peer syncing needs, and this is where it is
+visible rather than assumed.
 
 ## Why it exists
 

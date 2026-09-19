@@ -76,6 +76,31 @@ describe('useApiError', () => {
 		expect(parsed.mainError).toBe('priority must be a number');
 	});
 
+	it('puts a refusal that names a field under that field', async () => {
+		// The settings routes answer a key and the field it is about, because a screen
+		// that saves twenty values at once cannot say "something was refused" and leave
+		// somebody to guess which box.
+		const parsed = await parseApiError(
+			jsonResponse({ key: 'error.settings.public_url_invalid', field: 'publicUrl' }),
+			options(['publicUrl', 'peerAddress']),
+		);
+
+		expect(parsed.mainError).toBeNull();
+		expect(parsed.fieldErrors.publicUrl).toEqual([
+			'Enter the full address, scheme included, such as https://mcs.example.org.',
+		]);
+	});
+
+	it('raises it to the main error when the form does not render that field', async () => {
+		const parsed = await parseApiError(
+			jsonResponse({ key: 'error.settings.public_url_invalid', field: 'publicUrl' }),
+			options(['peerAddress']),
+		);
+
+		expect(parsed.fieldErrors).toEqual({});
+		expect(parsed.mainError).toContain('Enter the full address');
+	});
+
 	it('translates a business error key', async () => {
 		const parsed = await parseApiError(
 			jsonResponse({ statusCode: 401, message: 'error.auth.invalid_credentials', error: 'Unauthorized' }),

@@ -8,9 +8,21 @@ import {
 	verify as verifyBytes,
 } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
-import { ErrorKey, PeerLinkMode, type PeerIdentity } from '@mcs/shared';
+import {
+	ErrorKey,
+	PEER_HELLO_METHOD,
+	PROTOCOL_VERSION,
+	PeerCapability,
+	PeerLinkMode,
+	negotiateProtocol,
+	type PeerCapabilityValue,
+	type PeerHandshake,
+	type PeerHello,
+	type PeerIdentity,
+} from '@mcs/shared';
 import {
 	Injectable,
 	Logger,
@@ -18,6 +30,7 @@ import {
 	ServiceUnavailableException,
 } from '@nestjs/common';
 import { WebSocket } from 'ws';
+import { PEER_LINK_PATH, type PeerCredential } from './peer-gateway.service';
 import { RendezvousClient } from './rendezvous.client';
 
 /** Where the gateway's own key pair lives, unless the environment says otherwise. */
@@ -27,6 +40,32 @@ const KEY_FILE = 'peer-identity.pem';
 
 const CONNECT_TIMEOUT_MS = 15_000;
 const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * How long a signed challenge is worth anything.
+ *
+ * The challenge carries the moment it was made, and this is the only use that fact
+ * has: a signature lifted off the wire stops opening links a few minutes later. It is
+ * generous because the two clocks belong to two households and neither is ours.
+ */
+const CHALLENGE_MAX_AGE_MS = 5 * 60_000;
+
+/**
+ * What this gateway tells a peer it can do.
+ *
+ * Every entry here is a method this gateway really answers — advertising one it does
+ * not is worse than advertising nothing, because the far end will use it and be
+ * refused at the one moment it mattered. `RELAY` is absent on purpose: passing a
+ * friend of a friend's traffic through this machine is the rendezvous's job, not
+ * ours.
+ */
+export const LOCAL_CAPABILITIES: readonly PeerCapabilityValue[] = Object.freeze([
+	PeerCapability.CONTENT,
+	PeerCapability.CATALOGUE,
+	PeerCapability.REVALIDATE,
+	PeerCapability.ANNOUNCE,
+	PeerCapability.SWARM,
+]);
 
 /**
  * Binary frames carry a request identifier so several ranges share one socket.
@@ -54,6 +93,12 @@ export interface PeerLinkState {
 	address: string | null;
 	connected: boolean;
 	since: string;
+	/** What the two ends agreed on. Null until the handshake has happened. */
+	protocol: number | null;
+	/** What the far end said it can do, as it said it. */
+	capabilities: string[];
+	/** Their stable name on the shared network, which is not their fingerprint. */
+	nodeId: string | null;
 }
 
 interface PendingRequest {
@@ -72,6 +117,17 @@ interface PendingRequest {
  */
 class PeerLink {
 	public readonly since = new Date().toISOString();
+
+	/**
+	 * What the far end turned out to be, learned in the handshake.
+	 *
+	 * Held on the link rather than only in the database because the question asked of
+	 * it — may I use this feature on this socket — is asked per request and has to be
+	 * answered without a query.
+	 */
+	public protocol: number | null = null;
+	public capabilities: string[] = [];
+	public nodeId: string | null = null;
 
 	private readonly _pending = new Map<number, PendingRequest>();
 	private _nextRequestId = 1;
@@ -305,6 +361,61 @@ export class PeerLinkService implements OnModuleDestroy {
 		};
 	}
 
+	/**
+	 * What this gateway says about itself, in both directions.
+	 *
+	 * One method rather than one per direction: the hello we send when we call and the
+	 * hello we answer when we are called are the same statement, and two copies of it
+	 * would drift the first time a capability was added.
+	 */
+	public hello(): PeerHello {
+		return {
+			nodeId: this._nodeId,
+			fingerprint: this._fingerprint,
+			name: hostname(),
+			protocol: PROTOCOL_VERSION,
+			capabilities: [...LOCAL_CAPABILITIES],
+		};
+	}
+
+	/**
+	 * Is this credential cryptographically sound? Not: is its owner welcome.
+	 *
+	 * Three things, and all three are needed. The key has to hash to the fingerprint it
+	 * is presented with, or anybody could claim any fingerprint by sending their own
+	 * key. The signature has to verify, or the key is just a public value they copied.
+	 * And the challenge has to be recent, because it is the far end that chooses it —
+	 * without the age check a signature lifted off the wire opens a link forever.
+	 */
+	public verifyCredential(credential: PeerCredential): boolean {
+		if (this.fingerprintOf(credential.publicKey) !== credential.fingerprint) {
+			return false;
+		}
+
+		if (!this._isChallengeFresh(credential.challenge)) {
+			return false;
+		}
+
+		return this.verify(credential.publicKey, credential.challenge, credential.signature);
+	}
+
+	/**
+	 * May we use this feature on this link?
+	 *
+	 * False when the peer never advertised it, and false when there is no link at all.
+	 * That is the rule the whole versioning scheme rests on: a feature is used because
+	 * the far end said it has it, never because we have it. Guessing is how a gateway
+	 * on last month's release gets a request it cannot parse.
+	 */
+	public supports(peerId: string, capability: PeerCapabilityValue): boolean {
+		return this._links.get(peerId)?.capabilities.includes(capability) ?? false;
+	}
+
+	/** The agreed version, or null when no handshake has happened on this link. */
+	public protocolOf(peerId: string): number | null {
+		return this._links.get(peerId)?.protocol ?? null;
+	}
+
 	public get publicKey(): string {
 		return this._publicKeyPem;
 	}
@@ -323,6 +434,23 @@ export class PeerLinkService implements OnModuleDestroy {
 		const der = createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
 
 		return createHash('sha256').update(der).digest('hex');
+	}
+
+	/**
+	 * `<fingerprint>:<epoch millis>` — and the millis are why it is not just a nonce.
+	 *
+	 * A challenge made in the future is refused as firmly as a stale one: the two
+	 * clocks belong to two households, and a far end whose clock is a day ahead would
+	 * otherwise hand out signatures usable tomorrow.
+	 */
+	private _isChallengeFresh(challenge: string): boolean {
+		const issued = Number(challenge.split(':').pop());
+
+		if (!Number.isFinite(issued)) {
+			return false;
+		}
+
+		return Math.abs(Date.now() - issued) <= CHALLENGE_MAX_AGE_MS;
 	}
 
 	public sign(payload: string): string {
@@ -459,7 +587,14 @@ export class PeerLinkService implements OnModuleDestroy {
 
 		const response = error.getResponse() as { key?: string };
 
-		return response?.key === ErrorKey.PEER_REJECTED;
+		// A version we cannot speak counts as a refusal too: the rendezvous would send
+		// us to the same machine, which would refuse the same way, and it would be
+		// reported as unreachable — sending somebody to look at their firewall for a
+		// problem that is a release difference.
+		return (
+			response?.key === ErrorKey.PEER_REJECTED ||
+			response?.key === ErrorKey.PEER_PROTOCOL_UNSUPPORTED
+		);
 	}
 
 	private _link(peerId: string): PeerLink {
@@ -513,37 +648,62 @@ export class PeerLinkService implements OnModuleDestroy {
 		// The address came from somewhere we do not control, so the far end proves it
 		// holds the key behind the fingerprint before anything else happens. A machine
 		// that cannot is dropped without being told what it got wrong.
-		const proof = await link
-			.request<{ fingerprint: string; publicKey: string; signature: string }>('peer.hello', {
-				challenge,
-			})
+		//
+		// Our own hello travels in the same frame, so that by the time either end can
+		// ask for anything, both have the other's version and capabilities. Two frames
+		// would leave a window in which one side knows and the other is guessing.
+		const handshake = await link
+			.request<PeerHandshake>(PEER_HELLO_METHOD, { challenge, hello: this.hello() })
 			.catch(() => null);
 
-		if (!proof || !this._isProofValid(peer, proof, challenge)) {
+		if (!handshake || !this._isProofValid(peer, handshake, challenge)) {
 			link.close();
 
 			throw new ServiceUnavailableException({ key: ErrorKey.PEER_REJECTED });
 		}
 
-		this._logger.log(`Linked to ${peer.name} over ${mode} at ${address}`);
+		const protocol = negotiateProtocol(handshake.hello.protocol);
+
+		if (protocol === null) {
+			// A flat refusal, and deliberately not a fallback to some older behaviour:
+			// pre-release there is one version, and a gateway that guessed at a protocol
+			// it does not implement fails later, somewhere unrelated, with an error about
+			// a missing field.
+			link.close();
+
+			throw new ServiceUnavailableException({ key: ErrorKey.PEER_PROTOCOL_UNSUPPORTED });
+		}
+
+		link.protocol = protocol;
+		link.capabilities = handshake.hello.capabilities;
+		link.nodeId = handshake.hello.nodeId || null;
+
+		this._logger.log(
+			`Linked to ${peer.name} over ${mode} at ${address}, protocol ${protocol} ` +
+				`with [${handshake.hello.capabilities.join(', ')}]`,
+		);
 
 		return link;
 	}
 
 	private _isProofValid(
 		peer: PeerDescriptor,
-		proof: { fingerprint: string; publicKey: string; signature: string },
+		handshake: PeerHandshake,
 		challenge: string,
 	): boolean {
-		if (this.fingerprintOf(proof.publicKey) !== proof.fingerprint) {
+		if (typeof handshake.publicKey !== 'string' || typeof handshake.signature !== 'string') {
 			return false;
 		}
 
-		if (proof.fingerprint !== peer.fingerprint) {
+		if (this.fingerprintOf(handshake.publicKey) !== handshake.hello?.fingerprint) {
 			return false;
 		}
 
-		return this.verify(proof.publicKey, challenge, proof.signature);
+		if (handshake.hello.fingerprint !== peer.fingerprint) {
+			return false;
+		}
+
+		return this.verify(handshake.publicKey, challenge, handshake.signature);
 	}
 
 	private _toWebSocketUrl(address: string, mode: PeerLinkMode): string {
@@ -554,7 +714,10 @@ export class PeerLinkService implements OnModuleDestroy {
 		const scheme = address.startsWith('https://') ? 'wss://' : 'ws://';
 		const host = address.replace(/^https?:\/\//, '').replace(/\/+$/, '');
 
-		return `${scheme}${host}/api/peer${mode === PeerLinkMode.RELAY ? '/relay' : ''}`;
+		// The same port the interface and the API are on. There is no second one, and
+		// that is the point: a reverse proxy and its certificate cover peer traffic for
+		// free, and there is nothing extra to forward on a router.
+		return `${scheme}${host}${PEER_LINK_PATH}${mode === PeerLinkMode.RELAY ? '/relay' : ''}`;
 	}
 
 	private _toState(link: PeerLink): PeerLinkState {
@@ -564,6 +727,9 @@ export class PeerLinkService implements OnModuleDestroy {
 			address: link.address,
 			connected: link.connected,
 			since: link.since,
+			protocol: link.protocol,
+			capabilities: [...link.capabilities],
+			nodeId: link.nodeId,
 		};
 	}
 

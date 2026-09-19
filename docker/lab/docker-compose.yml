@@ -91,3 +91,112 @@ services:
             - ../../var/lab/plex-remote/transcode:/transcode
             - ../../var/lab/media/library-d:/media:ro
         restart: unless-stopped
+
+    # Two gateways, so the peer protocol has something real to run against.
+    #
+    # Until these existed, peer exchange had only ever run in unit tests and against
+    # a fake far end: one gateway cannot link to anybody, and the one a developer runs
+    # is the development stack, whose database is not a thing a lab should write peers
+    # into. Two here are isolated, disposable and brought up by `make lab/up`.
+    #
+    # They run the API from source with `ts-node` rather than from `dist/`, and that
+    # is deliberate: the development stack's watcher writes `dist/` on the same mounted
+    # repository, and two processes compiling into one directory is a failure that
+    # looks like a code bug.
+    #
+    # Each has its own database, its own data directory — which is where the peer key
+    # pair and the node identity live, and therefore what makes it a distinct
+    # participant — its own transfer scratch space and its own port on the host.
+    #
+    # They run on PostgreSQL rather than on the SQLite default, and that is not a
+    # preference: `better-sqlite3` is a native binding, and one compiled on a glibc
+    # workstation does not load in an Alpine container — the error names a missing
+    # `ld-linux-x86-64.so.2` and says nothing about where the install came from. The
+    # lab mounts whatever `node_modules` the repository happens to hold, so the one
+    # engine it can rely on is the one whose driver is pure JavaScript. It also means
+    # the lab exercises the engine the README says is supported and nothing else
+    # routinely runs against.
+    gateway-db:
+        image: postgres:16-alpine
+        environment:
+            - POSTGRES_USER=mcs
+            - POSTGRES_PASSWORD=mcs
+            - POSTGRES_DB=gateway_local
+        # One server, two databases: the second is created on first boot, because
+        # `POSTGRES_DB` only ever makes one and two gateways sharing a schema would be
+        # one gateway with two names.
+        volumes:
+            - ./gateway-databases.sql:/docker-entrypoint-initdb.d/10-gateways.sql:ro
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U mcs -d gateway_local']
+            interval: 5s
+            timeout: 5s
+            retries: 20
+        restart: unless-stopped
+
+    gateway-local: &gateway
+        image: registry.gitlab.com/damienduboeuf/docker/node-custom-userid:24
+        user: ${USER_ID:-1000}:${USER_GID:-1000}
+        working_dir: /app/packages/api
+        command:
+            - sh
+            - -lc
+            - node_modules/.bin/ts-node -r tsconfig-paths/register src/main.ts
+        ports:
+            - ${LAB_GATEWAY_PORT:-4300}:4200
+        depends_on:
+            gateway-db:
+                condition: service_healthy
+        environment:
+            - API_PORT=4200
+            - DB_TYPE=postgres
+            - DB_HOST=gateway-db
+            - DB_PORT=5432
+            - DB_NAME=gateway_local
+            - DB_USER=mcs
+            - DB_PASSWORD=mcs
+            - MCS_JWT_SECRET=lab-secret
+            # An unattended first account: a lab you have to click through is a lab
+            # nobody re-creates.
+            - MCS_ADMIN_USER=${LAB_GATEWAY_USER:-lab}
+            - MCS_ADMIN_PASSWORD=${LAB_GATEWAY_PASSWORD:-lab-password}
+            # Absolute, because the API runs with `packages/api` as its working
+            # directory: a relative path would put this gateway's identity and its
+            # half-pulled files under `packages/api/var`, next to nothing else.
+            - MCS_DATA_DIR=/app/var/lab/gateway-local/data
+            - MCS_TRANSFER_ROOT=/app/var/lab/gateway-local/transfer
+            - MCS_MEDIA_ROOT=/media
+            # What this gateway tells a friend to dial. Inside the lab network that is
+            # the service name and the API port — there is no second port to announce,
+            # because a peer link is an upgrade on this one.
+            - PEER_PUBLIC_ADDRESS=gateway-local:4200
+        volumes:
+            - ../../:/app
+            - ../../var/lab/media:/media:ro
+        restart: unless-stopped
+
+    # The friend's gateway. Same image, same code, different identity and different
+    # media server — which is the only difference that matters, and the same argument
+    # the four media servers are built on.
+    gateway-remote:
+        <<: *gateway
+        ports:
+            - ${LAB_GATEWAY_REMOTE_PORT:-4301}:4200
+        environment:
+            - API_PORT=4200
+            - DB_TYPE=postgres
+            - DB_HOST=gateway-db
+            - DB_PORT=5432
+            - DB_NAME=gateway_remote
+            - DB_USER=mcs
+            - DB_PASSWORD=mcs
+            - MCS_JWT_SECRET=lab-secret
+            - MCS_ADMIN_USER=${LAB_GATEWAY_USER:-lab}
+            - MCS_ADMIN_PASSWORD=${LAB_GATEWAY_PASSWORD:-lab-password}
+            # Absolute, because the API runs with `packages/api` as its working
+            # directory: a relative path would put this gateway's identity and its
+            # half-pulled files under `packages/api/var`, next to nothing else.
+            - MCS_DATA_DIR=/app/var/lab/gateway-remote/data
+            - MCS_TRANSFER_ROOT=/app/var/lab/gateway-remote/transfer
+            - MCS_MEDIA_ROOT=/media
+            - PEER_PUBLIC_ADDRESS=gateway-remote:4200

@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import {
 	ErrorKey,
+	PeerTrust,
 	type CatalogueEntry,
 	type MediaFileInfo,
 } from '@mcs/shared';
@@ -21,17 +22,41 @@ import {
 	BandwidthService,
 	HandlerRegistry,
 	PeerCatalogueService,
+	PeerMethodKind,
 	SettingsService,
 	TokenBucket,
 	type ByteRange,
 	type CataloguePolicy,
 	type ContentHolder,
 	type MediaStream,
+	type PeerMethodHandler,
+	type PeerMethodKindValue,
 } from '@/services';
 import { ShareManager } from './share.manager';
 
 /** How many rows one catalogue answer carries. A peer pages through the rest. */
 export const CATALOGUE_PAGE = 500;
+
+/**
+ * What a peer may ask for over the link, and how each one is answered.
+ *
+ * The table is the contract. A method that is not in it is answered with
+ * `error.peer.method_unsupported` and the link stays open — which is what lets a
+ * gateway gain a method without the protocol version moving and without the other end
+ * being updated first.
+ *
+ * The names are the ones the outgoing side already sends, so both halves of this
+ * application speak the same wire whichever way the socket was opened.
+ */
+const PEER_METHODS: Readonly<Record<string, PeerMethodKindValue>> = Object.freeze({
+	'catalogue.list': PeerMethodKind.VALUE,
+	'catalogue.holders': PeerMethodKind.VALUE,
+	'media.describe': PeerMethodKind.VALUE,
+	'media.revalidate': PeerMethodKind.VALUE,
+	'media.range': PeerMethodKind.STREAM,
+	'swarm.bitfield': PeerMethodKind.VALUE,
+	'swarm.piece': PeerMethodKind.STREAM,
+});
 
 export interface CatalogueQuery {
 	/** Only what changed since this stamp, so a peer does not re-read everything. */
@@ -68,7 +93,7 @@ export interface AnnouncementAnswer {
  * publishing them would tempt both sides into addressing a library by path.
  */
 @Injectable()
-export class PeerExchangeManager {
+export class PeerExchangeManager implements PeerMethodHandler {
 	private readonly _logger = new Logger(PeerExchangeManager.name);
 
 	public constructor(
@@ -81,6 +106,108 @@ export class PeerExchangeManager {
 		private readonly _settings: SettingsService,
 		private readonly _bandwidth: BandwidthService,
 	) {}
+
+	public kind(method: string): PeerMethodKindValue | null {
+		return PEER_METHODS[method] ?? null;
+	}
+
+	/**
+	 * A method call from a peer, answered with a value.
+	 *
+	 * Every parameter is read defensively and nothing is required beyond what the
+	 * method really needs: a payload carrying a field this version has never heard of
+	 * is a newer gateway being newer, and dropping the link over it would make every
+	 * addition to the protocol a breaking change.
+	 */
+	public async call(
+		peerId: string,
+		method: string,
+		params: Record<string, unknown>,
+	): Promise<unknown> {
+		switch (method) {
+			case 'catalogue.list':
+				return {
+					entries: await this.catalogue(peerId, {
+						since: this._string(params.since),
+						page: this._number(params.page) ?? 1,
+					}),
+				};
+
+			case 'catalogue.holders':
+				return { holders: await this.holders(peerId, this._string(params.contentId) ?? '') };
+
+			case 'media.describe': {
+				const entry = await this.describe(peerId, this._itemId(params));
+
+				// Another gateway is our own code at the far end: it serves ranges. Piece
+				// hashes are not sent because nothing stores them — they are a function of
+				// the file, computed when a swarm transfer starts.
+				return { size: entry.size, resumable: true };
+			}
+
+			case 'media.revalidate':
+				return this.revalidate(peerId, this._itemId(params));
+
+			case 'swarm.bitfield':
+				// Null means "all of it", which is the truth: this gateway only ever
+				// publishes files it holds whole. A partial holding is a transfer in
+				// progress, and those are not in the catalogue.
+				return { pieces: null };
+
+			default:
+				throw new NotFoundException(ErrorKey.PEER_METHOD_UNSUPPORTED);
+		}
+	}
+
+	/** A method call whose answer is bytes. */
+	public async stream(
+		peerId: string,
+		method: string,
+		params: Record<string, unknown>,
+	): Promise<Readable> {
+		if (method !== 'media.range' && method !== 'swarm.piece') {
+			throw new NotFoundException(ErrorKey.PEER_METHOD_UNSUPPORTED);
+		}
+
+		const media = await this.content(peerId, this._itemId(params), this._range(params));
+
+		return media.stream;
+	}
+
+	/**
+	 * Everybody we know of who holds a content identifier, ourselves included.
+	 *
+	 * Our own holdings are reported with an empty peer identifier, because we have no
+	 * idea what the caller calls us — they know us by a row of their own, and naming
+	 * ourselves with our own identifier would have them file it under a peer they do
+	 * not have.
+	 */
+	public async holders(peerId: string, contentId: string): Promise<ContentHolder[]> {
+		if (contentId === '') {
+			return [];
+		}
+
+		const peer = await this._requirePeer(peerId);
+		const policies = await this._shares.visiblePolicies(peer);
+		const answer = await this.announce(peerId, contentId);
+		const mine = await this._items.find({
+			where: { libraryId: In(policies.map((policy) => policy.libraryId)) },
+		});
+
+		const self: ContentHolder[] = mine
+			.filter((item) => item.file?.contentId === contentId)
+			.map((item) => ({
+				peerId: '',
+				peerName: '',
+				serviceId: item.serviceId,
+				externalId: item.id,
+				size: item.file?.size ?? null,
+				trust: PeerTrust.FRIEND,
+				viaPeerId: null,
+			}));
+
+		return [...self, ...answer.holders];
+	}
 
 	/** What this peer is allowed to see of us. */
 	public async catalogue(peerId: string, query: CatalogueQuery = {}): Promise<CatalogueEntry[]> {
@@ -341,6 +468,36 @@ export class PeerExchangeManager {
 		const parsed = new Date(raw);
 
 		return Number.isNaN(parsed.getTime()) ? null : parsed;
+	}
+
+	/**
+	 * The item a peer is asking about.
+	 *
+	 * `externalId` on the wire is the identifier *we* published for that item, which
+	 * is our own row identifier and nothing else. A peer never learns a path, a
+	 * library or the identifier the media service underneath uses.
+	 */
+	private _itemId(params: Record<string, unknown>): string {
+		return this._string(params.externalId) ?? '';
+	}
+
+	private _range(params: Record<string, unknown>): ByteRange | undefined {
+		const start = this._number(params.start);
+		const end = this._number(params.end);
+
+		if (start === null || end === null || end < start) {
+			return undefined;
+		}
+
+		return { start, end };
+	}
+
+	private _string(value: unknown): string | null {
+		return typeof value === 'string' && value !== '' ? value : null;
+	}
+
+	private _number(value: unknown): number | null {
+		return typeof value === 'number' && Number.isFinite(value) ? value : null;
 	}
 
 	private async _requirePeer(id: string): Promise<PeerEntity> {

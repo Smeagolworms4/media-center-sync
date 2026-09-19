@@ -1,7 +1,9 @@
+import { isAbsolute } from 'node:path';
 import {
 	ErrorKey,
 	NamingScheme,
 	PlacementStrategy,
+	type ErrorKeyValue,
 	type Settings,
 	type UpdateSettingsRequest,
 } from '@mcs/shared';
@@ -39,6 +41,13 @@ export const DEFAULT_SETTINGS: Settings = {
 	allowFriendsOfFriends: false,
 	allowSwarm: true,
 	rendezvousUrl: null,
+	// Null, and deliberately not guessed from the first request that arrives: behind a
+	// reverse proxy `Host` is whatever the proxy chose to forward, so a guess would be
+	// wrong exactly on the installations that need this set. The interface offers its
+	// own origin instead, where somebody can see it before accepting it.
+	publicUrl: null,
+	peerAddress: null,
+	defaultTargetPath: null,
 	transferHistoryDays: 30,
 	refreshIntervalMinutes: 15,
 	fullScanCron: '0 4 * * *',
@@ -62,6 +71,130 @@ const NUMERIC_BOUNDS: Partial<Record<keyof Settings, { min: number; max: number 
 	refreshIntervalMinutes: { min: 1, max: 1440 },
 	cacheTtlSeconds: { min: 1, max: 3600 },
 };
+
+/**
+ * A refusal that names the field it is about.
+ *
+ * The field travels with the key because these are all saved from one form: without
+ * it the interface can only put "something was refused" above the whole screen, and
+ * the person has four boxes and no idea which one to change.
+ */
+const refuse = (field: keyof Settings, key: ErrorKeyValue): BadRequestException =>
+	new BadRequestException({ key, field });
+
+/**
+ * An empty box is somebody clearing the setting, not a setting whose value is
+ * nothing. A form hands back `''` for a field that was emptied, and storing that
+ * leaves a value that is neither set nor unset — an empty path joined to a filename
+ * is a relative path, and an empty origin concatenated to a share link is a link to
+ * this gateway's own interface.
+ */
+const cleared = (value: string | null | undefined): string | null => value?.trim() || null;
+
+/**
+ * The origin of the public URL, and nothing else.
+ *
+ * Everything downstream concatenates onto this — the invitation, the share link, the
+ * torrent announce — so a trailing slash or a path stored here becomes a double slash
+ * or a wrong path in every one of them. Normalising once, here, is the only place
+ * that can be got right: normalising at each use is how two of them end up disagreeing.
+ */
+export const normalisePublicUrl = (value: string | null | undefined): string | null => {
+	const candidate = cleared(value);
+
+	if (candidate === null) {
+		return null;
+	}
+
+	let parsed: URL;
+
+	try {
+		parsed = new URL(candidate);
+	} catch {
+		// `mcs.example.org` with no scheme lands here, which is what most people type.
+		throw refuse('publicUrl', ErrorKey.SETTINGS_PUBLIC_URL_INVALID);
+	}
+
+	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+		throw refuse('publicUrl', ErrorKey.SETTINGS_PUBLIC_URL_INVALID);
+	}
+
+	// `origin` drops the path, the query and a default port, and keeps a non-default
+	// one — which is exactly the shape the rest of the application expects.
+	return parsed.origin;
+};
+
+/**
+ * `host:port`, with a port that has to be written out.
+ *
+ * A scheme is the usual slip here — peer traffic is not HTTP and has no default port
+ * to fall back on — so `https://host:4210` is refused rather than quietly stripped:
+ * silently accepting it teaches somebody a shape that is wrong everywhere else.
+ */
+const PEER_ADDRESS = new RegExp(
+	'^(?:' +
+		// A bracketed IPv6 literal, or a hostname or IPv4 address in labels.
+		'\\[[0-9a-f:.]+\\]' +
+		'|[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*' +
+		'):(\\d{1,5})$',
+	'i',
+);
+
+export const normalisePeerAddress = (value: string | null | undefined): string | null => {
+	const candidate = cleared(value);
+
+	if (candidate === null) {
+		return null;
+	}
+
+	const match = PEER_ADDRESS.exec(candidate);
+	const port = match === null ? 0 : Number(match[1]);
+
+	if (port < 1 || port > 65_535) {
+		throw refuse('peerAddress', ErrorKey.SETTINGS_PEER_ADDRESS_INVALID);
+	}
+
+	// Lowercased because a hostname is case-insensitive and two rows that differ only
+	// in case would otherwise read as two different gateways.
+	return candidate.toLowerCase();
+};
+
+/**
+ * An absolute path with no trailing slash and no way out of itself.
+ *
+ * Relative is refused for the reason a library path is: it resolves against whatever
+ * directory the process was started in, which is not the same one in a container, in
+ * a development shell and in a command. `..` is refused because a fallback target
+ * that can climb out of where it was pointed is a fallback that can write anywhere.
+ */
+export const normaliseTargetPath = (value: string | null | undefined): string | null => {
+	const candidate = cleared(value);
+
+	if (candidate === null) {
+		return null;
+	}
+
+	const segments = candidate.split('/');
+
+	if (!isAbsolute(candidate) || segments.includes('..') || candidate.includes('\0')) {
+		throw refuse('defaultTargetPath', ErrorKey.SETTINGS_TARGET_PATH_INVALID);
+	}
+
+	return candidate.length > 1 ? candidate.replace(/\/+$/, '') || '/' : candidate;
+};
+
+/**
+ * The text settings that are stored in a shape rather than as typed.
+ *
+ * Kept as a table so that the write path and the read path cannot drift: one refuses
+ * what does not normalise, the other falls back to the default, and both ask the same
+ * question.
+ */
+const TEXT_NORMALISERS = {
+	publicUrl: normalisePublicUrl,
+	peerAddress: normalisePeerAddress,
+	defaultTargetPath: normaliseTargetPath,
+} as const;
 
 /**
  * The settings, as key/value rows with the defaults filled in.
@@ -168,6 +301,20 @@ export class SettingsService {
 	}
 
 	private _validate(candidate: Settings): Settings {
+		const normalised = { ...candidate };
+
+		// Normalised on the way in rather than on the way out, so the row holds the
+		// shape everything downstream assumes and no reader has to re-derive it.
+		for (const [key, normalise] of Object.entries(TEXT_NORMALISERS)) {
+			(normalised as Record<string, unknown>)[key] = normalise(
+				candidate[key as keyof typeof TEXT_NORMALISERS],
+			);
+		}
+
+		return this._checkBounds(normalised);
+	}
+
+	private _checkBounds(candidate: Settings): Settings {
 		if (
 			candidate.placement === PlacementStrategy.FIXED_PATH &&
 			!candidate.fixedPath?.trim()
@@ -226,6 +373,22 @@ export class SettingsService {
 				Math.max(value, bounds.min),
 				bounds.max,
 			);
+		}
+
+		// The same rule one type over. A public URL that got into the table some other
+		// way — a hand-edited row, a downgrade — would otherwise be held against every
+		// later write, and the screen where somebody would have corrected it is the
+		// screen that saves them all at once.
+		for (const [key, normalise] of Object.entries(TEXT_NORMALISERS)) {
+			try {
+				(clamped as Record<string, unknown>)[key] = normalise(
+					clamped[key as keyof typeof TEXT_NORMALISERS],
+				);
+			} catch {
+				this._logger.warn(`Setting "${key}" is not usable, falling back to its default`);
+
+				(clamped as Record<string, unknown>)[key] = DEFAULT_SETTINGS[key as keyof Settings];
+			}
 		}
 
 		return clamped;

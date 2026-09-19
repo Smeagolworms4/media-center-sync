@@ -40,8 +40,7 @@ services:
     image: ghcr.io/smeagolworms4/media-center-sync:main
     restart: unless-stopped
     ports:
-      - 4200:4200   # the interface and the API, same origin
-      - 4210:4210   # inbound peer connections
+      - 4200:4200   # the interface, the API and peer links — one port, same origin
     environment:
       # Change this. It signs the sessions, and production refuses to start without it.
       MCS_JWT_SECRET: change-me
@@ -78,9 +77,14 @@ so there is nothing to run by hand before or after an image update.
 > stay empty — with nothing, anywhere, reporting an error. The interface probes this
 > and tells you, but it is worth getting right before the first sync.
 
-Forwarding port **4210** on your router is optional. Without it, peer links fall back
-to a relay through the rendezvous: it works, but that relay's bandwidth is shared by
-everyone using it.
+**There is only one port.** A peer link is a WebSocket upgrade on the same port the
+interface is served from, so a reverse proxy and its TLS certificate already cover
+peer traffic, and there is nothing extra to forward on a router beyond what you opened
+to reach the interface from outside.
+
+If neither end is reachable from outside, links fall back to a relay through the
+rendezvous: it works, but that relay's bandwidth is shared by everyone using it. See
+[what one port does not solve](#what-one-port-does-not-solve).
 
 ### Environment
 
@@ -88,8 +92,7 @@ everyone using it.
 |---|---|---|
 | `MCS_JWT_SECRET` | *(none)* | Signs sessions. **Required in production** — there is deliberately no default. |
 | `MCS_MEDIA_ROOT` | `/media` | Where your libraries are mounted, as the gateway sees them. |
-| `API_PORT` | `4200` | Interface and API. |
-| `PEER_PORT` | `4210` | Inbound peer connections. |
+| `API_PORT` | `4200` | Interface, API and peer links. There is no second port. |
 | `DB_TYPE` | `sqlite` | `sqlite` or `postgres`. |
 | `DB_FILE` | `/data/media-center-sync.db` | SQLite file. |
 | `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | — | Read only when `DB_TYPE=postgres`. |
@@ -106,10 +109,15 @@ environment variable away, and the migrations are the same either way.
 
 ### Behind a reverse proxy
 
-The API serves the interface and `/api` on the same origin, so there is nothing to
-split. Two things must survive the hop: the **WebSocket upgrade** on `/api/events`,
-without which every progress bar stays at zero while the files arrive perfectly well,
-and a **generous read timeout**, because a transfer can run for hours.
+The API serves the interface, `/api` and the peer endpoint on the same origin, so
+there is nothing to split. Two things must survive the hop: the **WebSocket upgrade**,
+on `/api/events` — without which every progress bar stays at zero while the files
+arrive perfectly well — and on `/api/peer/link`, which is where other gateways
+connect; and a **generous read timeout**, because a transfer can run for hours.
+
+The configuration below covers both, because it passes the upgrade for every path.
+That is also the whole of the TLS story for peers: the certificate you already have
+for the interface is the one a friend's gateway validates.
 
 ```nginx
 location / {
@@ -137,6 +145,7 @@ location / {
   - [Transfers](#transfers)
   - [When a transfer goes wrong](#when-a-transfer-goes-wrong)
   - [Peers, friends, and friends of friends](#peers-friends-and-friends-of-friends)
+  - [What one port does not solve](#what-one-port-does-not-solve)
   - [Sharing](#sharing)
   - [Signing in](#signing-in)
 - [Development](#development)
@@ -314,6 +323,23 @@ A linked friend can tell you that *one of their* peers also holds a file you are
 pulling. That friend of a friend is reachable and useful — more bandwidth, another
 source — but they are not someone you invited, the interface says so, and the sharing
 rules can exclude them entirely.
+
+### What one port does not solve
+
+One port is the whole networking story **when at least one of the two ends can be
+reached from outside** — a forwarded port, a public host, a tunnel, a reverse proxy
+with a name. Whichever end is reachable is dialled, the other dials it, and the link
+is the same either way.
+
+It does nothing for the case where **both** gateways are behind NAT with nothing
+forwarded. A WebSocket needs somebody to connect *to*, and there is nobody: the link
+falls back to the rendezvous relay, which works and is slower, because a third party
+is carrying every byte and sharing its line with everyone else doing the same.
+
+The answer to that case is **WebRTC** — ICE, STUN to discover each end's public
+address, TURN when it cannot be discovered, signalled through the rendezvous that
+already exists for introductions. It is **not implemented**. Until it is, two
+double-NATed households talk through the relay, and that is the honest state of it.
 
 ### Sharing
 

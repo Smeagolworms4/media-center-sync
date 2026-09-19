@@ -11,7 +11,6 @@ include docker/.makefiles/index.mk
 export FRONT_PORT             ## Web interface (default: 3200)
 export API_PORT               ## API (default: 4200)
 export DEBUG_PORT             ## Node debugger for the API (default: 9230)
-export PEER_PORT              ## Inbound peer connections (default: 4210)
 export DB_PORT                ## PostgreSQL (default: 5433)
 export REDIS_PORT             ## Redis (default: 6381)
 export PGADMIN_PORT           ## pgAdmin (default: 7795)
@@ -371,6 +370,8 @@ export LAB_JELLYFIN_PORT          ## Lab Jellyfin, ours (default: 8096)
 export LAB_PLEX_PORT              ## Lab Plex, ours (default: 32400)
 export LAB_JELLYFIN_REMOTE_PORT   ## Lab Jellyfin, a friend's (default: 8097)
 export LAB_PLEX_REMOTE_PORT       ## Lab Plex, a friend's (default: 32401)
+export LAB_GATEWAY_PORT           ## Lab gateway, ours (default: 4300)
+export LAB_GATEWAY_REMOTE_PORT    ## Lab gateway, a friend's (default: 4301)
 
 # The project name is pinned, and that `-p` is not decoration. `.env` sets
 # `COMPOSE_PROJECT_NAME=media-center-sync` and the makefiles export every key of it
@@ -401,10 +402,27 @@ lab/up: lab/media
 		var/lab/jellyfin-remote/config var/lab/jellyfin-remote/cache \
 		var/lab/plex-local/config var/lab/plex-local/transcode \
 		var/lab/plex-remote/config var/lab/plex-remote/transcode \
+		var/lab/gateway-local/data var/lab/gateway-local/transfer \
+		var/lab/gateway-remote/data var/lab/gateway-remote/transfer \
 		var/lab/keys
 	USER_ID=$$(id -u) USER_GID=$$(id -g) $(LAB_COMPOSE) up -d --remove-orphans
 	@$(MAKE) --no-print-directory lab/setup
 	@$(MAKE) --no-print-directory lab/services
+
+## Link the two lab gateways to each other, and report what the link agreed on
+##
+## Each names the other by fingerprint and one of them dials. Nothing here is special
+## to the lab: it is the two API calls the interface makes, against two gateways that
+## happen to be on one bridge.
+lab/link:
+	@./docker/lab/link-gateways.sh \
+		"http://localhost:$${LAB_GATEWAY_PORT:-4300}" \
+		"http://localhost:$${LAB_GATEWAY_REMOTE_PORT:-4301}"
+
+## Pull one file from the other lab gateway over the peer link, and say what crossed
+lab/pull:
+	$(LAB_COMPOSE) exec -T gateway-local \
+		node_modules/.bin/ts-node -r tsconfig-paths/register src/commands/peer-pull.ts $(ARGS)
 
 ## Configure the four lab servers: wizards, libraries, API keys
 ##
@@ -457,7 +475,7 @@ image:
 
 ## Run the production image locally, on its own volume
 image/run: image
-	docker run --rm -it -p 4200:4200 -p 4210:4210 \
+	docker run --rm -it -p 4200:4200 \
 		-v media-center-sync-data:/data \
 		-e MCS_JWT_SECRET=local-secret \
 		media-center-sync:local

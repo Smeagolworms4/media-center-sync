@@ -70,8 +70,11 @@ export class PeerTransport implements ByteTransport {
 				state?.mode === PeerLinkMode.RELAY ? MAX_RELAYED_CONNECTIONS : MAX_DIRECT_CONNECTIONS,
 			// Piece hashes from a peer are the difference between repairing two
 			// megabytes and refetching thirty gigabytes, which is why the protocol
-			// bothers to carry them.
+			// bothers to carry them. The size they were computed over goes with them:
+			// without it the engine cannot tell whether piece seventeen over there is
+			// the same range as chunk seventeen over here, and has to ignore them.
 			pieceChecksums: pieces.size > 0 ? pieces : null,
+			pieceSize: description.chunkSize ?? null,
 		};
 	}
 

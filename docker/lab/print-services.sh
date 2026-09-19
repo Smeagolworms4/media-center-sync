@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Prints what somebody needs to register the four lab services in the gateway.
+# Prints what somebody needs to register the four lab services in the gateways, and
+# what the two lab gateways are.
 #
 #     print-services.sh <keys-directory>
 #
@@ -45,4 +46,31 @@ printf '  Libraries: Shows/Movies on both of ours, Séries/Films on jellyfin-rem
 printf '  TV/Movies on plex-remote. Same name, one category — so Shows folds two and\n'
 printf '  Movies folds three, while Séries, TV and Films stand alone although all three\n'
 printf '  mean the same thing. That is the merge and its limit, in one screen.\n'
+printf '\n'
+
+printf '  %-16s %-34s %s\n' 'GATEWAY' 'URL' 'WHOSE'
+printf '  %-16s %-34s %s\n' \
+	'gateway-local' "http://localhost:${LAB_GATEWAY_PORT:-4300}" 'yours'
+printf '  %-16s %-34s %s\n' \
+	'gateway-remote' "http://localhost:${LAB_GATEWAY_REMOTE_PORT:-4301}" "a friend’s"
+printf '\n'
+printf '  Both sign in as %s / %s, created on first start.\n' \
+	"${LAB_GATEWAY_USER:-lab}" "${LAB_GATEWAY_PASSWORD:-lab-password}"
+printf '\n'
+printf "  Two gateways rather than one, because peer exchange cannot be proven against\n"
+printf "  a single node: a link, a protocol handshake and a pull between two households\n"
+printf "  need two of everything — two identities, two databases, two media servers.\n"
+printf '\n'
+printf "  make lab/link    each names the other by fingerprint, one of them dials, and\n"
+printf "                   it prints the version and the capabilities they agreed on\n"
+printf "  make lab/pull    reads the friend’s catalogue over that link and pulls a\n"
+printf "                   range of one file across it\n"
+printf '\n'
+printf "  They link on the port they serve their interface on — a WebSocket upgrade on\n"
+printf "  /api/peer/link. There is no second port anywhere in this application.\n"
+printf '\n'
+printf "  Register jellyfin-remote in gateway-remote as its own local service and share\n"
+printf "  its libraries: a gateway with nothing of its own has nothing to answer a\n"
+printf "  catalogue with. Inside the lab the two reach each other by service name —\n"
+printf "  http://jellyfin-remote:8096 — and never through localhost.\n"
 printf '\n'

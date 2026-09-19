@@ -141,7 +141,10 @@ describe('TransferEngineService', () => {
 
 		chunkRepository = {
 			findByTransfer: jest.fn(async () => chunkRows),
-			insertPlan: jest.fn(async (transferId: string, entries: { index: number; start: number; end: number }[]) => {
+			insertPlan: jest.fn(async (
+				transferId: string,
+				entries: { index: number; start: number; end: number; checksum: string | null }[],
+			) => {
 				chunkRows = entries.map(
 					(entry) =>
 						({
@@ -153,7 +156,7 @@ describe('TransferEngineService', () => {
 							bytesDone: 0,
 							attempts: 0,
 							sourceServiceId: null,
-							checksum: null,
+							checksum: entry.checksum,
 						}) as TransferChunk,
 				);
 
@@ -473,10 +476,469 @@ describe('TransferEngineService', () => {
 			totalBytes: TOTAL,
 			maxConnections: 4,
 			pieceChecksums: checksums,
+			pieceSize: CHUNK,
 		});
 
 		await engine.enqueue('t1');
 
 		expect((await runToEnd()).state).toBe(TransferState.DONE);
+		// Recorded against the piece, not merely accepted: it is what a restart, and
+		// the repair pass, check the bytes on disk against.
+		expect(chunkRows[0].checksum).toBe(checksums.get(0));
+	});
+
+	describe('the queue', () => {
+		it('does not start the same transfer twice', async () => {
+			// Every completion pumps the queue again, and a transfer queued twice would
+			// be two runs writing the same offsets of the same file.
+			await engine.enqueue('t1');
+			await engine.enqueue('t1');
+			await runToEnd();
+
+			expect(chunkRepository.insertPlan).toHaveBeenCalledTimes(1);
+		});
+
+		it('never runs more transfers at once than the setting allows', async () => {
+			// The pool is bounded by what is running *and* what is starting. `_run` is
+			// not awaited, so a transfer taken off the queue has registered nothing yet;
+			// counting only the registered ones let this loop drain the whole queue in
+			// one synchronous pass, and `maxParallelTransfers` decided nothing at all.
+			let open = (): void => {};
+			const gate = new Promise<void>((resolve) => {
+				open = resolve;
+			});
+
+			settings.maxParallelTransfers = 2;
+			prepare.mockImplementation(async () => {
+				await gate;
+
+				return { resumable: true, totalBytes: TOTAL, maxConnections: 4 };
+			});
+
+			for (const id of ['q1', 'q2', 'q3', 'q4', 'q5']) {
+				transfers.set(id, transfer({ id, workPath: join(root, 'work', `${id}.part`) }));
+				await engine.enqueue(id);
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			// One `prepare` per source per run, and one source each.
+			expect(prepare).toHaveBeenCalledTimes(2);
+
+			open();
+			await Promise.all(['q1', 'q2', 'q3', 'q4', 'q5'].map((id) => runToEnd(id)));
+		});
+
+		it('starts nothing once the process is shutting down', async () => {
+			// A transfer started during a shutdown opens a file handle nothing will
+			// close, and writes into a directory the container is about to lose.
+			await engine.onModuleDestroy();
+			await engine.enqueue('t1');
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			expect(fetchRange).not.toHaveBeenCalled();
+			expect((transfers.get('t1') as Transfer).state).toBe(TransferState.QUEUED);
+		});
+
+		it('starts with an empty queue when the database cannot be read', async () => {
+			// The gateway has to come up even when the transfers table does not answer:
+			// refusing to boot over a queue nobody can read takes the whole interface
+			// with it, including the screen that would say why.
+			(transferRepository.findResumable as jest.Mock).mockRejectedValue(
+				new Error('database asleep'),
+			);
+
+			await expect(engine.onApplicationBootstrap()).resolves.toBeUndefined();
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			expect(engine.stats().queued).toBe(0);
+			expect(fetchRange).not.toHaveBeenCalled();
+		});
+
+		it('leaves a transfer that has already finished alone', async () => {
+			// A queue rebuilt from the database can name a transfer that completed
+			// between the read and the pump, and re-running it would overwrite a placed
+			// file with a fresh download of itself.
+			transfers.set('t1', transfer({ state: TransferState.DONE }));
+
+			await engine.enqueue('t1');
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			expect(fetchRange).not.toHaveBeenCalled();
+			expect((transfers.get('t1') as Transfer).state).toBe(TransferState.DONE);
+		});
+
+		it('records nothing for a transfer the database has never heard of', async () => {
+			await engine.enqueue('ghost');
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			expect(transfers.has('ghost')).toBe(false);
+		});
+	});
+
+	describe('while a transfer is running', () => {
+		/**
+		 * Hold the first chunk open so the transfer is genuinely mid-flight.
+		 *
+		 * Everything in this block is about what the engine does to a running transfer,
+		 * and a transfer that has already finished proves none of it.
+		 */
+		function gated(): { open: () => void } {
+			let open = (): void => {};
+			const gate = new Promise<void>((resolve) => {
+				open = resolve;
+			});
+
+			fetchRange.mockImplementation(
+				async (_source: TransferSourceRef, range: { start: number; end: number }) => {
+					if (range.start === 0) {
+						await gate;
+					}
+
+					return {
+						stream: Readable.from([content.subarray(range.start, range.end + 1)]),
+						wholeFile: false,
+						length: range.end - range.start + 1,
+					};
+				},
+			);
+
+			return { open };
+		}
+
+		async function untilRunning(): Promise<void> {
+			for (let attempt = 0; attempt < 100 && engine.stats().active === 0; attempt += 1) {
+				await new Promise((resolve) => setTimeout(resolve, 10));
+			}
+		}
+
+		it('answers nothing live for a transfer that is not running', () => {
+			// The row carries what survives a restart and deliberately not the rate: a
+			// figure that is true for a second is not worth a write.
+			expect(engine.progressOf('t1')).toBeNull();
+		});
+
+		it('answers the live figures a queue read back from the database has not got', async () => {
+			const gate = gated();
+
+			await engine.enqueue('t1');
+			await untilRunning();
+
+			const live = engine.progressOf('t1');
+
+			expect(live).not.toBeNull();
+			expect(live?.sources.map((source) => source.serviceId)).toEqual(['service-1']);
+			// No rate has been measured yet, and an estimate derived from something
+			// close to zero reads as certainty while being off by hours.
+			expect(live?.etaSeconds).toBeNull();
+
+			gate.open();
+			await runToEnd();
+		});
+
+		it('counts what is in flight and what is left', async () => {
+			const gate = gated();
+
+			await engine.enqueue('t1');
+			await untilRunning();
+
+			expect(engine.stats()).toMatchObject({ active: 1, queued: 0 });
+			expect(engine.stats().bytesRemaining).toBeGreaterThan(0);
+
+			gate.open();
+			await runToEnd();
+		});
+
+		it('pauses at a chunk boundary rather than throwing away what arrived', async () => {
+			const gate = gated();
+
+			await engine.enqueue('t1');
+			await untilRunning();
+			await engine.pause('t1');
+			gate.open();
+
+			const paused = await runToEnd();
+
+			expect(paused.state).toBe(TransferState.PAUSED);
+			// Whatever completed before the pause is still recorded, which is what makes
+			// resuming cost the chunk in flight and nothing more.
+			expect(chunkRows.some((row) => row.state === ChunkState.DONE)).toBe(true);
+		});
+
+		it('cancels a running transfer and takes its partial file with it', async () => {
+			// Keeping it would silently consume the disk space somebody cancelled the
+			// transfer to free.
+			const gate = gated();
+
+			await engine.enqueue('t1');
+			await untilRunning();
+			await engine.cancel('t1');
+			gate.open();
+
+			const cancelled = await runToEnd();
+
+			expect(cancelled.state).toBe(TransferState.CANCELLED);
+			expect(cancelled.errorKind).toBe(TransferErrorKind.CANCELLED);
+			await expect(readFile(join(root, 'work', 't1.part'))).rejects.toThrow();
+		});
+	});
+
+	describe('what it does with a source that misbehaves', () => {
+		it('ignores the bytes a source sends past the end of the range it was given', async () => {
+			// A server that answers a range request with more than was asked for is not
+			// rare, and writing what it sent would put the next chunk's bytes at this
+			// chunk's offset — then pass verification, because the file is the right
+			// length and the pieces are in the wrong order.
+			fetchRange.mockImplementation(
+				async (_source: TransferSourceRef, range: { start: number; end: number }) => ({
+					stream: Readable.from([content.subarray(range.start, range.end + 1 + 4_096)]),
+					wholeFile: false,
+					length: null,
+				}),
+			);
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.DONE);
+			expect(await digestOf(finished.targetPath)).toBe(digest(content));
+		});
+
+		it('finishes on the surviving source when another dies mid-transfer', async () => {
+			// Three failures in a row is a source that is not coming back this run.
+			// Dropping it out of the rotation is not the same as failing the transfer,
+			// which the others can still finish.
+			settings.maxConnectionsPerSource = 1;
+
+			fetchRange.mockImplementation(
+				async (sourceRef: TransferSourceRef, range: { start: number; end: number }) => {
+					if (sourceRef.serviceId === 'dying') {
+						throw new Error('connection reset');
+					}
+
+					await new Promise((resolve) => setTimeout(resolve, 20));
+
+					return {
+						stream: Readable.from([content.subarray(range.start, range.end + 1)]),
+						wholeFile: false,
+						length: range.end - range.start + 1,
+					};
+				},
+			);
+
+			engine.setSourceResolver(async () => [
+				source({ serviceId: 'dying', serviceName: 'Dying' }),
+				source({ serviceId: 'alive', serviceName: 'Alive' }),
+			]);
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.DONE);
+			expect(await digestOf(finished.targetPath)).toBe(digest(content));
+		});
+
+		it('finishes even when the chunk bookkeeping cannot be written', async () => {
+			// The record of which pieces are whole is what a restart reads, and losing it
+			// costs a re-download. Failing the transfer over it costs the same
+			// re-download and the file we already had.
+			(chunkRepository.updateState as jest.Mock).mockRejectedValue(new Error('write failed'));
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.DONE);
+			expect(await digestOf(finished.targetPath)).toBe(digest(content));
+		});
+	});
+
+	describe('verification and repair', () => {
+		function checksumsFor(indexes: number[]): Map<number, string> {
+			const bounds = indexes.map((index) => ({
+				index,
+				start: index * CHUNK,
+				end: Math.min((index + 1) * CHUNK, TOTAL) - 1,
+			}));
+
+			return new Map(
+				bounds.map(({ index, start, end }) => [
+					index,
+					createHash('sha256').update(content.subarray(start, end + 1)).digest('hex'),
+				]),
+			);
+		}
+
+		it('fetches back the one piece that arrived wrong, not the whole file', async () => {
+			// Discarding thirty gigabytes because two megabytes are wrong is what makes
+			// people give up on syncing.
+			let corrupted = false;
+
+			prepare.mockResolvedValue({
+				resumable: true,
+				totalBytes: TOTAL,
+				maxConnections: 4,
+				pieceChecksums: checksumsFor([0, 1, 2, 3]),
+				pieceSize: CHUNK,
+			});
+
+			fetchRange.mockImplementation(
+				async (_source: TransferSourceRef, range: { start: number; end: number }) => {
+					const piece = content.subarray(range.start, range.end + 1);
+
+					if (range.start === CHUNK && !corrupted) {
+						corrupted = true;
+
+						return {
+							stream: Readable.from([Buffer.alloc(piece.length, 0xff)]),
+							wholeFile: false,
+							length: piece.length,
+						};
+					}
+
+					return { stream: Readable.from([piece]), wholeFile: false, length: piece.length };
+				},
+			);
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.DONE);
+			expect(finished.chunksRepaired).toBe(1);
+			expect(await digestOf(finished.targetPath)).toBe(digest(content));
+		});
+
+		it('gives up rather than placing a file it could never repair', async () => {
+			// A file that fails its hashes must never reach the library: the media
+			// server watches that directory and will happily index a corrupt file.
+			prepare.mockResolvedValue({
+				resumable: true,
+				totalBytes: TOTAL,
+				maxConnections: 4,
+				pieceChecksums: checksumsFor([0, 1, 2, 3]),
+				pieceSize: CHUNK,
+			});
+
+			fetchRange.mockImplementation(
+				async (_source: TransferSourceRef, range: { start: number; end: number }) => {
+					const length = range.end - range.start + 1;
+					const piece =
+						range.start === CHUNK
+							? Buffer.alloc(length, 0xff)
+							: content.subarray(range.start, range.end + 1);
+
+					return { stream: Readable.from([piece]), wholeFile: false, length };
+				},
+			);
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.FAILED);
+			expect(finished.errorKind).toBe(TransferErrorKind.CHECKSUM_MISMATCH);
+			await expect(readFile(finished.targetPath)).rejects.toThrow();
+		});
+	});
+
+	describe('the working file', () => {
+		it('cuts a leftover from a larger previous attempt back to size', async () => {
+			// The plan is about to say which parts of it are valid, and a file longer
+			// than the transfer passes the size check while carrying somebody else's
+			// trailing bytes into the library.
+			await writeFile(join(root, 'work', 't1.part'), Buffer.alloc(TOTAL * 2, 0xee));
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.DONE);
+			expect(await digestOf(finished.targetPath)).toBe(digest(content));
+		});
+
+		it('takes the size from the source when the row does not carry one', async () => {
+			// A transfer created from a peer catalogue entry knows what it wants and not
+			// how big it is; the source is asked at `prepare` time and that answer is
+			// what the plan is built from.
+			transfers.set('t1', transfer({ bytesTotal: 0 }));
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.DONE);
+			expect(Number(finished.bytesTotal)).toBe(TOTAL);
+		});
+	});
+
+	describe('naming what went wrong', () => {
+		/*
+		 * The kinds exist because the buttons differ: a missing source offers "look for
+		 * another one", a full disk offers "choose another library", and neither is a
+		 * retry that would fail the same way. Driven through a one-chunk transfer with
+		 * two sources, which is the shape that lets a chunk exhaust its attempts before
+		 * every source has been dropped — so the error that caused it survives to be
+		 * classified rather than being replaced by "every source failed".
+		 */
+		it.each([
+			['ENOSPC: no space left on device', TransferErrorKind.DISK_FULL],
+			['EACCES: permission denied, open', TransferErrorKind.PERMISSION_DENIED],
+			['ENOENT: no such file or directory', TransferErrorKind.TARGET_MISSING],
+			['Request failed with status 401 Unauthorized', TransferErrorKind.SOURCE_UNAUTHORIZED],
+			['Request failed with status 404', TransferErrorKind.SOURCE_GONE],
+			['checksum did not match', TransferErrorKind.CHECKSUM_MISMATCH],
+			['ECONNRESET while reading', TransferErrorKind.NETWORK],
+			['something nobody has seen before', TransferErrorKind.UNKNOWN],
+		])('turns "%s" into a kind the interface can act on', async (message, kind) => {
+			transfers.set('small', transfer({ id: 'small', bytesTotal: 1_000 }));
+
+			fetchRange.mockRejectedValue(new Error(message));
+			engine.setSourceResolver(async () => [
+				source({ serviceId: 'first', serviceName: 'First' }),
+				source({ serviceId: 'second', serviceName: 'Second' }),
+			]);
+
+			await engine.enqueue('small');
+
+			const finished = await runToEnd('small');
+
+			expect(finished.state).toBe(TransferState.FAILED);
+			expect(finished.errorKind).toBe(kind);
+		});
+	});
+
+	it('reports progress by the byte rather than by the buffer', async () => {
+		// A stalled transfer should not keep emitting identical frames, and a fast one
+		// should not emit one per buffer — so a frame is owed every few megabytes and
+		// the row is written with it, which is what a page opened mid-transfer reads.
+		const large = Buffer.alloc(6 * 1024 * 1024, 0x42);
+		const frames: number[] = [];
+
+		transfers.set('big', transfer({ id: 'big', bytesTotal: large.length }));
+		fetchRange.mockImplementation(
+			async (_source: TransferSourceRef, range: { start: number; end: number }) => ({
+				stream: Readable.from([large.subarray(range.start, range.end + 1)]),
+				wholeFile: false,
+				length: range.end - range.start + 1,
+			}),
+		);
+		prepare.mockResolvedValue({
+			resumable: true,
+			totalBytes: large.length,
+			maxConnections: 4,
+			pieceChecksums: null,
+		});
+		events.publishProgress = ((progress: { bytesDone: number }) => {
+			frames.push(progress.bytesDone);
+		}) as EventGatewayService['publishProgress'];
+
+		await engine.enqueue('big');
+
+		expect((await runToEnd('big')).state).toBe(TransferState.DONE);
+		expect(frames.length).toBeGreaterThan(0);
+		expect(frames.length).toBeLessThan(large.length / (1024 * 1024));
 	});
 });

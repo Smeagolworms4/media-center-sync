@@ -55,6 +55,11 @@ browser to `redirectUrl` instead of showing a form.
 |---|---|
 | `/events?token=<accessToken>` | WebSocket, text frames of `ServerEvent` |
 
+Both WebSocket endpoints — this one and `/peer/link` below — are upgrades on the HTTP
+port the API and the interface are served from. There is no second port anywhere in
+this application, and an upgrade to a path neither endpoint claims is refused with a
+`404` rather than left half open.
+
 The token travels as a query parameter because a browser cannot set a header on a
 WebSocket handshake. It is the same short-lived access token, and the connection is
 closed when it expires — the interface reconnects with a fresh one.
@@ -365,6 +370,41 @@ would *this* peer see of me?
 | PATCH | `/users/:id` | `UpdateUserDto` | `User` | `USER_MANAGE` |
 | DELETE | `/users/:id` | — | `204` | `USER_MANAGE` |
 
+`PATCH /settings` is a merge: only the keys in the body are written, so two screens
+saving at once cannot overwrite each other's unrelated fields.
+
+Three of the settings say where this gateway is and where files land, and all three are
+normalised before they are stored — an empty string means *cleared*, not "an empty
+value":
+
+| Field | Accepted | Stored |
+|---|---|---|
+| `publicUrl` | any `http`/`https` URL | its origin — no path, no query, no trailing slash, no default port |
+| `peerAddress` | `host:port` | the same, lowercased |
+| `defaultTargetPath` | an absolute path with no `..` | the same, without a trailing slash |
+
+`publicUrl` is how this gateway is reached from outside, and it exists because the
+gateway has no other way of knowing: behind a reverse proxy `Host` is whatever the proxy
+chose to forward, so an invitation, a share link and a torrent announce cannot be built
+from the request that asked for them. It is refused with `error.settings.public_url_invalid`
+when it is not a URL or its scheme is not one a browser dials.
+
+`peerAddress` is only needed when peer traffic does not arrive at the public URL's host
+— a separate name, a different port in front of the same gateway. There is no peer port
+of its own: a link is an upgrade on the API's port. Empty derives it from `publicUrl`. It is refused with `error.settings.peer_address_invalid`, and a URL written
+in this field is the usual slip.
+
+`defaultTargetPath` is where a pull lands when nothing else decides: a media whose
+category has no writable library. It is **not** `fixedPath`, which only applies under the
+fixed-path strategy and means "everything goes here whatever it is". Like a library's
+local path it is probed and refused when it cannot be written
+(`error.settings.target_path_not_writable`), because a fallback the gateway cannot write
+into is discovered at the end of a completed download.
+
+These four refusals answer `400` with `{ key, field }` rather than a plain key: they are
+saved from one form, and without the field the interface can only say that something was
+refused.
+
 Accounts mirrored from a media service cannot have their username or password changed
 here — the gateway does not own them. Their role can, because that is ours: it says what
 this gateway lets somebody do, and nothing outside knows about it. `UpdateUserDto`
@@ -375,6 +415,80 @@ error.user.last_admin`. Its own key rather than a generic refusal, because "forb
 on the screen where you *are* the administrator reads as a bug rather than as the
 safeguard it is — and there is no screen for recovering from a gateway nobody can
 configure any more.
+
+## The peer link
+
+| Path | Protocol |
+|---|---|
+| `/peer/link` | WebSocket, the peer protocol |
+
+Where another gateway connects. The credential is presented on the upgrade itself, in
+four headers, and a socket that cannot produce all four is refused with `401` before
+anything is allocated for it:
+
+| Header | What it carries |
+|---|---|
+| `x-mcs-fingerprint` | who they claim to be |
+| `x-mcs-public-key` | the key behind that fingerprint, PEM, base64 |
+| `x-mcs-challenge` | `<their fingerprint>:<epoch millis>` |
+| `x-mcs-signature` | that challenge, signed |
+
+The key has to hash to the fingerprint, the signature has to verify, and the challenge
+has to be recent — without the last one a signature lifted off the wire would open a
+link forever. An unknown fingerprint is recorded as a pending request and refused, the
+same answer a blocked peer gets: telling them apart would let somebody learn they are
+blocked by watching what happens.
+
+### The handshake
+
+The first frame either end sends is `peer.hello`, and nothing else is served before it
+— a method sent earlier answers `error.peer.rejected`.
+
+```jsonc
+// →  { "id": 1, "method": "peer.hello", "params": { "challenge": "…", "hello": PeerHello } }
+// ←  { "id": 1, "result": { "hello": PeerHello, "publicKey": "…", "signature": "…" } }
+```
+
+The answer's signature is over *their* challenge, which is what proves the machine
+that answered holds the private key behind the fingerprint that was asked for — the
+address came from a rendezvous nobody controls, so that proof happens before a single
+catalogue row crosses.
+
+`PeerHello` carries `nodeId`, `fingerprint`, `name`, `protocol` and `capabilities`. A
+`protocol` not in `SUPPORTED_PROTOCOL_VERSIONS` is answered with
+`error.peer.protocol_unsupported` and the link is closed. Before the first release
+there is exactly one version and a mismatch is a flat refusal: carrying compatibility
+for versions nobody ever ran is weight with no cargo. The agreed version and the
+advertised capabilities are stored on the peer.
+
+**Three rules let the wire grow without the version moving**, and all three are tested:
+
+- an unknown field in a payload is ignored, never fatal;
+- an unknown method answers `error.peer.method_unsupported` and the link stays open;
+- a feature is used only when the far end advertised its capability — a peer that has
+  not advertised `swarm` is not asked for pieces at all.
+
+### Methods
+
+| Method | Answers | Capability |
+|---|---|---|
+| `catalogue.list` | `{ entries: CatalogueEntry[] }`, filtered by the share policies | `catalogue` |
+| `catalogue.holders` | `{ holders: ContentHolder[] }` for a `contentId`, ourselves first | `announce` |
+| `media.describe` | `{ size, resumable }` for one published identifier | `content` |
+| `media.range` | bytes | `content` |
+| `media.revalidate` | `{ externalId, file }`; `file: null` means gone | `revalidate` |
+| `swarm.bitfield` | `{ pieces: null }` — this gateway holds whole files only | `swarm` |
+| `swarm.piece` | bytes | `swarm` |
+
+A value answer is `{ id, result }` or `{ id, error: <ErrorKey> }`. A byte answer is a
+sequence of binary frames, each prefixed with the four-byte big-endian identifier of
+the request that asked for them, terminated by `{ id, end: true }` — only an explicit
+end closes a stream, because one that merely stopped is indistinguishable from a
+complete one.
+
+`externalId` on this wire is the identifier *we* published for an item, which is our
+own row identifier. A peer never learns a path, a library identifier or the identifier
+the media service underneath uses.
 
 ## Peer-facing routes
 

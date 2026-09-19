@@ -4,8 +4,9 @@ import type { AddressInfo } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PeerLinkMode } from '@mcs/shared';
+import { PROTOCOL_VERSION, PeerCapability, PeerLinkMode } from '@mcs/shared';
 import { WebSocket, WebSocketServer } from 'ws';
+import { PEER_LINK_PATH } from './peer-gateway.service';
 import { PeerLinkService, type PeerDescriptor } from './peer-link.service';
 import { RendezvousClient } from './rendezvous.client';
 
@@ -131,31 +132,46 @@ describe('PeerLinkService', () => {
 		let remote: ReturnType<typeof farEnd>;
 		let peer: PeerDescriptor;
 		let respondWithWrongFingerprint = false;
+		let theirProtocol = PROTOCOL_VERSION;
+		let theirHellos: unknown[] = [];
 
 		beforeEach(async () => {
 			remote = farEnd();
 			respondWithWrongFingerprint = false;
+			theirProtocol = PROTOCOL_VERSION;
+			theirHellos = [];
 			server = createServer();
-			sockets = new WebSocketServer({ server, path: '/api/peer' });
+			sockets = new WebSocketServer({ server, path: PEER_LINK_PATH });
 
 			sockets.on('connection', (socket: WebSocket) => {
 				socket.on('message', (raw: Buffer) => {
 					const message = JSON.parse(raw.toString('utf8')) as {
 						id: number;
 						method: string;
-						params: { challenge?: string };
+						params: { challenge?: string; hello?: unknown };
 					};
 
 					if (message.method === 'peer.hello') {
 						const challenge = message.params.challenge ?? '';
 
+						theirHellos.push(message.params.hello);
 						socket.send(
 							JSON.stringify({
 								id: message.id,
 								result: {
-									fingerprint: respondWithWrongFingerprint
-										? 'a-different-fingerprint'
-										: service.fingerprintOf(remote.publicKey),
+									hello: {
+										nodeId: 'node-sam',
+										fingerprint: respondWithWrongFingerprint
+											? 'a-different-fingerprint'
+											: service.fingerprintOf(remote.publicKey),
+										name: 'Sam',
+										protocol: theirProtocol,
+										capabilities: [PeerCapability.CONTENT, PeerCapability.CATALOGUE],
+										// A field this version has never heard of. It must be
+										// ignored rather than refused, or every addition to the
+										// protocol becomes a breaking change.
+										somethingNewer: { nested: true },
+									},
 									publicKey: remote.publicKey,
 									signature: remote.sign(challenge),
 								},
@@ -197,7 +213,7 @@ describe('PeerLinkService', () => {
 				id: 'peer-1',
 				name: 'Sam',
 				fingerprint: service.fingerprintOf(remote.publicKey),
-				address: `ws://127.0.0.1:${port}/api/peer`,
+				address: `ws://127.0.0.1:${port}${PEER_LINK_PATH}`,
 				publicKey: remote.publicKey,
 			};
 		});
@@ -217,6 +233,46 @@ describe('PeerLinkService', () => {
 				connected: true,
 			});
 			expect(service.isLinked('peer-1')).toBe(true);
+		});
+
+		it('exchanges a hello before anything else and keeps what it said', async () => {
+			const state = await service.connect(peer, null);
+
+			expect(theirHellos).toHaveLength(1);
+			expect(theirHellos[0]).toMatchObject({
+				fingerprint: service.fingerprint,
+				nodeId: service.nodeId,
+				protocol: PROTOCOL_VERSION,
+			});
+			expect(state.protocol).toBe(PROTOCOL_VERSION);
+			expect(state.nodeId).toBe('node-sam');
+			expect(state.capabilities).toEqual([PeerCapability.CONTENT, PeerCapability.CATALOGUE]);
+		});
+
+		it('ignores a field in the handshake it has never heard of', async () => {
+			// The rule the whole versioning scheme rests on: an unknown field is a newer
+			// gateway being newer, not a broken one.
+			await expect(service.connect(peer, null)).resolves.toMatchObject({ connected: true });
+		});
+
+		it('uses a feature only when the far end advertised it', async () => {
+			await service.connect(peer, null);
+
+			expect(service.supports('peer-1', PeerCapability.CATALOGUE)).toBe(true);
+			expect(service.supports('peer-1', PeerCapability.SWARM)).toBe(false);
+			// And nothing at all is assumed of a peer there is no link to.
+			expect(service.supports('peer-2', PeerCapability.CONTENT)).toBe(false);
+		});
+
+		it('refuses a version it does not speak instead of guessing at it', async () => {
+			// Pre-release there is exactly one version. A gateway that guessed would fail
+			// later, somewhere unrelated, with an error about a missing field.
+			theirProtocol = PROTOCOL_VERSION + 41;
+
+			await expect(service.connect(peer, null)).rejects.toMatchObject({
+				response: { key: 'error.peer.protocol_unsupported' },
+			});
+			expect(service.isLinked('peer-1')).toBe(false);
 		});
 
 		it('reuses a link it already holds', async () => {

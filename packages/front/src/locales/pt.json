@@ -453,7 +453,7 @@
 			"rendezvous": "Ponto de encontro",
 			"direct_address": "Endereço direto",
 			"direct_ok": "As ligações diretas são possíveis, por isso as transferências não passam pela retransmissão.",
-			"relay_only": "Só são possíveis ligações retransmitidas. Tudo funciona, mas as transferências partilham o ponto de encontro com todos os outros. Encaminhar a porta dos pares acabaria com isso."
+			"relay_only": "Só são possíveis ligações retransmitidas. Tudo funciona, mas as transferências partilham o ponto de encontro com todos os outros. Tornar este gateway acessível — uma só porta, a da interface — acabaria com isso."
 		},
 		"invite": {
 			"open": "Ligar um gateway",
@@ -549,6 +549,7 @@
 		"saved": "Definições guardadas.",
 		"group": {
 			"placement": "Onde aterram os ficheiros",
+			"gateway": "Endereço e pasta predefinida",
 			"transfers": "Transferências",
 			"categories": "Categorias",
 			"peers": "Pares e partilha",
@@ -567,6 +568,13 @@
 		},
 		"fixed_path": "Caminho fixo",
 		"fixed_path_help": "Um caminho absoluto onde o gateway possa escrever, por exemplo /media/incoming.",
+		"public_url": "Endereço público",
+		"public_url_help": "Por onde os seus amigos chegam a este gateway a partir do exterior — apenas o endereço, por exemplo https://mcs.example.org. É o que uma convite, uma ligação de partilha e um anúncio transportam; sem ele, um convite nomeia este gateway sem dar a ninguém forma de lhe chegar.",
+		"public_url_suggested": "Sugerido a partir do endereço que está a usar neste momento ({origin}). Altere-o se os seus amigos chegarem a este gateway com outro nome.",
+		"peer_address": "Endereço dos pares",
+		"peer_address_help": "anfitrião:porta para o tráfego entre pares, por exemplo mcs.example.org:4210. Deixe vazio para o deduzir do endereço público acima.",
+		"default_target": "Pasta predefinida",
+		"default_target_help": "Um caminho absoluto onde este gateway possa escrever, onde aterra uma transferência quando mais nada o decide — uma categoria sem biblioteca com escrita, por exemplo.",
 		"naming": "Nomenclatura",
 		"naming_value": {
 			"source": "Manter o nome da fonte",
@@ -962,7 +970,8 @@
 			"unreachable": "O par não respondeu.",
 			"rejected": "O par recusou a ligação.",
 			"awaiting_them": "Ainda não responderam, por isso não há nada para aprovar.",
-			"protocol_unsupported": "Este par fala uma versão do protocolo que este gateway não conhece."
+			"protocol_unsupported": "Este par fala uma versão do protocolo que este gateway não conhece.",
+			"method_unsupported": "Este par pediu algo que este gateway não implementa."
 		},
 		"sync": {
 			"plan_not_found": "Este plano de sincronização já não existe.",
@@ -980,7 +989,11 @@
 			"checksum_mismatch": "O ficheiro transferido não corresponde à sua soma de verificação."
 		},
 		"settings": {
-			"invalid": "Estas definições foram recusadas."
+			"invalid": "Estas definições foram recusadas.",
+			"public_url_invalid": "Introduza o endereço completo, com o esquema, por exemplo https://mcs.example.org.",
+			"peer_address_invalid": "Introduza um anfitrião e uma porta, por exemplo mcs.example.org:4210 — sem esquema.",
+			"target_path_invalid": "Introduza um caminho absoluto, por exemplo /media/incoming.",
+			"target_path_not_writable": "O gateway não consegue escrever nesta pasta."
 		},
 		"user": {
 			"not_found": "Esta conta já não existe.",

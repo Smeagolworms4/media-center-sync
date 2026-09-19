@@ -41,8 +41,7 @@ services:
     image: ghcr.io/smeagolworms4/media-center-sync:main
     restart: unless-stopped
     ports:
-      - 4200:4200   # the interface and the API, same origin
-      - 4210:4210   # inbound peer connections
+      - 4200:4200   # the interface, the API and peer links — one port, same origin
     environment:
       # Change this. It signs the sessions, and production refuses to start without it.
       MCS_JWT_SECRET: change-me
@@ -73,9 +72,15 @@ commence à indexer.
 > soit signalée nulle part. L'interface le détecte et vous le signale, mais autant bien
 > faire les choses avant la première synchronisation.
 
-Rediriger le port **4210** sur votre routeur est facultatif. Sans cela, les liaisons
-entre pairs retombent sur un relais via le rendez-vous : ça fonctionne, mais la bande
-passante du relais est partagée entre tous ceux qui l'utilisent.
+**Il n'y a qu'un seul port.** Une liaison entre pairs est une mise à niveau WebSocket
+sur le port qui sert déjà l'interface : un reverse proxy et son certificat TLS
+couvrent donc le trafic entre pairs sans rien de plus, et il n'y a rien à rediriger
+sur le routeur au-delà de ce que vous avez ouvert pour joindre l'interface.
+
+Si aucune des deux extrémités n'est joignable depuis l'extérieur, les liaisons
+retombent sur un relais via le rendez-vous : ça fonctionne, mais la bande passante du
+relais est partagée entre tous ceux qui l'utilisent. Voir
+[ce qu'un seul port ne résout pas](#ce-quun-seul-port-ne-résout-pas).
 
 ### Environnement
 
@@ -83,8 +88,7 @@ passante du relais est partagée entre tous ceux qui l'utilisent.
 |---|---|---|
 | `MCS_JWT_SECRET` | *(aucune)* | Signe les sessions. **Obligatoire en production** — il n'y a délibérément pas de valeur par défaut. |
 | `MCS_MEDIA_ROOT` | `/media` | Où sont montés vos dossiers de bibliothèque, tels que la passerelle les voit. |
-| `API_PORT` | `4200` | Interface et API. |
-| `PEER_PORT` | `4210` | Connexions entrantes des pairs. |
+| `API_PORT` | `4200` | Interface, API et liaisons entre pairs. Il n'y a pas de second port. |
 | `DB_TYPE` | `sqlite` | `sqlite` ou `postgres`. |
 | `DB_FILE` | `/data/media-center-sync.db` | Fichier SQLite. |
 | `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | — | Lues uniquement quand `DB_TYPE=postgres`. |
@@ -102,11 +106,16 @@ l'autre.
 
 ### Derrière un reverse proxy
 
-L'API sert l'interface et `/api` sur la même origine, il n'y a donc rien à séparer.
-Deux choses doivent survivre au passage : la **mise à niveau WebSocket** sur
-`/api/events`, sans laquelle chaque barre de progression reste à zéro alors que les
-fichiers arrivent parfaitement bien, et un **délai de lecture généreux**, parce qu'un
-transfert peut durer des heures.
+L'API sert l'interface, `/api` et le point d'entrée des pairs sur la même origine, il
+n'y a donc rien à séparer. Deux choses doivent survivre au passage : la **mise à
+niveau WebSocket**, sur `/api/events` — sans laquelle chaque barre de progression
+reste à zéro alors que les fichiers arrivent parfaitement bien — et sur
+`/api/peer/link`, là où les autres passerelles se connectent ; et un **délai de
+lecture généreux**, parce qu'un transfert peut durer des heures.
+
+La configuration ci-dessous couvre les deux, puisqu'elle transmet la mise à niveau
+pour tous les chemins. C'est aussi toute l'histoire du TLS entre pairs : le certificat
+que vous avez déjà pour l'interface est celui que la passerelle d'un ami valide.
 
 ```nginx
 location / {
@@ -134,6 +143,7 @@ location / {
   - [Transferts](#transferts)
   - [Quand un transfert tourne mal](#quand-un-transfert-tourne-mal)
   - [Pairs, amis, et amis d'amis](#pairs-amis-et-amis-damis)
+  - [Ce qu'un seul port ne résout pas](#ce-quun-seul-port-ne-résout-pas)
   - [Partage](#partage)
   - [Connexion](#connexion)
 - [Développement](#developpement)
@@ -339,6 +349,25 @@ Un ami lié peut vous signaler que *l'un de ses* pairs détient lui aussi un fic
 vous rapatriez. Cet ami d'ami est joignable et utile — plus de bande passante, une
 source supplémentaire — mais ce n'est pas quelqu'un que vous avez invité, l'interface
 le précise, et les règles de partage peuvent l'exclure entièrement.
+
+### Ce qu'un seul port ne résout pas
+
+Un seul port règle toute la question réseau **tant qu'au moins une des deux extrémités
+est joignable depuis l'extérieur** — un port redirigé, une machine publique, un
+tunnel, un reverse proxy avec un nom. Celle qui est joignable est appelée, l'autre
+appelle, et la liaison est la même dans les deux sens.
+
+Cela ne règle rien lorsque **les deux** passerelles sont derrière un NAT sans rien de
+redirigé. Un WebSocket a besoin de quelqu'un à appeler, et il n'y a personne : la
+liaison retombe sur le relais du rendez-vous, qui fonctionne et qui est plus lent,
+puisqu'un tiers transporte chaque octet et partage sa ligne avec tous ceux qui font de
+même.
+
+La réponse à ce cas, c'est **WebRTC** — ICE, STUN pour découvrir l'adresse publique de
+chaque extrémité, TURN quand elle ne peut pas l'être, signalés à travers le
+rendez-vous qui existe déjà pour les présentations. Ce n'est **pas implémenté**. D'ici
+là, deux foyers doublement NATés se parlent à travers le relais, et c'est l'état
+honnête de la chose.
 
 ### Partage
 

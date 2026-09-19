@@ -32,14 +32,16 @@ function source(overrides: Partial<TransferSourceRef> = {}): TransferSourceRef {
 }
 
 describe('SwarmTransport', () => {
+	let usable: jest.Mock;
 	let bitfield: jest.Mock;
 	let fetchPiece: jest.Mock;
 	let transport: SwarmTransport;
 
 	beforeEach(() => {
+		usable = jest.fn(() => true);
 		bitfield = jest.fn(async () => null);
 		fetchPiece = jest.fn(async () => Readable.from([Buffer.from('piece')]));
-		transport = new SwarmTransport({ bitfield, fetchPiece } as unknown as PeerLinkSwarmWire);
+		transport = new SwarmTransport({ usable, bitfield, fetchPiece } as unknown as PeerLinkSwarmWire);
 	});
 
 	describe('prepare', () => {
@@ -59,6 +61,29 @@ describe('SwarmTransport', () => {
 			// It is the only thing peers agree on without talking, and the only key the
 			// peer set is built from.
 			await expect(transport.prepare(source({ contentId: null }))).rejects.toMatchObject({
+				response: { key: 'error.sync.no_source' },
+			});
+		});
+
+		it('leaves out a peer that never advertised the swarm', async () => {
+			// A feature is used because the far end said it has it, never because we
+			// have it. A peer that would refuse every piece is not a source, and asking
+			// it anyway costs a round trip per piece and a log full of refusals that
+			// read like a network problem.
+			usable.mockImplementation((peer: { peerId: string }) => peer.peerId !== 'peer-2');
+
+			const capabilities = await transport.prepare(
+				source({ holders: [holder(), holder({ peerId: 'peer-2', peerName: 'Kim' })] }),
+			);
+
+			expect(capabilities.maxConnections).toBe(1);
+			expect(bitfield).toHaveBeenCalledTimes(1);
+		});
+
+		it('refuses when every holder speaks a protocol without the swarm', async () => {
+			usable.mockReturnValue(false);
+
+			await expect(transport.prepare(source())).rejects.toMatchObject({
 				response: { key: 'error.sync.no_source' },
 			});
 		});

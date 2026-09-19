@@ -26,9 +26,6 @@ services:
         ports:
             - ${API_PORT:-4200}:4200
             - ${DEBUG_PORT:-9230}:9230
-            # Inbound peer connections: this is the port to open on the router when
-            # you want to receive direct links without going through the rendezvous.
-            - ${PEER_PORT:-4210}:4210
         environment:
             - USER_ID=${USER_ID}
             - USER_GID=${USER_GID}
@@ -45,7 +42,6 @@ services:
             - REDIS_HOST=${REDIS_HOST:-}
             - REDIS_PORT=6379
             - API_PORT=4200
-            - PEER_PORT=4210
             # Root of the mounted libraries, as seen from the gateway. It must point
             # at the same files the local media service sees.
             - MCS_MEDIA_ROOT=${MCS_MEDIA_ROOT:-/media}

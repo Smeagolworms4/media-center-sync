@@ -453,7 +453,7 @@
 			"rendezvous": "Rendezvous",
 			"direct_address": "Direct address",
 			"direct_ok": "Direct connections are possible, so transfers do not go through the relay.",
-			"relay_only": "Only relayed links are possible. Everything works, but transfers share the rendezvous with everybody else using it. Forwarding the peer port would remove that."
+			"relay_only": "Only relayed links are possible. Everything works, but transfers share the rendezvous with everybody else using it. Making this gateway reachable — one port, the one the interface is on — would remove that."
 		},
 		"invite": {
 			"open": "Link a gateway",
@@ -549,6 +549,7 @@
 		"saved": "Settings saved.",
 		"group": {
 			"placement": "Where files land",
+			"gateway": "Address and default folder",
 			"transfers": "Transfers",
 			"categories": "Categories",
 			"peers": "Peers and sharing",
@@ -567,6 +568,13 @@
 		},
 		"fixed_path": "Fixed path",
 		"fixed_path_help": "An absolute path the gateway can write to, such as /media/incoming.",
+		"public_url": "Public address",
+		"public_url_help": "How friends reach this gateway from outside — the address only, such as https://mcs.example.org. It is what an invitation, a share link and an announce carry; without it an invitation names this gateway and gives nobody a way to reach it.",
+		"public_url_suggested": "Suggested from the address you are using right now ({origin}). Change it if your friends reach this gateway under another name.",
+		"peer_address": "Peer address",
+		"peer_address_help": "host:port for peer traffic, such as mcs.example.org:4210. Leave it empty to derive it from the public address above.",
+		"default_target": "Default folder",
+		"default_target_help": "An absolute path this gateway can write to, where a pull lands when nothing else decides — a category with no writable library, for instance.",
 		"naming": "Naming",
 		"naming_value": {
 			"source": "Keep the source name",
@@ -962,7 +970,8 @@
 			"unreachable": "The peer did not answer.",
 			"rejected": "The peer refused the link.",
 			"awaiting_them": "They have not answered yet, so there is nothing to approve.",
-			"protocol_unsupported": "This peer speaks a version of the protocol this gateway does not know."
+			"protocol_unsupported": "This peer speaks a version of the protocol this gateway does not know.",
+			"method_unsupported": "This peer asked for something this gateway does not implement."
 		},
 		"sync": {
 			"plan_not_found": "This sync plan no longer exists.",
@@ -980,7 +989,11 @@
 			"checksum_mismatch": "The downloaded file does not match its checksum."
 		},
 		"settings": {
-			"invalid": "These settings were refused."
+			"invalid": "These settings were refused.",
+			"public_url_invalid": "Enter the full address, scheme included, such as https://mcs.example.org.",
+			"peer_address_invalid": "Enter a host and a port, such as mcs.example.org:4210 — no scheme.",
+			"target_path_invalid": "Enter an absolute path, such as /media/incoming.",
+			"target_path_not_writable": "The gateway cannot write to this folder."
 		},
 		"user": {
 			"not_found": "This account no longer exists.",

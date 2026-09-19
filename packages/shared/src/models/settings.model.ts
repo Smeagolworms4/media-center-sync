@@ -54,6 +54,45 @@ export interface Settings {
 	/** Use the encapsulated swarm when several peers hold the same file. */
 	allowSwarm: boolean;
 	rendezvousUrl: string | null;
+
+	/**
+	 * How this gateway is reached from outside, origin only — `https://mcs.example.org`.
+	 *
+	 * The gateway had no idea of its own address, so an invitation handed a friend an
+	 * identity and no way to use it: they had to be told where we live out of band,
+	 * which is the step people get wrong. It is also what a share link and a torrent
+	 * announce have to carry, and neither can be built from a request that arrived
+	 * through a reverse proxy — `Host` is whatever the proxy chose to forward.
+	 *
+	 * Null means nobody has set it, and the interface offers its own origin as the
+	 * default, because the browser reached this gateway somehow and that address is
+	 * almost always the right answer. Almost, not always: a gateway administered over
+	 * `http://192.168.0.12:4200` and reached by friends over a domain name would
+	 * otherwise announce a private address, so it is offered and never assumed.
+	 */
+	publicUrl: string | null;
+
+	/**
+	 * Where peers connect, when that is not the public URL's host and the peer port.
+	 *
+	 * `host:port`. Peer traffic does not go through the web server — it is its own
+	 * listener on its own port — so a gateway behind a reverse proxy, or with the peer
+	 * port forwarded to a different external one, cannot have this derived from the
+	 * URL above. Null means: take the public URL's host and the configured peer port,
+	 * which is right whenever somebody has not gone out of their way.
+	 */
+	peerAddress: string | null;
+
+	/**
+	 * Where a pull lands when nothing else decides.
+	 *
+	 * Distinct from `fixedPath`, which only applies under the fixed-path strategy and
+	 * means "everything goes here whatever it is". This is the fallback for the
+	 * ordinary strategies: a media whose category has no writable library, or a
+	 * library whose local path is not set, has to land somewhere nameable rather than
+	 * failing at the end of a completed download.
+	 */
+	defaultTargetPath: string | null;
 	/** Keep finished transfers in the list for this many days. */
 	transferHistoryDays: number;
 

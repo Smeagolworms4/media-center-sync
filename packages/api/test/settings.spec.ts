@@ -1,3 +1,6 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import request from 'supertest';
 import { NamingScheme, PlacementStrategy, UserRole, type Settings } from '@mcs/shared';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
@@ -78,5 +81,108 @@ describe('PATCH /api/settings', () => {
 
 	it('still refuses a fixed-path strategy with no path', async () => {
 		await patch({ placement: PlacementStrategy.FIXED_PATH, fixedPath: '  ' }).expect(400);
+	});
+});
+
+/**
+ * The gateway's own address, and where a pull lands when nothing else decides.
+ *
+ * Over HTTP rather than against the service, because the failure this guards is not in
+ * the service at all: a setting the DTO does not declare is stripped by the validation
+ * pipe before anything sees it, the request answers 200, and the value simply never
+ * arrives. That has happened three times here — `alias`, `position`, `relay` — and
+ * every unit test passed each time.
+ */
+describe('PATCH /api/settings — the gateway’s address and its fallback folder', () => {
+	let context: TestApp;
+	let admin: TestIdentity;
+	let writable: string;
+
+	beforeAll(async () => {
+		context = await createTestApp();
+		admin = await signInAs(context, UserRole.ADMIN);
+		writable = await mkdtemp(join(tmpdir(), 'mcs-target-'));
+	});
+
+	afterAll(async () => {
+		await context.close();
+	});
+
+	const patch = (body: Record<string, unknown>) =>
+		request(context.app.getHttpServer())
+			.patch('/api/settings')
+			.set('Authorization', `Bearer ${admin.token}`)
+			.send(body);
+
+	const read = () =>
+		request(context.app.getHttpServer())
+			.get('/api/settings')
+			.set('Authorization', `Bearer ${admin.token}`)
+			.expect(200);
+
+	it('accepts all three, stores them normalised and reads them back', async () => {
+		await patch({
+			publicUrl: 'https://mcs.example.org/',
+			peerAddress: 'MCS.example.org:4210',
+			defaultTargetPath: `${writable}/`,
+		}).expect(200);
+
+		const settings = (await read()).body as Settings;
+
+		expect(settings.publicUrl).toBe('https://mcs.example.org');
+		expect(settings.peerAddress).toBe('mcs.example.org:4210');
+		expect(settings.defaultTargetPath).toBe(writable);
+	});
+
+	it('changes one of them and leaves the other two alone', async () => {
+		await patch({ publicUrl: 'http://192.168.0.12:4200' }).expect(200);
+
+		const settings = (await read()).body as Settings;
+
+		expect(settings.publicUrl).toBe('http://192.168.0.12:4200');
+		expect(settings.peerAddress).toBe('mcs.example.org:4210');
+		expect(settings.defaultTargetPath).toBe(writable);
+	});
+
+	it('takes an empty string as a clearing and not as an empty value', async () => {
+		await patch({ publicUrl: '', peerAddress: '', defaultTargetPath: '' }).expect(200);
+
+		const settings = (await read()).body as Settings;
+
+		expect(settings.publicUrl).toBeNull();
+		expect(settings.peerAddress).toBeNull();
+		expect(settings.defaultTargetPath).toBeNull();
+	});
+
+	it('refuses an address with no scheme, naming the field', async () => {
+		const response = await patch({ publicUrl: 'mcs.example.org' }).expect(400);
+
+		expect(response.body).toMatchObject({
+			key: 'error.settings.public_url_invalid',
+			field: 'publicUrl',
+		});
+	});
+
+	it('refuses a peer address that is not host:port', async () => {
+		await patch({ peerAddress: 'https://mcs.example.org:4210' }).expect(400);
+	});
+
+	it('refuses a fallback target that is not absolute', async () => {
+		await patch({ defaultTargetPath: 'incoming' }).expect(400);
+	});
+
+	it('refuses a fallback target that cannot be written, rather than failing later', async () => {
+		const response = await patch({
+			defaultTargetPath: join(writable, 'no-such-directory'),
+		}).expect(400);
+
+		expect(response.body).toMatchObject({ field: 'defaultTargetPath' });
+	});
+
+	it('writes nothing when a refusal happens', async () => {
+		await patch({ publicUrl: 'https://mcs.example.org' }).expect(200);
+		await patch({ publicUrl: 'nonsense' }).expect(400);
+
+		expect(((await read()).body as Settings).publicUrl).toBe('https://mcs.example.org');
 	});
 });

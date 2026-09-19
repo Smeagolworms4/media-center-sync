@@ -176,6 +176,182 @@ describe('CacheService (in-memory)', () => {
 
 		expect(await cache.get('broken')).toBe('fine');
 	});
+
+	it('stores nothing at all for undefined', async () => {
+		// `undefined` does not survive a round trip through JSON, and a caller storing
+		// it is asking for a hole that reads back as a miss anyway — so it is refused
+		// at the door rather than written as the string "undefined".
+		await cache.set('nothing', undefined);
+
+		expect(await cache.get('nothing')).toBeNull();
+	});
+
+	it('forgets a key under the prefix that a factory is still filling', async () => {
+		// The in-flight map is what collapses ten tabs into one request, and it has to
+		// be cleared with the values: a factory whose answer has just been invalidated
+		// must not be served to the callers waiting behind it.
+		let release = (): void => {};
+		const held = new Promise<string>((resolve) => {
+			release = () => {
+				resolve('first');
+			};
+		});
+		const factory = jest.fn(() => held);
+
+		const pending = cache.wrap('plex:part:1', 60, factory);
+
+		// The entry is registered after the read that missed, so the clear has to come
+		// after the turn of the loop that registers it — which is also the only window
+		// in which the bug this pins down could happen.
+		await Promise.resolve();
+		await cache.clear('plex:');
+		release();
+		await pending;
+
+		await cache.wrap('plex:part:1', 60, jest.fn(async () => 'second'));
+
+		expect(factory).toHaveBeenCalledTimes(1);
+	});
+
+	it('releases the memory of a key nobody ever reads again', async () => {
+		// Expiry is checked on read as well, so this sweep is the only thing standing
+		// between a gateway left running for a month and a map full of entries that
+		// expired weeks ago. Its effect is invisible from the outside by definition —
+		// a read would have expired the entry anyway — so the store is inspected.
+		jest.useFakeTimers();
+
+		// Built under the fake clock: the sweep is registered in the constructor, and
+		// one built beforehand holds a real timer no amount of advancing will fire.
+		const swept = new CacheService();
+
+		try {
+			const entries = (
+				swept as unknown as { _backend: { _entries: Map<string, unknown> } }
+			)._backend._entries;
+
+			await swept.set('forgotten', 'value', 1);
+			expect(entries.size).toBe(1);
+
+			jest.advanceTimersByTime(60_000);
+
+			expect(entries.size).toBe(0);
+		} finally {
+			await swept.onModuleDestroy();
+			jest.useRealTimers();
+		}
+	});
+});
+
+/**
+ * A Redis that answers badly, which is the state it is in when it matters.
+ *
+ * A cache that is down must not take the gateway with it: a miss is always a correct
+ * answer, only a slower one. These are the paths where that promise is kept.
+ */
+describe('CacheService (a Redis that will not co-operate)', () => {
+	let cache: CacheService;
+	let store: Map<string, string>;
+
+	beforeEach(() => {
+		store = new Map();
+
+		jest.resetModules();
+		jest.doMock('ioredis', () => ({
+			__esModule: true,
+			default: class SickRedis {
+				public async get(key: string): Promise<string | null> {
+					if (key.includes('unreadable')) {
+						throw new Error('connection refused');
+					}
+
+					return store.get(key) ?? null;
+				}
+
+				public async set(key: string): Promise<void> {
+					if (key.includes('unwritable')) {
+						throw new Error('read only replica');
+					}
+				}
+
+				public async del(...keys: string[]): Promise<void> {
+					for (const key of keys) {
+						store.delete(key);
+					}
+				}
+
+				public async scan(): Promise<[string, string[]]> {
+					return ['0', []];
+				}
+
+				public async quit(): Promise<void> {}
+
+				public on(): unknown {
+					return this;
+				}
+			},
+		}));
+
+		process.env.REDIS_HOST = 'redis';
+
+		const { CacheService: Reloaded } = jest.requireActual<typeof import('./cache.service')>(
+			'./cache.service',
+		);
+
+		cache = new Reloaded();
+	});
+
+	afterEach(async () => {
+		await cache.onModuleDestroy();
+		delete process.env.REDIS_HOST;
+		jest.dontMock('ioredis');
+	});
+
+	it('answers a miss rather than throwing when the read fails', async () => {
+		await expect(cache.get('unreadable')).resolves.toBeNull();
+	});
+
+	it('carries on when the write fails', async () => {
+		await expect(cache.set('unwritable', 'value')).resolves.toBeUndefined();
+	});
+
+	it('drops a value it cannot parse instead of failing on it for ever', async () => {
+		// Written by an older version of the code, or truncated. Keeping it would fail
+		// the same way on every read until somebody flushed the cache by hand.
+		store.set('mcs:stale', '{ not json');
+
+		await expect(cache.get('stale')).resolves.toBeNull();
+		expect(store.has('mcs:stale')).toBe(false);
+	});
+});
+
+describe('CacheService (a Redis that cannot be built)', () => {
+	afterEach(() => {
+		delete process.env.REDIS_HOST;
+		jest.dontMock('ioredis');
+	});
+
+	it('falls back to memory rather than refusing to start', async () => {
+		// The driver is required rather than imported so a gateway with no Redis never
+		// loads it at all — and a `REDIS_HOST` pointing at something unusable must cost
+		// a warning, not the whole application.
+		jest.resetModules();
+		jest.doMock('ioredis', () => {
+			throw new Error('module is not installed');
+		});
+
+		process.env.REDIS_HOST = 'redis';
+
+		const { CacheService: Reloaded } = jest.requireActual<typeof import('./cache.service')>(
+			'./cache.service',
+		);
+		const cache = new Reloaded();
+
+		await cache.set('key', 'value');
+
+		expect(await cache.get('key')).toBe('value');
+
+		await cache.onModuleDestroy();
+	});
 });
 
 /**

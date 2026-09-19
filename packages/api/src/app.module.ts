@@ -73,6 +73,12 @@ const injectables = (barrel: Record<string, unknown>): Type[] =>
 		// guard, which lives under `security/`, does not have to know that a manager is
 		// what answers it.
 		{ provide: security.PEER_CREDENTIAL_VERIFIER, useExisting: managers.PeerManager },
+		// The inbound peer endpoint holds a socket and frames bytes; who is allowed to
+		// open one, and what we answer them, are decisions. Bound here for the same
+		// reason as the verifier above: the service under `services/` must not have to
+		// know that a manager is what answers it.
+		{ provide: services.PEER_LINK_AUTHORITY, useExisting: managers.PeerManager },
+		{ provide: services.PEER_METHOD_HANDLER, useExisting: managers.PeerExchangeManager },
 	],
 })
 export class AppModule {}

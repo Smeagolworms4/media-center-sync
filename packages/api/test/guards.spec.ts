@@ -11,6 +11,9 @@ import { createTestApp, signInAs, type TestApp, type TestIdentity } from './util
  * link credential, and a session that worked on them would hand a user's browser the
  * catalogue somebody shared with one specific gateway.
  */
+/** A well-formed identifier nothing holds, so a route's answer is about the right. */
+const ABSENT = '00000000-0000-4000-8000-000000000000';
+
 describe('Guards', () => {
 	let context: TestApp;
 	let guest: TestIdentity;
@@ -58,6 +61,41 @@ describe('Guards', () => {
 			.get('/api/settings')
 			.set('Authorization', `Bearer ${guest.token}`)
 			.expect(403);
+	});
+
+	/*
+	 * Browsing is not a reason to be trusted with the catalogue.
+	 *
+	 * Both override routes sat behind `MEDIA_READ`, which a guest carries, so anybody
+	 * who could look at the library could rewrite a title, change a year, or file a
+	 * media into another library — and the correction is written into the fields
+	 * correlation and filing read, so it is as much a write as a transfer is. Found by
+	 * a journey author reading the rights table, not by anything that was failing.
+	 */
+	it('refuses a guest the right to rewrite what a media server reported', async () => {
+		const overridden = await request(context.app.getHttpServer())
+			.put(`/api/media/${ABSENT}/override`)
+			.set('Authorization', `Bearer ${guest.token}`)
+			.send({ title: 'Anything at all' })
+			.expect(403);
+
+		expect(overridden.body).toMatchObject({ message: 'error.auth.forbidden' });
+
+		await request(context.app.getHttpServer())
+			.delete(`/api/media/${ABSENT}/override`)
+			.set('Authorization', `Bearer ${guest.token}`)
+			.expect(403);
+	});
+
+	it('lets a caller who carries the write right through to the media itself', async () => {
+		// A 404 rather than a 403: the right was granted and the identifier is simply
+		// not one we hold. That distinction is the whole assertion — a 403 here would
+		// mean the route is shut to everybody, which passes for the wrong reason.
+		await request(context.app.getHttpServer())
+			.put(`/api/media/${ABSENT}/override`)
+			.set('Authorization', `Bearer ${admin.token}`)
+			.send({ title: 'Anything at all' })
+			.expect(404);
 	});
 
 	describe('the peer protocol', () => {

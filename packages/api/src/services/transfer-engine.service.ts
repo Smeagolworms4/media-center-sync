@@ -179,6 +179,19 @@ class RateLimiter {
 export class TransferEngineService implements OnApplicationBootstrap, OnModuleDestroy {
 	private readonly _logger = new Logger(TransferEngineService.name);
 	private readonly _running = new Map<string, RunningTransfer>();
+
+	/**
+	 * Taken off the queue, not yet running.
+	 *
+	 * A transfer is in neither `_queue` nor `_running` from the moment the pump shifts
+	 * it until `_run` has loaded the row, written its state and prepared every source
+	 * — easily a second against a slow peer. Without this set it is invisible for that
+	 * whole window, so a second `enqueue` of the same identifier starts a competing
+	 * run: two chunk plans, two sets of connections writing the same offsets of the
+	 * same working file, and whichever verifies first renaming it away from the other.
+	 */
+	private readonly _starting = new Set<string>();
+
 	private readonly _queue: string[] = [];
 	private readonly _limiter = new RateLimiter(0);
 
@@ -274,7 +287,11 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	}
 
 	public async enqueue(transferId: string): Promise<void> {
-		if (this._running.has(transferId) || this._queue.includes(transferId)) {
+		if (
+			this._running.has(transferId) ||
+			this._starting.has(transferId) ||
+			this._queue.includes(transferId)
+		) {
 			return;
 		}
 
@@ -408,6 +425,14 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	 *
 	 * Re-entrant by a flag rather than by a lock: every completion calls it again, and
 	 * two overlapping pumps would start the same transfer twice.
+	 *
+	 * The pool is counted as `_running` plus `_starting`, and both halves are
+	 * necessary. `_run` is deliberately not awaited, so nothing between the shift and
+	 * the moment it registers itself in `_running` has happened yet — a database read,
+	 * a state write and a round trip to every source. Counting only `_running` meant
+	 * this loop saw a pool of zero for the whole of that window and drained the entire
+	 * queue in one synchronous pass: `maxParallelTransfers` was a setting that changed
+	 * nothing, and a queue of forty opened forty sets of connections at once.
 	 */
 	private async _pump(): Promise<void> {
 		if (this._pumping || this._draining) {
@@ -421,12 +446,18 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 
 			this._limiter.limit = settings.downloadRateLimit;
 
-			while (this._running.size < settings.maxParallelTransfers && this._queue.length > 0) {
+			while (
+				this._running.size + this._starting.size < settings.maxParallelTransfers &&
+				this._queue.length > 0
+			) {
 				const transferId = this._queue.shift() as string;
 
-				// Started without awaiting: the pool is bounded by `_running`, and
-				// awaiting here would make the whole thing sequential.
+				this._starting.add(transferId);
+
+				// Started without awaiting: the pool is bounded above, and awaiting here
+				// would make the whole thing sequential.
 				void this._run(transferId, settings).finally(() => {
+					this._starting.delete(transferId);
 					this._running.delete(transferId);
 					void this._pump();
 				});
@@ -460,6 +491,8 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			const existing = await this._chunks.findByTransfer(transferId);
 			const plan = planChunks(size, settings.chunkSize, existing);
 
+			this._adoptPieceChecksums(plan, sources);
+
 			await this._persistPlan(transfer, plan);
 
 			running = {
@@ -482,6 +515,14 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			await this._download(running, settings);
 
 			if (running.cancelling) {
+				// The entry goes first, and the order is the whole point: `cancel` is
+				// written for a transfer that is *not* running, and finding one here it
+				// would merely flag it for cancellation a second time and return —
+				// leaving the row in `downloading` for ever, with no state written, no
+				// event sent, and the partial file still occupying the disk somebody
+				// cancelled the transfer to free.
+				this._running.delete(transferId);
+
 				await this.cancel(transferId);
 
 				return;
@@ -981,6 +1022,39 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		}
 
 		return handle;
+	}
+
+	/**
+	 * Hang the piece hashes a source offered onto the plan.
+	 *
+	 * Without this the capability is produced and never read, and everything built on
+	 * it is dead: `planChunks` lays every chunk out with `checksum: null`, so
+	 * verification finds nothing to check a piece against and falls back to comparing
+	 * the file's length — which calls a transfer with one bad piece intact and places
+	 * it in the library. The repair pass, `chunksRepaired` and `planRepair` exist for
+	 * exactly the case this restores.
+	 *
+	 * Only a source whose pieces are cut the way ours are may contribute, because the
+	 * hashes are indexed by piece number and the two sides choose their chunk size
+	 * independently. A hash applied to a range it was not computed over condemns a
+	 * piece that arrived perfectly well, which is worse than having no hash at all: it
+	 * costs three repair passes and then fails the transfer.
+	 *
+	 * A chunk keeps a checksum it already has, so resuming a plan does not lose what
+	 * an earlier run recorded against a source that is no longer in the rotation.
+	 */
+	private _adoptPieceChecksums(plan: ChunkPlan, sources: RuntimeSource[]): void {
+		for (const source of sources) {
+			const { pieceChecksums, pieceSize } = source.capabilities;
+
+			if (!pieceChecksums || pieceSize !== plan.chunkSize) {
+				continue;
+			}
+
+			for (const chunk of plan.chunks) {
+				chunk.checksum = chunk.checksum ?? pieceChecksums.get(chunk.index) ?? null;
+			}
+		}
 	}
 
 	private async _persistPlan(transfer: Transfer, plan: ChunkPlan): Promise<void> {

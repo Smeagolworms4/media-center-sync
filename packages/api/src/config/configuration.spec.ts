@@ -18,7 +18,6 @@ describe('configuration', () => {
 		const config = configuration();
 
 		expect(config.port).toBe(4200);
-		expect(config.peerPort).toBe(4210);
 		expect(config.prefix).toBe('api');
 		expect(config.database.type).toBe('sqlite');
 		expect(config.database.file).toBe('var/media-center-sync.db');

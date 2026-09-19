@@ -120,7 +120,21 @@ export function useApiError () {
 			return { mainError: fallbackMessage(options), fieldErrors: {} };
 		}
 
-		const { message } = data as { message?: unknown };
+		const { message, key, field } = data as { message?: unknown; key?: unknown; field?: unknown };
+
+		// A refusal that names the input it is about. Anything the API decides for
+		// itself — a URL it cannot dial, a folder it cannot write into — answers a key
+		// rather than a sentence, because the wording is this side's business; the
+		// field comes with it so a screen that saves twenty settings at once can put
+		// the message under the one box somebody has to change instead of above all of
+		// them.
+		if (typeof key === 'string' && looksLikeKey(key)) {
+			const wording = toMessage(key, options);
+
+			return typeof field === 'string' && options.mappedFields.has(field)
+				? { mainError: null, fieldErrors: { [field]: [wording] } }
+				: { mainError: wording, fieldErrors: {} };
+		}
 
 		if (Array.isArray(message)) {
 			return parseMessages(message as string[], options);

@@ -246,7 +246,66 @@ one-shot, expiring invitation carrying the fingerprint, a rendezvous and a secre
 
 The rendezvous introduces; it is not trusted with content. When no direct path opens it
 can relay, and that is the degraded mode — shared bandwidth, and a third party in the
-path — not the normal one. Forwarding the peer port avoids it.
+path — not the normal one.
+
+### One port
+
+A peer link is a WebSocket upgrade on `/api/peer/link`, on the same HTTP port the
+interface and the API are served from. There is no second listener and no second port
+anywhere in this application.
+
+That is a decision, not an accident of implementation. A second port needs its own
+firewall rule, its own entry in whatever reverse proxy sits in front, and its own
+certificate to be usable over TLS — three things to get right, per household, for a
+link that works perfectly well as an upgrade on a port that is already open and
+already has a certificate. BitTorrent here is the *protocol* — the pieces, the swarm,
+the piece selection — and none of that has an opinion about the wire it travels on.
+
+The two gateways share one `upgrade` handler chain: each claims a path and returns
+when the path is not its own, and a last handler refuses anything neither took. That
+last one matters: Node does not close an upgrade nobody answers, so without it a
+request to a wrong path sits half open until some timeout somewhere gives up.
+
+### The handshake, and how the protocol grows
+
+Both ends exchange a `PeerHello` — node identity, fingerprint, name, protocol version,
+capabilities — before anything else is served. The answer to the first hello carries
+the responder's public key and a signature over the initiator's challenge, so the
+machine that answered proves it holds the key behind the fingerprint that was asked
+for. The address came from a rendezvous we do not control; that proof is the whole
+security argument for connecting first and verifying after.
+
+A version outside `SUPPORTED_PROTOCOL_VERSIONS` is refused outright with
+`error.peer.protocol_unsupported`. Before the first release there is one version, and
+a mismatch is a flat refusal rather than a downgrade: carrying compatibility for
+versions nobody ever ran is weight with no cargo, and it hides the one thing a
+changing protocol should make loud.
+
+Everything else the wire gains is a **capability**, named and advertised, under three
+rules that are enforced and tested rather than intended:
+
+- an unknown field in a payload is ignored, never fatal;
+- an unknown method answers `error.peer.method_unsupported` and the link stays open;
+- a feature is used only when the far end advertised its capability.
+
+Together they are why a new method, a new field or a new kind of announcement does not
+move the version — which is what lets two friends on different release days keep
+talking.
+
+### What one port does not solve
+
+One port is enough **when at least one of the two ends is reachable**: a forwarded
+port, a public host, a tunnel, a proxy with a name. Whoever is reachable is dialled.
+
+It does nothing for the case where **both** ends are behind NAT with nothing
+forwarded. A WebSocket needs something to connect to, and in that topology neither
+side has one. Such a pair falls back to the rendezvous relay: correct, slower, and a
+third party carrying every byte.
+
+The intended answer is **WebRTC** — ICE with STUN to discover each end's public
+address, TURN when it cannot be discovered, signalled over the rendezvous that already
+exists for introductions (`rendezvousUrl` in the settings). It is **not implemented**,
+and nothing in the code pretends otherwise.
 
 A linked peer can announce that one of *its* peers holds a given `contentId`. That
 friend of a friend widens the swarm and is marked as such everywhere, and

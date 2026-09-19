@@ -1,4 +1,11 @@
-import { ErrorKey, PeerDirection, PeerStatus, PeerTrust } from '@mcs/shared';
+import {
+	ErrorKey,
+	PROTOCOL_VERSION,
+	PeerCapability,
+	PeerDirection,
+	PeerStatus,
+	PeerTrust,
+} from '@mcs/shared';
 import type { Peer, PeerInvite } from '@/entities';
 import type {
 	MediaItemRepository,
@@ -22,6 +29,7 @@ interface Fakes {
 		create: jest.Mock;
 		save: jest.Mock;
 		setStatus: jest.Mock;
+		recordHandshake: jest.Mock;
 		delete: jest.Mock;
 	};
 	invites: {
@@ -35,7 +43,11 @@ interface Fakes {
 		connect: jest.Mock;
 		disconnect: jest.Mock;
 		verify: jest.Mock;
+		verifyCredential: jest.Mock;
+		hello: jest.Mock;
+		sign: jest.Mock;
 		fingerprint: string;
+		publicKey: string;
 	};
 }
 
@@ -67,6 +79,7 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 			create: jest.fn((value: Partial<Peer>) => peerRow(value)),
 			save: jest.fn((value: Peer) => Promise.resolve(value)),
 			setStatus: jest.fn().mockResolvedValue(undefined),
+			recordHandshake: jest.fn().mockResolvedValue(undefined),
 			delete: jest.fn().mockResolvedValue(undefined),
 		},
 		invites: {
@@ -86,7 +99,17 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 			connect: jest.fn(),
 			disconnect: jest.fn(),
 			verify: jest.fn(() => true),
+			verifyCredential: jest.fn(() => true),
+			hello: jest.fn(() => ({
+				nodeId: 'node-us',
+				fingerprint: OUR_FINGERPRINT,
+				name: 'gateway',
+				protocol: PROTOCOL_VERSION,
+				capabilities: [PeerCapability.CONTENT],
+			})),
+			sign: jest.fn((payload: string) => `signed:${payload}`),
 			fingerprint: OUR_FINGERPRINT,
+			publicKey: 'our-public-key',
 		},
 	};
 
@@ -110,6 +133,132 @@ const foreignInvite = (expiresAt: Date, code = 'abc123'): string =>
 	`mcs://invite/${code}?fingerprint=${THEIR_FINGERPRINT}&rendezvous=https%3A%2F%2Frendezvous.test&secret=s3cr3t&exp=${expiresAt.toISOString()}`;
 
 describe('PeerManager', () => {
+	describe('an inbound link', () => {
+		const credential = {
+			fingerprint: THEIR_FINGERPRINT,
+			publicKey: 'their-public-key',
+			challenge: `${THEIR_FINGERPRINT}:${Date.now()}`,
+			signature: 'a-signature',
+			address: '203.0.113.9',
+		};
+
+		const theirHello = (protocol = PROTOCOL_VERSION) => ({
+			nodeId: 'node-alice',
+			fingerprint: THEIR_FINGERPRINT,
+			name: 'Alice',
+			protocol,
+			capabilities: [PeerCapability.CONTENT, PeerCapability.CATALOGUE],
+		});
+
+		it('admits a peer we have linked to', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(peerRow());
+
+			await expect(manager.admit(credential)).resolves.toEqual({
+				peerId: 'peer-1',
+				name: 'Alice',
+			});
+		});
+
+		it('admits a peer we merely failed to reach', async () => {
+			// `UNREACHABLE` means we could not reach them, which says nothing about
+			// whether they are a friend — and their call is how that stops being true.
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(
+				peerRow({ status: PeerStatus.UNREACHABLE }),
+			);
+
+			await expect(manager.admit(credential)).resolves.toMatchObject({ peerId: 'peer-1' });
+		});
+
+		it('refuses a credential that does not verify, without asking who it claims to be', async () => {
+			const { manager, fakes } = build();
+
+			fakes.links.verifyCredential.mockReturnValue(false);
+
+			await expect(manager.admit(credential)).resolves.toBeNull();
+			expect(fakes.peers.findByFingerprint).not.toHaveBeenCalled();
+		});
+
+		it('records a stranger as a request and still refuses them', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(null);
+
+			await expect(manager.admit(credential)).resolves.toBeNull();
+			expect(fakes.peers.save).toHaveBeenCalledWith(
+				expect.objectContaining({
+					fingerprint: THEIR_FINGERPRINT,
+					status: PeerStatus.PENDING,
+					direction: PeerDirection.INCOMING,
+					address: '203.0.113.9',
+				}),
+			);
+		});
+
+		it('refuses a peer that is blocked', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
+
+			await expect(manager.admit(credential)).resolves.toBeNull();
+		});
+
+		it('settles our own outgoing request when they answer by connecting', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.OUTGOING }),
+			);
+
+			// `requested` settles the row, so the second read sees a link. Both sides
+			// have now named each other, which is exactly what a link is.
+			fakes.peers.findByFingerprint
+				.mockResolvedValueOnce(
+					peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.OUTGOING }),
+				)
+				.mockResolvedValueOnce(peerRow({ status: PeerStatus.LINKED, direction: null }));
+
+			await expect(manager.admit(credential)).resolves.toMatchObject({ peerId: 'peer-1' });
+		});
+
+		it('refuses a peer who asked us and has not been approved', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING }),
+			);
+
+			await expect(manager.admit(credential)).resolves.toBeNull();
+		});
+
+		it('answers a hello with ours, signed with their challenge', async () => {
+			const { manager, fakes } = build();
+
+			await expect(manager.greet('peer-1', theirHello(), 'their-challenge')).resolves.toEqual({
+				hello: expect.objectContaining({ fingerprint: OUR_FINGERPRINT }),
+				publicKey: 'our-public-key',
+				signature: 'signed:their-challenge',
+			});
+			expect(fakes.peers.recordHandshake).toHaveBeenCalledWith('peer-1', {
+				nodeId: 'node-alice',
+				protocol: PROTOCOL_VERSION,
+				capabilities: [PeerCapability.CONTENT, PeerCapability.CATALOGUE],
+			});
+		});
+
+		it('refuses a version it does not speak and writes nothing', async () => {
+			const { manager, fakes } = build();
+
+			await expect(
+				manager.greet('peer-1', theirHello(PROTOCOL_VERSION + 41), 'c'),
+			).resolves.toBeNull();
+			expect(fakes.peers.recordHandshake).not.toHaveBeenCalled();
+		});
+	});
+
 	describe('invitations', () => {
 		it('stores the hash of the secret and never the secret', async () => {
 			const { manager, fakes } = build();
