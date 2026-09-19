@@ -1,0 +1,28 @@
+# Keep the build context small and, more importantly, keep host artefacts out of it.
+#
+# `node_modules` is the one that matters: it carries `better-sqlite3` compiled for
+# whatever libc the workstation runs. Copied into an Alpine image it would either be
+# overwritten by the install — wasting a few hundred megabytes of context on every
+# build — or, worse, shadow it and fail at runtime with an error about a missing
+# shared library.
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/test-results
+**/playwright-report
+
+.git
+.github
+.gitlab-ci.yml
+.idea
+.vscode
+
+# Runtime data: the SQLite file, transfers in flight, the gateway keypair.
+var
+packages/api/data
+**/.env.local
+
+docs
+*.md
+!README.md
