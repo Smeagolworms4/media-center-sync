@@ -23,7 +23,26 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 		private readonly _users: UserRepository,
 	) {
 		super({
-			jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+			/*
+			 * The header first, and a `token` query parameter as a fallback.
+			 *
+			 * Two things a browser does cannot carry a header: the WebSocket handshake
+			 * of the progress stream, and an `<img>` asking for a poster. Both are
+			 * ordinary parts of this interface, and neither has an alternative — a
+			 * poster fetched through `fetch` and turned into an object URL would defeat
+			 * the browser's own image cache on a page showing two hundred of them.
+			 *
+			 * The cost is real and bounded: a token in a query string reaches server
+			 * logs and, on a cross-origin navigation, a referrer. It is mitigated by
+			 * the token being the short-lived access one — fifteen minutes — never the
+			 * refresh token, and by these responses being marked private so no shared
+			 * cache keeps them. The header remains the way everything else
+			 * authenticates.
+			 */
+			jwtFromRequest: ExtractJwt.fromExtractors([
+				ExtractJwt.fromAuthHeaderAsBearerToken(),
+				ExtractJwt.fromUrlQueryParameter('token'),
+			]),
 			ignoreExpiration: false,
 			secretOrKey: config.getOrThrow<SecurityConfig>('security').jwtSecret,
 		});

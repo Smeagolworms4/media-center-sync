@@ -102,11 +102,28 @@ not designate the same directory accepts transfers the server will never see.
 | GET | `/media/:id/matches` | — | `MediaMatch[]` | `MEDIA_READ` |
 | POST | `/media/:id/matches/:matchId/confirm` | `ConfirmMatchDto` | `MediaMatch` | `SYNC_MANAGE` |
 | DELETE | `/media/:id/matches/:matchId` | — | `204` | `SYNC_MANAGE` |
-| GET | `/media/:id/artwork` | — | image bytes | `MEDIA_READ` |
+| GET | `/media/groups` | `MediaGroupQuery` (query) | `ResultList<MediaGroup>` | `MEDIA_READ` |
+| GET | `/media/groups/:id` | — | `MediaGroup` | `MEDIA_READ` |
+| GET | `/media/groups/:id/children` | `MediaGroupQuery` (query) | `ResultList<MediaGroup>` | `MEDIA_READ` |
+| GET | `/media/:id/artwork` | `token` (query, optional) | image bytes | `MEDIA_READ` |
 
 Artwork is proxied rather than linked: the remote service's URL usually needs that
 service's token, and an `<img>` tag carries no `Authorization` header. The gateway
 caches what it fetches.
+
+For the same reason the artwork route — and the event stream — accept the access token
+as a `token` query parameter as well as a header. An `<img>` cannot send a header, and
+fetching a poster through `fetch` to build an object URL would defeat the browser's own
+image cache on a page showing two hundred of them. Only the short-lived access token is
+accepted this way, never the refresh token, and these responses are marked private.
+
+**The grouped routes are what a library screen reads.** The index keeps one row per
+service — the same episode on three servers is three rows — because merging them would
+mean choosing whose title and whose file size survive. Browsing wants the opposite: one
+poster per media, with the servers that hold it listed underneath. A group is that view,
+computed from the match graph rather than stored, and two rows only join when a match
+was actually applied: a proposal below the threshold stays two posters, which is the
+honest rendering of "we are not sure these are the same thing".
 
 Confirming or deleting a match is how a human overrules the scoring. Both are recorded
 — a correlation nobody can undo is one nobody will trust.

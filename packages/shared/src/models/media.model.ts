@@ -158,6 +158,86 @@ export interface MediaNode extends MediaItem {
 	childCount: number;
 }
 
+/**
+ * One copy of a grouped media, and who holds it.
+ *
+ * `local` is what the interface needs to answer the only question that matters on a
+ * poster: do I have this, or is it on somebody else's server?
+ */
+export interface MediaGroupSource {
+	itemId: string;
+	serviceId: string;
+	serviceName: string;
+	serviceType: string;
+	/** `local` when the gateway can write into that service's libraries. */
+	scope: string;
+	peerId: string | null;
+	peerName: string | null;
+	quality: QualitySummary | null;
+	bytes: number | null;
+	local: boolean;
+}
+
+/**
+ * One media, whoever holds it.
+ *
+ * The index keeps a row per service — the same episode on three servers is three rows
+ * — because merging them would mean choosing whose title, whose artwork and whose file
+ * size survive, and losing the differences a sync exists to show. Browsing wants the
+ * opposite: one poster per media, with the servers that hold it underneath.
+ *
+ * A group is that second view, computed from the match graph rather than stored. It
+ * never replaces the rows it is built from, and two rows only join when a match was
+ * actually applied — a proposal below the threshold leaves them as two posters, which
+ * is the honest rendering of "we are not sure these are the same thing".
+ */
+export interface MediaGroup {
+	/** The representative item's identifier. Stable as long as the group is. */
+	id: string;
+	kind: MediaKind;
+	title: string;
+	normalizedTitle: string;
+	year: number | null;
+	seasonNumber: number | null;
+	episodeNumber: number | null;
+	externalIds: ExternalIds;
+	overview: string | null;
+	/**
+	 * Whose artwork to show — the local copy when there is one.
+	 *
+	 * Preferring the local copy is not cosmetic: a poster is fetched through the
+	 * service that reported it, and a friend's server may be asleep. Ours is the one
+	 * that answers.
+	 */
+	artworkItemId: string | null;
+	/** The group's state, in the same vocabulary a single item uses. */
+	sync: SyncState;
+	/**
+	 * Aggregated over every source, so the chip says what exists rather than what one
+	 * server happens to hold.
+	 */
+	quality: QualitySummary | null;
+	sources: MediaGroupSource[];
+	childCount: number;
+	/** Children known somewhere and absent here — what a season card shows at a glance. */
+	missingCount: number;
+}
+
+export interface MediaGroupQuery {
+	/** Restrict to what one service holds, without ungrouping the rest. */
+	serviceId?: string;
+	libraryId?: string;
+	kind?: MediaKind;
+	/** Children of this group, addressed by the parent's representative item. */
+	parentId?: string;
+	search?: string;
+	states?: SyncState[];
+	page?: number;
+	limit?: number;
+	sort?: 'title' | 'year' | 'addedAt';
+	direction?: 'asc' | 'desc';
+}
+
 export interface MediaSearchQuery {
 	serviceId?: string;
 	libraryId?: string;
