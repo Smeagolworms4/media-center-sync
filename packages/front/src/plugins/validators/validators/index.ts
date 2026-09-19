@@ -5,6 +5,7 @@ import email from './email';
 import fileFormats from './fileFormats';
 import fileSize from './fileSize';
 import maxlength from './maxlength';
+import minlength from './minlength';
 import notNull from './notNull';
 import object from './object';
 import onlyInteger from './onlyInteger';
@@ -26,6 +27,7 @@ const validators = {
 	fileFormats,
 	fileSize,
 	maxlength,
+	minlength,
 	notNull,
 	object,
 	onlyInteger,

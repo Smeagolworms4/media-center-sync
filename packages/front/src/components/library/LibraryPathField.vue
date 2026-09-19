@@ -81,7 +81,7 @@
 			/>
 
 			<div class="library-path_title">
-				<p class="text-subtitle-2 mb-0">{{ library.name }}</p>
+				<p class="text-subtitle-2 mb-0">{{ library.alias || library.name }}</p>
 
 				<p class="text-caption text-medium-emphasis mb-0">
 					{{ $t(`library.kind.${library.kind}`) }}

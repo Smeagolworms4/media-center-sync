@@ -21,6 +21,21 @@ export const routes: RouteRecordRaw[] = [
 		meta: { publicPage: true, disconnectPage: true, title: 'auth.title' },
 	},
 	{
+		/*
+		 * The first screen of a gateway nobody has claimed yet.
+		 *
+		 * Public, because there is no account to authenticate against: that is the
+		 * whole state it exists for. The guard sends every other address here while
+		 * the gateway says it needs setting up, and keeps this one unreachable the
+		 * rest of the time — an open account-creation screen on a gateway that has
+		 * accounts is the one thing that would make the open route behind it unsafe.
+		 */
+		path: '/setup',
+		name: 'setup',
+		component: () => import('@/pages/Setup.vue'),
+		meta: { publicPage: true, title: 'setup.title' },
+	},
+	{
 		path: '/',
 		name: 'dashboard',
 		component: () => import('@/pages/Dashboard.vue'),

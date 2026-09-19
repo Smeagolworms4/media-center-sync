@@ -44,6 +44,10 @@ export const ErrorKey = {
 	USER_NOT_FOUND: 'error.user.not_found',
 	USER_LAST_ADMIN: 'error.user.last_admin',
 
+	SHARE_RELAY_NOT_AGREED: 'error.share.relay_not_agreed',
+
+	PEER_PROTOCOL_UNSUPPORTED: 'error.peer.protocol_unsupported',
+
 	SETTINGS_INVALID: 'error.settings.invalid',
 	GENERAL: 'error.general',
 } as const;

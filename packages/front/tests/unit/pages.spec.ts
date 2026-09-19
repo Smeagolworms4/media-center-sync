@@ -1,6 +1,8 @@
 import type { Router } from 'vue-router';
 import {
 	LibraryKind,
+	MediaKind,
+	MediaOrigin,
 	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
@@ -115,6 +117,7 @@ describe('pages/Dashboard', () => {
 	const healthy = {
 		'/api/services': { body: [service()] },
 		'/api/libraries/check': { body: [] },
+		'/api/libraries/categories': { body: [] },
 		'/api/libraries': { body: [] },
 		'/api/peers': { body: [] },
 		'/api/transfers/stats': EMPTY_STATS,
@@ -158,6 +161,35 @@ describe('pages/Dashboard', () => {
 		const problems = wrapper.findAll('[data-test="dashboard-problem"]');
 		expect(problems).toHaveLength(1);
 		expect(problems[0].text()).toContain('Shows');
+	});
+
+	/**
+	 * The home page names the categories rather than only counting servers: the first
+	 * click from here is the one somebody actually wants, and a category opens on its
+	 * own from the same address the wall uses.
+	 */
+	it('names the merged categories and opens one on its own', async () => {
+		stubFetchRoutes({
+			...healthy,
+			'/api/libraries/categories': {
+				body: [{
+					key: 'animes',
+					name: 'Animes',
+					kind: LibraryKind.SHOWS,
+					position: 0,
+					libraryIds: ['l1', 'l3'],
+					serviceIds: ['s1', 's2'],
+					itemCount: 12,
+					local: true,
+				}],
+			},
+		});
+		const { wrapper } = mountWithApp(Dashboard, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const chip = wrapper.find('[data-test="dashboard-category"]');
+		expect(chip.text()).toContain('Animes');
+		expect(chip.attributes('href')).toContain('category=animes');
 	});
 
 	it('counts what is missing from the pagination rather than pulling the rows', async () => {
@@ -230,13 +262,55 @@ function mediaLibrary (overrides: Record<string, unknown> = {}) {
 const LIBRARIES = [
 	mediaLibrary({ id: 'l1', name: 'Animes', kind: LibraryKind.SHOWS }),
 	mediaLibrary({ id: 'l2', name: 'FilmsHD', kind: LibraryKind.MOVIES }),
+	mediaLibrary({ id: 'l3', serviceId: 's2', name: 'Animes', kind: LibraryKind.SHOWS }),
 ];
+
+function mediaCategory (overrides: Record<string, unknown> = {}) {
+	return {
+		key: 'animes',
+		name: 'Animes',
+		kind: LibraryKind.SHOWS,
+		position: 0,
+		libraryIds: ['l1', 'l3'],
+		serviceIds: ['s1', 's2'],
+		itemCount: 12,
+		local: true,
+		...overrides,
+	};
+}
+
+/**
+ * Two servers, three libraries, two categories: the `Animes` of both machines are
+ * one band, and that is the whole point of the merge.
+ */
+const CATEGORIES = [
+	mediaCategory(),
+	mediaCategory({
+		key: 'filmshd',
+		name: 'FilmsHD',
+		kind: LibraryKind.MOVIES,
+		position: 10,
+		libraryIds: ['l2'],
+		serviceIds: ['s1'],
+		local: false,
+	}),
+];
+
+const LIBRARY_BASE = {
+	'/api/services': { body: [] },
+	'/api/peers': { body: [] },
+	'/api/libraries/categories': { body: CATEGORIES },
+	'/api/libraries': { body: LIBRARIES },
+};
+
+const ONE_GROUP = {
+	body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } },
+};
 
 describe('pages/Library', () => {
 	it('shows the empty state rather than an empty wall', async () => {
 		stubFetchRoutes({
-			'/api/services': { body: [] },
-			'/api/libraries': { body: LIBRARIES },
+			...LIBRARY_BASE,
 			'/api/media/groups': { body: { items: [], pagination: { page: 1, limit: 24, total: 0, pages: 0 } } },
 		});
 		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
@@ -249,6 +323,8 @@ describe('pages/Library', () => {
 	it('says so rather than showing a wall when no library is registered', async () => {
 		stubFetchRoutes({
 			'/api/services': { body: [] },
+			'/api/peers': { body: [] },
+			'/api/libraries/categories': { body: [] },
 			'/api/libraries': { body: [] },
 		});
 		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
@@ -259,39 +335,56 @@ describe('pages/Library', () => {
 	});
 
 	/**
-	 * The shape of the screen: one band per *registered library*, under the name
-	 * that library carries on the media server — never a category we invented.
+	 * The shape of the screen: one band per *category* — every library of that name,
+	 * on every server — under the name the person reads, in the order the gateway
+	 * settled, and never a word we invented.
 	 */
-	it('draws a band per registered library, under its own name', async () => {
+	it('draws a band per category, merged by name and ordered by position', async () => {
 		const stub = stubFetchRoutes({
-			'/api/services': { body: [] },
-			'/api/libraries': { body: LIBRARIES },
+			...LIBRARY_BASE,
 			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 42, pages: 2 } } },
 		});
 		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
 		await settle();
 
 		const sections = wrapper.findAll('[data-test="library-section"]');
-		expect(sections.map(one => one.attributes('data-library'))).toEqual(['l1', 'l2']);
+		expect(sections.map(one => one.attributes('data-category'))).toEqual(['animes', 'filmshd']);
 		expect(sections[0].text()).toContain('Animes');
 		expect(sections[1].text()).toContain('FilmsHD');
 		// Structural, for the icon and the shape of a cover; never rendered as a word.
 		expect(sections[0].attributes('data-kind')).toBe(LibraryKind.SHOWS);
 		expect(sections[0].text()).not.toContain('shows');
 		expect(sections[0].find('[data-test="library-section-count"]').text()).toContain('42');
+		// One of the merged libraries is ours, and the band says so.
+		expect(sections[0].find('[data-test="library-section-local"]').exists()).toBe(true);
+		expect(sections[1].find('[data-test="library-section-local"]').exists()).toBe(false);
 
 		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
-		expect(asked.some(url => url.includes('libraryId=l1'))).toBe(true);
-		expect(asked.some(url => url.includes('libraryId=l2'))).toBe(true);
+		expect(asked.some(url => url.includes('categoryKey=animes'))).toBe(true);
+		expect(asked.some(url => url.includes('categoryKey=filmshd'))).toBe(true);
+		// Never one band per library-and-server: `Animes` is asked for once.
+		expect(asked.some(url => url.includes('libraryId='))).toBe(false);
 	});
 
-	/** A library that holds nothing still exists, and says so. */
-	it('keeps an empty library on screen instead of dropping it', async () => {
+	/** A home screen is a glance at what is new, at the top of the tree. */
+	it('asks each band for the latest additions, and for roots only', async () => {
+		const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': ONE_GROUP });
+		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const asked = stub.mock.calls.map(call => String(call[0])).find(url => url.includes('/media/groups'));
+		expect(asked).toContain('sort=addedAt');
+		expect(asked).toContain('direction=desc');
+		expect(asked).toContain('rootsOnly=true');
+		expect(wrapper.find('[data-test="library-section-latest"]').exists()).toBe(true);
+	});
+
+	/** A category that holds nothing still exists, and says so. */
+	it('keeps an empty category on screen instead of dropping it', async () => {
 		stubFetchRoutes({
-			'/api/services': { body: [] },
-			'/api/libraries': { body: LIBRARIES },
+			...LIBRARY_BASE,
 			'groups?': { body: { items: [], pagination: { page: 1, limit: 24, total: 0, pages: 0 } } },
-			'libraryId=l1': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
+			'categoryKey=animes': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
 		});
 		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
 		await settle();
@@ -301,13 +394,65 @@ describe('pages/Library', () => {
 		expect(sections[1].find('[data-test="library-section-empty"]').exists()).toBe(true);
 	});
 
-	/** One title, and no guessing which of three series libraries it landed in. */
-	it('browses across every library on request, in one paginated band', async () => {
-		const stub = stubFetchRoutes({
-			'/api/services': { body: [] },
-			'/api/libraries': { body: LIBRARIES },
-			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 60, total: 1, pages: 1 } } },
+	/**
+	 * The same series filed in two categories is one poster, in the first of them.
+	 * Two would be two things to pick, two things to sync, and one library that looks
+	 * twice the size it is.
+	 */
+	it('shows a media once, under the first category that holds it', async () => {
+		stubFetchRoutes({
+			...LIBRARY_BASE,
+			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
 		});
+		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const sections = wrapper.findAll('[data-test="library-section"]');
+		expect(sections[0].findAll('[data-test="media-card"]')).toHaveLength(1);
+		expect(sections[1].findAll('[data-test="media-card"]')).toHaveLength(0);
+		// The band still counts what it holds: it is not empty, it is already shown.
+		expect(sections[1].find('[data-test="library-section-count"]').text()).toContain('1');
+	});
+
+	/** Opening a band is opening its category, paginated, with the filters. */
+	it('opens a category on its own, in the address', async () => {
+		const stub = stubFetchRoutes({
+			...LIBRARY_BASE,
+			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 42, pages: 2 } } },
+		});
+		const { wrapper, router } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		await wrapper.find('[data-test="library-section-all"]').trigger('click');
+		await settle();
+
+		expect(router.currentRoute.value.query.category).toBe('animes');
+		expect(wrapper.findAll('[data-test="library-section"]')).toHaveLength(1);
+		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
+		expect(asked.at(-1)).toContain('categoryKey=animes');
+		expect(asked.at(-1)).toContain('limit=60');
+	});
+
+	/** Four levels deep, the way back out has to be on the screen. */
+	it('says where the wall is once a category is open', async () => {
+		stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': ONE_GROUP });
+		const { wrapper, router } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="media-breadcrumb"]').exists()).toBe(false);
+
+		await router.push({ name: 'library', query: { category: 'animes' } });
+		await settle();
+
+		const trail = wrapper.find('[data-test="media-breadcrumb"]');
+		expect(trail.exists()).toBe(true);
+		expect(trail.find('[data-test="media-breadcrumb-current"]').text()).toBe('Animes');
+		expect(trail.find('[data-test="media-breadcrumb-step"]').text()).toBe('Library');
+	});
+
+	/** One title, and no guessing which of three categories it landed in. */
+	it('browses across every category on request, in one paginated band', async () => {
+		const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': ONE_GROUP });
 		const { wrapper, router } = mountWithApp(Library, { global: { stubs: tooltipStub } });
 		await settle();
 
@@ -317,13 +462,12 @@ describe('pages/Library', () => {
 		expect(router.currentRoute.value.query.all).toBeDefined();
 		expect(wrapper.findAll('[data-test="library-section"]')).toHaveLength(1);
 		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
-		expect(asked.at(-1)).not.toContain('libraryId=');
+		expect(asked.at(-1)).not.toContain('categoryKey=');
 	});
 
 	it('renders one card per group, with its state and its sources', async () => {
 		stubFetchRoutes({
-			'/api/services': { body: [] },
-			'/api/libraries': { body: [LIBRARIES[0]] },
+			...LIBRARY_BASE,
 			'/api/media/groups': {
 				body: {
 					items: [mediaGroup({ sync: SyncState.OUTDATED, sources: [{ itemId: 'i1', serviceId: 's1', serviceName: 'Living room', serviceType: 'jellyfin', scope: 'local', peerId: null, peerName: null, quality: null, companions: null, bytes: 10, local: true, sync: SyncState.IN_SYNC }] })],
@@ -342,11 +486,7 @@ describe('pages/Library', () => {
 	});
 
 	it('offers to sync what has been selected, and only then', async () => {
-		stubFetchRoutes({
-			'/api/services': { body: [] },
-			'/api/libraries': { body: [LIBRARIES[0]] },
-			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
-		});
+		stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': ONE_GROUP });
 		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
 		await settle();
 
@@ -361,11 +501,7 @@ describe('pages/Library', () => {
 
 	/** A filtered wall has to be a link somebody can send. */
 	it('keeps the filters in the address', async () => {
-		stubFetchRoutes({
-			'/api/services': { body: [] },
-			'/api/libraries': { body: LIBRARIES },
-			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
-		});
+		stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': ONE_GROUP });
 		const { wrapper, router } = mountWithApp(Library, { global: { stubs: tooltipStub } });
 		await settle();
 
@@ -380,6 +516,46 @@ describe('pages/Library', () => {
 		expect(router.currentRoute.value.query.libraryId).toBe('l2');
 		// One library chosen is one band, and that band is paginated.
 		expect(wrapper.findAll('[data-test="library-section"]')).toHaveLength(1);
+	});
+
+	/**
+	 * "What do my friends have" is one filter, and naming six servers is not the same
+	 * question — so both travel, and both reach the API.
+	 */
+	it('sends the servers and the origins, and keeps them in the address', async () => {
+		const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': ONE_GROUP });
+		const { wrapper, router } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const filters = wrapper.findComponent({ name: 'MediaFilters' });
+		filters.vm.$emit('update:serviceIds', ['s1', 's2']);
+		filters.vm.$emit('update:origins', [MediaOrigin.FRIEND, MediaOrigin.FRIEND_OF_FRIEND]);
+		await settle();
+
+		expect(router.currentRoute.value.query.serviceIds).toBe('s1,s2');
+		expect(router.currentRoute.value.query.origins).toBe('friend,friend_of_friend');
+
+		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
+		expect(asked.at(-1)).toContain('serviceIds=s1&serviceIds=s2');
+		expect(asked.at(-1)).toContain('origins=friend&origins=friend_of_friend');
+	});
+
+	/**
+	 * Roots by default — a library of concerts has no kind this model names, and
+	 * deriving it would put parents and children on the same wall. Asking for a kind
+	 * is asking for exactly that, episodes included.
+	 */
+	it('drops the roots-only filter the moment a kind is asked for', async () => {
+		const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': ONE_GROUP });
+		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		wrapper.findComponent({ name: 'MediaFilters' }).vm.$emit('update:kind', MediaKind.EPISODE);
+		await settle();
+
+		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
+		expect(asked.at(-1)).toContain('kind=episode');
+		expect(asked.at(-1)).not.toContain('rootsOnly');
 	});
 });
 

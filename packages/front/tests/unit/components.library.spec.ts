@@ -1,13 +1,46 @@
-import type { MediaGroup, MediaGroupSource } from '@mcs/shared';
-import { LibraryKind, MediaKind, MediaServiceScope, MediaServiceType, SyncState } from '@mcs/shared';
+import type { MediaGroup, MediaGroupSource, Peer } from '@mcs/shared';
+import {
+	LibraryKind,
+	MediaKind,
+	MediaServiceScope,
+	MediaServiceType,
+	PeerStatus,
+	PeerTrust,
+	SyncState,
+} from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
+import { nextTick } from 'vue';
 import CompanionMarks from '@/components/media/CompanionMarks.vue';
 import LibrarySection from '@/components/media/LibrarySection.vue';
+import MediaBreadcrumb from '@/components/media/MediaBreadcrumb.vue';
 import MediaCard from '@/components/media/MediaCard.vue';
 import MediaPoster from '@/components/media/MediaPoster.vue';
 import SourceMarks from '@/components/media/SourceMarks.vue';
 import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
+import { usePeersStore } from '@/stores/peers';
 import { mountWithApp, tooltipStub } from './helpers';
+
+function peer (overrides: Partial<Peer> = {}): Peer {
+	return {
+		id: 'p1',
+		name: 'Bob',
+		nodeId: null,
+		fingerprint: 'AB',
+		status: PeerStatus.LINKED,
+		direction: null,
+		trust: PeerTrust.FRIEND,
+		linkMode: null,
+		address: null,
+		viaPeerId: null,
+		viaPeerName: null,
+		serviceCount: 1,
+		sharedItemCount: 0,
+		lastSeenAt: null,
+		createdAt: '2026-01-01T00:00:00.000Z',
+		updatedAt: '2026-01-01T00:00:00.000Z',
+		...overrides,
+	};
+}
 
 function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 	return {
@@ -179,6 +212,73 @@ describe('components/media/SourceMarks', () => {
 
 		expect(wrapper.find('[data-test="source-mark-none"]').exists()).toBe(true);
 	});
+
+	/**
+	 * The distinction the whole origin vocabulary exists for: a friend is somebody
+	 * this house linked to, and a friend of a friend is somebody it never agreed to.
+	 * One hollow pill for both makes that invisible at exactly the size it matters.
+	 */
+	it('tells a friend of a friend apart from a friend, on the tile', async () => {
+		const { wrapper, pinia } = mountWithApp(SourceMarks, {
+			props: {
+				sources: [
+					source({ itemId: 'i1', serviceId: 's1', local: false, peerId: 'p1' }),
+					source({ itemId: 'i2', serviceId: 's2', local: false, peerId: 'p2' }),
+					source({ itemId: 'i3', serviceId: 's3', local: false, peerId: null }),
+				],
+			},
+			global: { stubs: tooltipStub },
+		});
+
+		usePeersStore(pinia).peers = [
+			peer({ id: 'p1', trust: PeerTrust.FRIEND }),
+			peer({ id: 'p2', name: 'Carol', trust: PeerTrust.FRIEND_OF_FRIEND }),
+		];
+		await nextTick();
+
+		const origins = wrapper.findAll('[data-test="source-mark-remote"]')
+			.map(one => one.attributes('data-origin'));
+		expect(origins).toEqual(['direct', 'friend', 'friend_of_friend']);
+		expect(wrapper.find('[data-test="source-marks"]').attributes('data-origins'))
+			.toBe('direct friend friend_of_friend');
+	});
+
+	/** A peer this browser has not loaded is not a friend, and must not claim to be. */
+	it('refuses to guess how close an unknown peer is', () => {
+		const { wrapper } = mountWithApp(SourceMarks, {
+			props: { sources: [source({ local: false, peerId: 'p9' })] },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="source-mark-remote"]').attributes('data-origin'))
+			.toBe('unknown');
+	});
+});
+
+describe('components/media/MediaBreadcrumb', () => {
+	it('links every step but the one somebody is on', () => {
+		const { wrapper } = mountWithApp(MediaBreadcrumb, {
+			props: {
+				steps: [
+					{ key: 'root', label: 'Library', to: { name: 'library' } },
+					{ key: 'c', label: 'Animes', to: { name: 'library', query: { category: 'animes' } } },
+					{ key: 'm1', label: 'Season 1', to: null },
+				],
+			},
+		});
+
+		expect(wrapper.findAll('[data-test="media-breadcrumb-step"]')).toHaveLength(2);
+		expect(wrapper.find('[data-test="media-breadcrumb-current"]').text()).toBe('Season 1');
+	});
+
+	/** A trail of one step is where you already are, and says nothing worth a line. */
+	it('stays out of the way when there is nowhere to go back to', () => {
+		const { wrapper } = mountWithApp(MediaBreadcrumb, {
+			props: { steps: [{ key: 'root', label: 'Library', to: { name: 'library' } }] },
+		});
+
+		expect(wrapper.find('[data-test="media-breadcrumb"]').exists()).toBe(false);
+	});
 });
 
 describe('components/media/MediaCard', () => {
@@ -308,6 +408,29 @@ describe('components/media/LibrarySection', () => {
 
 		expect(music.wrapper.find('[data-test="media-poster"]').classes()).toContain('media-poster--square');
 		expect(films.wrapper.find('[data-test="media-poster"]').classes()).not.toContain('media-poster--square');
+	});
+
+	/**
+	 * A count of four hundred above twenty-four posters reads as a broken wall unless
+	 * the band says these are the newest of them.
+	 */
+	it('says a capped band is the latest of its category, and whether any of it is ours', () => {
+		const { wrapper } = mountWithApp(LibrarySection, {
+			props: {
+				title: 'Animes',
+				categoryKey: 'animes',
+				libraryKind: LibraryKind.SHOWS,
+				groups: [group()],
+				total: 400,
+				latest: true,
+				local: true,
+			},
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="library-section"]').attributes('data-category')).toBe('animes');
+		expect(wrapper.find('[data-test="library-section-latest"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="library-section-local"]').exists()).toBe(true);
 	});
 
 	it('renders rows instead of tiles for somebody who wants the dense view', () => {

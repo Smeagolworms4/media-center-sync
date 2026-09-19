@@ -275,6 +275,10 @@ describe('useAppInit', () => {
 	});
 
 	it('resolves with no session rather than blocking the sign-in page', async () => {
+		// The boot asks one public question — whether this gateway has been claimed —
+		// and nothing else: the sign-in page must not wait behind a restore that was
+		// always going to fail.
+		stubFetch([{ body: { required: false, version: '1.2.3' } }]);
 		const Harness = defineComponent({
 			setup () {
 				return useAppInit();
@@ -286,7 +290,7 @@ describe('useAppInit', () => {
 		await wrapper.vm.init();
 
 		expect(wrapper.vm.ready).toBe(true);
-		expect(globalThis.fetch).not.toHaveBeenCalled();
+		expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it('loads the settings and opens the stream once a session is restored', async () => {

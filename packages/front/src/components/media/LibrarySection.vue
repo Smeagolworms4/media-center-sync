@@ -10,40 +10,57 @@
 	/**
 	 * One band of the library: a heading, a count, and what is in it.
 	 *
-	 * The heading is a *library* — `Animes`, `Emissions`, `FilmsHD`, whatever the
-	 * person called it on their media server. Two hard-wired bands called Films and
-	 * Series would fold all of that into one word nobody uses, and the names are the
-	 * only part of this screen that came from the viewer rather than from us.
+	 * The heading is a *category* — every library of that name, across every server.
+	 * A household with two media servers has two libraries called `Shows` and a friend
+	 * makes a third; three bands under the same word is showing somebody the plumbing
+	 * rather than their media. The word itself is still theirs — `Animes`, `Emissions`,
+	 * `FilmsHD` — because the names are the only part of this screen that came from the
+	 * viewer rather than from us.
 	 *
 	 * `LibraryKind` is kept for what it actually is — structure, not a category. It
-	 * says whether the things inside open onto seasons or straight onto a file, and
-	 * what shape their artwork is; it is never shown, because `shows` is our word and
-	 * `Animes` is theirs.
+	 * decides the icon and whether a cover is square; it is never shown, because
+	 * `shows` is our word and `Animes` is theirs.
 	 *
-	 * A band with nothing in it still renders its heading and says so. A library that
+	 * A band with nothing in it still renders its heading and says so. A category that
 	 * disappears the day it is empty is one somebody will look for and not find, and
 	 * "empty" is itself the answer to "why is nothing syncing from there".
 	 */
 	const props = withDefaults(defineProps<{
 		title: string;
-		/** Whose library it is, shown only where the name alone is ambiguous. */
+		/** Disambiguates a heading, when the name alone does not settle it. */
 		subtitle?: string | null;
 		groups: MediaGroup[];
 		/** The band's total, which is larger than `groups` when it is capped. */
 		total: number;
 		/** Structural, never rendered: it picks the icon and the artwork shape. */
 		libraryKind?: LibraryKind | null;
+		/** The merged category this band shows, when it is one. */
+		categoryKey?: string | null;
+		/** One library, for the diagnostic band that names exactly one. */
 		libraryId?: string | null;
+		/** True when at least one of the merged libraries is one we can write into. */
+		local?: boolean;
+		/**
+		 * The band is capped to the most recent additions, and says so.
+		 *
+		 * A count of four hundred above twenty-four posters invites the reading that
+		 * the wall is broken; saying these are the latest is what makes the cap
+		 * legible as a choice.
+		 */
+		latest?: boolean;
 		view?: ViewMode;
 		selecting?: boolean;
 		selection?: Set<string>;
-		/** Offers the "see all" affordance when the band shows less than it holds. */
+		/** Offers the "open" affordance when the band shows less than it holds. */
 		truncated?: boolean;
 		loading?: boolean;
 	}>(), {
 		subtitle: null,
 		libraryKind: null,
+		categoryKey: null,
 		libraryId: null,
+		local: false,
+		latest: false,
 		view: 'grid',
 		selecting: false,
 		selection: () => new Set<string>(),
@@ -82,8 +99,10 @@
 <template>
 	<section
 		class="library-section"
+		:data-category="categoryKey ?? ''"
 		:data-kind="libraryKind ?? 'all'"
 		:data-library="libraryId ?? ''"
+		:data-local="local"
 		data-test="library-section"
 	>
 		<header class="library-section_header">
@@ -95,11 +114,37 @@
 				{{ subtitle }}
 			</span>
 
+			<!--
+				Whether any of this category is ours is the crossing, at the level of a
+				whole band: a category made only of what friends hold is one where every
+				poster is something to pull, and that is worth knowing before scrolling it.
+			-->
+			<v-chip
+				v-if="local"
+				class="library-section_ours"
+				color="state-in-sync"
+				data-test="library-section-local"
+				label
+				prepend-icon="mdi-harddisk"
+				size="x-small"
+				variant="tonal"
+			>
+				{{ $t('library.section_local') }}
+			</v-chip>
+
 			<span
 				class="library-section_count text-caption text-medium-emphasis"
 				data-test="library-section-count"
 			>
 				{{ $t('library.section_count', { count: total }, total) }}
+			</span>
+
+			<span
+				v-if="latest"
+				class="library-section_latest text-caption text-medium-emphasis"
+				data-test="library-section-latest"
+			>
+				{{ $t('library.section_latest') }}
 			</span>
 
 			<v-spacer />
@@ -195,6 +240,10 @@
 			// ones on a television, and neither is a library anybody scans.
 			grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
 			gap: 18px 14px;
+		}
+
+		&_latest {
+			font-style: italic;
 		}
 
 		&_empty {

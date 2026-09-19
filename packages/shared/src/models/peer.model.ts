@@ -53,6 +53,9 @@ export interface Peer {
 	name: string;
 	/** Their node identifier, learned when the link was established. */
 	nodeId: string | null;
+	/** The protocol version agreed with them, and the features they advertised. */
+	protocol: number | null;
+	capabilities: string[];
 	/** Public key fingerprint. This is the identity; the address can change. */
 	fingerprint: string;
 	status: PeerStatus;

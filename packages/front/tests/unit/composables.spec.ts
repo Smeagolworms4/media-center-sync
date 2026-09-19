@@ -169,6 +169,8 @@ describe('useCatalogue', () => {
 		episodeNumber: 2,
 		externalIds: { tvdb: '1234', provider: 'jf-9' },
 		overview: null,
+		overrides: null,
+		reported: null,
 		artworkUrl: null,
 		companions: null,
 		file: {

@@ -7,6 +7,7 @@ export * from './media.model';
 export * from './pagination.model';
 export * from './placement.model';
 export * from './peer.model';
+export * from './peer-protocol.model';
 export * from './service.model';
 export * from './settings.model';
 export * from './share.model';

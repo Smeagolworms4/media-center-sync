@@ -1,16 +1,20 @@
 <script lang="ts" setup>
 	import type { MediaGroupSource } from '@mcs/shared';
+	import { MediaOrigin } from '@mcs/shared';
 	import { computed } from 'vue';
+	import { useMediaOrigin } from '@/composables/useMediaOrigin';
 
 	/**
-	 * Who holds this media, in the two marks a poster has room for.
+	 * Who holds this media, in the marks a poster has room for.
 	 *
 	 * The question a grouped library exists to answer is "do I have this, or does
-	 * only a friend?", and it has to be answerable without opening anything. So the
-	 * card shows a filled mark when one of our own services holds it, a hollow one
-	 * with a count for the servers that are not ours, and nothing more — the list of
-	 * names, their qualities and their sizes belong on the detail page, where there
-	 * is room to read them.
+	 * somebody else?", and it has to be answerable without opening anything. So the
+	 * card shows a filled mark when one of our own services holds it, and a hollow
+	 * one per *origin* for the servers that are not ours — a friend's copy and a
+	 * friend-of-a-friend's are not the same answer, and drawing them identically
+	 * makes the difference invisible exactly where somebody is deciding whether to
+	 * pull. The names, the qualities and the sizes stay on the detail page, where
+	 * there is room to read them.
 	 *
 	 * Hiding the sources entirely was the other option and it is wrong: a media only
 	 * a friend has and a media we hold would then look identical, which is the one
@@ -22,10 +26,58 @@
 		sources: () => [],
 	});
 
+	const { originOf, describeMediaOrigin } = useMediaOrigin();
+
 	const localSources = computed(() => props.sources.filter(one => one.local));
 	const remoteSources = computed(() => props.sources.filter(one => !one.local));
 
-	const names = computed(() => props.sources.map(one => one.serviceName).join(', '));
+	/** Closest first, so the marks read outwards from us. */
+	const REMOTE_ORDER: (MediaOrigin | null)[] = [
+		MediaOrigin.DIRECT,
+		MediaOrigin.FRIEND,
+		MediaOrigin.FRIEND_OF_FRIEND,
+		// A peer this browser has not loaded. Calling it a friend would be a guess,
+		// and guessing is what the friend-of-a-friend distinction exists to prevent.
+		null,
+	];
+
+	interface OriginMark {
+		origin: MediaOrigin | null;
+		icon: string;
+		labelKey: string;
+		count: number;
+		names: string;
+	}
+
+	const remoteMarks = computed<OriginMark[]>(() => {
+		const buckets = new Map<MediaOrigin | null, MediaGroupSource[]>();
+		for (const source of remoteSources.value) {
+			const origin = originOf(source);
+			buckets.set(origin, [...(buckets.get(origin) ?? []), source]);
+		}
+		return REMOTE_ORDER
+			.filter(origin => buckets.has(origin))
+			.map(origin => {
+				const held = buckets.get(origin)!;
+				const described = origin ? describeMediaOrigin(origin) : null;
+				return {
+					origin,
+					icon: described?.icon ?? 'mdi-cloud-outline',
+					labelKey: described?.labelKey ?? 'media.origin.unknown',
+					count: held.length,
+					names: held.map(one => one.serviceName).join(', '),
+				};
+			});
+	});
+
+	/** For a journey and for the styles: which origins this tile is showing. */
+	const originList = computed(
+		() => [
+			...(localSources.value.length > 0 ? [MediaOrigin.LOCAL] : []),
+			...remoteMarks.value.map(mark => mark.origin ?? 'unknown'),
+		].join(' '));
+
+	const localNames = computed(() => localSources.value.map(one => one.serviceName).join(', '));
 </script>
 
 <template>
@@ -33,6 +85,7 @@
 		class="source-marks"
 		:data-count="sources.length"
 		:data-local="localSources.length > 0"
+		:data-origins="originList"
 		:data-remote="remoteSources.length"
 		data-test="source-marks"
 	>
@@ -42,21 +95,27 @@
 					<span
 						v-if="localSources.length > 0"
 						class="source-marks_mark source-marks_mark--local"
+						:data-origin="MediaOrigin.LOCAL"
 						data-test="source-mark-local"
 					>
 						<v-icon icon="mdi-harddisk" size="13" />
+
+						<span v-if="localSources.length > 1" class="source-marks_count">
+							{{ localSources.length }}
+						</span>
 					</span>
 
 					<span
-						v-if="remoteSources.length > 0"
+						v-for="mark of remoteMarks"
+						:key="mark.origin ?? 'unknown'"
 						class="source-marks_mark source-marks_mark--remote"
+						:class="`source-marks_mark--${mark.origin ?? 'unknown'}`"
+						:data-origin="mark.origin ?? 'unknown'"
 						data-test="source-mark-remote"
 					>
-						<v-icon icon="mdi-cloud-outline" size="13" />
+						<v-icon :icon="mark.icon" size="13" />
 
-						<span v-if="remoteSources.length > 1" class="source-marks_count">
-							{{ remoteSources.length }}
-						</span>
+						<span v-if="mark.count > 1" class="source-marks_count">{{ mark.count }}</span>
 					</span>
 
 					<span
@@ -70,9 +129,15 @@
 			</template>
 
 			<div class="source-marks_tooltip">
-				<div v-if="localSources.length > 0">{{ $t('media.source.held_here') }}</div>
+				<div v-if="localSources.length > 0">
+					{{ $t('media.source.held_here') }} — {{ localNames }}
+				</div>
+
 				<div v-else>{{ $t('media.source.not_held_here') }}</div>
-				<div v-if="names">{{ names }}</div>
+
+				<div v-for="mark of remoteMarks" :key="mark.origin ?? 'unknown'">
+					{{ $t(mark.labelKey) }} — {{ mark.names }}
+				</div>
 			</div>
 		</v-tooltip>
 	</span>
@@ -106,6 +171,23 @@
 				background: rgba(var(--v-theme-on-surface), 0.1);
 				color: rgb(var(--v-theme-on-surface));
 				border: 1px solid rgba(var(--v-theme-on-surface), 0.25);
+			}
+
+			// The further from us a copy is, the dimmer its mark. The icons already
+			// differ; this is what makes the ranking readable at poster size, where
+			// three hollow pills otherwise look like one repeated shape.
+			&--friend {
+				border-style: dashed;
+			}
+
+			&--friend_of_friend {
+				border-style: dotted;
+				opacity: 0.85;
+			}
+
+			&--unknown {
+				border-style: dotted;
+				color: rgb(var(--v-theme-state-unknown));
 			}
 
 			&--none {

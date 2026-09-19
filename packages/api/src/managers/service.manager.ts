@@ -449,7 +449,7 @@ export class ServiceManager {
 		 * it. Re-applying here is what makes those corrections stick, and it is the
 		 * whole reason the instruction is kept rather than only its result.
 		 */
-		if (row.overrides !== null) {
+		if (row.overrides !== null && row.overrides !== undefined) {
 			row.reported = null;
 			applyOverride(row, row.overrides, normalizeTitle);
 		}

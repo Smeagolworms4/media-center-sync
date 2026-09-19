@@ -24,6 +24,21 @@ export function useCheckRoute (
 		const authStore = useAuthStore(resolvedPinia);
 		const signedIn = authStore.authenticated;
 
+		/*
+		 * A gateway with no account at all has one thing to offer, so every address
+		 * leads to it — a bookmark, a shared link, the address bar. And once it has
+		 * been claimed the screen disappears entirely: the route that creates the
+		 * first administrator is open, and what makes that safe is that it refuses
+		 * the moment an account exists. Leaving its page reachable would only give
+		 * somebody a form whose submit can no longer succeed.
+		 */
+		if (authStore.setupRequired) {
+			return route.name === 'setup' ? null : { name: 'setup' };
+		}
+		if (route.name === 'setup') {
+			return signedIn ? { name: 'dashboard' } : { name: 'login' };
+		}
+
 		if (!signedIn && !route.meta.publicPage) {
 			return { name: 'login' };
 		}

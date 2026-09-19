@@ -5,6 +5,7 @@
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import RelativeDate from '@/components/common/RelativeDate.vue';
+	import LibraryNameField from '@/components/library/LibraryNameField.vue';
 	import LibraryPathField from '@/components/library/LibraryPathField.vue';
 	import ServiceStatusChip from '@/components/service/ServiceStatusChip.vue';
 	import { useNotifier } from '@/hooks/useNotifier';
@@ -40,6 +41,10 @@
 				servicesStore.get(props.id),
 				librariesStore.load(),
 				librariesStore.loadChecks().catch(() => undefined),
+				// The merged categories are what an alias and a position actually
+				// change, so this screen can say what each edit did rather than send
+				// somebody to the library screen to find out.
+				librariesStore.loadCategories().catch(() => undefined),
 			]);
 			service.value = loaded;
 		} catch {
@@ -161,6 +166,8 @@
 			<v-card class="mt-4">
 				<v-card-title class="text-subtitle-1">{{ $t('library.title') }}</v-card-title>
 
+				<v-card-subtitle class="text-caption text-wrap">{{ $t('library.naming_help') }}</v-card-subtitle>
+
 				<v-card-text>
 					<EmptyState
 						v-if="!loading && libraries.length === 0"
@@ -170,13 +177,31 @@
 					/>
 
 					<template v-else>
-						<LibraryPathField
-							v-for="library of libraries"
+						<div
+							v-for="(library, index) of libraries"
 							:key="library.id"
-							:check="librariesStore.checkById[library.id] ?? null"
-							:library="library"
-							@saved="onLibrarySaved"
-						/>
+							class="service_library"
+							data-test="service-library"
+						>
+							<v-divider v-if="index > 0" class="mb-4" />
+
+							<!--
+								The path first, because it carries the library's own heading:
+								an alias box above the name of the library it renames reads as
+								a form for nothing in particular.
+							-->
+							<LibraryPathField
+								:check="librariesStore.checkById[library.id] ?? null"
+								:library="library"
+								@saved="onLibrarySaved"
+							/>
+
+							<LibraryNameField
+								:category="librariesStore.categoryOfLibrary[library.id] ?? null"
+								:library="library"
+								@saved="onLibrarySaved"
+							/>
+						</div>
 					</template>
 				</v-card-text>
 			</v-card>
@@ -186,6 +211,10 @@
 
 <style lang="scss">
 	.service {
+		&_library + &_library {
+			margin-top: 8px;
+		}
+
 		&_details {
 			display: flex;
 			align-items: center;

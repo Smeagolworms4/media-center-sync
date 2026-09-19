@@ -6,6 +6,7 @@
 	import CompanionMarks from '@/components/media/CompanionMarks.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SyncStateIcon from '@/components/media/SyncStateIcon.vue';
+	import { type MediaOriginDescriptor, useMediaOrigin } from '@/composables/useMediaOrigin';
 
 	/**
 	 * Every server that holds this media, and which one a pull should use.
@@ -24,6 +25,11 @@
 	 * Each copy carries its own state as well as the group's: the group says the
 	 * media is outdated, and only the per-copy state says which one is the old one —
 	 * without it somebody is told to pull without being told from where.
+	 *
+	 * And each says how far away it is. A copy on a friend's server and a copy on
+	 * somebody their friend introduced are not the same offer — the second is a
+	 * gateway nobody here ever agreed to — and the row is where that has to be
+	 * readable, because this is the list a pull is chosen from.
 	 *
 	 * Left alone the pull follows the priority configured once in the administration
 	 * screen, and the list says so rather than showing an empty selection: pinning a
@@ -73,6 +79,24 @@
 	});
 
 	const defaultSource = computed(() => ordered.value[0] ?? null);
+
+	const { originOf, describeMediaOrigin } = useMediaOrigin();
+
+	/** Resolved once per source rather than once per binding that reads it. */
+	const originsByItem = computed(() => {
+		const map = new Map<string, MediaOriginDescriptor>();
+		for (const source of props.sources) {
+			const origin = originOf(source);
+			if (origin) {
+				map.set(source.itemId, describeMediaOrigin(origin));
+			}
+		}
+		return map;
+	});
+
+	function originOfItem (source: MediaGroupSource): MediaOriginDescriptor | null {
+		return originsByItem.value.get(source.itemId) ?? null;
+	}
 
 	function peerNameOf (source: MediaGroupSource): string | null {
 		return source.peerId ? props.peerNames[source.peerId] ?? null : null;
@@ -133,6 +157,23 @@
 							variant="tonal"
 						>
 							{{ $t('media.source.ours') }}
+						</v-chip>
+
+						<!--
+							Only where the copy is not ours: the chip beside it already says
+							`ours`, and two chips saying the same word is noise on every row of
+							a gateway with one server.
+						-->
+						<v-chip
+							v-if="!source.local && originOfItem(source)"
+							:data-origin="originOfItem(source)!.origin"
+							data-test="group-source-origin"
+							label
+							:prepend-icon="originOfItem(source)!.icon"
+							size="x-small"
+							variant="outlined"
+						>
+							{{ $t(originOfItem(source)!.labelKey) }}
 						</v-chip>
 
 						<span v-if="peerNameOf(source)" class="text-caption text-medium-emphasis">

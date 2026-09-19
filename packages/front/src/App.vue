@@ -39,7 +39,8 @@
 	 * the 404 render on their own, which is also what keeps the drawer from
 	 * flashing open behind the login card.
 	 */
-	const showShell = computed(() => authStore.authenticated && route.name !== 'login');
+	const showShell = computed(
+		() => authStore.authenticated && route.name !== 'login' && route.name !== 'setup');
 
 	// A menu entry the viewer cannot open is worse than no entry at all: it
 	// advertises a page and then bounces them off it.

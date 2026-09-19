@@ -150,6 +150,27 @@
 			<v-card-title class="text-subtitle-1">{{ $t('peer.identity.title') }}</v-card-title>
 
 			<v-card-text>
+				<!--
+					The node identifier sits first because it is the one somebody is asked
+					for when something goes round in circles: a friend of a friend
+					propagates what it hears, and a gateway that cannot recognise its own
+					name receives its own catalogue back through a third party. It is
+					generated once and is deliberately not the fingerprint, which a key
+					rotation would change.
+				-->
+				<template v-if="identity.nodeId">
+					<CopyField
+						data-test="peer-node-id"
+						:label="$t('peer.identity.node_id')"
+						:value="identity.nodeId"
+						wrap
+					/>
+
+					<p class="text-caption text-medium-emphasis mt-1 mb-3">
+						{{ $t('peer.identity.node_id_help') }}
+					</p>
+				</template>
+
 				<CopyField :label="$t('peer.identity.fingerprint')" :value="identity.fingerprint" wrap />
 
 				<CopyField

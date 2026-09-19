@@ -1,14 +1,20 @@
 import {
 	ErrorKey,
+	MediaServiceScope,
 	ShareVisibility,
 	type ShareAudit,
 	type SharePolicy,
 	type UpdateSharePolicyRequest,
 } from '@mcs/shared';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { In } from 'typeorm';
 import type { Library as LibraryEntity, Peer as PeerEntity } from '@/entities';
-import { LibraryRepository, PeerRepository, SharePolicyRepository } from '@/repositories';
+import {
+	LibraryRepository,
+	MediaServiceRepository,
+	PeerRepository,
+	SharePolicyRepository,
+} from '@/repositories';
 import { PeerCatalogueService, type CataloguePolicy } from '@/services';
 import { toSharePolicy } from './mappers';
 
@@ -30,6 +36,7 @@ export class ShareManager {
 		private readonly _libraries: LibraryRepository,
 		private readonly _peers: PeerRepository,
 		private readonly _catalogue: PeerCatalogueService,
+		private readonly _services: MediaServiceRepository,
 	) {}
 
 	public async list(): Promise<SharePolicy[]> {
@@ -64,16 +71,49 @@ export class ShareManager {
 				allowedPeerIds: [],
 				deniedPeerIds: [],
 				rateLimit: 0,
+				relay: false,
 			});
 
 		policy.visibility = patch.visibility ?? policy.visibility;
 		policy.allowedPeerIds = patch.allowedPeerIds ?? policy.allowedPeerIds;
 		policy.deniedPeerIds = patch.deniedPeerIds ?? policy.deniedPeerIds;
 		policy.rateLimit = patch.rateLimit ?? policy.rateLimit;
+		policy.relay = patch.relay ?? policy.relay ?? false;
+
+		const local = await this._isLocal(library.serviceId);
+
+		/*
+		 * A library that is not ours stays private until somebody says otherwise.
+		 *
+		 * Sharing one of our own libraries gives away our own bytes off our own disk.
+		 * Sharing a remote one makes us the conduit: our bandwidth, our connection, and
+		 * an access granted to us rather than to the people we would be handing it to.
+		 * That is a useful thing to do on purpose — it is how somebody with a good line
+		 * makes a distant server reachable for their friends — and never a thing to do
+		 * by accident, so it is refused rather than assumed.
+		 */
+		if (!local && !policy.relay && policy.visibility !== ShareVisibility.PRIVATE) {
+			throw new ConflictException(ErrorKey.SHARE_RELAY_NOT_AGREED);
+		}
 
 		const saved = await this._policies.save(policy);
 
-		return toSharePolicy(saved, { name: library.name, serviceId: library.serviceId });
+		return toSharePolicy(saved, { name: library.name, serviceId: library.serviceId }, local);
+	}
+
+	/** The services whose libraries are ours to give rather than ours to pass on. */
+	private async _localServiceIds(): Promise<Set<string>> {
+		const services = await this._services.find();
+
+		return new Set(
+			services
+				.filter((service) => service.scope === MediaServiceScope.LOCAL)
+				.map((service) => service.id),
+		);
+	}
+
+	private async _isLocal(serviceId: string): Promise<boolean> {
+		return (await this._localServiceIds()).has(serviceId);
 	}
 
 	/**
@@ -97,6 +137,7 @@ export class ShareManager {
 		const peer = await this._requirePeer(peerId);
 		const policies = await this._policies.find();
 		const libraries = await this._librariesOf(policies.map((policy) => policy.libraryId));
+		const localServices = await this._localServiceIds();
 
 		const visible = policies.filter((policy) =>
 			this._catalogue.isVisible(this._asCataloguePolicy(policy), {
@@ -115,6 +156,9 @@ export class ShareManager {
 				libraryId: policy.libraryId,
 				name: libraries.get(policy.libraryId)?.name ?? '',
 				itemCount: libraries.get(policy.libraryId)?.itemCount ?? 0,
+				// Worth saying plainly in an audit: this one costs us, and hands on an
+				// access somebody gave to us rather than to them.
+				throughUs: !localServices.has(libraries.get(policy.libraryId)?.serviceId ?? ''),
 			})),
 		};
 	}

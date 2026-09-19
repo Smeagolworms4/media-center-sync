@@ -140,13 +140,55 @@ describe('stores/auth', () => {
 		expect(authStore.authenticated).toBe(false);
 	});
 
-	it('restore resolves immediately when there is nothing stored', async () => {
+	it('reports a gateway that has never been claimed', async () => {
+		const stub = stubFetch([{ body: { required: true, version: '1.4.0' } }]);
+
+		const state = await useAuthStore().loadSetupState();
+
+		expect(stub.mock.calls[0][0]).toBe('/api/auth/setup');
+		expect(state?.required).toBe(true);
+		expect(useAuthStore().setupRequired).toBe(true);
+		expect(useAuthStore().setupVersion).toBe('1.4.0');
+	});
+
+	it('reads a gateway that cannot answer as one that does not need setting up', async () => {
+		// An older gateway does not serve this route at all, and trapping everybody
+		// on a setup screen because of a 404 would be the worse of the two mistakes.
+		stubFetch([{ status: 404, body: { message: 'Cannot GET /api/auth/setup' } }]);
+
+		expect(await useAuthStore().loadSetupState()).toBeNull();
+		expect(useAuthStore().setupRequired).toBe(false);
+	});
+
+	it('creates the first administrator and keeps the session it answered', async () => {
+		const stub = stubFetch([{ status: 201, body: tokenPair() }]);
+		const authStore = useAuthStore();
+		authStore.setupRequired = true;
+
+		const created = await authStore.setup({ username: 'ada', password: 'correct horse' });
+
+		expect(stub.mock.calls[0][0]).toBe('/api/auth/setup');
+		expect((stub.mock.calls[0][1] as RequestInit).method).toBe('POST');
+		expect(created.username).toBe('ada');
+		expect(useTokenStore().accessToken).toBe('access-1');
+		// The open route has just closed itself, so nothing should offer it again.
+		expect(authStore.setupRequired).toBe(false);
+		expect(authStore.authenticated).toBe(true);
+	});
+
+	it('restore asks whether the gateway has been claimed, and nothing else', async () => {
+		// With nothing stored there is no session to prove, but there is still one
+		// question: a gateway with no account at all has to lead to its setup screen
+		// rather than to a sign-in page nobody can use.
+		const stub = stubFetch([{ body: { required: false, version: '1.2.3' } }]);
 		const authStore = useAuthStore();
 		await authStore.restore();
 
 		expect(authStore.ready).toBe(true);
 		expect(authStore.authenticated).toBe(false);
-		expect(globalThis.fetch).not.toHaveBeenCalled();
+		expect(authStore.setupRequired).toBe(false);
+		expect(stub).toHaveBeenCalledTimes(1);
+		expect(stub.mock.calls[0][0]).toBe('/api/auth/setup');
 	});
 
 	it('restore runs once however many callers ask for it', async () => {

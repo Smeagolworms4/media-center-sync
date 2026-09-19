@@ -73,6 +73,8 @@ const library = {
 	serviceId: 's1',
 	externalId: 'x',
 	name: 'Shows',
+	alias: null,
+	position: 0,
 	kind: LibraryKind.SHOWS,
 	paths: ['/data/shows'],
 	localPath: '/media/shows',
@@ -83,6 +85,17 @@ const library = {
 	lastRefreshAt: null,
 	createdAt: '2026-01-01T00:00:00.000Z',
 	updatedAt: '2026-01-01T00:00:00.000Z',
+};
+
+const category = {
+	key: 'shows',
+	name: 'Shows',
+	kind: LibraryKind.SHOWS,
+	position: 0,
+	libraryIds: ['l1'],
+	serviceIds: ['s1'],
+	itemCount: 10,
+	local: true,
 };
 
 const check = {
@@ -99,6 +112,7 @@ const check = {
 const peer = {
 	id: 'p1',
 	name: 'Bob',
+	nodeId: 'node-bob-1',
 	fingerprint: 'AB:CD',
 	status: PeerStatus.LINKED,
 	direction: null,
@@ -303,6 +317,7 @@ const ROUTES: Record<string, { status?: number; body?: unknown }> = {
 	'/api/services/probe': { body: { reachable: true, authenticated: true, type: MediaServiceType.JELLYFIN, version: '10.9', serverName: 'attic', libraries: [], error: null } },
 	'/api/services/s1': { body: service },
 	'/api/services': { body: [service] },
+	'/api/libraries/categories': { body: [category] },
 	'/api/libraries/check': { body: [check] },
 	'/api/libraries/l1': { body: library },
 	'/api/libraries': { body: [library] },
@@ -313,7 +328,7 @@ const ROUTES: Record<string, { status?: number; body?: unknown }> = {
 	'/api/media/m1/matches': { body: [] },
 	'/api/media/m1': { body: { ...mediaItem, childCount: 1 } },
 	'/api/media': { body: { items: [mediaItem], pagination: { page: 1, limit: 50, total: 1, pages: 1 } } },
-	'/api/peers/identity': { body: { fingerprint: 'FF:EE', name: 'me', rendezvous: 'wss://r', directAddress: '1.2.3.4:4210', directReachable: false } },
+	'/api/peers/identity': { body: { nodeId: 'node-7f3a', fingerprint: 'FF:EE', name: 'me', rendezvous: 'wss://r', directAddress: '1.2.3.4:4210', directReachable: false } },
 	'/api/peers/invites': { body: { code: 'C', fingerprint: 'AB', rendezvous: 'wss://r', expiresAt: '2030-01-01T00:00:00.000Z', url: 'mcs://invite/C' } },
 	'/api/peers/p1/services': { body: [service] },
 	'/api/peers/p1/connect': { body: peer },

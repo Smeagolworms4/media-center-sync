@@ -198,6 +198,19 @@
 						{{ $t('peer.last_seen') }} <RelativeDate :date="peer.lastSeenAt" />
 						<template v-if="peer.address"> · {{ peer.address }}</template>
 					</span>
+
+					<!--
+						Their node identifier, learned when the link was established. It is
+						what both ends quote when an announcement loops, so it is shown
+						rather than kept for a log nobody has.
+					-->
+					<span
+						v-if="peer.nodeId"
+						class="peer_node-id text-caption text-medium-emphasis"
+						data-test="peer-node-id"
+					>
+						{{ $t('peer.identity.node_id') }}: <code>{{ peer.nodeId }}</code>
+					</span>
 				</v-card-text>
 			</v-card>
 
@@ -277,6 +290,12 @@
 
 <style lang="scss">
 	.peer {
+		&_node-id {
+			// The whole identifier matters when it is being compared with another
+			// gateway's, so it wraps rather than being cut.
+			overflow-wrap: anywhere;
+		}
+
 		&_details {
 			display: flex;
 			align-items: center;

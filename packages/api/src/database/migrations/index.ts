@@ -3,6 +3,20 @@ import { MediaCompanions1758330000000 } from './1758330000000-MediaCompanions';
 import { PeerDirection1758340000000 } from './1758340000000-PeerDirection';
 import { DropCatalogueOnly1758350000000 } from './1758350000000-DropCatalogueOnly';
 import { CategoriesAndIdentity1758360000000 } from './1758360000000-CategoriesAndIdentity';
+import { RelayConsent1758370000000 } from './1758370000000-RelayConsent';
+import { PeerProtocol1758380000000 } from './1758380000000-PeerProtocol';
+
+/*
+ * The thirteen digits at the end of every migration name are not decoration.
+ *
+ * TypeORM reads `className.substr(-13)` as a JavaScript timestamp, uses it to order
+ * migrations against each other, and stores it in the `migrations` table as the record
+ * of what has run. A name without it is refused outright — "Migration class name should
+ * have a JavaScript timestamp appended" — so it cannot be tidied away.
+ *
+ * They are chosen rather than generated here, spaced apart and in order, which is why
+ * they decode to round hours.
+ */
 
 /**
  * Every migration, in order, as classes rather than a path glob.
@@ -24,6 +38,8 @@ export const MIGRATIONS = [
 	PeerDirection1758340000000,
 	DropCatalogueOnly1758350000000,
 	CategoriesAndIdentity1758360000000,
+	RelayConsent1758370000000,
+	PeerProtocol1758380000000,
 ];
 
 export * from './1758240000000-InitialSchema';
@@ -31,3 +47,4 @@ export * from './1758330000000-MediaCompanions';
 export * from './1758340000000-PeerDirection';
 export * from './1758350000000-DropCatalogueOnly';
 export * from './1758360000000-CategoriesAndIdentity';
+export * from './1758370000000-RelayConsent';

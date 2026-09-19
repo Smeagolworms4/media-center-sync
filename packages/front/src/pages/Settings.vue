@@ -6,11 +6,15 @@
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import FormMainError from '@/components/FormMainError.vue';
+	import CategoryList from '@/components/library/CategoryList.vue';
+	import ShareRateSummary from '@/components/share/ShareRateSummary.vue';
 	import { useByteSize } from '@/composables/useByteSize';
 	import { useForm } from '@/composables/useForm';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useValidators } from '@/plugins/validators';
+	import { useLibrariesStore } from '@/stores/libraries';
 	import { useSettingsStore } from '@/stores/settings';
+	import { useSharesStore } from '@/stores/shares';
 
 	defineOptions({ name: 'SettingsPage' });
 
@@ -23,6 +27,8 @@
 	 */
 	const { t } = useI18n();
 	const settingsStore = useSettingsStore();
+	const librariesStore = useLibrariesStore();
+	const sharesStore = useSharesStore();
 	const validators = useValidators();
 	const { notify } = useNotifier();
 	const { parseByteSize, toByteSizeInput } = useByteSize();
@@ -80,7 +86,14 @@
 		loading.value = true;
 		failed.value = false;
 		try {
-			await settingsStore.load();
+			await Promise.all([
+				settingsStore.load(),
+				// Both are conveniences on this page, and both belong to a right this
+				// page does not require: a failure leaves their block empty rather
+				// than refusing the settings somebody came here to change.
+				librariesStore.loadCategories().catch(() => undefined),
+				sharesStore.load().catch(() => undefined),
+			]);
 			apply();
 		} catch {
 			failed.value = true;
@@ -275,6 +288,7 @@
 							<v-text-field
 								v-model="model.downloadRateLimit"
 								v-bind="form.field('downloadRateLimit')"
+								data-test="settings-download-rate"
 								:hint="$t('settings.rate_limit_help')"
 								:label="$t('settings.download_rate_limit')"
 								persistent-hint
@@ -285,9 +299,23 @@
 							<v-text-field
 								v-model="model.uploadRateLimit"
 								v-bind="form.field('uploadRateLimit')"
-								:hint="$t('settings.rate_limit_help')"
+								data-test="settings-upload-rate"
+								:hint="$t('settings.upload_rate_limit_help')"
 								:label="$t('settings.upload_rate_limit')"
 								persistent-hint
+							/>
+						</v-col>
+
+						<v-col cols="12">
+							<!--
+								What is in force, not what is in the box above: the caps that
+								throttle this gateway are set on two screens, and the one
+								somebody is not looking at is the one that surprises them.
+							-->
+							<ShareRateSummary
+								class="settings_rates"
+								:policies="sharesStore.policies"
+								:upload-rate-limit="settingsStore.settings?.uploadRateLimit ?? 0"
 							/>
 						</v-col>
 
@@ -302,6 +330,30 @@
 							/>
 						</v-col>
 					</v-row>
+				</v-card-text>
+			</v-card>
+
+			<v-card class="settings_card mt-4">
+				<v-card-title class="text-subtitle-1">{{ $t('settings.group.categories') }}</v-card-title>
+
+				<v-card-text>
+					<p class="text-body-2 text-medium-emphasis">{{ $t('settings.categories_help') }}</p>
+
+					<CategoryList
+						:categories="librariesStore.orderedCategories"
+						:loading="loading"
+					/>
+
+					<v-btn
+						class="mt-2"
+						data-test="settings-categories-services"
+						prepend-icon="mdi-server-network"
+						size="small"
+						:to="{ name: 'services' }"
+						variant="text"
+					>
+						{{ $t('settings.categories_edit') }}
+					</v-btn>
 				</v-card-text>
 			</v-card>
 
@@ -418,6 +470,14 @@
 
 <style lang="scss">
 	.settings {
+		// The caps in force are a statement rather than a field, and it has to be
+		// told apart from the inputs above it at a glance.
+		&_rates {
+			border: 1px solid rgba(var(--v-border-color), 0.2);
+			border-radius: 6px;
+			padding: 12px 16px;
+		}
+
 		&_actions {
 			display: flex;
 			justify-content: flex-end;

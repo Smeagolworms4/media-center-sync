@@ -2,6 +2,7 @@
 	import type { MediaGroup } from '@mcs/shared';
 	import { MediaKind, SyncState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -9,12 +10,15 @@
 	import CompanionMarks from '@/components/media/CompanionMarks.vue';
 	import GroupSources from '@/components/media/GroupSources.vue';
 	import MatchesDialog from '@/components/media/MatchesDialog.vue';
+	import MediaBreadcrumb from '@/components/media/MediaBreadcrumb.vue';
 	import MediaCard from '@/components/media/MediaCard.vue';
 	import MediaGroupRow from '@/components/media/MediaGroupRow.vue';
 	import MediaPoster from '@/components/media/MediaPoster.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
+	import { useMediaTrail } from '@/composables/useMediaTrail';
 	import { useNotifier } from '@/hooks/useNotifier';
+	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 	import { usePeersStore } from '@/stores/peers';
 	import { useServicesStore } from '@/stores/services';
@@ -33,14 +37,21 @@
 	 * and badged. That is the whole point of the page: a season that only showed the
 	 * six episodes on this disk would leave the two a friend has invisible, which is
 	 * the question people came to ask.
+	 *
+	 * The trail at the top is how somebody four levels down knows where they are. An
+	 * episode reached from a search looks exactly like an episode reached from the
+	 * wall, and without the breadcrumb the only way back to the category it belongs
+	 * to is the browser's own button, which walks the history rather than the tree.
 	 */
 	const props = defineProps<{ itemId: string }>();
 
 	const mediaStore = useMediaStore();
+	const librariesStore = useLibrariesStore();
 	const servicesStore = useServicesStore();
 	const peersStore = usePeersStore();
 	const syncStore = useSyncStore();
 	const { notify, tryCallback } = useNotifier();
+	const { t } = useI18n();
 
 	const group = ref<MediaGroup | null>(null);
 	const children = ref<MediaGroup[]>([]);
@@ -69,10 +80,21 @@
 		}
 	}
 
+	const { steps } = useMediaTrail(group);
+
+	/** The trail, in the words the wall uses: the library, the category, then the tree. */
+	const trail = computed(() => steps(t('pages.library')));
+
 	onMounted(async () => {
+		// The categories come along because the first step of the trail is one, and the
+		// peers because a source cannot be told apart from a friend of a friend without
+		// them. Neither failing takes the page down: the media is what was asked for.
 		await Promise.all([
 			servicesStore.loaded ? Promise.resolve() : servicesStore.load().catch(() => undefined),
 			peersStore.loaded ? Promise.resolve() : peersStore.load().catch(() => undefined),
+			librariesStore.categoriesLoaded
+				? Promise.resolve()
+				: librariesStore.loadCategories().catch(() => undefined),
 		]);
 		await load();
 	});
@@ -194,6 +216,8 @@
 		<ErrorState v-if="failed" @retry="load" />
 
 		<template v-else-if="group">
+			<MediaBreadcrumb :steps="trail" />
+
 			<PageHeader :loading="loading" :title="group.title">
 				<template #actions>
 					<v-btn

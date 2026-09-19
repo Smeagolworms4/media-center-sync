@@ -31,7 +31,7 @@ describe('router', () => {
 		const paths = routes.map(route => route.path);
 
 		expect(paths).toEqual([
-			'/login', '/', '/library', '/library/:itemId',
+			'/login', '/setup', '/', '/library', '/library/:itemId',
 			'/services', '/services/:id', '/peers', '/peers/:id',
 			'/sync', '/sync/plans/:id', '/transfers',
 			'/settings', '/settings/shares', '/settings/users',
@@ -65,6 +65,29 @@ describe('router', () => {
 		expect(check(to as never)).toEqual({ name: 'login' });
 	});
 
+	it('sends every address to the setup screen while the gateway has no account', () => {
+		// A gateway nobody has claimed has one thing to offer, and a bookmark, a
+		// shared link or a typed address must all end up there.
+		useAuthStore().setupRequired = true;
+		const check = useCheckRoute({ app: context.app, pinia: context.pinia });
+
+		expect(check(context.router.resolve({ name: 'library' }) as never)).toEqual({ name: 'setup' });
+		expect(check(context.router.resolve({ name: 'login' }) as never)).toEqual({ name: 'setup' });
+		expect(check(context.router.resolve({ name: 'setup' }) as never)).toBeNull();
+	});
+
+	it('keeps the setup screen unreachable once the gateway has been claimed', () => {
+		// The route behind it is open, and what makes that safe is that it refuses
+		// the moment an account exists: a page whose submit can no longer succeed is
+		// not worth reaching.
+		const check = useCheckRoute({ app: context.app, pinia: context.pinia });
+
+		expect(check(context.router.resolve({ name: 'setup' }) as never)).toEqual({ name: 'login' });
+
+		signIn([Right.LIBRARY_READ]);
+		expect(check(context.router.resolve({ name: 'setup' }) as never)).toEqual({ name: 'dashboard' });
+	});
+
 	it('lets a visitor with no session reach the public pages', () => {
 		const check = useCheckRoute({ app: context.app, pinia: context.pinia });
 
@@ -93,7 +116,11 @@ describe('router', () => {
 
 		const params = { itemId: 'm1', id: 's1', pathMatch: ['nowhere'] };
 		for (const route of routes) {
-			if (route.name === 'login') {
+			// Both of these are refused to somebody who is signed in, and for the same
+			// reason: they are the two screens that only exist before there is a
+			// session. Setup goes further — it is refused to everybody once the gateway
+			// has an account, which is the state every other test here is in.
+			if (route.name === 'login' || route.name === 'setup') {
 				continue;
 			}
 			const to = context.router.resolve({ name: route.name, params });

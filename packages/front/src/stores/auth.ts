@@ -1,4 +1,12 @@
-import type { AuthProvider, LoginRequest, Right, SessionUser, TokenPair } from '@mcs/shared';
+import type {
+	AuthProvider,
+	LoginRequest,
+	Right,
+	SessionUser,
+	SetupRequest,
+	SetupState,
+	TokenPair,
+} from '@mcs/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
@@ -17,6 +25,16 @@ export const useAuthStore = defineStore('auth', () => {
 
 	const providers = ref<AuthProvider[]>([]);
 	const providersLoaded = ref(false);
+
+	/**
+	 * Whether this gateway has never been claimed.
+	 *
+	 * It is part of the session state rather than of the setup page's own data
+	 * because the route guard decides on it: a gateway with no account at all has
+	 * exactly one thing to offer, and every address has to lead there.
+	 */
+	const setupRequired = ref(false);
+	const setupVersion = ref<string | null>(null);
 
 	/**
 	 * Whether the boot-time restore has finished.
@@ -53,6 +71,47 @@ export const useAuthStore = defineStore('auth', () => {
 		return providers.value;
 	}
 
+	/**
+	 * Whether the gateway still needs its first administrator.
+	 *
+	 * A failure answers "no". The question is asked before anything is signed in,
+	 * on a route an older gateway does not even serve, and the cost of the two
+	 * mistakes is not the same: reading an unreachable gateway as "set up" shows
+	 * the sign-in page, which says so itself, while reading it as "fresh" would
+	 * offer to create an administrator on a gateway that already has one and then
+	 * fail on submit for reasons nobody can see.
+	 */
+	async function loadSetupState (): Promise<SetupState | null> {
+		try {
+			const state = await caller('api').get<SetupState>('/auth/setup', {
+				useAuth: false,
+				keepLastKey: 'auth|setup',
+			});
+			setupRequired.value = state?.required === true;
+			setupVersion.value = state?.version ?? null;
+			return state;
+		} catch {
+			setupRequired.value = false;
+			return null;
+		}
+	}
+
+	/**
+	 * Creates the first administrator, and signs them in with it.
+	 *
+	 * The route answers a session on purpose, and this stores it: sending somebody
+	 * to the sign-in screen to retype the credentials they chose ten seconds ago is
+	 * a step for nobody. It is also the moment the open route closes — the gateway
+	 * refuses a second call — so the flag is cleared here rather than re-read.
+	 */
+	async function setup (request: SetupRequest): Promise<SessionUser> {
+		const pair = await caller('api').post<TokenPair>('/auth/setup', request, { useAuth: false });
+		tokenStore.store(pair);
+		setupRequired.value = false;
+		ready.value = true;
+		return { ...pair.user, rights: pair.rights };
+	}
+
 	async function login (request: LoginRequest): Promise<SessionUser> {
 		const pair = await caller('api').post<TokenPair>('/auth/login', request, { useAuth: false });
 		tokenStore.store(pair);
@@ -79,9 +138,16 @@ export const useAuthStore = defineStore('auth', () => {
 				}
 			} catch {
 				tokenStore.clear();
-			} finally {
-				ready.value = true;
 			}
+			// Asked here, before the first navigation is decided, because the guard
+			// needs the answer: a gateway that has never been claimed must lead to its
+			// setup screen from whatever address somebody typed. A visitor who already
+			// holds a session is not asking that question, and is not made to wait for
+			// a call that would answer "no".
+			if (!tokenStore.session) {
+				await loadSetupState();
+			}
+			ready.value = true;
 		})();
 		return restoring;
 	}
@@ -94,12 +160,16 @@ export const useAuthStore = defineStore('auth', () => {
 	return {
 		providers,
 		providersLoaded,
+		setupRequired,
+		setupVersion,
 		ready,
 		user,
 		rights,
 		authenticated,
 		hasRight,
 		loadProviders,
+		loadSetupState,
+		setup,
 		login,
 		logout,
 		restore,

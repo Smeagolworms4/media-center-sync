@@ -64,6 +64,8 @@ const library: Library = {
 	serviceId: 's1',
 	externalId: 'x',
 	name: 'Shows',
+	alias: null,
+	position: 0,
 	kind: LibraryKind.SHOWS,
 	paths: [],
 	localPath: '/media/shows',

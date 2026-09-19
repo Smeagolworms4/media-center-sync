@@ -43,6 +43,8 @@ function item (overrides: Partial<MediaItem> = {}): MediaItem {
 		episodeNumber: 1,
 		externalIds: {},
 		overview: null,
+		overrides: null,
+		reported: null,
 		artworkUrl: null,
 		companions: null,
 		file: null,
@@ -225,6 +227,31 @@ describe('stores/media', () => {
 		});
 
 		expect(store.items[0].sync).toBe(SyncState.MISSING);
+	});
+
+	it('sends a correction exactly as it was built, nulls included', async () => {
+		// The store is the last place the body passes through, and dropping a null
+		// here — or turning an empty string into one — would silently take away the
+		// only way to remove a value a scraper invented.
+		const stub = stubFetch([{ body: item({ title: 'Cosmos', year: null }) }]);
+		const store = useMediaStore();
+
+		const saved = await store.setOverride('m1', { title: 'Cosmos', year: null });
+
+		expect(stub.mock.calls[0][0]).toBe('/api/media/m1/override');
+		expect(stub.mock.calls[0][1]?.method).toBe('PUT');
+		expect(JSON.parse(stub.mock.calls[0][1]?.body as string)).toEqual({ title: 'Cosmos', year: null });
+		expect(saved.title).toBe('Cosmos');
+	});
+
+	it('puts every corrected field back with one call', async () => {
+		const stub = stubFetch([{ body: item() }]);
+		const store = useMediaStore();
+
+		await store.clearOverride('m1');
+
+		expect(stub.mock.calls[0][0]).toBe('/api/media/m1/override');
+		expect(stub.mock.calls[0][1]?.method).toBe('DELETE');
 	});
 
 	it('confirms and drops a correlation through the routes that record it', async () => {

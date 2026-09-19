@@ -1,3 +1,4 @@
+import { serviceMode } from '@/services';
 import type { ServiceConnection } from '@/services';
 import type {
 	Library as LibraryModel,
@@ -84,6 +85,7 @@ export const toMediaService = (
 	name: service.name,
 	type: service.type,
 	scope: service.scope,
+	mode: serviceMode(service),
 	baseUrl: service.baseUrl,
 	status: service.status,
 	version: service.version,
@@ -280,6 +282,8 @@ export const toPeer = (
 	name: peer.name,
 	fingerprint: peer.fingerprint,
 	nodeId: peer.nodeId,
+	protocol: peer.protocol,
+	capabilities: peer.capabilities ?? [],
 	status: peer.status,
 	direction: peer.direction,
 	trust: peer.trust,
@@ -297,6 +301,14 @@ export const toPeer = (
 export const toSharePolicy = (
 	policy: SharePolicy,
 	library: { name: string; serviceId: string } | null,
+	/**
+	 * Whether this library sits on a service of ours.
+	 *
+	 * Passed in rather than read here, because a mapper that queries is a mapper that
+	 * surprises somebody in a loop. Unknown is treated as remote: assuming a library is
+	 * ours is the assumption that quietly turns somebody into a relay.
+	 */
+	local = false,
 ): SharePolicyModel => ({
 	id: policy.id,
 	libraryId: policy.libraryId,
@@ -306,6 +318,10 @@ export const toSharePolicy = (
 	allowedPeerIds: policy.allowedPeerIds,
 	deniedPeerIds: policy.deniedPeerIds,
 	rateLimit: bytes(policy.rateLimit),
+	relays: !local,
+	// Coalesced rather than passed through: a flag that is missing must never read as
+	// consent to pass somebody else's server on to our friends.
+	relay: policy.relay === true,
 	updatedAt: policy.updatedAt.toISOString(),
 });
 

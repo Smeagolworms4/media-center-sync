@@ -41,6 +41,7 @@
 			await Promise.all([
 				servicesStore.load(),
 				librariesStore.load(),
+				librariesStore.loadCategories(),
 				librariesStore.loadChecks(),
 				peersStore.load(),
 				transfersStore.load({ page: 1, limit: 10 }),
@@ -115,6 +116,17 @@
 	]);
 
 	const recentJobs = computed(() => syncStore.jobs.slice(0, 5));
+
+	/**
+	 * The categories, which is what the library screen is made of.
+	 *
+	 * A dashboard that counts services and transfers and never names a single library
+	 * sends everybody through the navigation to find out what is in there. These are
+	 * the same merged bands the wall draws, in the same order, and each one opens on
+	 * its own — so the first click from the home page can be the one people actually
+	 * want.
+	 */
+	const categories = computed(() => librariesStore.orderedCategories);
 </script>
 
 <template>
@@ -203,6 +215,33 @@
 			</v-row>
 
 			<v-row class="mt-2" density="compact">
+				<v-col v-if="categories.length > 0" cols="12">
+					<v-card class="dashboard_card" data-test="dashboard-categories">
+						<v-card-title class="text-subtitle-1">{{ $t('library.categories') }}</v-card-title>
+
+						<v-card-subtitle>{{ $t('library.categories_hint') }}</v-card-subtitle>
+
+						<v-card-text class="dashboard_categories">
+							<v-chip
+								v-for="category of categories"
+								:key="category.key"
+								:data-local="category.local"
+								data-test="dashboard-category"
+								label
+								:prepend-icon="category.local ? 'mdi-harddisk' : 'mdi-cloud-outline'"
+								:to="{ name: 'library', query: { category: category.key } }"
+								variant="tonal"
+							>
+								{{ category.name }}
+
+								<span class="dashboard_categoryCount text-caption text-medium-emphasis ml-2">
+									{{ category.itemCount }}
+								</span>
+							</v-chip>
+						</v-card-text>
+					</v-card>
+				</v-col>
+
 				<v-col cols="12" md="6">
 					<v-card class="dashboard_card" data-test="dashboard-problems">
 						<v-card-title class="text-subtitle-1">{{ $t('dashboard.needs_attention') }}</v-card-title>
@@ -268,6 +307,12 @@
 	.dashboard {
 		&_card {
 			height: 100%;
+		}
+
+		&_categories {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 8px;
 		}
 	}
 </style>

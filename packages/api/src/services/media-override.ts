@@ -44,7 +44,7 @@ export const snapshotReported = (item: OverridableItem): MediaReported => ({
  */
 export const applyOverride = (
 	item: OverridableItem,
-	override: MediaOverride | null,
+	override: MediaOverride | null | undefined,
 	normalize: (title: string) => string,
 ): void => {
 	const reported = item.reported ?? snapshotReported(item);
@@ -63,7 +63,16 @@ export const applyOverride = (
 		item.seriesTitle = reported.seriesTitle;
 	}
 
-	if (override === null || Object.keys(override).length === 0) {
+	/*
+	 * Nullish, not just null.
+	 *
+	 * A row freshly built from what a service reported has no `overrides` property at
+	 * all, and `Object.keys(undefined)` throws `Cannot convert undefined or null to
+	 * object` — which surfaced as `Indexing <id> failed` for every service, with
+	 * nothing indexed and an error naming neither overrides nor the scan. Absent and
+	 * cleared mean the same thing here: the service's answer stands.
+	 */
+	if (override === null || override === undefined || Object.keys(override).length === 0) {
 		item.overrides = null;
 		item.reported = null;
 		item.normalizedTitle = normalize(seriesOrOwn(item));

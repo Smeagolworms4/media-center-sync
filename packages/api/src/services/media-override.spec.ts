@@ -90,6 +90,18 @@ describe('applyOverride', () => {
 		expect(item.overrides).toBeNull();
 		expect(item.reported).toBeNull();
 	});
+
+	it('treats an absent instruction the same as a cleared one', () => {
+		// A row built from a scan has no `overrides` property at all. Reading only for
+		// `null` let `undefined` through to `Object.keys()`, which throws — and it threw
+		// inside the indexing loop, so every service reported `Indexing <id> failed:
+		// Cannot convert undefined or null to object` and nothing was indexed at all.
+		const item = anItem();
+
+		expect(() => applyOverride(item, undefined, normalize)).not.toThrow();
+		expect(item).toMatchObject({ title: 'Dulcinea', seasonNumber: 1, year: 2015 });
+		expect(item.overrides).toBeNull();
+	});
 });
 
 describe('snapshotReported', () => {

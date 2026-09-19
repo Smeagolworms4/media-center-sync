@@ -340,42 +340,83 @@ cache/redis:
 # Lab #
 #######
 
-# Two real media servers, one Jellyfin and one Plex, each holding a library that
-# disagrees with the other on purpose.
+# Four real media servers — two Jellyfin, two Plex — each holding a library that
+# disagrees with the others on purpose.
 #
 # It exists because correlation, quality comparison and transfers cannot be proven
 # against mocks. A handler that maps a recorded payload correctly still has to survive
 # a real server's pagination, its idea of what a season is, and the fields it leaves
-# out. The fixtures are generated — a megabyte of test pattern, nothing downloaded —
-# and `lab/media` prints what each file is meant to prove.
+# out. The fixtures are generated — a few megabytes of test pattern, nothing
+# downloaded — and `lab/media` prints what each file is meant to prove.
+#
+# Four rather than two because two is the shape the gateway is never used in. Two of
+# these are ours and may be written into; two are a friend's and may only be read. Only
+# with both does a season nobody local holds exist, or a group with three sources
+# behind one quality chip, or a real choice of where to pull from.
 #
 # It is not part of the development stack and never starts with it.
 
-export LAB_JELLYFIN_PORT      ## Lab Jellyfin (default: 8096)
-export LAB_PLEX_PORT          ## Lab Plex (default: 32400)
+export LAB_JELLYFIN_PORT          ## Lab Jellyfin, ours (default: 8096)
+export LAB_PLEX_PORT              ## Lab Plex, ours (default: 32400)
+export LAB_JELLYFIN_REMOTE_PORT   ## Lab Jellyfin, a friend's (default: 8097)
+export LAB_PLEX_REMOTE_PORT       ## Lab Plex, a friend's (default: 32401)
 
-LAB_COMPOSE=docker compose -f docker/lab/docker-compose.yml
+# The project name is pinned, and that `-p` is not decoration. `.env` sets
+# `COMPOSE_PROJECT_NAME=media-center-sync` and the makefiles export every key of it
+# into every recipe, where an environment variable outranks the `name:` written in the
+# compose file. Without the flag, every lab command runs against the development
+# stack's project instead: `lab/down` then stops and removes the API, the interface and
+# the database, reports that it did, and leaves the lab itself untouched and running.
+LAB_COMPOSE=docker compose -p media-center-sync-lab -f docker/lab/docker-compose.yml
+LAB_KEYS=$(PROJECT_PATH)var/lab/keys
 
-## Generate the two lab libraries (needs ffmpeg; about a megabyte)
+## Generate the four lab libraries (needs ffmpeg; a few megabytes)
 lab/media:
 	@./docker/lab/seed-media.sh "$(PROJECT_PATH)var/lab/media"
 
-## Start the lab: Jellyfin and Plex, with the generated libraries
+## Start the whole lab: four servers, configured, with the generated libraries
 ##
 ## The configuration directories are created here, before Compose does. A bind mount
-## whose source does not exist is created by the daemon, owned by root — and both
-## servers run under the host user, so the first thing either of them does is fail to
+## whose source does not exist is created by the daemon, owned by root — and the
+## servers run under the host user, so the first thing any of them does is fail to
 ## write its own log directory, in a restart loop whose message never mentions a
 ## mount.
+##
+## `--remove-orphans` because this project was two services before it was four: without
+## it the old `jellyfin` and `plex` containers stay up, holding 8096 and 32400, and the
+## new ones fail to bind a port that nothing in the new file is using.
 lab/up: lab/media
-	@mkdir -p var/lab/jellyfin/config var/lab/jellyfin/cache var/lab/plex/config var/lab/plex/transcode
-	USER_ID=$$(id -u) USER_GID=$$(id -g) $(LAB_COMPOSE) up -d
+	@mkdir -p var/lab/jellyfin-local/config var/lab/jellyfin-local/cache \
+		var/lab/jellyfin-remote/config var/lab/jellyfin-remote/cache \
+		var/lab/plex-local/config var/lab/plex-local/transcode \
+		var/lab/plex-remote/config var/lab/plex-remote/transcode \
+		var/lab/keys
+	USER_ID=$$(id -u) USER_GID=$$(id -g) $(LAB_COMPOSE) up -d --remove-orphans
 	@$(MAKE) --no-print-directory lab/setup
+	@$(MAKE) --no-print-directory lab/services
 
-## Configure the lab servers: wizard, libraries, API key
+## Configure the four lab servers: wizards, libraries, API keys
+##
+## Every server is set up by the same two scripts and told what to call its libraries.
+## The names are the fixture: libraries of the same name are one category, so `Shows`
+## folds the two servers that are ours and `Movies` folds three, while `Séries`, `TV`
+## and `Films` each stand alone although all of them mean the same thing. A lab where
+## every server named its libraries alike could not show that at all.
+##
+## Re-runnable: each script skips the wizard, the library and the key it already finds.
 lab/setup:
-	@./docker/lab/setup-jellyfin.sh "http://localhost:$${LAB_JELLYFIN_PORT:-8096}"
-	@./docker/lab/setup-plex.sh "http://localhost:$${LAB_PLEX_PORT:-32400}"
+	@LAB_KEY_FILE=$(LAB_KEYS)/jellyfin-local.key ./docker/lab/setup-jellyfin.sh \
+		"http://localhost:$${LAB_JELLYFIN_PORT:-8096}" 'Shows:tvshows:/media/shows' 'Movies:movies:/media/movies'
+	@LAB_KEY_FILE=$(LAB_KEYS)/jellyfin-remote.key ./docker/lab/setup-jellyfin.sh \
+		"http://localhost:$${LAB_JELLYFIN_REMOTE_PORT:-8097}" 'Séries:tvshows:/media/shows' 'Films:movies:/media/movies'
+	@./docker/lab/setup-plex.sh \
+		"http://localhost:$${LAB_PLEX_PORT:-32400}" 'Shows:show:/media/shows' 'Movies:movie:/media/movies'
+	@./docker/lab/setup-plex.sh \
+		"http://localhost:$${LAB_PLEX_REMOTE_PORT:-32401}" 'TV:show:/media/shows' 'Movies:movie:/media/movies'
+
+## Reprint what is needed to register the four services in the gateway
+lab/services:
+	@./docker/lab/print-services.sh "$(LAB_KEYS)"
 
 ## Stop the lab, keeping its configuration
 lab/stop:

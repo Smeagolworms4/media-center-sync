@@ -1,6 +1,11 @@
-import { ErrorKey, PeerTrust, ShareVisibility } from '@mcs/shared';
+import { ErrorKey, MediaServiceScope, PeerTrust, ShareVisibility } from '@mcs/shared';
 import type { Library, Peer, SharePolicy } from '@/entities';
-import type { LibraryRepository, PeerRepository, SharePolicyRepository } from '@/repositories';
+import type {
+	LibraryRepository,
+	MediaServiceRepository,
+	PeerRepository,
+	SharePolicyRepository,
+} from '@/repositories';
 import { PeerCatalogueService } from '@/services';
 import { ShareManager } from './share.manager';
 
@@ -14,6 +19,7 @@ interface Fakes {
 	};
 	libraries: { find: jest.Mock; findOne: jest.Mock };
 	peers: { findOne: jest.Mock };
+	services: { find: jest.Mock };
 }
 
 const library = (overrides: Partial<Library> = {}): Library =>
@@ -61,6 +67,9 @@ const build = (): { manager: ShareManager; fakes: Fakes } => {
 			findOne: jest.fn().mockResolvedValue(library()),
 		},
 		peers: { findOne: jest.fn().mockResolvedValue(peer()) },
+		services: {
+			find: jest.fn().mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.LOCAL }]),
+		},
 	};
 
 	// The real visibility service, not a fake: the audit's whole purpose is to answer
@@ -71,6 +80,7 @@ const build = (): { manager: ShareManager; fakes: Fakes } => {
 		fakes.libraries as unknown as LibraryRepository,
 		fakes.peers as unknown as PeerRepository,
 		new PeerCatalogueService({} as never),
+		fakes.services as unknown as MediaServiceRepository,
 	);
 
 	return { manager, fakes };
@@ -119,7 +129,7 @@ describe('ShareManager', () => {
 
 			expect(audit.peerName).toBe('Alice');
 			expect(audit.libraries).toEqual([
-				{ libraryId: 'library-1', name: 'Shows', itemCount: 120 },
+				{ libraryId: 'library-1', name: 'Shows', itemCount: 120, throughUs: false },
 			]);
 		});
 
@@ -191,4 +201,55 @@ describe('ShareManager', () => {
 			expect(fakes.policies.save).not.toHaveBeenCalled();
 		});
 	});
+
+	describe('relaying a library that is not ours', () => {
+		it('refuses to share a remote library until somebody agrees to relay it', async () => {
+			// Sharing one of our own libraries gives away our own bytes off our own disk.
+			// Sharing a remote one makes us the conduit: our bandwidth, and an access
+			// granted to us rather than to the people we would be handing it to.
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.REMOTE }]);
+
+			await expect(
+				manager.put('library-1', { visibility: ShareVisibility.FRIENDS }),
+			).rejects.toThrow(ErrorKey.SHARE_RELAY_NOT_AGREED);
+		});
+
+		it('allows it once somebody has said so', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.REMOTE }]);
+
+			const saved = await manager.put('library-1', {
+				visibility: ShareVisibility.FRIENDS,
+				relay: true,
+			});
+
+			expect(saved).toMatchObject({ relay: true, relays: true });
+		});
+
+		it('leaves a remote library private without any agreement', async () => {
+			// Private is not sharing, so there is nothing to agree to and nothing to
+			// refuse — somebody setting a rate limit on a library they have not shared
+			// should not be told about relays.
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.REMOTE }]);
+
+			await expect(manager.put('library-1', { rateLimit: 1024 })).resolves.toMatchObject({
+				relays: true,
+				relay: false,
+			});
+		});
+
+		it('says a library of ours is ours to give', async () => {
+			const { manager } = build();
+
+			await expect(
+				manager.put('library-1', { visibility: ShareVisibility.FRIENDS }),
+			).resolves.toMatchObject({ relays: false });
+		});
+	});
+
 });

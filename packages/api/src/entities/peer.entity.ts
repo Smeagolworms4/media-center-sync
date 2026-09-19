@@ -38,6 +38,23 @@ export class Peer extends Timestampable {
 	@Column({ type: 'varchar', nullable: true })
 	public nodeId!: string | null;
 
+	/**
+	 * The protocol version agreed with them, and what they said they can do.
+	 *
+	 * Stored rather than recomputed because it answers a question asked between
+	 * conversations: whether a peer can be offered a feature at all. Null until a
+	 * handshake has happened — an invited peer that has never answered has no version,
+	 * which is not the same as speaking version zero.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'int', nullable: true })
+	public protocol!: number | null;
+
+	/** Named features they advertised. Empty means the floor of their version. */
+	@ApiProperty({ type: [String] })
+	@Column({ type: 'simple-json', default: '[]' })
+	public capabilities!: string[];
+
 	@Exclude()
 	@Column({ type: 'text', nullable: true, select: false })
 	public publicKey!: string | null;

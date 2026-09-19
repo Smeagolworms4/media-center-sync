@@ -1,4 +1,4 @@
-import type { Library, LibraryCheck, UpdateLibraryRequest } from '@mcs/shared';
+import type { Library, LibraryCheck, MediaCategory, UpdateLibraryRequest } from '@mcs/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
@@ -15,9 +15,11 @@ export const useLibrariesStore = defineStore('libraries', () => {
 	const { caller } = useCaller();
 
 	const libraries = ref<Library[]>([]);
+	const categories = ref<MediaCategory[]>([]);
 	const checks = ref<LibraryCheck[]>([]);
 	const loading = ref(false);
 	const loaded = ref(false);
+	const categoriesLoaded = ref(false);
 	const checking = ref(false);
 	const error = ref<unknown>(null);
 
@@ -25,6 +27,54 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		const map: Record<string, Library> = {};
 		for (const library of libraries.value) {
 			map[library.id] = library;
+		}
+		return map;
+	});
+
+	/**
+	 * The categories, in the order they are meant to be shown.
+	 *
+	 * `position` is the lowest of the merged libraries', so it is also the answer to
+	 * which category a media belongs to when it is filed in two. Ours comes first on
+	 * a tie: two categories that were never ordered against each other are ordered by
+	 * whether we hold any of it, because a band nobody in this house can write into
+	 * is not the one to open with.
+	 */
+	const orderedCategories = computed(() => {
+		// `toSorted` would be cleaner, but it is not in the library version this build
+		// targets; the copy is what keeps `sort` from reordering the store's own array.
+		// eslint-disable-next-line unicorn/no-array-sort
+		return [...categories.value].sort((a, b) => (
+			a.position - b.position
+			|| Number(b.local) - Number(a.local)
+			|| a.name.localeCompare(b.name)
+		));
+	});
+
+	const categoryByKey = computed(() => {
+		const map: Record<string, MediaCategory> = {};
+		for (const category of categories.value) {
+			map[category.key] = category;
+		}
+		return map;
+	});
+
+	/**
+	 * Which category a library belongs to, which is what a breadcrumb needs.
+	 *
+	 * A media knows its library and nothing above it; the step a person reads is the
+	 * category — the name they see on the wall — and this is the only mapping between
+	 * the two. First wins, for the same reason the wall shows a media once: the
+	 * categories are already in the order that settles it.
+	 */
+	const categoryOfLibrary = computed(() => {
+		const map: Record<string, MediaCategory> = {};
+		for (const category of orderedCategories.value) {
+			// A gateway that answers a category without its libraries is odd and not a
+			// reason to take a page down: a breadcrumb missing one step still works.
+			for (const libraryId of category.libraryIds ?? []) {
+				map[libraryId] ??= category;
+			}
 		}
 		return map;
 	});
@@ -86,7 +136,31 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		// A path that just changed says nothing about whether it can be written to,
 		// and that is the whole question this screen exists to answer.
 		await loadChecks().catch(() => undefined);
+		// An alias or a position changes which libraries merge and in which order, so
+		// the categories every browsing screen is built from are no longer the ones
+		// that were loaded. Re-read rather than patched: the merge is the gateway's
+		// answer, and recomputing it here is how two clients start disagreeing.
+		if (categoriesLoaded.value && ('alias' in request || 'position' in request)) {
+			await loadCategories().catch(() => undefined);
+		}
 		return library;
+	}
+
+	/**
+	 * The merged view the browsing screens are built from.
+	 *
+	 * Separate from `load` because they answer different questions and not every
+	 * screen wants both: the settings screen edits libraries one by one — that is
+	 * where an alias is set — while the wall never names a library at all.
+	 */
+	async function loadCategories (): Promise<MediaCategory[]> {
+		const loadedCategories = await caller('api').get<MediaCategory[]>('/libraries/categories', {
+			keepLastKey: 'libraries|categories',
+		});
+		// An empty body parses to `null`, and the wall reads this as a list.
+		categories.value = Array.isArray(loadedCategories) ? loadedCategories : [];
+		categoriesLoaded.value = true;
+		return categories.value;
 	}
 
 	async function loadChecks (): Promise<LibraryCheck[]> {
@@ -110,16 +184,22 @@ export const useLibrariesStore = defineStore('libraries', () => {
 
 	return {
 		libraries,
+		categories,
 		checks,
 		loading,
 		loaded,
+		categoriesLoaded,
 		checking,
 		error,
 		byId,
+		orderedCategories,
+		categoryByKey,
+		categoryOfLibrary,
 		checkById,
 		writableLibraries,
 		unwritableChecks,
 		load,
+		loadCategories,
 		get,
 		update,
 		loadChecks,

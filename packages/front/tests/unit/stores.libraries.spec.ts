@@ -1,4 +1,4 @@
-import type { Library, LibraryCheck } from '@mcs/shared';
+import type { Library, LibraryCheck, MediaCategory } from '@mcs/shared';
 import { LibraryKind } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useLibrariesStore } from '@/stores/libraries';
@@ -10,6 +10,8 @@ function library (overrides: Partial<Library> = {}): Library {
 		serviceId: 's1',
 		externalId: 'jf-1',
 		name: 'Shows',
+		alias: null,
+		position: 0,
 		kind: LibraryKind.SHOWS,
 		paths: ['/data/shows'],
 		localPath: '/media/shows',
@@ -34,6 +36,20 @@ function check (overrides: Partial<LibraryCheck> = {}): LibraryCheck {
 		writable: true,
 		freeBytes: 1024,
 		error: null,
+		...overrides,
+	};
+}
+
+function category (overrides: Partial<MediaCategory> = {}): MediaCategory {
+	return {
+		key: 'shows',
+		name: 'Shows',
+		kind: LibraryKind.SHOWS,
+		position: 0,
+		libraryIds: ['l1'],
+		serviceIds: ['s1'],
+		itemCount: 400,
+		local: true,
 		...overrides,
 	};
 }
@@ -79,6 +95,55 @@ describe('stores/libraries', () => {
 
 		expect(store.unwritableChecks.map(one => one.libraryId)).toEqual(['l2']);
 		expect(store.writableLibraries.map(one => one.id)).toEqual(['l1']);
+	});
+
+	/**
+	 * The order the wall draws them in, and the answer to which category a media
+	 * belongs to when it is filed in two: lowest position, and ours before a friend's
+	 * when nobody ever ordered the two against each other.
+	 */
+	it('orders the categories, ours first on a tie', async () => {
+		stubFetch([{
+			body: [
+				category({ key: 'films', name: 'Films', position: 10, libraryIds: ['l2'] }),
+				category({ key: 'concerts', name: 'Concerts', position: 0, local: false, libraryIds: ['l3'] }),
+				category(),
+			],
+		}]);
+		const store = useLibrariesStore();
+
+		await store.loadCategories();
+
+		expect(store.orderedCategories.map(one => one.key)).toEqual(['shows', 'concerts', 'films']);
+		expect(store.categoryByKey.films.name).toBe('Films');
+		expect(store.categoriesLoaded).toBe(true);
+	});
+
+	/** What a breadcrumb walks: a media knows its library and nothing above it. */
+	it('says which category a library belongs to', async () => {
+		stubFetch([{
+			body: [
+				category({ libraryIds: ['l1', 'l3'] }),
+				category({ key: 'films', name: 'Films', position: 10, libraryIds: ['l2'] }),
+			],
+		}]);
+		const store = useLibrariesStore();
+
+		await store.loadCategories();
+
+		expect(store.categoryOfLibrary.l3.name).toBe('Shows');
+		expect(store.categoryOfLibrary.l2.name).toBe('Films');
+		expect(store.categoryOfLibrary.l9).toBeUndefined();
+	});
+
+	/** An empty body parses to null, and the wall reads this as a list. */
+	it('answers a list even when the gateway answers nothing', async () => {
+		stubFetch([{ body: null }]);
+		const store = useLibrariesStore();
+
+		await store.loadCategories();
+
+		expect(store.categories).toEqual([]);
 	});
 
 	it('re-checks the paths after one has been changed, because the answer moved', async () => {

@@ -17,6 +17,7 @@ export * from './quality.service';
 export * from './rendezvous.client';
 export * from './revalidation.service';
 export * from './scheduler.service';
+export * from './service-mode';
 export * from './settings.service';
 export * from './title-normalizer';
 export * from './transfer-engine.service';

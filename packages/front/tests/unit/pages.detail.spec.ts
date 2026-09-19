@@ -278,6 +278,93 @@ describe('pages/LibraryItem', () => {
 		expect(block.find('[data-test="item-companions-scan"]').exists()).toBe(false);
 	});
 
+	/**
+	 * Four levels down, the way back out has to be on the screen: the category a media
+	 * belongs to is nowhere on the item itself, and the browser's own button walks the
+	 * history rather than the tree.
+	 */
+	it('says where the media sits, from the category down, with every step clickable', async () => {
+		stubFetchRoutes({
+			...routes,
+			'/api/libraries/categories': {
+				body: [{
+					key: 'shows',
+					name: 'Shows',
+					kind: LibraryKind.SHOWS,
+					position: 0,
+					libraryIds: ['l1'],
+					serviceIds: ['s1'],
+					itemCount: 12,
+					local: true,
+				}],
+			},
+			'/api/media/groups/series-1': {
+				body: mediaGroup({ id: 'series-1', title: 'The Expanse', parentId: null }),
+			},
+			'/api/media/groups/m1': {
+				body: mediaGroup({
+					id: 'm1',
+					kind: MediaKind.SEASON,
+					title: 'Season 1',
+					parentId: 'series-1',
+				}),
+			},
+		});
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const trail = wrapper.find('[data-test="media-breadcrumb"]');
+		expect(trail.exists()).toBe(true);
+		expect(trail.findAll('[data-test="media-breadcrumb-step"]').map(one => one.text()))
+			.toEqual(['Library', 'Shows', 'The Expanse']);
+		// The step somebody is on is not a link that goes nowhere.
+		expect(trail.find('[data-test="media-breadcrumb-current"]').text()).toBe('Season 1');
+		expect(trail.findAll('[data-test="media-breadcrumb-step"]')[1].attributes('href'))
+			.toContain('category=shows');
+	});
+
+	/**
+	 * A copy on a friend's server and one on somebody their friend introduced are not
+	 * the same offer, and this list is where a pull is chosen from.
+	 */
+	it('says how far away each copy is, friends of friends included', async () => {
+		stubFetchRoutes({
+			...routes,
+			'/api/peers': {
+				body: [{
+					id: 'p1',
+					name: 'Bob',
+					nodeId: null,
+					fingerprint: 'AB',
+					status: PeerStatus.LINKED,
+					direction: null,
+					trust: PeerTrust.FRIEND_OF_FRIEND,
+					linkMode: null,
+					address: null,
+					viaPeerId: 'p0',
+					viaPeerName: 'Alice',
+					serviceCount: 1,
+					sharedItemCount: 3,
+					lastSeenAt: null,
+					createdAt: '2026-01-01T00:00:00.000Z',
+					updatedAt: '2026-01-01T00:00:00.000Z',
+				}],
+			},
+		});
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const origin = wrapper.find('[data-test="group-source-origin"]');
+		expect(origin.attributes('data-origin')).toBe('friend_of_friend');
+		expect(origin.text()).toContain('Friends of friends');
+	});
+
 	it('offers a retry when the item cannot be read', async () => {
 		stubFetchRoutes({ '/api/services': { body: [] }, '/api/peers': { body: [] } });
 		const { wrapper } = mountWithApp(LibraryItem, {

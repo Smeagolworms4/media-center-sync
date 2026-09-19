@@ -8,6 +8,7 @@ function peer (overrides: Partial<Peer> = {}): Peer {
 	return {
 		id: 'p1',
 		name: 'Bob',
+		nodeId: null,
 		fingerprint: 'AB:CD',
 		status: PeerStatus.LINKED,
 		direction: null,

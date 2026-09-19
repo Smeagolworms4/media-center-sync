@@ -7,6 +7,22 @@
 		"experimentalDecorators": true,
 		"allowSyntheticDefaultImports": true,
 		"target": "ES2023",
+		/*
+		 * Off, deliberately, and the API does not work with it on.
+		 *
+		 * ES2022 class fields define every declared property in the constructor, so a
+		 * DTO written as `public naming?: NamingScheme;` arrives with `naming` present
+		 * and holding `undefined`. Every partial update in this API is a spread of the
+		 * body over what is stored — and a present-but-undefined key wins a spread, so
+		 * `PATCH /settings {"uploadRateLimit": 2097152}` blanked `placement` and
+		 * `naming` and answered 400 blaming the caller for fields it never sent.
+		 *
+		 * The same applies to every TypeORM entity: a declared column would shadow the
+		 * loaded value. `false` is the legacy emit, where an unassigned declaration
+		 * produces no property at all, which is what class-transformer, class-validator
+		 * and TypeORM are all written against.
+		 */
+		"useDefineForClassFields": false,
 		"sourceMap": true,
 		"outDir": "./dist",
 		"baseUrl": "./",

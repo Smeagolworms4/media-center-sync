@@ -4,6 +4,7 @@ import type {
 	MediaItem,
 	MediaMatch,
 	MediaNode,
+	MediaOverride,
 	MediaSearchQuery,
 	Pagination,
 	ResultList,
@@ -180,6 +181,41 @@ export const useMediaStore = defineStore('media', () => {
 			`/media/${id}/children${buildMediaQuery(query)}`);
 	}
 
+	/**
+	 * Replaces a row the index already holds, in place.
+	 *
+	 * A corrected item comes back whole; keeping the same object means a list that
+	 * is already rendered shows the new title without being rebuilt around it.
+	 */
+	function replaceItem (item: MediaItem): void {
+		const index = items.value.findIndex(one => one.id === item.id);
+		if (index !== -1) {
+			items.value[index] = item;
+		}
+	}
+
+	/**
+	 * Corrects what a media server got wrong, for this gateway only.
+	 *
+	 * The body is passed through exactly as it was built: an absent field means
+	 * "not corrected, leave the service's answer alone" and an explicit `null`
+	 * means "cleared". Collapsing the two here — dropping nulls, or turning an
+	 * empty string into one — would quietly take away the only way to remove a year
+	 * a scraper invented, and would do it in the one place nobody would look.
+	 */
+	async function setOverride (id: string, override: MediaOverride): Promise<MediaItem> {
+		const item = await caller('api').put<MediaItem>(`/media/${id}/override`, override);
+		replaceItem(item);
+		return item;
+	}
+
+	/** Puts every corrected field back to what the service reported. */
+	async function clearOverride (id: string): Promise<MediaItem> {
+		const item = await caller('api').delete<MediaItem>(`/media/${id}/override`);
+		replaceItem(item);
+		return item;
+	}
+
 	function matches (id: string): Promise<MediaMatch[]> {
 		return caller('api').get<MediaMatch[]>(`/media/${id}/matches`);
 	}
@@ -261,6 +297,8 @@ export const useMediaStore = defineStore('media', () => {
 		node,
 		children,
 		matches,
+		setOverride,
+		clearOverride,
 		confirmMatch,
 		removeMatch,
 		artworkUrl,

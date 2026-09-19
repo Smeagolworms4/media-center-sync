@@ -2,6 +2,7 @@ import type { CatalogueEntry, Library, MediaGroup, MediaGroupSource, MediaServic
 import {
 	LibraryKind,
 	MediaKind,
+	MediaOrigin,
 	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
@@ -42,6 +43,8 @@ function library (overrides: Partial<Library> = {}): Library {
 		serviceId: 's1',
 		externalId: 'x',
 		name: 'Shows',
+		alias: null,
+		position: 0,
 		kind: LibraryKind.SHOWS,
 		paths: [],
 		localPath: null,
@@ -101,12 +104,53 @@ function group (overrides: Partial<MediaGroup> = {}): MediaGroup {
 describe('components/media/MediaFilters', () => {
 	const libraries = [library({ id: 'l1', serviceId: 's1' }), library({ id: 'l2', serviceId: 's2' })];
 
-	it('offers only the libraries of the service being looked at', () => {
+	it('offers only the libraries of the services being looked at', () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries, serviceId: 's1' },
+			props: { services: [service()], libraries, serviceIds: ['s1'] },
 		});
 
 		expect((wrapper.vm as any).libraryItems.map((one: Library) => one.id)).toEqual(['l1']);
+	});
+
+	/** Comparing two friends' shelves is the ordinary case, not the exotic one. */
+	it('takes several services at once', () => {
+		const { wrapper } = mountWithApp(MediaFilters, {
+			props: { services: [service()], libraries, serviceIds: ['s1', 's2'] },
+		});
+
+		expect((wrapper.vm as any).libraryItems).toHaveLength(2);
+	});
+
+	/**
+	 * The four origins are the filter people actually reach for, and they are on the
+	 * screen rather than behind a menu: telling a friend from a friend of a friend is
+	 * the distinction the whole thing exists for.
+	 */
+	it('offers the four origins as something to read, not a select to open', () => {
+		const { wrapper } = mountWithApp(MediaFilters, {
+			props: { services: [service()], libraries },
+			global: { stubs: tooltipStub },
+		});
+
+		for (const origin of Object.values(MediaOrigin)) {
+			expect(wrapper.find(`[data-test="media-origin-${origin}"]`).exists()).toBe(true);
+		}
+		expect(wrapper.find('[data-test="media-origin-friend_of_friend"]').text())
+			.toContain('Friends of friends');
+	});
+
+	it('reports the origins it was given, and nothing rather than an empty list', () => {
+		const { wrapper } = mountWithApp(MediaFilters, {
+			props: { services: [], libraries, origins: [MediaOrigin.FRIEND] },
+			global: { stubs: tooltipStub },
+		});
+
+		(wrapper.vm as any).originModel = [MediaOrigin.FRIEND, MediaOrigin.FRIEND_OF_FRIEND];
+		expect(wrapper.emitted('update:origins')?.at(-1))
+			.toEqual([[MediaOrigin.FRIEND, MediaOrigin.FRIEND_OF_FRIEND]]);
+
+		(wrapper.vm as any).originModel = [];
+		expect(wrapper.emitted('update:origins')?.at(-1)).toEqual([null]);
 	});
 
 	it('offers every library when no service is chosen', () => {
@@ -117,14 +161,39 @@ describe('components/media/MediaFilters', () => {
 		expect((wrapper.vm as any).libraryItems).toHaveLength(2);
 	});
 
-	it('drops the library filter when the service changes, or it would filter everything out', async () => {
+	it('drops the library filter when the services change, or it would filter everything out', async () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries, serviceId: 's1', libraryId: 'l1' },
+			props: { services: [service()], libraries, serviceIds: ['s2'], libraryId: 'l1' },
 		});
 
-		(wrapper.vm as any).onServiceChange();
+		(wrapper.vm as any).onServicesChange();
 
 		expect(wrapper.emitted('update:libraryId')?.at(-1)).toEqual([null]);
+	});
+
+	/** A library still offered by the narrowed list is a filter worth keeping. */
+	it('keeps a library the chosen services still offer', async () => {
+		const { wrapper } = mountWithApp(MediaFilters, {
+			props: { services: [service()], libraries, serviceIds: ['s1'], libraryId: 'l1' },
+		});
+
+		(wrapper.vm as any).onServicesChange();
+
+		expect(wrapper.emitted('update:libraryId')).toBeUndefined();
+	});
+
+	/**
+	 * On the overview every band is already the latest additions of its category, and
+	 * a sort control there would offer an order the screen ignores.
+	 */
+	it('says the order is fixed instead of offering one the wall ignores', () => {
+		const { wrapper } = mountWithApp(MediaFilters, {
+			props: { services: [], libraries, sortable: false },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="media-sort"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="media-sort-fixed"]').exists()).toBe(true);
 	});
 
 	it('clears every filter at once, and says so only while there is one', async () => {
