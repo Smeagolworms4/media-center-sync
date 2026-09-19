@@ -16,10 +16,48 @@ export interface MatchClaim {
 	reason?: string | null;
 }
 
+/** Two items an applied match joined — the edge grouping walks. */
+export interface MatchPair {
+	localItemId: string;
+	remoteItemId: string;
+}
+
 @Injectable()
 export class MediaMatchRepository extends Repository<MediaMatch> {
 	public constructor(dataSource: DataSource) {
 		super(MediaMatch, dataSource.createEntityManager());
+	}
+
+	/**
+	 * The pairs the gateway actually acted on, as two identifiers and nothing else.
+	 *
+	 * Runs `SELECT localItemId, remoteItemId FROM media_matches WHERE localItemId IS
+	 * NOT NULL AND state <> 'conflict' AND (confidence >= :threshold OR confirmedAt IS
+	 * NOT NULL)`. It is what grouping joins on, and each clause is one of the rules:
+	 *
+	 * - a null `localItemId` is a media known only elsewhere, so there is no second row
+	 *   to join to;
+	 * - a conflict is a disputed pair, and the whole point of that state is that nobody
+	 *   has decided the two are the same thing;
+	 * - below the threshold a match was proposed and not applied, which has to stay two
+	 *   posters rather than become one;
+	 * - a confirmation overrules the score, because a human said so.
+	 *
+	 * `applied` is not a column — it is a flag on the proposal, computed against the
+	 * threshold and thrown away on write — so the condition is rebuilt here from the
+	 * threshold in force now. A library therefore regroups when that setting moves,
+	 * which is the behaviour a person changing it expects.
+	 */
+	public findAppliedPairs(threshold: number): Promise<MatchPair[]> {
+		return this.createQueryBuilder('match')
+			.select('match.localItemId', 'localItemId')
+			.addSelect('match.remoteItemId', 'remoteItemId')
+			.where('match.localItemId IS NOT NULL')
+			.andWhere('match.state != :conflict', { conflict: SyncState.CONFLICT })
+			.andWhere('(match.confidence >= :threshold OR match.confirmedAt IS NOT NULL)', {
+				threshold,
+			})
+			.getRawMany<MatchPair>();
 	}
 
 	public findForLocalItem(localItemId: string): Promise<MediaMatch[]> {

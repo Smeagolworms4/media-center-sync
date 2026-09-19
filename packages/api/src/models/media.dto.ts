@@ -100,6 +100,78 @@ export class MediaSearchDto {
 	public direction?: 'asc' | 'desc';
 }
 
+/**
+ * Browsing the same index one media at a time instead of one row at a time.
+ *
+ * The same fields and the same bounds as `MediaSearchDto`, and a separate class
+ * rather than a subclass on purpose: the two are the same shape today and answer
+ * different questions, so a field added to one should have to be added to the other
+ * deliberately. What differs is what the fields mean — every one of them filters
+ * groups, not rows, and `serviceId` narrows which groups appear without ungrouping
+ * the ones that survive.
+ */
+export class MediaGroupQueryDto {
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsUUID()
+	public serviceId?: string;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsUUID()
+	public libraryId?: string;
+
+	@ApiPropertyOptional({ enum: MediaKind })
+	@IsOptional()
+	@IsEnum(MediaKind)
+	public kind?: MediaKind;
+
+	/** The parent group, addressed by its representative item. */
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsUUID()
+	public parentId?: string;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(255)
+	public search?: string;
+
+	/** One state value is read as a list of one, for the reason `MediaSearchDto` states. */
+	@ApiPropertyOptional({ enum: SyncState, isArray: true })
+	@IsOptional()
+	@Transform(({ value }) => (Array.isArray(value) ? (value as SyncState[]) : [value as SyncState]))
+	@IsArray()
+	@IsEnum(SyncState, { each: true })
+	public states?: SyncState[];
+
+	@ApiPropertyOptional({ default: 1 })
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	public page?: number;
+
+	@ApiPropertyOptional({ default: 50, maximum: 200 })
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1)
+	@Max(200)
+	public limit?: number;
+
+	@ApiPropertyOptional({ enum: ['title', 'year', 'addedAt'] })
+	@IsOptional()
+	@IsEnum(['title', 'year', 'addedAt'])
+	public sort?: 'title' | 'year' | 'addedAt';
+
+	@ApiPropertyOptional({ enum: ['asc', 'desc'] })
+	@IsOptional()
+	@IsEnum(['asc', 'desc'])
+	public direction?: 'asc' | 'desc';
+}
+
 /** Accept or reject a correlation the score alone would not have applied. */
 export class ConfirmMatchDto {
 	@ApiPropertyOptional()

@@ -1,14 +1,18 @@
 import type { Settings, UpdateSettingsRequest } from '@mcs/shared';
 import { Injectable, Logger } from '@nestjs/common';
-import { SchedulerService, SettingsService } from '@/services';
+import { SchedulerService, SettingsService, TransferEngineService } from '@/services';
 
 /**
  * Reading and writing the gateway's settings.
  *
  * Thin on purpose — the merge with the defaults and the bounds belong to the service
- * that owns the table. What lives here is the one consequence a write has beyond the
- * row: several settings are schedules, and a cron expression nobody re-read is a
- * setting that takes effect on the next restart rather than when it was saved.
+ * that owns the table. What lives here are the consequences a write has beyond the
+ * row, and there are two. Several settings are schedules, and a cron expression nobody
+ * re-read is a setting that takes effect on the next restart rather than when it was
+ * saved. The bandwidth caps are the same problem one layer down: the engine reads them
+ * when it starts a transfer, so a limit saved while something is downloading has to be
+ * handed to the running token bucket or it is a control that does nothing until the
+ * queue moves on.
  */
 @Injectable()
 export class SettingsManager {
@@ -17,6 +21,7 @@ export class SettingsManager {
 	public constructor(
 		private readonly _settings: SettingsService,
 		private readonly _scheduler: SchedulerService,
+		private readonly _engine: TransferEngineService,
 	) {}
 
 	public read(): Promise<Settings> {
@@ -36,6 +41,13 @@ export class SettingsManager {
 		if (patch.refreshIntervalMinutes !== undefined || patch.fullScanCron !== undefined) {
 			await this._scheduler.reload();
 			this._logger.log('Schedules reloaded after a settings change');
+		}
+
+		if (patch.downloadRateLimit !== undefined || patch.uploadRateLimit !== undefined) {
+			// The whole settings object, not the patch: the engine holds one number and
+			// a caller who sent only the upload cap must not blank the download one.
+			this._engine.applyRateLimits(settings);
+			this._logger.log('Bandwidth limits applied to the transfers already running');
 		}
 
 		return settings;

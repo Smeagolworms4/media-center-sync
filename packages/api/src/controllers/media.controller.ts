@@ -1,5 +1,6 @@
 import {
 	Right,
+	type MediaGroup,
 	type MediaItem,
 	type MediaMatch,
 	type MediaNode,
@@ -29,8 +30,8 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { Granted } from '@/decorators';
-import { MediaManager } from '@/managers';
-import { ConfirmMatchDto, MediaSearchDto } from '@/models';
+import { MediaGroupManager, MediaManager } from '@/managers';
+import { ConfirmMatchDto, MediaGroupQueryDto, MediaSearchDto } from '@/models';
 
 /** How long a browser may keep a poster. Artwork changes on a rescan, not on a reload. */
 const ARTWORK_CACHE_SECONDS = 3600;
@@ -47,7 +48,10 @@ const ARTWORK_CACHE_SECONDS = 3600;
 @ApiBearerAuth()
 @Controller('media')
 export class MediaController {
-	public constructor(private readonly _media: MediaManager) {}
+	public constructor(
+		private readonly _media: MediaManager,
+		private readonly _groups: MediaGroupManager,
+	) {}
 
 	@Get()
 	@Granted(Right.MEDIA_READ)
@@ -55,6 +59,51 @@ export class MediaController {
 	@ApiOkResponse({ description: 'ResultList<MediaItem>' })
 	public search(@Query() query: MediaSearchDto): Promise<ResultList<MediaItem>> {
 		return this._media.search(query);
+	}
+
+	/**
+	 * One page of the grouped view: one entry per media, whoever holds it.
+	 *
+	 * Declared before `:id`, and the order is load-bearing. Nest matches routes in
+	 * declaration order, so with `:id` first a request for `/media/groups` is read as
+	 * an item whose identifier is `groups` and answered with a validation error about
+	 * a UUID — a 400 that says nothing about the route being shadowed.
+	 */
+	@Get('groups')
+	@Granted(Right.MEDIA_READ)
+	@ApiOperation({
+		summary: 'One page of media, grouped across the services that hold them',
+		description:
+			'Two rows join only when a match was applied: a proposal below the threshold stays ' +
+			'two entries, which is the honest rendering of “we are not sure these are the same ' +
+			'thing”.',
+	})
+	@ApiOkResponse({ description: 'ResultList<MediaGroup>' })
+	public groups(@Query() query: MediaGroupQueryDto): Promise<ResultList<MediaGroup>> {
+		return this._groups.groups(query);
+	}
+
+	@Get('groups/:id')
+	@Granted(Right.MEDIA_READ)
+	@ApiOperation({ summary: 'One group, addressed by its representative item' })
+	@ApiOkResponse({ description: 'MediaGroup' })
+	public group(@Param('id', ParseUUIDPipe) id: string): Promise<MediaGroup> {
+		return this._groups.group(id);
+	}
+
+	@Get('groups/:id/children')
+	@Granted(Right.MEDIA_READ)
+	@ApiOperation({
+		summary: 'The children of every copy in a group, merged into child groups',
+		description:
+			'What makes a series page work when the seasons live on different servers.',
+	})
+	@ApiOkResponse({ description: 'ResultList<MediaGroup>' })
+	public groupChildren(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Query() query: MediaGroupQueryDto,
+	): Promise<ResultList<MediaGroup>> {
+		return this._groups.groupChildren(id, query);
 	}
 
 	@Get(':id')

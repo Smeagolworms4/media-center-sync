@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
-import type { MediaSearchQuery } from '@mcs/shared';
+import { DataSource, In, IsNull, Not, Repository, type SelectQueryBuilder } from 'typeorm';
+import type { MediaGroupQuery, MediaKind, MediaSearchQuery } from '@mcs/shared';
 import { SyncState } from '@mcs/shared';
 import { MediaItem } from '@/entities';
 
@@ -10,6 +10,39 @@ const SORTABLE = {
 	year: 'item.year',
 	addedAt: 'item.addedAt',
 } as const;
+
+/**
+ * How many identifiers go into one `IN (…)`.
+ *
+ * SQLite refuses a statement past its variable ceiling, and the grouped routes build
+ * their lists from identifiers rather than from a join — a library page can easily
+ * name a few thousand rows. Splitting is cheaper than finding out in production that
+ * a query works up to a certain library size.
+ */
+const ID_CHUNK = 400;
+
+/**
+ * The few columns grouping needs to fold rows into components.
+ *
+ * Deliberately not the entity: `file`, `quality`, `externalIds` and `overview` are
+ * JSON columns, and a library screen would read all of them for every row in the
+ * index just to find out which rows belong together. This projection is read for the
+ * whole filtered set; the full rows are read for one page.
+ */
+export interface MediaItemDigest {
+	id: string;
+	serviceId: string;
+	libraryId: string;
+	parentId: string | null;
+	kind: MediaKind;
+	syncState: SyncState;
+}
+
+/** A group listing's filter, with the parent addressed as a set of items rather than one. */
+export interface GroupSeedQuery extends Omit<MediaGroupQuery, 'parentId' | 'states'> {
+	/** Every item of the parent group, because a series' seasons may live on either. */
+	parentIds?: string[];
+}
 
 @Injectable()
 export class MediaItemRepository extends Repository<MediaItem> {
@@ -192,5 +225,96 @@ export class MediaItemRepository extends Repository<MediaItem> {
 				item.file.path !== '' &&
 				(item.file.quickHash === null || item.file.quickHash === ''),
 		);
+	}
+
+	/**
+	 * The rows a grouped listing starts from, narrow and in order.
+	 *
+	 * Runs `SELECT id, serviceId, libraryId, parentId, kind, syncState FROM media_items`
+	 * with the caller's filters and the usual `ORDER BY`, and no `LIMIT`. The limit is
+	 * missing on purpose: several rows collapse into one group, so a page of rows is
+	 * not a page of groups and slicing here would hand back a short page with a total
+	 * that contradicts it. What is bounded instead is the width — six scalar columns,
+	 * never the JSON ones.
+	 *
+	 * The identifier is the last `ORDER BY` term so that two rows sharing a title come
+	 * back in the same order every time; without it the group a page starts on depends
+	 * on whatever the engine felt like.
+	 */
+	public findGroupSeeds(query: GroupSeedQuery): Promise<MediaItemDigest[]> {
+		const builder = this._digestQuery();
+
+		if (query.serviceId !== undefined) {
+			builder.andWhere('item.serviceId = :serviceId', { serviceId: query.serviceId });
+		}
+
+		if (query.libraryId !== undefined) {
+			builder.andWhere('item.libraryId = :libraryId', { libraryId: query.libraryId });
+		}
+
+		if (query.kind !== undefined) {
+			builder.andWhere('item.kind = :kind', { kind: query.kind });
+		}
+
+		if (query.parentIds !== undefined) {
+			builder.andWhere('item.parentId IN (:...parentIds)', { parentIds: query.parentIds });
+		}
+
+		if (query.search !== undefined && query.search !== '') {
+			// Against the normalised title, like every other search in the application:
+			// the displayed title would miss `Amelie` typed without its accent.
+			builder.andWhere('item.normalizedTitle LIKE :search', {
+				search: `%${query.search.toLowerCase()}%`,
+			});
+		}
+
+		return builder
+			.orderBy(SORTABLE[query.sort ?? 'title'], query.direction === 'desc' ? 'DESC' : 'ASC')
+			.addOrderBy('item.id', 'ASC')
+			.getRawMany<MediaItemDigest>();
+	}
+
+	/** The same projection, for identifiers a component pulled in from outside the filter. */
+	public findDigests(ids: string[]): Promise<MediaItemDigest[]> {
+		return this._chunked(ids, (chunk) =>
+			this._digestQuery()
+				.andWhere('item.id IN (:...ids)', { ids: chunk })
+				.getRawMany<MediaItemDigest>(),
+		);
+	}
+
+	/** The same projection for everything under a set of parents, which is what a group's children are. */
+	public findChildDigests(parentIds: string[]): Promise<MediaItemDigest[]> {
+		return this._chunked(parentIds, (chunk) =>
+			this._digestQuery()
+				.andWhere('item.parentId IN (:...parentIds)', { parentIds: chunk })
+				.getRawMany<MediaItemDigest>(),
+		);
+	}
+
+	/** Full rows, for the one page a grouped listing actually renders. */
+	public findByIds(ids: string[]): Promise<MediaItem[]> {
+		return this._chunked(ids, (chunk) => this.find({ where: { id: In(chunk) } }));
+	}
+
+	private _digestQuery(): SelectQueryBuilder<MediaItem> {
+		return this.createQueryBuilder('item')
+			.select('item.id', 'id')
+			.addSelect('item.serviceId', 'serviceId')
+			.addSelect('item.libraryId', 'libraryId')
+			.addSelect('item.parentId', 'parentId')
+			.addSelect('item.kind', 'kind')
+			.addSelect('item.syncState', 'syncState');
+	}
+
+	private async _chunked<T>(ids: string[], read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+		const unique = [...new Set(ids)];
+		const rows: T[] = [];
+
+		for (let start = 0; start < unique.length; start += ID_CHUNK) {
+			rows.push(...(await read(unique.slice(start, start + ID_CHUNK))));
+		}
+
+		return rows;
 	}
 }
