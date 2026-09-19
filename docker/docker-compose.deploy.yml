@@ -1,0 +1,29 @@
+# What somebody self-hosting the gateway actually runs.
+#
+# One container, one volume, no database server to operate. Copy this file, adjust
+# the two mounts, `docker compose up -d` and it is done.
+services:
+    media-center-sync:
+        image: ghcr.io/smeagolworms4/media-center-sync:main
+        restart: unless-stopped
+        ports:
+            # The interface and the API, on the same origin.
+            - 4200:4200
+            # Inbound peer connections. Forward this one on the router to receive
+            # direct links; without it, transfers fall back to the rendezvous relay,
+            # which works but shares its bandwidth between everyone using it.
+            - 4210:4210
+        environment:
+            # Change this. It signs the sessions; the default would let anyone who
+            # read this file mint a valid token.
+            - MCS_JWT_SECRET=change-me
+        volumes:
+            # The library index, the SQLite file and the transfer scratch space.
+            - mcs-data:/data
+            # The media libraries. This path must be the SAME one the media service
+            # sees, otherwise a pulled file lands somewhere the service never scans:
+            # the transfer succeeds, the file is there, and the library stays empty.
+            - /mnt/nas:/media
+
+volumes:
+    mcs-data:

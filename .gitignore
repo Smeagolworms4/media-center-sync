@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Environnement local — jamais versionné : il porte les adresses et les mots de
+# passe de la machine, pas ceux du projet.
+.env.local
+.env.*.local
+
+# Outillage
+docker/.makefiles/
+docker/.*_history
+.idea/
+.vscode/
+.DS_Store
+
+# Sorties de tests
+test-results/
+playwright-report/
+packages/front/test-results/
+packages/front/playwright-report/
+
+# Données d'exécution (bibliothèques montées, fichiers en transit)
+var/
+packages/api/var/
+docker/docker-compose.override.yml

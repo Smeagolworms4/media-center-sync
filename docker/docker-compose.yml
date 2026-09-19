@@ -1,0 +1,176 @@
+# Development stack.
+#
+# Everything runs in containers, Node included. Both applications share the repository
+# mounted as a volume: npm workspaces are installed once, at the root. Each container
+# runs under the host UID, otherwise files created from inside belong to root and can
+# no longer be edited from the workstation.
+#
+# Two containers are enough to work: `api` and `front`. The database is a SQLite file
+# under `var/`, and the cache is in-memory. This is a self-hosted gateway for one
+# household, not a multi-tenant service: a PostgreSQL to keep alive would be one more
+# thing to operate for no gain.
+#
+# PostgreSQL and Redis are still there, behind profiles, for whoever wants them —
+# `make db/postgres` switches the stack over. The engine is read from `DB_TYPE`, so
+# nothing in the code changes.
+#
+# Media libraries are NOT mounted here. They are machine-specific, and pinning them in
+# a versioned file would break the stack for anyone without the same NAS. Declare them
+# in `docker/docker-compose.override.yml`, which Compose reads automatically and git
+# ignores — `make library/help` gives the exact shape.
+services:
+    api:
+        image: registry.gitlab.com/damienduboeuf/docker/node-custom-userid:24
+        tty: true
+        stdin_open: true
+        ports:
+            - ${API_PORT:-4200}:4200
+            - ${DEBUG_PORT:-9230}:9230
+            # Inbound peer connections: this is the port to open on the router when
+            # you want to receive direct links without going through the rendezvous.
+            - ${PEER_PORT:-4210}:4210
+        environment:
+            - USER_ID=${USER_ID}
+            - USER_GID=${USER_GID}
+            # Default engine. Set DB_TYPE=postgres in `.env.local` and run
+            # `make db/postgres` to switch; nothing else changes.
+            - DB_TYPE=${DB_TYPE:-sqlite}
+            - DB_FILE=${DB_FILE:-var/media-center-sync.db}
+            - DB_HOST=${DB_HOST:-db}
+            - DB_NAME=${DB_NAME:-mcs}
+            - DB_USER=${DB_USER:-mcs}
+            - DB_PASSWORD=${DB_PASSWORD:-mcs}
+            - DB_PORT=5432
+            # Empty means in-memory. Point it at `cache` to use Redis instead.
+            - REDIS_HOST=${REDIS_HOST:-}
+            - REDIS_PORT=6379
+            - API_PORT=4200
+            - PEER_PORT=4210
+            # Root of the mounted libraries, as seen from the gateway. It must point
+            # at the same files the local media service sees.
+            - MCS_MEDIA_ROOT=${MCS_MEDIA_ROOT:-/media}
+        volumes:
+            - ../:/app
+            - .api_history:/home/node/.ash_history
+            - ./dev/profile:/etc/profile.d/user.sh
+        working_dir: /app
+
+    front:
+        image: registry.gitlab.com/damienduboeuf/docker/node-custom-userid:24
+        tty: true
+        stdin_open: true
+        ports:
+            - ${FRONT_PORT:-3200}:3200
+        environment:
+            - USER_ID=${USER_ID}
+            - USER_GID=${USER_GID}
+            - API_PROXY_TARGET=http://api:4200
+        volumes:
+            - ../:/app
+            - .front_history:/home/node/.ash_history
+            - ./dev/profile:/etc/profile.d/user.sh
+        working_dir: /app
+
+    # Optional engine. `make db/postgres` starts it and points the API at it; the
+    # migrations are the same, and they are only verified on the engine that will
+    # receive them — so run them here before trusting a PostgreSQL deployment.
+    db:
+        profiles: [postgres]
+        image: postgres:16-alpine
+        ports:
+            - ${DB_PORT:-5433}:5432
+        environment:
+            - POSTGRES_DB=${DB_NAME:-mcs}
+            - POSTGRES_USER=${DB_USER:-mcs}
+            - POSTGRES_PASSWORD=${DB_PASSWORD:-mcs}
+        volumes:
+            - db-data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-mcs}']
+            interval: 5s
+            timeout: 5s
+            retries: 20
+
+    # Optional. The cache holds the live state of transfers, not the truth: resume
+    # hints, instant rates, worker locks. What must survive a restart — per-chunk
+    # progress — is in the database, so the in-memory default loses nothing on a
+    # single node. Redis only earns its place when several gateways share a queue.
+    cache:
+        profiles: [redis]
+        image: redis:7-alpine
+        ports:
+            - ${REDIS_PORT:-6381}:6379
+        command: >
+            redis-server
+            --save 60 1
+            --maxmemory 256mb
+            --maxmemory-policy allkeys-lru
+        volumes:
+            - redis-data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 10s
+            timeout: 3s
+            retries: 5
+
+    # Already connected to the database through `dev/pgadmin/servers.json` and a
+    # password file. A pgAdmin where host, port and password must be retyped on every
+    # workstation is a pgAdmin nobody opens. Only useful with the postgres profile.
+    pgadmin:
+        profiles: [tools]
+        image: dpage/pgadmin4:latest
+        ports:
+            - ${PGADMIN_PORT:-7795}:80
+        environment:
+            - PGADMIN_DEFAULT_EMAIL=dev@mcs.local
+            - PGADMIN_DEFAULT_PASSWORD=${DB_PASSWORD:-mcs}
+            - PGADMIN_CONFIG_SERVER_MODE=False
+            - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
+            # pgAdmin 9 rejects reserved domains such as .local: allow it.
+            - PGADMIN_CONFIG_ALLOW_SPECIAL_EMAIL_DOMAINS=['local']
+        user: root
+        entrypoint:
+            # The password file must be owned by the user and readable by them alone:
+            # pgAdmin silently refuses to use it otherwise, and asks for the password
+            # again without saying why.
+            - /bin/sh
+            - -c
+            - |
+              printf 'db:5432:*:%s:%s\n' '${DB_USER:-mcs}' '${DB_PASSWORD:-mcs}' > /pgpass
+              chmod 600 /pgpass && chown pgadmin:root /pgpass
+              exec /entrypoint.sh
+        volumes:
+            - ./dev/pgadmin/servers.json:/pgadmin4/servers.json:ro
+            - pgadmin-data:/var/lib/pgadmin
+
+    # The image version follows `@playwright/test` exactly, without a caret. A gap
+    # between the driver and the browsers shows up as "Executable doesn't exist" — a
+    # message that never mentions a version.
+    e2e:
+        profiles: [e2e]
+        image: mcr.microsoft.com/playwright:v1.56.0-noble
+        depends_on:
+            - front
+            - api
+        # Under the host UID like the others. The report and traces are written into
+        # the mounted repository: as root they would belong to root and could no
+        # longer be removed from the workstation.
+        user: ${USER_ID:-1000}:${USER_GID:-1000}
+        environment:
+            - E2E_BASE_URL=http://front:3200
+            - E2E_API_URL=http://api:4200/api
+            # The browsers baked into the image, not the ones an `npm install` would
+            # have put under the mounted `node_modules` — that one is built for Alpine.
+            - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+            # The host user has no home in the image: without this the browser fails
+            # to write its profile, and the error does not mention HOME.
+            - HOME=/tmp
+            - CI=${CI:-}
+        volumes:
+            - ../:/app
+        working_dir: /app/packages/front
+
+volumes:
+    db-data:
+    redis-data:
+    pgadmin-data:

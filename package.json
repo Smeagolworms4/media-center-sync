@@ -1,0 +1,24 @@
+{
+	"name": "media-center-sync",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Passerelle de synchronisation entre serveurs de médias — locale et distante, de pair à pair",
+	"workspaces": [
+		"packages/shared",
+		"packages/api",
+		"packages/front"
+	],
+	"scripts": {
+		"dev": "npm run dev --workspace @mcs/api & npm run dev --workspace @mcs/front",
+		"dev:api": "npm run dev --workspace @mcs/api",
+		"dev:front": "npm run dev --workspace @mcs/front",
+		"build": "npm run build --workspaces --if-present",
+		"typecheck": "npm run build --workspace @mcs/shared && npm run typecheck --workspaces --if-present",
+		"lint": "npm run lint --workspaces --if-present",
+		"test": "npm run build --workspace @mcs/shared && npm test --workspace @mcs/api",
+		"seed": "npm run seed --workspace @mcs/api"
+	},
+	"engines": {
+		"node": ">=22"
+	}
+}

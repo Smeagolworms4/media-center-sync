@@ -1,0 +1,141 @@
+# Build and publish the image.
+#
+# One image: the API serves both `/api` and the built interface, so there is nothing
+# else to ship. See `docker/build/Dockerfile`.
+#
+# `main` is a moving tag, deliberately. Every push to the branch republishes `:main`:
+# that is the image you pull to try the latest version without tagging anything. What
+# must stay stable carries a version tag, never `main` — a production stack pointing
+# at `:main` would change code on every merge, without anyone deciding it.
+#
+# The image is only published if the tests pass. Publishing an image that fails its
+# tests is deciding to find out in production.
+
+stages:
+  - verify
+  - journeys
+  - image
+
+variables:
+  # A pinned version, never the major alone. `node:24` follows the latest published
+  # 24.x: the campaign can pass one day and break the next without a line of the
+  # repository changing. Moving up should be a decision, not a wake-up call.
+  NODE_IMAGE: node:24.14.0-alpine
+  IMAGE: $CI_REGISTRY_IMAGE
+
+.node:
+  image: $NODE_IMAGE
+  before_script:
+    # `better-sqlite3` has no prebuilt binary for this Node on Alpine: it compiles.
+    # On a workstation you never see it — `node_modules` comes from the host through
+    # the volume — but on a runner `npm ci` fails on `gyp ERR! find Python`.
+    - apk add --no-cache python3 make g++ git
+    - npm ci --workspaces --include-workspace-root
+    - npm run build --workspace @mcs/shared
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+
+types:
+  extends: .node
+  stage: verify
+  script:
+    - npm run typecheck
+
+lint:
+  extends: .node
+  stage: verify
+  script:
+    - npm run lint
+
+test:api:
+  extends: .node
+  stage: verify
+  script:
+    - npm run test:cov --workspace @mcs/api
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    when: always
+    reports:
+      junit: packages/api/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: packages/api/coverage/cobertura-coverage.xml
+    expire_in: 7 days
+
+test:front:
+  extends: .node
+  stage: verify
+  script:
+    - npm run test:cov --workspace @mcs/front
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    when: always
+    reports:
+      junit: packages/front/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: packages/front/coverage/cobertura-coverage.xml
+    expire_in: 7 days
+
+# The journeys get their own job. They bring the whole stack up and open real pages:
+# it is the only place where you see that a button stays grey, that a list never
+# fills, or that the progress stream stopped pushing.
+journeys:
+  stage: journeys
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: '/certs'
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: '/certs/client'
+  before_script:
+    - apk add --no-cache make curl git
+  script:
+    - make e2e/ci
+  artifacts:
+    # Kept even on failure — that is exactly when it is useful: it carries the
+    # screenshots and traces of the journey that fell over.
+    when: always
+    paths:
+      - packages/front/test-results
+    expire_in: 7 days
+
+image:
+  stage: image
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: '/certs'
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: '/certs/client'
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  rules:
+    # On `main`: the moving `main` tag, plus the commit hash so you can come back
+    # precisely to a version you tried.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        TAGS: 'main $CI_COMMIT_SHORT_SHA'
+    # On a `v*` tag: the version, and `latest` which follows published versions —
+    # never the branch. A stack pointing at `latest` must receive what the tag
+    # announces, not the last merged commit.
+    - if: $CI_COMMIT_TAG =~ /^v/
+      variables:
+        TAGS: '$CI_COMMIT_TAG latest'
+    - when: never
+  script:
+    - |
+      set -e
+      ARGS=""
+      for tag in $TAGS; do ARGS="$ARGS -t $IMAGE:$tag"; done
+      docker build -f docker/build/Dockerfile $ARGS \
+        --build-arg MCS_VERSION="${CI_COMMIT_TAG:-$CI_COMMIT_SHORT_SHA}" .
+      for tag in $TAGS; do docker push "$IMAGE:$tag"; done
