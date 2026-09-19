@@ -144,6 +144,7 @@ export class ShareManager {
 		allowedPeerIds: string[];
 		deniedPeerIds: string[];
 		metadataOnly: boolean;
+		rateLimit?: number | string | null;
 	}): CataloguePolicy {
 		return {
 			libraryId: policy.libraryId,
@@ -151,6 +152,10 @@ export class ShareManager {
 			allowedPeerIds: policy.allowedPeerIds,
 			deniedPeerIds: policy.deniedPeerIds,
 			metadataOnly: policy.metadataOnly,
+			// Stored as a bigint, which the driver hands back as a string on one engine
+			// and a number on the other. Zero is the honest fallback for both, and it
+			// means no cap of this library's own.
+			rateLimit: Number(policy.rateLimit ?? 0) || 0,
 		};
 	}
 

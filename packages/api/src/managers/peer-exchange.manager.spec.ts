@@ -12,6 +12,7 @@ import type {
 	MediaServiceRepository,
 	PeerRepository,
 } from '@/repositories';
+import { BandwidthService } from '@/services';
 import type {
 	CataloguePolicy,
 	HandlerRegistry,
@@ -68,6 +69,7 @@ const policy = (overrides: Partial<CataloguePolicy> = {}): CataloguePolicy => ({
 	visibility: ShareVisibility.FRIENDS,
 	allowedPeerIds: [],
 	deniedPeerIds: [],
+	rateLimit: 0,
 	metadataOnly: false,
 	...overrides,
 });
@@ -124,6 +126,10 @@ const build = (
 		{
 			get: jest.fn().mockResolvedValue({ allowFriendsOfFriends: false }),
 		} as unknown as SettingsService,
+		// The real bucket, uncapped: the throttling belongs to its own test, and a fake
+		// here would let the serving path stop paying for what it sends without
+		// anything noticing.
+		new BandwidthService(),
 	);
 
 	return { manager, fakes };

@@ -1,3 +1,4 @@
+export * from './bandwidth.service';
 export * from './cache.service';
 export * from './chunk-planner';
 export * from './event-gateway.service';

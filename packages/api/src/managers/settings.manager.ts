@@ -1,6 +1,11 @@
 import type { Settings, UpdateSettingsRequest } from '@mcs/shared';
 import { Injectable, Logger } from '@nestjs/common';
-import { SchedulerService, SettingsService, TransferEngineService } from '@/services';
+import {
+	BandwidthService,
+	SchedulerService,
+	SettingsService,
+	TransferEngineService,
+} from '@/services';
 
 /**
  * Reading and writing the gateway's settings.
@@ -22,6 +27,7 @@ export class SettingsManager {
 		private readonly _settings: SettingsService,
 		private readonly _scheduler: SchedulerService,
 		private readonly _engine: TransferEngineService,
+		private readonly _bandwidth: BandwidthService,
 	) {}
 
 	public read(): Promise<Settings> {
@@ -47,7 +53,11 @@ export class SettingsManager {
 			// The whole settings object, not the patch: the engine holds one number and
 			// a caller who sent only the upload cap must not blank the download one.
 			this._engine.applyRateLimits(settings);
-			this._logger.log('Bandwidth limits applied to the transfers already running');
+			// Upload has no engine to hold its bucket — bytes leave through the peer
+			// endpoint, one request at a time — so its cap lives in its own service and
+			// has to be pushed there too.
+			this._bandwidth.apply(settings);
+			this._logger.log('Bandwidth limits applied to what is already running');
 		}
 
 		return settings;

@@ -1,6 +1,7 @@
 import {
 	ErrorKey,
 	MediaServiceScope,
+	MediaServiceType,
 	SyncState,
 	type ExternalIds,
 	type MediaGroup,
@@ -412,6 +413,12 @@ export class MediaGroupManager {
 			sources,
 			childCount: childGroups.size,
 			missingCount: [...childGroups.values()].filter((held) => !held).length,
+			libraryId: representative.libraryId,
+			parentId: representative.parentId,
+			// The most recent addition across the copies, which is what a client sorting
+			// on `addedAt` is asking for: when did this media become available to me,
+			// not when did one particular server happen to index it.
+			addedAt: this._addedAt(ranked),
 		};
 	}
 
@@ -513,7 +520,10 @@ export class MediaGroupManager {
 			itemId: item.id,
 			serviceId: item.serviceId,
 			serviceName: service?.name ?? '',
-			serviceType: service?.type ?? '',
+			// A service that vanished between the two reads leaves its rows behind for
+			// one request. Treating it as an unreachable remote is the honest fallback:
+			// claiming it is local would offer a pull from a disk nobody can write to.
+			serviceType: service?.type ?? MediaServiceType.JELLYFIN,
 			scope: service?.scope ?? MediaServiceScope.REMOTE,
 			peerId,
 			peerName: peerId === null ? null : (context.peerNames.get(peerId) ?? null),
@@ -522,7 +532,20 @@ export class MediaGroupManager {
 			quality: this._summary(item),
 			bytes: item.file?.size ?? null,
 			local: context.local.has(item.serviceId),
+			sync: item.syncState,
 		};
+	}
+
+	private _addedAt(ranked: MediaItemEntity[]): string | null {
+		const stamps = ranked
+			.map((item) => item.addedAt)
+			.filter((value): value is Date => value instanceof Date);
+
+		if (stamps.length === 0) {
+			return null;
+		}
+
+		return new Date(Math.max(...stamps.map((value) => value.getTime()))).toISOString();
 	}
 
 	private _summary(item: MediaItemEntity): QualitySummary | null {

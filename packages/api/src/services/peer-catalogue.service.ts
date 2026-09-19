@@ -28,6 +28,14 @@ export interface CataloguePolicy {
 	allowedPeerIds: string[];
 	deniedPeerIds: string[];
 	metadataOnly: boolean;
+	/**
+	 * Bytes per second this library will serve. Zero means no cap of its own.
+	 *
+	 * It exists alongside the global upload limit so somebody can share one collection
+	 * generously and another sparingly, without that decision being all-or-nothing for
+	 * their whole line.
+	 */
+	rateLimit: number;
 }
 
 export interface CataloguePeer {

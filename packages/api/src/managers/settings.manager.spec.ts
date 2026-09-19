@@ -1,5 +1,6 @@
 import {
 	DEFAULT_SETTINGS,
+	type BandwidthService,
 	type SchedulerService,
 	type SettingsService,
 	type TransferEngineService,
@@ -10,6 +11,7 @@ interface Fakes {
 	settings: { get: jest.Mock; update: jest.Mock };
 	scheduler: { reload: jest.Mock };
 	engine: { applyRateLimits: jest.Mock };
+	bandwidth: { apply: jest.Mock };
 }
 
 const build = (): { manager: SettingsManager; fakes: Fakes } => {
@@ -22,6 +24,7 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 		},
 		scheduler: { reload: jest.fn().mockResolvedValue(undefined) },
 		engine: { applyRateLimits: jest.fn() },
+		bandwidth: { apply: jest.fn() },
 	};
 
 	return {
@@ -29,6 +32,7 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 			fakes.settings as unknown as SettingsService,
 			fakes.scheduler as unknown as SchedulerService,
 			fakes.engine as unknown as TransferEngineService,
+			fakes.bandwidth as unknown as BandwidthService,
 		),
 		fakes,
 	};

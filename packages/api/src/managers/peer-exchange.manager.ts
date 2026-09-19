@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import {
 	ErrorKey,
 	type CatalogueEntry,
@@ -17,9 +18,11 @@ import {
 	PeerRepository,
 } from '@/repositories';
 import {
+	BandwidthService,
 	HandlerRegistry,
 	PeerCatalogueService,
 	SettingsService,
+	TokenBucket,
 	type ByteRange,
 	type CataloguePolicy,
 	type ContentHolder,
@@ -76,6 +79,7 @@ export class PeerExchangeManager {
 		private readonly _catalogue: PeerCatalogueService,
 		private readonly _handlers: HandlerRegistry,
 		private readonly _settings: SettingsService,
+		private readonly _bandwidth: BandwidthService,
 	) {}
 
 	/** What this peer is allowed to see of us. */
@@ -131,7 +135,7 @@ export class PeerExchangeManager {
 			throw new NotFoundException(ErrorKey.SERVICE_NOT_FOUND);
 		}
 
-		return this._handlers.get(service.type).openStream(
+		const opened = await this._handlers.get(service.type).openStream(
 			{
 				id: service.id,
 				type: service.type,
@@ -142,6 +146,40 @@ export class PeerExchangeManager {
 			},
 			{ externalId: item.externalId, file: item.file },
 			range,
+		);
+
+		return { ...opened, stream: this._throttled(opened.stream, policy.rateLimit) };
+	}
+
+	/**
+	 * The same bytes, paced by what the gateway is allowed to send.
+	 *
+	 * Two caps apply and the smaller one wins: the global upload limit, which is the
+	 * control people expect to find next to the queue, and the per-library one, which
+	 * is how somebody shares a collection without giving away their whole line. A
+	 * setting that exists and throttles nothing is worse than no setting, and until
+	 * now the upload limit was exactly that.
+	 *
+	 * Paced per chunk rather than per response: charged once at the start, a peer
+	 * pulling forty gigabytes would pay for the first buffer and then take the rest at
+	 * line rate.
+	 */
+	private _throttled(stream: Readable, libraryLimit: number): Readable {
+		const perLibrary = Number(libraryLimit) || 0;
+
+		return Readable.from(
+			(async function* (bandwidth: BandwidthService): AsyncGenerator<Buffer> {
+				const library = perLibrary > 0 ? new TokenBucket(perLibrary) : null;
+
+				for await (const chunk of stream) {
+					const buffer = Buffer.from(chunk as Buffer);
+
+					await bandwidth.send(buffer.length);
+					await library?.take(buffer.length);
+
+					yield buffer;
+				}
+			})(this._bandwidth),
 		);
 	}
 

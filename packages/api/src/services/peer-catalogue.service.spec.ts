@@ -15,6 +15,7 @@ function policy(overrides: Partial<CataloguePolicy> = {}): CataloguePolicy {
 		allowedPeerIds: [],
 		deniedPeerIds: [],
 		metadataOnly: false,
+	rateLimit: 0,
 		...overrides,
 	};
 }

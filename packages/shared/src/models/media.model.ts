@@ -1,3 +1,4 @@
+import type { MediaServiceScope, MediaServiceType } from './service.model';
 import type { SyncState } from './sync.model';
 
 export enum MediaKind {
@@ -168,14 +169,22 @@ export interface MediaGroupSource {
 	itemId: string;
 	serviceId: string;
 	serviceName: string;
-	serviceType: string;
+	serviceType: MediaServiceType;
 	/** `local` when the gateway can write into that service's libraries. */
-	scope: string;
+	scope: MediaServiceScope;
 	peerId: string | null;
 	peerName: string | null;
 	quality: QualitySummary | null;
 	bytes: number | null;
 	local: boolean;
+	/**
+	 * This copy's own state.
+	 *
+	 * The group says the media is outdated; only this says which copy is the old one.
+	 * Without it an interface can tell somebody something is out of date and not where
+	 * to pull the better version from, which is the next thing they will ask.
+	 */
+	sync: SyncState;
 }
 
 /**
@@ -221,6 +230,12 @@ export interface MediaGroup {
 	childCount: number;
 	/** Children known somewhere and absent here — what a season card shows at a glance. */
 	missingCount: number;
+	/** The representative's library, so a client can say where it sits without a second call. */
+	libraryId: string | null;
+	/** The representative's parent, which is what a breadcrumb walks up. */
+	parentId: string | null;
+	/** Most recent addition among the sources, which is what `sort=addedAt` orders on. */
+	addedAt: string | null;
 }
 
 export interface MediaGroupQuery {
