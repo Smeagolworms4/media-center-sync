@@ -216,6 +216,68 @@ describe('pages/LibraryItem', () => {
 		expect(cards[0].find('[data-test="media-missing-count"]').text()).toContain('3 missing');
 	});
 
+	/**
+	 * Never inspected and inspected-and-empty are different answers with different
+	 * remedies, and the page has to offer the right one.
+	 */
+	it('offers a scan when what sits beside the file has never been read', async () => {
+		const stub = stubFetchRoutes({ ...routes, '/api/services/s1/scan': {} });
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const block = wrapper.find('[data-test="item-companions"]');
+		expect(block.find('[data-test="companion-marks"]').attributes('data-state')).toBe('unknown');
+
+		await block.find('[data-test="item-companions-scan"]').trigger('click');
+		await settle();
+
+		expect(stub.mock.calls.some(call => String(call[0]).includes('/api/services/s1/scan'))).toBe(true);
+	});
+
+	it('shows what sits beside the file once it has been read, and offers no scan', async () => {
+		stubFetchRoutes({
+			...routes,
+			'/api/media/groups/m1': {
+				body: mediaGroup({
+					sources: [{
+						itemId: 'm1',
+						serviceId: 's1',
+						serviceName: 'Bob\u2019s Jellyfin',
+						serviceType: MediaServiceType.JELLYFIN,
+						scope: MediaServiceScope.REMOTE,
+						peerId: null,
+						peerName: null,
+						quality: null,
+						companions: {
+							nfo: true,
+							poster: false,
+							fanart: false,
+							subtitles: 0,
+							missing: ['poster.jpg'],
+							checkedAt: '2026-02-01T00:00:00.000Z',
+						},
+						bytes: 1024,
+						local: true,
+						sync: SyncState.IN_SYNC,
+					}],
+				}),
+			},
+		});
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const block = wrapper.find('[data-test="item-companions"]');
+		expect(block.find('[data-test="companion-marks"]').attributes('data-state')).toBe('incomplete');
+		expect(block.text()).toContain('poster.jpg');
+		expect(block.find('[data-test="item-companions-scan"]').exists()).toBe(false);
+	});
+
 	it('offers a retry when the item cannot be read', async () => {
 		stubFetchRoutes({ '/api/services': { body: [] }, '/api/peers': { body: [] } });
 		const { wrapper } = mountWithApp(LibraryItem, {

@@ -366,7 +366,7 @@ const fr: typeof en = {
 			relay_only: 'Seuls les liens relayés sont possibles. Tout fonctionne, mais les transferts partagent le rendez-vous avec tous les autres. Ouvrir le port des pairs supprimerait cette limite.',
 		},
 		invite: {
-			open: 'Inviter ou accepter',
+			open: 'Relier une passerelle',
 			title: 'Lier deux passerelles',
 			create_tab: 'Inviter quelqu\'un',
 			accept_tab: 'Accepter une invitation',

@@ -367,7 +367,7 @@ export default {
 			relay_only: 'Only relayed links are possible. Everything works, but transfers share the rendezvous with everybody else using it. Forwarding the peer port would remove that.',
 		},
 		invite: {
-			open: 'Invite or accept',
+			open: 'Link a gateway',
 			title: 'Linking two gateways',
 			create_tab: 'Invite somebody',
 			accept_tab: 'Accept an invitation',
