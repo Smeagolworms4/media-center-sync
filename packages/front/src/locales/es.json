@@ -281,6 +281,13 @@
 			"not_held_here": "Solo lo tiene otro servidor.",
 			"none": "Ningún servicio tiene este elemento."
 		},
+		"version": {
+			"title": "Versiones",
+			"held": "ya aquí",
+			"nothing_to_pull": "nada que traer — solo la tenemos nosotros",
+			"here_count": "{count} de {total} versiones aquí",
+			"transfer_count": "ninguna versión elegida — decide la prioridad configurada | una versión elegida, una transferencia | {count} versiones elegidas, {count} transferencias"
+		},
 		"match": {
 			"title": "Correlaciones",
 			"action": "Correlaciones",
@@ -481,7 +488,9 @@
 			"rename": "Renombrar",
 			"block": "Bloquear",
 			"unblock": "Desbloquear"
-		}
+		},
+		"protocol": "Protocolo {version}",
+		"capabilities": "puede"
 	},
 	"share": {
 		"subtitle": "Lo que esta pasarela expone, decidido biblioteca por biblioteca.",
@@ -617,7 +626,10 @@
 		"cache_ttl": "Duración de la caché (segundos)",
 		"cache_ttl_help": "Cuánto tiempo sigue siendo válida la respuesta de un servicio. Lo bastante para que diez pestañas abiertas cuesten una sola petición.",
 		"full_scan": "Planificación del análisis completo",
-		"full_scan_help": "Una actualización solo ve lo que un servicio anuncia como nuevo. Vacío desactiva el pase planificado; el botón funciona siempre."
+		"full_scan_help": "Una actualización solo ve lo que un servicio anuncia como nuevo. Vacío desactiva el pase planificado; el botón funciona siempre.",
+		"instance_name": "Nombre de esta pasarela",
+		"instance_name_help": "Lo que ven tus amigos en lugar del nombre de máquina. En un contenedor ese nombre es una cadena aleatoria.",
+		"instance_name_placeholder": "Salón"
 	},
 	"sync": {
 		"subtitle": "Las intenciones permanentes, y lo que han hecho realmente.",
@@ -953,7 +965,8 @@
 			"resource_not_found": "El servicio multimedia ha respondido, y ya no tiene este elemento.",
 			"unauthorized": "El servicio multimedia ha rechazado a la pasarela. Revisa su token.",
 			"duplicate": "Este servicio multimedia ya está registrado.",
-			"handler_unknown": "Este tipo de servicio multimedia no es compatible."
+			"handler_unknown": "Este tipo de servicio multimedia no es compatible.",
+			"auth_unsupported": "Un par no puede iniciar la sesión de nadie; elige un servidor multimedia."
 		},
 		"library": {
 			"not_found": "Esta biblioteca ya no existe.",
@@ -986,7 +999,8 @@
 			"not_found": "Esta transferencia ya no existe.",
 			"not_resumable": "Esta transferencia no se puede reanudar y tiene que empezar de nuevo.",
 			"no_space": "No hay espacio libre suficiente en la biblioteca de destino.",
-			"checksum_mismatch": "El archivo descargado no coincide con su suma de comprobación."
+			"checksum_mismatch": "El archivo descargado no coincide con su suma de comprobación.",
+			"target_occupied": "Otro archivo ya ocupa la ruta donde este iba a aterrizar y no se pudo construir un nombre libre. No se sobrescribió nada."
 		},
 		"settings": {
 			"invalid": "Estos ajustes han sido rechazados.",

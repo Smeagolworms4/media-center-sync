@@ -10,6 +10,20 @@ import type { LibraryKind } from './library.model';
 export enum MediaServiceType {
 	JELLYFIN = 'jellyfin',
 	PLEX = 'plex',
+	/**
+	 * Another gateway's shared libraries, reached over the peer link.
+	 *
+	 * A peer is a media service with an introduction service bolted on: it has
+	 * libraries, it holds items, we can list it and pull from it. Saying so here is
+	 * what lets indexing, correlation, categories, missing counts, quality summaries,
+	 * sync plans and transfers work on a friend's media without a single line of
+	 * their own — the alternative was a parallel path beside every one of those.
+	 *
+	 * It is the one type nobody registers by hand: linking a peer creates it and
+	 * unlinking removes it, because its address is a fingerprint rather than a URL
+	 * somebody could type.
+	 */
+	PEER = 'peer',
 }
 
 /**

@@ -1,7 +1,7 @@
-import { chmod, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LibraryKind, MediaKind, PlacementStrategy, type Settings } from '@mcs/shared';
+import { ErrorKey, LibraryKind, MediaKind, PlacementStrategy, type Settings } from '@mcs/shared';
 import { DEFAULT_SETTINGS } from './settings.service';
 import { PlacementService, type PlacementLibrary } from './placement.service';
 
@@ -215,6 +215,120 @@ describe('PlacementService', () => {
 		// `/root/shows2` is not inside `/root/shows`, so the beside-existing strategy
 		// cannot apply and the default library takes over.
 		expect(target.strategy).toBe(PlacementStrategy.DEFAULT_LIBRARY);
+	});
+
+	/**
+	 * The case that destroyed files, and the only one worth being pedantic about.
+	 *
+	 * Two versions of one episode render the same name, so the second transfer landed on
+	 * the first at the end of a completed download — no error, no log line, no way to
+	 * tell afterwards. Every test here is about a file that must still be readable when
+	 * the placement is done.
+	 */
+	describe('an occupied path', () => {
+		const occupied = async (directory: string, name: string): Promise<string> => {
+			await mkdir(directory, { recursive: true });
+			await writeFile(join(directory, name), 'the copy somebody already has');
+
+			return join(directory, name);
+		};
+
+		it('never lands on a file it is not replacing', async () => {
+			const existing = await occupied(join(shows, 'Occupied'), 'S01E02.mkv');
+
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'Occupied/S01E02.mkv',
+				disambiguate: (name, attempt) => name.replace('.mkv', ` - ${attempt + 1}.mkv`),
+			});
+
+			expect(target.path).toBe(join(shows, 'Occupied', 'S01E02 - 2.mkv'));
+			await expect(readFile(existing, 'utf8')).resolves.toBe(
+				'the copy somebody already has',
+			);
+		});
+
+		it('says in the reason what it had to do, so a transfer can be explained', async () => {
+			await occupied(join(shows, 'Explained'), 'S01E02.mkv');
+
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'Explained/S01E02.mkv',
+				disambiguate: (name, attempt) => name.replace('.mkv', ` - ${attempt + 1}.mkv`),
+			});
+
+			expect(target.reason).toContain('S01E02.mkv is taken');
+		});
+
+		it('replaces our own copy, because that is what an upgrade is', async () => {
+			// The one legitimate overwrite: a better encode of the copy we hold, which
+			// is what the whole sync exists to do. Refusing here would leave two files
+			// and double the library on every quality upgrade.
+			const existing = await occupied(join(shows, 'Upgraded'), 'S01E02.mkv');
+
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'Upgraded/S01E02.mkv',
+				replacesPath: existing,
+				disambiguate: (name, attempt) => name.replace('.mkv', ` - ${attempt + 1}.mkv`),
+			});
+
+			expect(target.path).toBe(existing);
+			expect(target.reason).toBeNull();
+		});
+
+		it('treats a path an earlier item of the same run claimed as taken', async () => {
+			// Nothing is written while a plan is built, so the filesystem answers "free"
+			// for both versions and the second would overwrite the first hours later.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'Planned/S01E02.mkv',
+				reserved: [join(shows, 'Planned', 'S01E02.mkv')],
+				disambiguate: (name, attempt) => name.replace('.mkv', ` - ${attempt + 1}.mkv`),
+			});
+
+			expect(target.path).toBe(join(shows, 'Planned', 'S01E02 - 2.mkv'));
+		});
+
+		it('keeps trying until it finds a free name', async () => {
+			await occupied(join(shows, 'Crowded'), 'S01E02.mkv');
+			await occupied(join(shows, 'Crowded'), 'S01E02 - 2.mkv');
+
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'Crowded/S01E02.mkv',
+				disambiguate: (name, attempt) => name.replace('.mkv', ` - ${attempt + 1}.mkv`),
+			});
+
+			expect(target.path).toBe(join(shows, 'Crowded', 'S01E02 - 3.mkv'));
+		});
+
+		it('refuses rather than overwrite when no other name can be built', async () => {
+			// A caller with no naming callback has nothing to offer, and a transfer that
+			// fails with a key somebody can act on beats a file nobody can get back.
+			await occupied(join(shows, 'Stuck'), 'S01E02.mkv');
+
+			await expect(
+				service.resolve({
+					kind: MediaKind.EPISODE,
+					settings: settings(),
+					libraries: [library()],
+					relativeName: 'Stuck/S01E02.mkv',
+				}),
+			).rejects.toMatchObject({
+				response: { key: ErrorKey.TRANSFER_TARGET_OCCUPIED },
+			});
+		});
 	});
 
 	it('creates the destination directory when asked to prepare', async () => {

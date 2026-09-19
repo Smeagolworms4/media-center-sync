@@ -281,6 +281,13 @@
 			"not_held_here": "只有别的服务器拥有它。",
 			"none": "没有服务拥有此项目。"
 		},
+		"version": {
+			"title": "版本",
+			"held": "已在此",
+			"nothing_to_pull": "无可拉取 —— 只有我们拥有它",
+			"here_count": "此处有 {count} 个版本，共 {total} 个",
+			"transfer_count": "已选 {count} 个版本，{count} 个传输"
+		},
 		"match": {
 			"title": "关联",
 			"action": "匹配项",
@@ -481,7 +488,9 @@
 			"rename": "重命名",
 			"block": "屏蔽",
 			"unblock": "解除屏蔽"
-		}
+		},
+		"protocol": "协议 {version}",
+		"capabilities": "支持"
 	},
 	"share": {
 		"subtitle": "此网关对外公开的内容，逐个媒体库决定。",
@@ -617,7 +626,10 @@
 		"cache_ttl": "缓存有效期（秒）",
 		"cache_ttl_help": "服务的一次应答可以用多久。足够长的话，十个打开的标签页只需一次请求。",
 		"full_scan": "完整扫描计划",
-		"full_scan_help": "刷新只能看到服务报告为新增的内容。留空则停用定时的完整扫描；按钮始终可用。"
+		"full_scan_help": "刷新只能看到服务报告为新增的内容。留空则停用定时的完整扫描；按钮始终可用。",
+		"instance_name": "此网关的名称",
+		"instance_name_help": "好友看到的名称，替代主机名。在容器中主机名是一串随机字符。",
+		"instance_name_placeholder": "客厅"
 	},
 	"sync": {
 		"subtitle": "长期的同步意图，以及它们实际做了什么。",
@@ -953,7 +965,8 @@
 			"resource_not_found": "媒体服务有响应，但已不再拥有此项目。",
 			"unauthorized": "此媒体服务拒绝了网关。请检查它的令牌。",
 			"duplicate": "此媒体服务已经注册过了。",
-			"handler_unknown": "不支持此类媒体服务。"
+			"handler_unknown": "不支持此类媒体服务。",
+			"auth_unsupported": "对等节点无法为任何人登录，请改选媒体服务器。"
 		},
 		"library": {
 			"not_found": "此媒体库已不存在。",
@@ -986,7 +999,8 @@
 			"not_found": "此传输已不存在。",
 			"not_resumable": "此传输无法恢复，必须重新开始。",
 			"no_space": "目标媒体库的可用空间不足。",
-			"checksum_mismatch": "下载的文件与其校验和不匹配。"
+			"checksum_mismatch": "下载的文件与其校验和不匹配。",
+			"target_occupied": "该文件本应落地的路径已被别的文件占用，且无法构造出空闲的名称。没有任何文件被覆盖。"
 		},
 		"settings": {
 			"invalid": "这些设置被拒绝。",

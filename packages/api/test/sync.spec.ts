@@ -1,4 +1,4 @@
-import { mkdtemp, rm, statfs } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, statfs, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
@@ -11,6 +11,7 @@ import {
 	SyncState,
 	SyncTrigger,
 	UserRole,
+	type MediaGroup,
 	type ResultList,
 	type SyncEstimate,
 	type SyncJob,
@@ -18,6 +19,7 @@ import {
 	type SyncPlan,
 	type SyncPreview,
 } from '@mcs/shared';
+import { MediaManager } from '@/managers';
 import { LibraryRepository, MediaItemRepository, MediaServiceRepository } from '@/repositories';
 import { SettingsService } from '@/services';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
@@ -529,6 +531,180 @@ describe('Syncing', () => {
 				.expect(404);
 
 			expect(gone.body).toMatchObject({ message: 'error.sync.job_not_found' });
+		});
+	});
+
+	/**
+	 * Several versions of one film, asked for in one call.
+	 *
+	 * Booted over a real database and gone through over HTTP because every part of the
+	 * claim is somewhere else: the DTO has to accept two services, the planner has to
+	 * keep two versions apart, and placement has to give them two paths. A unit test can
+	 * prove any one of those and none of them together, and the way this used to fail —
+	 * one transfer planned, the run reporting success, one of the two cuts never fetched
+	 * and the other overwritten — leaves nothing behind to notice.
+	 */
+	describe('several versions of one media', () => {
+		let theatricalId: string;
+		let extendedId: string;
+		let secondServiceId: string;
+
+		beforeAll(async () => {
+			const services = context.app.get(MediaServiceRepository);
+			const libraries = context.app.get(LibraryRepository);
+			const items = context.app.get(MediaItemRepository);
+
+			const second = await services.save(
+				services.create({
+					name: 'Another friend',
+					type: MediaServiceType.PLEX,
+					scope: MediaServiceScope.REMOTE,
+					baseUrl: 'http://127.0.0.1:33',
+					priority: 30,
+				}),
+			);
+
+			secondServiceId = second.id;
+
+			const secondLibrary = await libraries.save(
+				libraries.create({
+					serviceId: second.id,
+					externalId: 'lib-second',
+					name: 'Their films',
+					kind: LibraryKind.MOVIES,
+					paths: ['/srv/films'],
+				}),
+			);
+
+			const film = async (
+				serviceId: string,
+				libraryId: string,
+				externalId: string,
+				overrides: Record<string, unknown>,
+			): Promise<string> =>
+				(
+					await items.save(
+						items.create({
+							serviceId,
+							libraryId,
+							externalId,
+							kind: MediaKind.MOVIE,
+							title: 'Titanic',
+							normalizedTitle: 'titanic',
+							year: 1997,
+							externalIds: { imdb: 'tt0120338' },
+							syncState: SyncState.MISSING,
+							...overrides,
+						}),
+					)
+				).id;
+
+			const reel = (overrides: Record<string, unknown>): Record<string, unknown> => ({
+				path: '/srv/films/Titanic (1997)/Titanic (1997).mkv',
+				size: 4096,
+				container: 'mkv',
+				videoCodec: 'hevc',
+				audioCodec: 'aac',
+				width: 1920,
+				height: 1080,
+				durationMs: 11_640_000,
+				bitrate: 2_000_000,
+				checksum: null,
+				...overrides,
+			});
+
+			theatricalId = await film(remoteServiceId, remoteLibraryId, 'their-titanic', {
+				file: reel({ quickHash: 'theatrical', contentId: 'q1-theatrical' }),
+			});
+
+			// The same film to every scraper — same title, same year, same IMDb number —
+			// and a different cut: a quarter of an hour longer, and a different file.
+			extendedId = await film(second.id, secondLibrary.id, 'second-titanic', {
+				file: reel({
+					quickHash: 'extended',
+					contentId: 'q1-extended',
+					durationMs: 11_640_000 + 15 * 60 * 1000,
+					edition: 'Extended Cut',
+				}),
+			});
+		});
+
+		it('plans one transfer per version, from the services the call names', async () => {
+			const response = await request(context.app.getHttpServer())
+				.post('/api/sync/preview')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({
+					scope: { itemIds: [theatricalId, extendedId] },
+					sourceServiceIds: [remoteServiceId, secondServiceId],
+				})
+				.expect(200);
+			const preview = response.body as SyncPreview;
+
+			expect(preview.itemsPlanned).toBe(2);
+			expect(preview.items.map((planned) => planned.itemId).sort()).toEqual(
+				[theatricalId, extendedId].sort(),
+			);
+		});
+
+		it('lands neither of them on a file that is already there', async () => {
+			// The occupant stands in for the copy somebody already has. Both versions
+			// render the same name as it does — that is the whole trap — and the one that
+			// used to be overwritten is whichever finished last.
+			const folder = join(destination, 'Titanic (1997)');
+
+			await mkdir(folder, { recursive: true });
+			await writeFile(join(folder, 'Titanic (1997).mkv'), 'the copy somebody already has');
+
+			const response = await request(context.app.getHttpServer())
+				.post('/api/sync/preview')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({
+					scope: { itemIds: [theatricalId, extendedId] },
+					sourceServiceIds: [remoteServiceId, secondServiceId],
+				})
+				.expect(200);
+			const preview = response.body as SyncPreview;
+			const pathOf = (itemId: string): string =>
+				preview.items.find((planned) => planned.itemId === itemId)?.targetPath ?? '';
+
+			expect(new Set(preview.items.map((planned) => planned.targetPath)).size).toBe(2);
+			// The label both media servers read: Plex parses the tag and strips it before
+			// matching the title, Jellyfin takes what follows the last ` - ` as the name
+			// of the version. The copy nobody labelled falls back to its resolution.
+			expect(pathOf(extendedId)).toBe(join(folder, 'Titanic (1997) - {edition-Extended Cut}.mkv'));
+			expect(pathOf(theatricalId)).toBe(join(folder, 'Titanic (1997) - 1080p.mkv'));
+
+			await expect(readFile(join(folder, 'Titanic (1997).mkv'), 'utf8')).resolves.toBe(
+				'the copy somebody already has',
+			);
+		});
+
+		it('leaves them as two media, because two cuts are not one thing', async () => {
+			// The real correlation, over the real index, then the grouped route — which
+			// is the question somebody asks on the screen: is this one poster or two?
+			// It used to be one, on the strength of the IMDb number they share.
+			await context.app.get(MediaManager).correlateService(secondServiceId);
+
+			const page = await request(context.app.getHttpServer())
+				.get('/api/media/groups?kind=movie&limit=50')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+			const groups = (page.body as ResultList<MediaGroup>).items;
+			const holding = (itemId: string): MediaGroup | undefined =>
+				groups.find((group) => group.sources.some((source) => source.itemId === itemId));
+
+			expect(holding(theatricalId)?.id).not.toBe(holding(extendedId)?.id);
+			expect(holding(theatricalId)?.sources).toHaveLength(1);
+			expect(holding(extendedId)?.sources).toHaveLength(1);
+			// Each stands alone and each says which version it is, which is what the
+			// picker offers and what a pull is chosen from.
+			expect(holding(extendedId)?.versions).toEqual([
+				expect.objectContaining({
+					versionId: 'q1-extended',
+					edition: 'Extended Cut',
+					heldLocally: false,
+				}),
+			]);
 		});
 	});
 });

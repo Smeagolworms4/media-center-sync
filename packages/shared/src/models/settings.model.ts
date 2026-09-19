@@ -70,6 +70,21 @@ export interface Settings {
 	 * `http://192.168.0.12:4200` and reached by friends over a domain name would
 	 * otherwise announce a private address, so it is offered and never assumed.
 	 */
+	/**
+	 * What this gateway calls itself to other people.
+	 *
+	 * Falls back to the machine's hostname, which is why it exists: in a container the
+	 * hostname is a random hex string, so friends were being shown `d9b90135` where
+	 * they expected "Living room" or "The NAS". A name is the only part of an identity
+	 * a person actually reads — the fingerprint is what the software compares, and
+	 * nobody recognises a friend by it.
+	 *
+	 * Null means nobody chose one, and the hostname stands. It is deliberately not
+	 * defaulted to a pretty string at install time: a gateway called "Media Center
+	 * Sync" on both ends of a link is worse than two hostnames.
+	 */
+	instanceName: string | null;
+
 	publicUrl: string | null;
 
 	/**

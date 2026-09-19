@@ -1,6 +1,7 @@
 import request from 'supertest';
 import {
 	PeerDirection,
+	PeerLinkMode,
 	PeerStatus,
 	PeerTrust,
 	UserRole,
@@ -9,7 +10,13 @@ import {
 	type PeerIdentity,
 	type PeerInvite,
 } from '@mcs/shared';
-import { PeerRepository } from '@/repositories';
+import {
+	LibraryRepository,
+	MediaItemRepository,
+	MediaServiceRepository,
+	PeerRepository,
+} from '@/repositories';
+import { PeerLinkService } from '@/services';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
 
 /** An identifier that is a valid UUID and belongs to nobody. */
@@ -309,6 +316,194 @@ describe('Peers', () => {
 		});
 	});
 
+	/**
+	 * A peer is a media service with an introduction service bolted on.
+	 *
+	 * These go through the real application deliberately: the claim is not that a
+	 * handler can map a catalogue row, which a unit test pins, but that linking a peer
+	 * produces an ordinary service with ordinary libraries holding ordinary items —
+	 * because everything downstream reads those and nothing downstream knows what a
+	 * peer is.
+	 *
+	 * The link itself is the only thing faked, and it is faked on the real service
+	 * rather than replaced: a test must never open a socket to a peer, and everything
+	 * above the socket is exactly what production runs.
+	 */
+	describe('what a link brings', () => {
+		let services: MediaServiceRepository;
+		let libraries: LibraryRepository;
+		let items: MediaItemRepository;
+
+		const theirLibraries = [
+			{ externalId: 'their-films', name: 'Films', kind: 'movies', itemCount: 1 },
+			{ externalId: 'their-shows', name: 'Shows', kind: 'shows', itemCount: 0 },
+		];
+
+		const theirFilm = {
+			externalId: 'their-item-1',
+			libraryId: 'their-films',
+			kind: 'movie',
+			title: 'Tears of Steel',
+			year: 2012,
+			seasonNumber: null,
+			episodeNumber: null,
+			parentExternalId: null,
+			externalIds: { tmdb: '133701' },
+			contentId: 'v1:abc:1048576',
+			size: 1_048_576,
+			quality: 'x265 · 1080p',
+		};
+
+		beforeAll(() => {
+			services = context.app.get(MediaServiceRepository);
+			libraries = context.app.get(LibraryRepository);
+			items = context.app.get(MediaItemRepository);
+		});
+
+		beforeEach(() => {
+			const links = context.app.get(PeerLinkService);
+			const pages = new Map<string, number>();
+
+			jest.spyOn(links, 'isLinked').mockReturnValue(true);
+			jest.spyOn(links, 'supports').mockReturnValue(true);
+			jest.spyOn(links, 'protocolOf').mockReturnValue(1);
+			jest.spyOn(links, 'request').mockImplementation(
+				async (peerId: string, method: string, params: unknown) => {
+					if (method === 'catalogue.libraries') {
+						return { libraries: theirLibraries } as never;
+					}
+
+					const query = (params ?? {}) as { libraryId?: string | null };
+					const key = `${peerId}:${query.libraryId ?? 'all'}`;
+					const page = (pages.get(key) ?? 0) + 1;
+
+					pages.set(key, page);
+
+					// One page of rows, then the empty page that ends the walk — which is
+					// how a real peer answers, and what stops the import asking forever.
+					return {
+						entries:
+							page === 1 && query.libraryId === 'their-films' ? [theirFilm] : [],
+					} as never;
+				},
+			);
+		});
+
+		afterEach(() => {
+			jest.restoreAllMocks();
+		});
+
+		/** The indexing pass is detached from the request that asked for it. */
+		const settled = async (serviceId: string): Promise<void> => {
+			for (let attempt = 0; attempt < 50; attempt += 1) {
+				if ((await items.countByService(serviceId)) > 0) {
+					return;
+				}
+
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			}
+		};
+
+		it('registers what a peer shares as a service holding their libraries', async () => {
+			const id = await seed({
+				name: 'The cottage',
+				status: PeerStatus.PENDING,
+				direction: PeerDirection.INCOMING,
+			});
+
+			await post(`/${id}/approve`).expect(200);
+
+			const [service] = await services.findByPeer(id);
+
+			expect(service).toMatchObject({
+				name: 'The cottage',
+				// Remote, always: we cannot write into somebody else's disk, and a
+				// peer-backed row is never offered as a destination.
+				scope: 'remote',
+				type: 'peer',
+				peerId: id,
+			});
+
+			const registered = await libraries.findByService(service.id);
+
+			expect(registered.map((library) => library.name).sort()).toEqual(['Films', 'Shows']);
+			// No path, so nothing can ever mark one writable and plan a transfer into it.
+			expect(registered.every((library) => library.paths.length === 0)).toBe(true);
+		});
+
+		it('indexes their rows, so everything downstream sees ordinary items', async () => {
+			const id = await seed({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING });
+
+			await post(`/${id}/approve`).expect(200);
+
+			const [service] = await services.findByPeer(id);
+
+			await settled(service.id);
+
+			const held = await items.find({ where: { serviceId: service.id } });
+
+			expect(held).toHaveLength(1);
+			expect(held[0]).toMatchObject({
+				externalId: 'their-item-1',
+				title: 'Tears of Steel',
+				normalizedTitle: 'tears of steel',
+			});
+			// Their path never crossed, and this gateway must not invent one.
+			expect(held[0].file?.path).toBe('');
+		});
+
+		it('drops a library they have stopped sharing, and only that one', async () => {
+			const id = await seed({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING });
+
+			await post(`/${id}/approve`).expect(200);
+
+			const [service] = await services.findByPeer(id);
+
+			await settled(service.id);
+
+			const links = context.app.get(PeerLinkService);
+
+			jest.spyOn(links, 'request').mockImplementation(async (_peerId, method) =>
+				method === 'catalogue.libraries'
+					? ({ libraries: [theirLibraries[1]] } as never)
+					: ({ entries: [] } as never),
+			);
+			// The socket is the one thing a test must not open. Everything the link
+			// service is asked for afterwards is answered above.
+			jest.spyOn(links, 'connect').mockResolvedValue({
+				peerId: id,
+				mode: PeerLinkMode.DIRECT,
+				address: '127.0.0.1:4299',
+				connected: true,
+				since: new Date().toISOString(),
+				protocol: 1,
+				capabilities: ['catalogue', 'libraries'],
+				nodeId: 'their-node',
+			});
+
+			await post(`/${id}/connect`).expect(200);
+
+			// Un-sharing is somebody changing their mind on purpose, which is exactly
+			// what adopting libraries does not model: it creates and updates and never
+			// deletes. Leaving the library behind would keep counting a friend's films as
+			// available to pull, which is the one thing un-sharing was meant to stop.
+			await expect(
+				libraries.findByService(service.id).then((rows) => rows.map((row) => row.name)),
+			).resolves.toEqual(['Shows']);
+			await expect(items.countByService(service.id)).resolves.toBe(0);
+		});
+
+		it('counts their libraries on the peer, rather than reporting a flat zero', async () => {
+			const id = await seed({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING });
+
+			await post(`/${id}/approve`).expect(200);
+
+			const response = await get(`/${id}/services`).expect(200);
+
+			expect(response.body as MediaService[]).toMatchObject([{ libraryCount: 2 }]);
+		});
+	});
+
 	describe('unlinking', () => {
 		it('forgets a peer', async () => {
 			const id = await seed();
@@ -319,6 +514,52 @@ describe('Peers', () => {
 				.expect(204);
 
 			await get(`/${id}`).expect(404);
+		});
+
+		it('takes back what the link brought, and nothing of ours', async () => {
+			const links = context.app.get(PeerLinkService);
+
+			jest.spyOn(links, 'isLinked').mockReturnValue(true);
+			jest.spyOn(links, 'supports').mockReturnValue(true);
+			jest.spyOn(links, 'request').mockImplementation(async (_peerId, method) =>
+				method === 'catalogue.libraries'
+					? ({
+						libraries: [
+							{ externalId: 'their-films', name: 'Films', kind: 'movies', itemCount: 0 },
+						],
+					} as never)
+					: ({ entries: [] } as never),
+			);
+
+			const services = context.app.get(MediaServiceRepository);
+			const libraries = context.app.get(LibraryRepository);
+			const ours = await services.save(
+				services.create({
+					name: 'Ours',
+					type: 'jellyfin' as never,
+					scope: 'local' as never,
+					baseUrl: `http://ours-${Date.now()}.test`,
+				}),
+			);
+			const id = await seed({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING });
+
+			await post(`/${id}/approve`).expect(200);
+
+			const [theirs] = await services.findByPeer(id);
+
+			expect(await libraries.findByService(theirs.id)).toHaveLength(1);
+
+			await request(context.app.getHttpServer())
+				.delete(`/api/peers/${id}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(204);
+
+			await expect(services.findByPeer(id)).resolves.toEqual([]);
+			await expect(libraries.findByService(theirs.id)).resolves.toEqual([]);
+			// And nothing of ours went with it. Unlinking is about one machine.
+			await expect(services.findOne({ where: { id: ours.id } })).resolves.not.toBeNull();
+
+			jest.restoreAllMocks();
 		});
 
 		it('answers a key for a peer nobody linked to', async () => {

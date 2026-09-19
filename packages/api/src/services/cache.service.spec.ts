@@ -188,29 +188,32 @@ describe('CacheService (in-memory)', () => {
 
 	it('forgets a key under the prefix that a factory is still filling', async () => {
 		// The in-flight map is what collapses ten tabs into one request, and it has to
-		// be cleared with the values: a factory whose answer has just been invalidated
-		// must not be served to the callers waiting behind it.
+		// be cleared along with the values. Left behind, a caller arriving after an
+		// invalidation is handed the answer to the question that was just invalidated —
+		// a poster from before a rescan, served as though it were after one.
 		let release = (): void => {};
 		const held = new Promise<string>((resolve) => {
 			release = () => {
-				resolve('first');
+				resolve('before');
 			};
 		});
-		const factory = jest.fn(() => held);
+		const first = jest.fn(() => held);
+		const second = jest.fn(async () => 'after');
 
-		const pending = cache.wrap('plex:part:1', 60, factory);
+		const pending = cache.wrap('plex:part:1', 60, first);
 
-		// The entry is registered after the read that missed, so the clear has to come
-		// after the turn of the loop that registers it — which is also the only window
-		// in which the bug this pins down could happen.
-		await Promise.resolve();
+		// The entry is registered only once the read that missed has come back, which
+		// takes more than one turn of the loop.
+		await new Promise((resolve) => setImmediate(resolve));
 		await cache.clear('plex:');
+
+		// Without the clear this call would join the first and answer `before`, which
+		// is the stale answer the invalidation was for.
+		expect(await cache.wrap('plex:part:1', 60, second)).toBe('after');
+		expect(second).toHaveBeenCalledTimes(1);
+
 		release();
 		await pending;
-
-		await cache.wrap('plex:part:1', 60, jest.fn(async () => 'second'));
-
-		expect(factory).toHaveBeenCalledTimes(1);
 	});
 
 	it('releases the memory of a key nobody ever reads again', async () => {

@@ -62,6 +62,7 @@ const CHALLENGE_MAX_AGE_MS = 5 * 60_000;
 export const LOCAL_CAPABILITIES: readonly PeerCapabilityValue[] = Object.freeze([
 	PeerCapability.CONTENT,
 	PeerCapability.CATALOGUE,
+	PeerCapability.LIBRARIES,
 	PeerCapability.REVALIDATE,
 	PeerCapability.ANNOUNCE,
 	PeerCapability.SWARM,

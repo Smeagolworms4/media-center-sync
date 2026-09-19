@@ -411,9 +411,17 @@ describe('The peer link endpoint', () => {
 				}),
 			);
 
-			expect(await answer(client)).toEqual({
+			// The two fields the transport reads are still exactly where they were: a peer
+			// running an older image reads `size` and `resumable` and nothing else, so
+			// moving them under the row would break every transfer already in flight.
+			// The row rides alongside them, under a key of its own.
+			expect(await answer(client)).toMatchObject({
 				id: 3,
-				result: { size: 1_073_741_824, resumable: true },
+				result: {
+					size: 1_073_741_824,
+					resumable: true,
+					entry: { externalId: sharedItemId, title: 'Tears of Steel' },
+				},
 			});
 			client.close();
 		});

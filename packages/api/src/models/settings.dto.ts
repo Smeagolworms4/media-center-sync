@@ -118,6 +118,15 @@ export class UpdateSettingsDto {
 	 * The shape of the three values is checked in the service rather than here, because
 	 * an empty string has to mean "cleared" and `@IsUrl` would refuse it.
 	 */
+	/**
+	 * Empty means "no name of my own", and the hostname stands. It is not a rejection.
+	 */
+	@ApiPropertyOptional({ description: 'What this gateway calls itself to other people.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(80)
+	public instanceName?: string | null;
+
 	@ApiPropertyOptional({
 		description:
 			'How this gateway is reached from outside. Any http or https URL is accepted and ' +

@@ -396,4 +396,239 @@ describe('JellyfinHandler', () => {
 			).toBeNull();
 		});
 	});
+
+	describe('openArtwork and openStream', () => {
+		it('opens the poster against the server the item came from', async () => {
+			// Jellyfin serves images to anyone, but the URL is relative to the base the
+			// service is registered under — not to whatever host the row happens to
+			// carry from a peer's catalogue.
+			const fetched = jest.fn(
+				async () =>
+					new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+						status: 200,
+						headers: { 'content-type': 'image/jpeg' },
+					}),
+			);
+
+			global.fetch = fetched as unknown as typeof fetch;
+
+			const artwork = await handler.openArtwork(connection, {
+				externalId: 'item-1',
+				artworkUrl: 'http://jellyfin:8096/Items/item-1/Images/Primary?tag=tag',
+			});
+
+			expect(String((fetched.mock.calls as unknown as [string][])[0][0])).toBe(
+				'http://jellyfin:8096/Items/item-1/Images/Primary?tag=tag',
+			);
+			expect(artwork.contentType).toBe('image/jpeg');
+
+			artwork.stream.destroy();
+		});
+
+		it('asks for a range of the original file', async () => {
+			const fetched = jest.fn(
+				async () =>
+					new Response(new Uint8Array([1, 2, 3]), {
+						status: 206,
+						headers: { 'content-range': 'bytes 0-2/2048', 'accept-ranges': 'bytes' },
+					}),
+			);
+
+			global.fetch = fetched as unknown as typeof fetch;
+
+			const stream = await handler.openStream(
+				connection,
+				{ externalId: 'item-1' },
+				{ start: 0, end: 2 },
+			);
+
+			const [url, init] = fetched.mock.calls[0] as unknown as [string, RequestInit];
+
+			expect(String(url)).toContain('/Items/item-1/Download');
+			expect((init.headers as Record<string, string>).Range).toBe('bytes=0-2');
+			expect(stream.acceptsRanges).toBe(true);
+			expect(stream.totalLength).toBe(2048);
+
+			stream.stream.destroy();
+		});
+
+		it('falls back to the static stream when downloads are disabled', async () => {
+			// `/Download` is refused when the server disables it and absent on older
+			// versions; the stream route serves the same bytes by a longer name, and
+			// without this a transfer from such a server fails for no visible reason.
+			const asked: string[] = [];
+
+			global.fetch = jest.fn(async (input: string | URL) => {
+				asked.push(String(input));
+
+				if (String(input).includes('/Download')) {
+					return {
+						ok: false,
+						status: 403,
+						headers: new Headers(),
+						text: async () => '',
+					} as unknown as Response;
+				}
+
+				return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+			}) as unknown as typeof fetch;
+
+			const stream = await handler.openStream(connection, { externalId: 'item-1' });
+
+			expect(asked.at(-1)).toContain('/Videos/item-1/stream');
+
+			stream.stream.destroy();
+		});
+	});
+
+	describe('describing itself', () => {
+		it('asks for exactly the kinds a caller named', async () => {
+			// A refresh asks for one kind at a time; asking for episodes in a film
+			// library makes Jellyfin walk a tree that is not there.
+			const fetchMock = stubFetch(() => ({ Items: [], TotalRecordCount: 0 }));
+
+			for await (const item of handler.scanLibrary(connection, library, {
+				kinds: [MediaKind.EPISODE],
+			})) {
+				void item;
+			}
+
+			expect(String(fetchMock.mock.calls[0][0])).toContain('IncludeItemTypes=Episode');
+		});
+
+		it('still names the server when the token is wrong', async () => {
+			// The settings screen has to be able to say "this is your server and this is
+			// not your key", which it cannot do if a rejected token erases the name.
+			global.fetch = jest.fn(async (input: string | URL) => {
+				if (String(input).includes('/System/Info/Public')) {
+					throw new Error('ECONNRESET');
+				}
+
+				return {
+					ok: false,
+					status: 401,
+					headers: new Headers(),
+					text: async () => '',
+				} as unknown as Response;
+			}) as unknown as typeof fetch;
+
+			// And when even the public endpoint will not answer, the probe is still an
+			// answer rather than an exception: it simply knows less.
+			await expect(handler.probe(connection)).resolves.toMatchObject({
+				reachable: true,
+				authenticated: false,
+				serverName: null,
+				version: null,
+			});
+		});
+
+		it('refuses a sign-in the server answered with no user in it', async () => {
+			stubFetch(() => ({ User: {} }));
+
+			await expect(handler.authenticate(connection, 'sam', 'secret')).rejects.toMatchObject({
+				response: { key: 'error.auth.invalid_credentials' },
+			});
+		});
+
+		it('lets an unreachable server stay unreachable on a sign-in', async () => {
+			// Told the credentials were wrong, a person retypes a password that was
+			// right; told the server is down, they look at the server.
+			global.fetch = jest.fn(async () => {
+				throw new Error('ECONNREFUSED');
+			}) as unknown as typeof fetch;
+
+			await expect(handler.authenticate(connection, 'sam', 'secret')).rejects.toMatchObject({
+				response: { key: 'error.service.unreachable' },
+			});
+		});
+
+		it('skips a folder the server gave no identifier for', async () => {
+			// Falling back to the name would make two libraries called `Video` one
+			// library nobody can explain.
+			stubFetch((url) => {
+				if (url.includes('/Library/VirtualFolders')) {
+					return [
+						{ Name: 'Nameless', CollectionType: 'movies' },
+						{ ItemId: 'folder-2', Name: 'Films', CollectionType: 'movies', Locations: ['/media/Films'] },
+					];
+				}
+
+				return { Version: '10.9.6', ServerName: 'Home' };
+			});
+
+			await expect(handler.listLibraries(connection)).resolves.toEqual([
+				{
+					externalId: 'folder-2',
+					name: 'Films',
+					kind: LibraryKind.MOVIES,
+					paths: ['/media/Films'],
+				},
+			]);
+		});
+
+		it('reads the paths a newer server nests under its library options', async () => {
+			// Older versions answer a flat `Locations`; newer ones nest them, and a
+			// library with no paths is one nothing can ever be filed into.
+			stubFetch((url) => {
+				if (url.includes('/Library/VirtualFolders')) {
+					return [
+						{
+							ItemId: 'folder-3',
+							Name: 'Concerts',
+							CollectionType: 'homevideos',
+							LibraryOptions: {
+								PathInfos: [{ Path: '/media/Concerts' }, { NetworkPath: '//nas/Concerts' }],
+							},
+						},
+					];
+				}
+
+				return { Version: '10.9.6', ServerName: 'Home' };
+			});
+
+			await expect(handler.listLibraries(connection)).resolves.toEqual([
+				{
+					externalId: 'folder-3',
+					name: 'Concerts',
+					kind: LibraryKind.OTHER,
+					paths: ['/media/Concerts'],
+				},
+			]);
+		});
+
+		it('asks a library it cannot classify for everything it understands', async () => {
+			const fetchMock = stubFetch(() => ({ Items: [], TotalRecordCount: 0 }));
+
+			for await (const item of handler.scanLibrary(connection, {
+				...library,
+				kind: LibraryKind.OTHER,
+			})) {
+				void item;
+			}
+
+			expect(String(fetchMock.mock.calls[0][0])).toContain(
+				'IncludeItemTypes=Movie%2CSeries%2CSeason%2CEpisode%2CBoxSet',
+			);
+		});
+
+		it('stops once it has seen everything the server said there was', async () => {
+			// A full page is not the end of a listing, so the loop asks again — and the
+			// count is the only thing that stops it asking for ever when a server keeps
+			// answering the same page past its own total.
+			const page = Array.from({ length: 20 }, (_, index) => ({
+				...EPISODE,
+				Id: `item-${index}`,
+			}));
+			const fetchMock = stubFetch(() => ({ Items: page, TotalRecordCount: 20 }));
+
+			const items = [];
+
+			for await (const item of handler.scanLibrary(connection, library, { pageSize: 20 })) {
+				items.push(item);
+			}
+
+			expect(items).toHaveLength(20);
+			expect(fetchMock).toHaveBeenCalledTimes(1);
+		});
+	});
 });

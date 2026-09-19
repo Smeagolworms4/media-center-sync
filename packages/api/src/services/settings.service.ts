@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	// reverse proxy `Host` is whatever the proxy chose to forward, so a guess would be
 	// wrong exactly on the installations that need this set. The interface offers its
 	// own origin instead, where somebody can see it before accepting it.
+	instanceName: null,
 	publicUrl: null,
 	peerAddress: null,
 	defaultTargetPath: null,

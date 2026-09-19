@@ -9,6 +9,7 @@ import {
 	type MediaGroup,
 	type MediaGroupQuery,
 	type MediaGroupSource,
+	type MediaVersion,
 	type QualitySummary,
 	type ResultList,
 } from '@mcs/shared';
@@ -22,7 +23,7 @@ import {
 	type MatchPair,
 	type MediaItemDigest,
 } from '@/repositories';
-import { QualityService, SettingsService } from '@/services';
+import { editionOf, QualityService, SettingsService, versionIdOf } from '@/services';
 import { LibraryManager } from './library.manager';
 import { pageBounds, paginate } from './mappers';
 
@@ -586,6 +587,7 @@ export class MediaGroupManager {
 				? null
 				: this._quality.merge(qualities),
 			sources,
+			versions: this._versions(sources),
 			childCount: childGroups.size,
 			missingCount: [...childGroups.values()].filter((held) => !held).length,
 			libraryId: representative.libraryId,
@@ -725,9 +727,64 @@ export class MediaGroupManager {
 			quality: this._summary(item),
 			companions: item.companions,
 			bytes: item.file?.size ?? null,
+			versionId: versionIdOf(item.file),
+			edition: editionOf(item.file),
 			local: context.local.has(item.serviceId),
 			sync: item.syncState,
 		};
+	}
+
+	/**
+	 * The distinct things to hold, as opposed to the places to get them from.
+	 *
+	 * Folded on the fingerprint rather than on the service, because that is what makes
+	 * the difference the screen needs: three friends holding the one file is one version
+	 * with three sources and one transfer, while a 1080p and a 2160p of the same cut are
+	 * two versions and two transfers. Holding one of them is an ordinary state and not a
+	 * half-finished sync, which is why `heldLocally` is per version and not per group.
+	 *
+	 * A copy nobody has fingerprinted contributes nothing here, and that is the honest
+	 * answer rather than an inconvenient one: giving it an identity of its own would make
+	 * the same file on two unscanned servers look like two versions, and offering both
+	 * would download it twice into one path. The sources list still shows it — this list
+	 * only ever says what is *known* to be distinct.
+	 *
+	 * The order is the ranked order of the copies, so a version we hold comes before one
+	 * only a friend has, which is what the contract means by "ours first".
+	 */
+	private _versions(sources: MediaGroupSource[]): MediaVersion[] {
+		const byVersion = new Map<string, MediaVersion>();
+
+		for (const source of sources) {
+			if (source.versionId === null) {
+				continue;
+			}
+
+			const known = byVersion.get(source.versionId);
+
+			if (known === undefined) {
+				byVersion.set(source.versionId, {
+					versionId: source.versionId,
+					edition: source.edition,
+					quality: source.quality,
+					bytes: source.bytes,
+					heldLocally: source.local,
+					sourceItemIds: [source.itemId],
+				});
+
+				continue;
+			}
+
+			known.sourceItemIds.push(source.itemId);
+			known.heldLocally = known.heldLocally || source.local;
+
+			// One copy of a version labelled and the others not is the normal case — only
+			// Plex reports an edition, and only some filenames carry the tag. A label
+			// found on any copy describes the version, since they are the same bytes.
+			known.edition = known.edition ?? source.edition;
+		}
+
+		return [...byVersion.values()];
 	}
 
 	private _addedAt(ranked: MediaItemEntity[]): string | null {

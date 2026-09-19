@@ -38,6 +38,7 @@ describe('The peer protocol', () => {
 	let friend: { fingerprint: string; credential: string; id: string };
 	/** Linked, and only a friend of a friend: the `friends` library is not theirs. */
 	let acquaintance: { fingerprint: string; credential: string; id: string };
+	let sharedLibraryId: string;
 	let sharedItemId: string;
 	let hiddenItemId: string;
 	let itemWithoutFileId: string;
@@ -128,6 +129,8 @@ describe('The peer protocol', () => {
 				paths: ['/srv/private/media/films'],
 			}),
 		);
+
+		sharedLibraryId = shared.id;
 
 		const hidden = await libraries.save(
 			libraries.create({
@@ -257,6 +260,10 @@ describe('The peer protocol', () => {
 
 			expect(film).toEqual({
 				externalId: sharedItemId,
+				// The library it sits in, named by our row identifier and by nothing that
+				// describes our disk. A peer files these rows into libraries of its own,
+				// and without a handle it can only ever make one.
+				libraryId: sharedLibraryId,
 				kind: MediaKind.MOVIE,
 				title: 'Tears of Steel',
 				year: 2012,
@@ -286,14 +293,15 @@ describe('The peer protocol', () => {
 			});
 		});
 
-		it('leaks no path, no library and no service identifier', async () => {
+		it('leaks no path and no identifier a media service of ours keys its rows by', async () => {
 			const payload = JSON.stringify((await call('/catalogue').expect(200)).body);
 
 			// The shape of somebody's disk is of no use to the far end, and publishing it
-			// tempts both sides into addressing a library by path.
+			// tempts both sides into addressing a library by path. Our own row
+			// identifiers are a different thing and do cross — the item's, and the
+			// library's, which is what lets a peer file these rows where they belong.
 			expect(payload).not.toContain('/srv/private');
 			expect(payload).not.toContain('jellyfin-item-4711');
-			expect(payload).not.toContain('libraryId');
 			expect(payload).not.toContain('serviceId');
 		});
 

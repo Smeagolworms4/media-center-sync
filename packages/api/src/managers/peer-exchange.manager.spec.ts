@@ -8,6 +8,7 @@ import {
 } from '@mcs/shared';
 import type { MediaItem, Peer } from '@/entities';
 import type {
+	LibraryRepository,
 	MediaItemRepository,
 	MediaServiceRepository,
 	PeerRepository,
@@ -78,6 +79,7 @@ interface Fakes {
 	shares: { visiblePolicies: jest.Mock };
 	peers: { findOne: jest.Mock; findLinked: jest.Mock };
 	catalogue: { findHolders: jest.Mock };
+	libraries: { find: jest.Mock };
 	openStream: jest.Mock;
 	getItem: jest.Mock;
 }
@@ -105,6 +107,7 @@ const build = (
 			findLinked: jest.fn().mockResolvedValue([]),
 		},
 		catalogue: { findHolders: jest.fn().mockResolvedValue([]) },
+		libraries: { find: jest.fn().mockResolvedValue([]) },
 		openStream: jest.fn().mockResolvedValue({ stream: null, contentLength: 1, totalLength: 1 }),
 		getItem: jest.fn().mockResolvedValue(null),
 	};
@@ -112,6 +115,7 @@ const build = (
 	const manager = new PeerExchangeManager(
 		fakes.peers as unknown as PeerRepository,
 		fakes.items as unknown as MediaItemRepository,
+		fakes.libraries as unknown as LibraryRepository,
 		{
 			findWithSecrets: jest
 				.fn()
@@ -168,6 +172,12 @@ describe('PeerExchangeManager', () => {
 
 			expect(entry).toEqual({
 				externalId: 'item-1',
+				// Our library row identifier, which is the same class of thing as the item
+				// identifier beside it: ours, opaque to them, and meaningless anywhere
+				// else. It is published because a peer is a media service to whoever links
+				// to us, and a media service that cannot name its libraries collapses into
+				// one bag of files with no categories and no per-library scope.
+				libraryId: 'library-shared',
 				kind: MediaKind.EPISODE,
 				title: 'The Flight',
 				year: 2008,

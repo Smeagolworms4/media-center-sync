@@ -1,9 +1,11 @@
 import { Readable } from 'node:stream';
 import {
 	ErrorKey,
+	LibraryKind,
 	PeerTrust,
 	type CatalogueEntry,
 	type MediaFileInfo,
+	type PeerLibrary,
 } from '@mcs/shared';
 import {
 	Injectable,
@@ -14,6 +16,7 @@ import {
 import { In } from 'typeorm';
 import type { MediaItem, Peer as PeerEntity } from '@/entities';
 import {
+	LibraryRepository,
 	MediaItemRepository,
 	MediaServiceRepository,
 	PeerRepository,
@@ -50,6 +53,7 @@ export const CATALOGUE_PAGE = 500;
  */
 const PEER_METHODS: Readonly<Record<string, PeerMethodKindValue>> = Object.freeze({
 	'catalogue.list': PeerMethodKind.VALUE,
+	'catalogue.libraries': PeerMethodKind.VALUE,
 	'catalogue.holders': PeerMethodKind.VALUE,
 	'media.describe': PeerMethodKind.VALUE,
 	'media.revalidate': PeerMethodKind.VALUE,
@@ -62,6 +66,15 @@ export interface CatalogueQuery {
 	/** Only what changed since this stamp, so a peer does not re-read everything. */
 	since?: string | null;
 	page?: number;
+	/**
+	 * One shared library of ours, named by the handle `catalogue.libraries` published.
+	 *
+	 * The far end sends it because it imports library by library, and a library it is
+	 * no longer allowed to see simply answers nothing — the visibility check below
+	 * runs first and a handle outside it is not an error to report, it is a library
+	 * that does not exist as far as this caller is concerned.
+	 */
+	libraryId?: string | null;
 }
 
 /** What we answer when a peer asks us to re-read one item. */
@@ -87,10 +100,11 @@ export interface AnnouncementAnswer {
  * than "forbidden", because telling a peer that something exists but is hidden is
  * itself a leak of what somebody holds.
  *
- * The identifiers we publish are our own row identifiers and nothing else. A peer
- * never learns a path, a library identifier or the external identifier a media service
- * uses: those are the shape of somebody's disk, they are of no use to the far end, and
- * publishing them would tempt both sides into addressing a library by path.
+ * The identifiers we publish are our own row identifiers and nothing else — an item's
+ * and, since a peer is a media service to whoever links to us, its library's. A peer
+ * never learns a path or the external identifier a media service uses: those are the
+ * shape of somebody's disk, they are of no use to the far end, and publishing them
+ * would tempt both sides into addressing a library by path.
  */
 @Injectable()
 export class PeerExchangeManager implements PeerMethodHandler {
@@ -99,6 +113,7 @@ export class PeerExchangeManager implements PeerMethodHandler {
 	public constructor(
 		private readonly _peers: PeerRepository,
 		private readonly _items: MediaItemRepository,
+		private readonly _libraries: LibraryRepository,
 		private readonly _services: MediaServiceRepository,
 		private readonly _shares: ShareManager,
 		private readonly _catalogue: PeerCatalogueService,
@@ -130,8 +145,12 @@ export class PeerExchangeManager implements PeerMethodHandler {
 					entries: await this.catalogue(peerId, {
 						since: this._string(params.since),
 						page: this._number(params.page) ?? 1,
+						libraryId: this._string(params.libraryId),
 					}),
 				};
+
+			case 'catalogue.libraries':
+				return { libraries: await this.libraries(peerId) };
 
 			case 'catalogue.holders':
 				return { holders: await this.holders(peerId, this._string(params.contentId) ?? '') };
@@ -142,7 +161,13 @@ export class PeerExchangeManager implements PeerMethodHandler {
 				// Another gateway is our own code at the far end: it serves ranges. Piece
 				// hashes are not sent because nothing stores them — they are a function of
 				// the file, computed when a swarm transfer starts.
-				return { size: entry.size, resumable: true };
+				//
+				// The whole row rides alongside rather than replacing those two fields:
+				// the transport reads `size` and `resumable` and a peer running an older
+				// image sends only those, so moving them would break every transfer
+				// already in flight against it. Nested under a key of its own so a field
+				// the row gains can never collide with one the transport reads.
+				return { entry, size: entry.size, resumable: true };
 			}
 
 			case 'media.revalidate':
@@ -209,8 +234,21 @@ export class PeerExchangeManager implements PeerMethodHandler {
 		return [...self, ...answer.holders];
 	}
 
-	/** What this peer is allowed to see of us. */
-	public async catalogue(peerId: string, query: CatalogueQuery = {}): Promise<CatalogueEntry[]> {
+	/**
+	 * Which of our libraries this peer may see, as libraries rather than as rows.
+	 *
+	 * The handle published is our library row identifier, which is the same class of
+	 * thing as the item identifiers already on the wire: ours, opaque to them, and
+	 * meaningless anywhere else. What still never crosses is a path or the identifier
+	 * the media server underneath uses — those describe somebody's disk, and the far
+	 * end has no business addressing a library by either.
+	 *
+	 * It exists because a peer is a media service on the other side of the link, and a
+	 * media service that cannot say what its libraries are collapses into one bag of
+	 * files: no categories, no per-library sync scope, and a missing count computed
+	 * against everything somebody shares rather than against the one library they meant.
+	 */
+	public async libraries(peerId: string): Promise<PeerLibrary[]> {
 		const peer = await this._requirePeer(peerId);
 		const policies = await this._shares.visiblePolicies(peer);
 
@@ -218,16 +256,45 @@ export class PeerExchangeManager implements PeerMethodHandler {
 			return [];
 		}
 
+		const rows = await this._libraries.find({
+			where: { id: In(policies.map((policy) => policy.libraryId)) },
+		});
+
+		return rows.map((library) => ({
+			externalId: library.id,
+			// What we chose to call it, when somebody chose. A friend reading "Video2"
+			// on their own screen is reading our media server's idea of a name, not ours.
+			name: library.alias ?? library.name,
+			kind: library.kind ?? LibraryKind.OTHER,
+			itemCount: library.itemCount,
+		}));
+	}
+
+	/** What this peer is allowed to see of us. */
+	public async catalogue(peerId: string, query: CatalogueQuery = {}): Promise<CatalogueEntry[]> {
+		const peer = await this._requirePeer(peerId);
+		const policies = await this._shares.visiblePolicies(peer);
+		// Narrowed by the caller's handle, but only ever inside what they may see: the
+		// intersection is taken rather than the requested library trusted, so asking for
+		// a library that was never shared returns nothing instead of returning it.
+		const wanted = policies.filter(
+			(policy) => !query.libraryId || policy.libraryId === query.libraryId,
+		);
+
+		if (wanted.length === 0) {
+			return [];
+		}
+
 		const page = Math.max(1, Math.floor(query.page ?? 1));
 		const since = this._since(query.since);
 		const items = await this._items.find({
-			where: { libraryId: In(policies.map((policy) => policy.libraryId)) },
+			where: { libraryId: In(wanted.map((policy) => policy.libraryId)) },
 			order: { updatedAt: 'ASC', id: 'ASC' },
 			skip: (page - 1) * CATALOGUE_PAGE,
 			take: CATALOGUE_PAGE,
 		});
 
-		const byLibrary = new Map(policies.map((policy) => [policy.libraryId, policy]));
+		const byLibrary = new Map(wanted.map((policy) => [policy.libraryId, policy]));
 
 		return items
 			.filter((item) => since === null || item.updatedAt.getTime() >= since.getTime())
@@ -423,6 +490,7 @@ export class PeerExchangeManager implements PeerMethodHandler {
 
 		return {
 			externalId: item.id,
+			libraryId: item.libraryId,
 			kind: item.kind,
 			title: item.title,
 			year: item.year,

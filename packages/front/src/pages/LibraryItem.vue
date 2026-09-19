@@ -59,7 +59,15 @@
 	const loading = ref(true);
 	const failed = ref(false);
 	const running = ref(false);
-	const chosenSource = ref<string | null>(null);
+	/**
+	 * The versions somebody ticked, named by the copy each would be pulled from.
+	 *
+	 * A set rather than one choice, because holding two of the three cuts is an
+	 * ordinary thing to want — and named by item rather than by service, because one
+	 * server can hold two versions of one film and a service identifier cannot say
+	 * which of them was asked for.
+	 */
+	const chosenSources = ref<string[]>([]);
 	const matchesOpen = ref(false);
 	const overrideOpen = ref(false);
 
@@ -102,7 +110,7 @@
 	});
 
 	watch(() => props.itemId, () => {
-		chosenSource.value = null;
+		chosenSources.value = [];
 		void load();
 	});
 
@@ -197,12 +205,25 @@
 		await load();
 	}
 
+	/** The services behind the ticked copies, for the calls that take services. */
+	const chosenServices = computed(() => [...new Set(
+		(group.value?.sources ?? [])
+			.filter(source => chosenSources.value.includes(source.itemId))
+			.map(source => source.serviceId),
+	)]);
+
 	const syncThis = tryCallback(async () => {
 		running.value = true;
 		try {
 			await syncStore.run({
-				scope: { itemIds: [props.itemId] },
-				...(chosenSource.value ? { sourceServiceIds: [chosenSource.value] } : {}),
+				// The ticked copies name the rows to fetch, one transfer each. Naming the
+				// services instead would be ambiguous the moment one server holds two
+				// versions of the same film, which is exactly what is being chosen here.
+				scope: {
+					itemIds: chosenSources.value.length > 0
+						? [...chosenSources.value]
+						: [props.itemId],
+				},
 			});
 			void notify('library.sync_started');
 		} finally {
@@ -218,7 +239,11 @@
 				// sync covers — see `SyncScope`.
 				scope: { rootItemIds: [props.itemId] },
 				filter: { missingOnly: true },
-				...(chosenSource.value ? { sourceServiceIds: [chosenSource.value] } : {}),
+				// Here the choice can only be a preference: the items are whatever is
+				// missing below this node, and the ticked copies are of this node itself.
+				...(chosenServices.value.length > 0
+					? { sourceServiceIds: chosenServices.value }
+					: {}),
 			});
 			void notify('library.sync_started');
 		} finally {
@@ -345,11 +370,12 @@
 						</div>
 
 						<GroupSources
-							v-model="chosenSource"
+							v-model="chosenSources"
 							class="mt-4"
 							:peer-names="peerNames"
 							:services="servicesStore.services"
 							:sources="group.sources"
+							:versions="group.versions"
 						/>
 					</div>
 				</v-card-text>

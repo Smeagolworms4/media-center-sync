@@ -40,6 +40,16 @@ export const PeerCapability = {
 	CONTENT: 'content',
 	/** Answer a catalogue listing, paginated and filtered by the sharing rules. */
 	CATALOGUE: 'catalogue',
+	/**
+	 * Say which libraries are shared, so their rows can be filed into them.
+	 *
+	 * Separate from `CATALOGUE` rather than folded into it because a gateway from
+	 * before this method existed advertises the catalogue and answers "not supported"
+	 * to this one. Asking only when it is advertised is the rule the whole versioning
+	 * scheme rests on; the caller falls back to a single library for the peer, which
+	 * is what it had before.
+	 */
+	LIBRARIES: 'libraries',
 	/** Re-read one item on request and say what is actually held now. */
 	REVALIDATE: 'revalidate',
 	/** Announce and answer which peers hold a content identifier. */

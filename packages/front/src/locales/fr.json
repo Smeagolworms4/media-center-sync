@@ -281,6 +281,13 @@
 			"not_held_here": "Seul un autre serveur le détient.",
 			"none": "Aucun service ne détient cet élément."
 		},
+		"version": {
+			"title": "Versions",
+			"held": "déjà ici",
+			"nothing_to_pull": "rien à récupérer — nous seuls l’avons",
+			"here_count": "{count} versions ici sur {total}",
+			"transfer_count": "aucune version choisie — la priorité configurée décide | une version choisie, un transfert | {count} versions choisies, {count} transferts"
+		},
 		"match": {
 			"title": "Corrélations",
 			"action": "Corrélations",
@@ -481,7 +488,9 @@
 			"rename": "Renommer",
 			"block": "Bloquer",
 			"unblock": "Débloquer"
-		}
+		},
+		"protocol": "Protocole {version}",
+		"capabilities": "sait faire"
 	},
 	"share": {
 		"subtitle": "Ce que cette passerelle expose, décidé bibliothèque par bibliothèque.",
@@ -617,7 +626,10 @@
 		"cache_ttl": "Durée du cache (secondes)",
 		"cache_ttl_help": "Combien de temps une réponse de service reste valable. Assez longtemps pour que dix onglets ouverts coûtent une requête.",
 		"full_scan": "Planification de l'analyse complète",
-		"full_scan_help": "Un rafraîchissement ne voit que ce qu'un service annonce comme nouveau. Vide désactive le passage planifié ; le bouton fonctionne toujours."
+		"full_scan_help": "Un rafraîchissement ne voit que ce qu'un service annonce comme nouveau. Vide désactive le passage planifié ; le bouton fonctionne toujours.",
+		"instance_name": "Nom de cette passerelle",
+		"instance_name_help": "Ce que vos amis voient à la place du nom de machine. Dans un conteneur, ce nom est une suite de caractères aléatoires.",
+		"instance_name_placeholder": "Salon"
 	},
 	"sync": {
 		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",
@@ -953,7 +965,8 @@
 			"unreachable": "Le service média n'a pas répondu.",
 			"unauthorized": "Le service média a refusé la passerelle. Vérifiez son jeton.",
 			"duplicate": "Ce service média est déjà enregistré.",
-			"handler_unknown": "Ce type de service média n'est pas supporté."
+			"handler_unknown": "Ce type de service média n'est pas supporté.",
+			"auth_unsupported": "Un pair ne peut connecter personne ; choisissez plutôt un serveur média."
 		},
 		"library": {
 			"not_found": "Cette bibliothèque n'existe plus.",
@@ -986,7 +999,8 @@
 			"not_found": "Ce transfert n'existe plus.",
 			"not_resumable": "Ce transfert ne peut pas reprendre et doit recommencer.",
 			"no_space": "Espace libre insuffisant sur la bibliothèque cible.",
-			"checksum_mismatch": "Le fichier téléchargé ne correspond pas à son empreinte."
+			"checksum_mismatch": "Le fichier téléchargé ne correspond pas à son empreinte.",
+			"target_occupied": "Un autre fichier occupe déjà le chemin où celui-ci devait arriver, et aucun nom libre n’a pu être construit. Rien n’a été écrasé."
 		},
 		"settings": {
 			"invalid": "Ces paramètres ont été refusés.",

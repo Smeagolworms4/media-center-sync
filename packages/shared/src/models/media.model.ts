@@ -75,6 +75,22 @@ export interface MediaFileInfo {
 	 * when it happens to be there.
 	 */
 	checksum: string | null;
+
+	/**
+	 * Which cut this copy is, as the service or the filename says: `Extended`,
+	 * `Director's Cut`, `Theatrical`.
+	 *
+	 * It rides with the file rather than beside it because it describes this copy and
+	 * not the media: one title can hold three of them, and a field on the item would
+	 * have to pick one. It is the label a disambiguated filename carries when two
+	 * versions have to live in the same folder, and never an identity — two files both
+	 * labelled `Extended` are still two versions unless their fingerprints agree.
+	 *
+	 * Optional rather than nullable, and that is the wire compatibility: a gateway
+	 * running an older image sends a file object without the key, and a required field
+	 * would make every one of its catalogue rows fail to parse over a label.
+	 */
+	edition?: string | null;
 }
 
 /**
@@ -265,6 +281,37 @@ export interface MediaNode extends MediaItem {
  * `local` is what the interface needs to answer the only question that matters on a
  * poster: do I have this, or is it on somebody else's server?
  */
+/**
+ * One distinct thing to hold, as opposed to one place to get it from.
+ *
+ * A media can legitimately exist in several versions — a theatrical cut and an
+ * extended one, a 1080p and a 2160p, a dub and a subtitled original. They share a
+ * title, they usually share an IMDb number, and they are **not** interchangeable:
+ * somebody who asked for the extended cut and received the theatrical one has been
+ * given the wrong film.
+ *
+ * So identity here is the content, not the metadata: two copies are the same version
+ * when their files are the same file, which the fingerprint already answers. Two
+ * different files under one title are two versions, whatever the scrapers agree on.
+ *
+ * `edition` is a label for people and never an identity. It comes from the media
+ * server when it has one, and it is what a folder name has to carry when two versions
+ * live side by side — because without it the second one lands on the first one's path
+ * and overwrites it, silently, at the end of a completed download.
+ */
+export interface MediaVersion {
+	/** Derived from the content fingerprint. Stable across servers and rescans. */
+	versionId: string;
+	/** "Extended", "Director's Cut", "Theatrical". Null when nobody said. */
+	edition: string | null;
+	quality: QualitySummary | null;
+	bytes: number | null;
+	/** Whether a service we can write into already holds this exact version. */
+	heldLocally: boolean;
+	/** Every copy of this version, ours and other people's. */
+	sourceItemIds: string[];
+}
+
 export interface MediaGroupSource {
 	itemId: string;
 	serviceId: string;
@@ -277,6 +324,16 @@ export interface MediaGroupSource {
 	quality: QualitySummary | null;
 	companions: MediaCompanions | null;
 	bytes: number | null;
+	/**
+	 * Which version this copy is, so several copies of one version group together.
+	 *
+	 * Null before the file has been fingerprinted, which is honest rather than
+	 * convenient: a copy we have not hashed cannot be said to be the same as, or
+	 * different from, anything.
+	 */
+	versionId: string | null;
+	/** The label the service gave this cut, if it gave one. Never an identity. */
+	edition: string | null;
 	local: boolean;
 	/**
 	 * This copy's own state.
@@ -331,6 +388,15 @@ export interface MediaGroup {
 	childCount: number;
 	/** Children known somewhere and absent here — what a season card shows at a glance. */
 	missingCount: number;
+	/**
+	 * Every distinct version known anywhere, ours first.
+	 *
+	 * A poster shows one media; this is what it expands into when somebody asks which
+	 * cuts exist. Holding two of the three is an ordinary state and not a half-failed
+	 * sync, so the interface offers them as a set to choose from rather than as one
+	 * right answer.
+	 */
+	versions: MediaVersion[];
 	/** The representative's library, so a client can say where it sits without a second call. */
 	libraryId: string | null;
 	/** The representative's parent, which is what a breadcrumb walks up. */

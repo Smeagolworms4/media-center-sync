@@ -26,6 +26,7 @@ export * from './title-normalizer';
 export * from './transfer-engine.service';
 export * from './transport';
 export * from './verification.service';
+export * from './version';
 
 import { CacheService } from './cache.service';
 import { EventGatewayService } from './event-gateway.service';

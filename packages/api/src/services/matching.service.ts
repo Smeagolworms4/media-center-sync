@@ -133,6 +133,13 @@ export class MatchingService {
 			return checksum;
 		}
 
+		// Asked before the identifier, because the identifier is exactly what these two
+		// share. Two cuts of one film carry one IMDb number between them, and merging on
+		// it hands the theatrical copy to somebody who asked for the extended one.
+		if (this._separateCuts(local, remote)) {
+			return null;
+		}
+
 		const external = this._externalIdMatch(local, remote);
 
 		if (external) {
@@ -287,6 +294,33 @@ export class MatchingService {
 			reason: state === SyncState.OUTDATED ? comparison.reason : null,
 			applied: scored.confidence >= options.threshold,
 		};
+	}
+
+	/**
+	 * Two cuts of one work, which must stay two things however much metadata agrees.
+	 *
+	 * The test is the duration and nothing else, because the duration is the only field
+	 * on a file that says anything about its content: the same cut encoded twice runs
+	 * for the same length whatever its codec, its resolution or its size, while an
+	 * extended cut, a different regional master and a copy with the credits trimmed all
+	 * differ by minutes. `isConflicting` is that rule, already written, already the one
+	 * a `CONFLICT` state is derived from — consulting a second heuristic here would let
+	 * the list and the correlation disagree about what two versions are.
+	 *
+	 * Deliberately narrow in three ways. It is asked after the checksum, so two copies
+	 * of the same bytes merge before anything looks at a clock. It is not asked of
+	 * episodes, where the season and episode numbers are the identity and a recap or a
+	 * double-length finale would split a show that correlates perfectly today. And it
+	 * says nothing when either side has no duration — the common case for a node with
+	 * no file — because refusing to match on a missing field would ungroup a library
+	 * that is simply unscanned.
+	 */
+	private _separateCuts(local: MatchCandidate, remote: MatchCandidate): boolean {
+		if (local.kind === MediaKind.EPISODE) {
+			return false;
+		}
+
+		return this._quality.isConflicting(local.file, remote.file);
 	}
 
 	private _checksumMatch(

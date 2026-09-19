@@ -72,6 +72,8 @@ function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 		quality: null,
 		companions: null,
 		bytes: 1024,
+		versionId: null,
+		edition: null,
 		local: true,
 		sync: SyncState.IN_SYNC,
 		...overrides,
@@ -93,6 +95,7 @@ function group (overrides: Partial<MediaGroup> = {}): MediaGroup {
 		sync: SyncState.IN_SYNC,
 		quality: null,
 		sources: [source()],
+		versions: [],
 		childCount: 0,
 		missingCount: 0,
 		libraryId: 'l1',
@@ -278,6 +281,143 @@ describe('components/media/GroupSources', () => {
 		});
 
 		expect(wrapper.text()).toContain('No service holds this item');
+	});
+
+	/**
+	 * Several versions, chosen together.
+	 *
+	 * The picker used to be a radio group over servers, which could express exactly one
+	 * answer to a question that has several: a theatrical cut and an extended one are
+	 * two things to hold, and being able to tick only one of them is the bug.
+	 */
+	describe('versions', () => {
+		const versioned = (): Record<string, unknown> => ({
+			sources: [
+				source({
+					itemId: 'i-ours',
+					serviceId: 'ours',
+					serviceName: 'Living room',
+					versionId: 'q1-theatrical',
+					local: true,
+				}),
+				source({
+					itemId: 'i-theirs',
+					serviceId: 'theirs',
+					serviceName: 'Cabin',
+					versionId: 'q1-theatrical',
+					local: false,
+				}),
+				source({
+					itemId: 'i-extended',
+					serviceId: 'theirs',
+					serviceName: 'Cabin',
+					versionId: 'q1-extended',
+					edition: 'Extended Cut',
+					local: false,
+				}),
+			],
+			versions: [
+				{
+					versionId: 'q1-theatrical',
+					edition: null,
+					quality: null,
+					bytes: 1024,
+					heldLocally: true,
+					sourceItemIds: ['i-ours', 'i-theirs'],
+				},
+				{
+					versionId: 'q1-extended',
+					edition: 'Extended Cut',
+					quality: null,
+					bytes: 2048,
+					heldLocally: false,
+					sourceItemIds: ['i-extended'],
+				},
+			],
+			services: [service({ id: 'ours', priority: 1 }), service({ id: 'theirs', priority: 2 })],
+		});
+
+		it('lists one row per version rather than one per server', () => {
+			// Two servers holding the same file is one thing to pull, not two.
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: versioned(),
+				global: { stubs: tooltipStub },
+			});
+
+			const rows = wrapper.findAll('[data-test="group-source"]');
+
+			expect(rows).toHaveLength(2);
+			expect(rows.map(row => row.attributes('data-held'))).toEqual(['true', 'false']);
+			expect(wrapper.find('[data-test="group-source-edition"]').text()).toBe('Extended Cut');
+		});
+
+		it('lets several be chosen at once, named by the copy each would come from', async () => {
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: { ...versioned(), modelValue: [] },
+				global: { stubs: tooltipStub },
+			});
+
+			const boxes = wrapper.findAll('[data-test="group-source"] input');
+
+			await boxes[0].setValue(true);
+			await boxes[1].setValue(true);
+
+			// The copy, never the service: one server holds both cuts here, so a set of
+			// service identifiers could not say which of them was asked for.
+			expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['i-theirs', 'i-extended']]);
+		});
+
+		it('says what the selection will cost before anything starts', async () => {
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: { ...versioned(), modelValue: ['i-theirs', 'i-extended'] },
+				global: { stubs: tooltipStub },
+			});
+
+			expect(wrapper.find('[data-test="source-selection"]').text()).toContain('2 transfers');
+			// Holding one of the two is an ordinary state, said as a count and not as a
+			// warning: this is not a half-failed sync.
+			expect(wrapper.find('[data-test="source-selection"]').text()).toContain('1 of 2 versions here');
+		});
+
+		it('offers nothing to pull for a version only we hold', () => {
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: {
+					sources: [source({ itemId: 'i-ours', versionId: 'q1-ours', local: true })],
+					versions: [{
+						versionId: 'q1-ours',
+						edition: null,
+						quality: null,
+						bytes: 1024,
+						heldLocally: true,
+						sourceItemIds: ['i-ours'],
+					}],
+				},
+				global: { stubs: tooltipStub },
+			});
+
+			// Listed and marked rather than hidden: "you already have this one" is an
+			// answer, and an empty list is not.
+			expect(wrapper.findAll('[data-test="group-source"]')).toHaveLength(1);
+			expect(wrapper.find('[data-test="group-source-nothing"]').exists()).toBe(true);
+			expect(wrapper.find('[data-test="group-source"] input').attributes('disabled')).toBeDefined();
+		});
+
+		it('falls back to one row per copy while nothing has been fingerprinted', () => {
+			// No version can be told from another, so the list says what it knows —
+			// which is where it stood before versions existed.
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: {
+					sources: [
+						source({ itemId: 'i-a', serviceId: 'a', serviceName: 'A', local: false }),
+						source({ itemId: 'i-b', serviceId: 'b', serviceName: 'B', local: false }),
+					],
+					versions: [],
+				},
+				global: { stubs: tooltipStub },
+			});
+
+			expect(wrapper.findAll('[data-test="group-source"]')).toHaveLength(2);
+		});
 	});
 });
 

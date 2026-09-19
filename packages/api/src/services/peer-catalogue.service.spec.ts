@@ -1,8 +1,7 @@
-import { MediaKind, PeerTrust, ShareVisibility } from '@mcs/shared';
+import { MediaKind, PeerTrust, ShareVisibility, type CatalogueEntry } from '@mcs/shared';
 import type { PeerLinkService } from './peer-link.service';
 import {
 	PeerCatalogueService,
-	type CatalogueEntry,
 	type CataloguePeer,
 	type CataloguePolicy,
 	type ContentHolder,
@@ -25,30 +24,32 @@ function peer(overrides: Partial<CataloguePeer> = {}): CataloguePeer {
 
 function entry(overrides: Partial<CatalogueEntry> = {}): CatalogueEntry {
 	return {
-		itemId: 'item-1',
-		serviceId: 'service-1',
+		externalId: 'item-1',
 		libraryId: 'lib-1',
 		kind: MediaKind.EPISODE,
 		title: 'Dulcinea',
-		normalizedTitle: 'dulcinea',
 		year: 2015,
 		seasonNumber: 1,
 		episodeNumber: 1,
+		parentExternalId: null,
+		externalIds: {},
 		contentId: 'q1-abc',
-		quickHash: 'abc',
 		size: 100,
 		quality: null,
-		pullable: true,
 		...overrides,
 	};
 }
 
 describe('PeerCatalogueService', () => {
-	let links: { request: jest.Mock; isLinked: jest.Mock };
+	let links: { request: jest.Mock; isLinked: jest.Mock; supports: jest.Mock };
 	let service: PeerCatalogueService;
 
 	beforeEach(() => {
-		links = { request: jest.fn(), isLinked: jest.fn(() => true) };
+		links = {
+			request: jest.fn(),
+			isLinked: jest.fn(() => true),
+			supports: jest.fn(() => true),
+		};
 		service = new PeerCatalogueService(links as unknown as PeerLinkService);
 	});
 
@@ -113,20 +114,59 @@ describe('PeerCatalogueService', () => {
 			expect(service.filterForPeer([entry()], [policy()], peer())).toHaveLength(1);
 		});
 
-		it('never makes an unpullable entry pullable', () => {
+		it('drops a row that names no library at all', () => {
+			// A peer running an older image sends rows without a library handle. There is
+			// nothing to match a policy against, and the rule above decides the rest.
+			expect(service.filterForPeer([entry({ libraryId: null })], [policy()], peer())).toEqual(
+				[],
+			);
+		});
+
+		it('never invents a content identity for a row that came without one', () => {
 			const [filtered] = service.filterForPeer(
-				[entry({ pullable: false })],
+				[entry({ contentId: null })],
 				[policy()],
 				peer(),
 			);
 
-			expect(filtered.pullable).toBe(false);
+			expect(filtered.contentId).toBeNull();
 		});
 	});
 
 	describe('fetchCatalogue', () => {
 		it('returns what the peer sent', async () => {
-			links.request.mockResolvedValue({ entries: [entry()] });
+			links.request
+				.mockResolvedValueOnce({ entries: [entry()] })
+				.mockResolvedValueOnce({ entries: [] });
+
+			expect(await service.fetchCatalogue('peer-1')).toHaveLength(1);
+		});
+
+		it('walks every page rather than importing the first one', async () => {
+			// Asking once silently imported the first page of a library and reported the
+			// rest as missing, which reads as a friend who deleted half their series.
+			links.request
+				.mockResolvedValueOnce({ entries: [entry({ externalId: 'a' })] })
+				.mockResolvedValueOnce({ entries: [entry({ externalId: 'b' })] })
+				.mockResolvedValueOnce({ entries: [] });
+
+			const entries = await service.fetchCatalogue('peer-1');
+
+			expect(entries.map((row) => row.externalId)).toEqual(['a', 'b']);
+			expect(links.request).toHaveBeenNthCalledWith(
+				2,
+				'peer-1',
+				'catalogue.list',
+				expect.objectContaining({ page: 2 }),
+			);
+		});
+
+		it('keeps the pages that crossed when one fails', async () => {
+			// Half a catalogue is worth having: the next refresh fills the rest, and a
+			// link that drops mid-import must not lose what already arrived.
+			links.request
+				.mockResolvedValueOnce({ entries: [entry()] })
+				.mockRejectedValueOnce(new Error('link closed'));
 
 			expect(await service.fetchCatalogue('peer-1')).toHaveLength(1);
 		});

@@ -281,6 +281,13 @@
 			"not_held_here": "Only another server holds this.",
 			"none": "No service holds this item."
 		},
+		"version": {
+			"title": "Versions",
+			"held": "already here",
+			"nothing_to_pull": "nothing to pull — only we have it",
+			"here_count": "{count} of {total} versions here",
+			"transfer_count": "no version chosen — the configured priority decides | one version chosen, one transfer | {count} versions chosen, {count} transfers"
+		},
 		"match": {
 			"title": "Correlations",
 			"action": "Matches",
@@ -481,7 +488,9 @@
 			"rename": "Rename",
 			"block": "Block",
 			"unblock": "Unblock"
-		}
+		},
+		"protocol": "Protocol {version}",
+		"capabilities": "can"
 	},
 	"share": {
 		"subtitle": "What this gateway exposes, decided one library at a time.",
@@ -617,7 +626,10 @@
 		"cache_ttl": "Cache lifetime (seconds)",
 		"cache_ttl_help": "How long a service answer stays good. Long enough that ten open tabs cost one request.",
 		"full_scan": "Full scan schedule",
-		"full_scan_help": "A refresh only sees what a service reports as new. Empty disables the scheduled pass; the button always works."
+		"full_scan_help": "A refresh only sees what a service reports as new. Empty disables the scheduled pass; the button always works.",
+		"instance_name": "Name of this gateway",
+		"instance_name_help": "What your friends see instead of the machine's hostname. Inside a container that hostname is a random string.",
+		"instance_name_placeholder": "Living room"
 	},
 	"sync": {
 		"subtitle": "Standing intents, and what they have actually done.",
@@ -953,7 +965,8 @@
 			"resource_not_found": "The media service answered, and no longer holds this item.",
 			"unauthorized": "The gateway was refused by this media service. Check its token.",
 			"duplicate": "This media service is already registered.",
-			"handler_unknown": "This kind of media service is not supported."
+			"handler_unknown": "This kind of media service is not supported.",
+			"auth_unsupported": "A peer cannot sign anyone in; choose a media server instead."
 		},
 		"library": {
 			"not_found": "This library no longer exists.",
@@ -986,7 +999,8 @@
 			"not_found": "This transfer no longer exists.",
 			"not_resumable": "This transfer cannot be resumed and has to start over.",
 			"no_space": "Not enough free space on the target library.",
-			"checksum_mismatch": "The downloaded file does not match its checksum."
+			"checksum_mismatch": "The downloaded file does not match its checksum.",
+			"target_occupied": "Something else already occupies the path this file would land on, and no free name could be built. Nothing was overwritten."
 		},
 		"settings": {
 			"invalid": "These settings were refused.",

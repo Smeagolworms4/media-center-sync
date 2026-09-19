@@ -135,6 +135,21 @@ export interface AcceptPeerInviteRequest {
 export interface CatalogueEntry {
 	/** Their identifier for the item. Opaque to us; we hand it back to ask for bytes. */
 	externalId: string;
+	/**
+	 * Which of their shared libraries this row belongs to, as `catalogue.libraries`
+	 * named it.
+	 *
+	 * It is their library row identifier and nothing else — never a path, never the
+	 * identifier the media server underneath uses. Publishing it is what lets a peer's
+	 * three shared libraries arrive here as three libraries rather than as one bag:
+	 * categories, missing counts and sync scopes are all expressed per library, and a
+	 * peer whose rows have no library at all can only ever be one.
+	 *
+	 * Optional rather than required, and that is the wire compatibility: a gateway
+	 * running an older image sends rows without the key, and a required field would
+	 * make every one of them fail to parse.
+	 */
+	libraryId?: string | null;
 	kind: string;
 	title: string;
 	year: number | null;
@@ -146,6 +161,25 @@ export interface CatalogueEntry {
 	contentId: string | null;
 	size: number | null;
 	quality: string | null;
+}
+
+/**
+ * One library a peer shares with us.
+ *
+ * Thinner than our own `Library` for the same reason `CatalogueEntry` is thinner than
+ * a `MediaItem`: the paths, the local path and the scan cursor are facts about
+ * somebody else's disk, and neither half of this exchange has any use for them. What
+ * crosses is what a library is from the outside — a name, a kind, and how much is in
+ * it.
+ */
+export interface PeerLibrary {
+	/** Their library row identifier, which is what a catalogue row is filed under. */
+	externalId: string;
+	name: string;
+	/** The same enum a library of ours carries; `other` when they do not say. */
+	kind: string;
+	/** What they hold in it, for a screen that wants to say so before a scan. */
+	itemCount: number;
 }
 
 /** This gateway's own identity, shown in the peers screen. */

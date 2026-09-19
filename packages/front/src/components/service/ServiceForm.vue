@@ -46,7 +46,18 @@
 		priority: props.service?.priority ?? 10,
 	});
 
-	const typeItems = Object.values(MediaServiceType).map(value => ({ value, title: value }));
+	/**
+	 * Every type somebody can register by hand, which is not every type there is.
+	 *
+	 * A peer-backed service is created by linking a peer and removed by unlinking one:
+	 * its address is a fingerprint rather than something anybody could type here, and
+	 * offering it in this list produces a registration that can never work. The list is
+	 * built by exclusion rather than by enumeration so that the next type added is
+	 * offered without anybody remembering this file.
+	 */
+	const typeItems = Object.values(MediaServiceType)
+		.filter(value => value !== MediaServiceType.PEER)
+		.map(value => ({ value, title: value }));
 	const scopeItems = computed(() => Object.values(MediaServiceScope).map(value => ({
 		value,
 		title: t(`service.scope.${value}`),

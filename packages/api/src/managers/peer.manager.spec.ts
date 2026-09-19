@@ -8,13 +8,16 @@ import {
 } from '@mcs/shared';
 import type { Peer, PeerInvite } from '@/entities';
 import type {
+	LibraryRepository,
 	MediaItemRepository,
+	MediaMatchRepository,
 	MediaServiceRepository,
 	PeerInviteRepository,
 	PeerRepository,
 } from '@/repositories';
 import type { EventGatewayService, PeerLinkService, SettingsService } from '@/services';
 import { PeerManager } from './peer.manager';
+import type { ServiceManager } from './service.manager';
 
 const OUR_FINGERPRINT = 'ffffffffffffffffffffffffffffffff';
 const THEIR_FINGERPRINT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -42,6 +45,7 @@ interface Fakes {
 		identity: jest.Mock;
 		connect: jest.Mock;
 		disconnect: jest.Mock;
+		isLinked: jest.Mock;
 		verify: jest.Mock;
 		verifyCredential: jest.Mock;
 		hello: jest.Mock;
@@ -49,6 +53,16 @@ interface Fakes {
 		fingerprint: string;
 		publicKey: string;
 	};
+	services: {
+		findByPeer: jest.Mock;
+		create: jest.Mock;
+		save: jest.Mock;
+		delete: jest.Mock;
+	};
+	libraries: { findByService: jest.Mock; delete: jest.Mock };
+	matches: { deleteForItems: jest.Mock; deleteForService: jest.Mock };
+	items: { countByService: jest.Mock; findStale: jest.Mock; remove: jest.Mock };
+	serviceManager: { probe: jest.Mock; scan: jest.Mock; refresh: jest.Mock };
 }
 
 const peerRow = (overrides: Partial<Peer> = {}): Peer =>
@@ -98,6 +112,7 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 			})),
 			connect: jest.fn(),
 			disconnect: jest.fn(),
+			isLinked: jest.fn(() => false),
 			verify: jest.fn(() => true),
 			verifyCredential: jest.fn(() => true),
 			hello: jest.fn(() => ({
@@ -111,18 +126,45 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 			fingerprint: OUR_FINGERPRINT,
 			publicKey: 'our-public-key',
 		},
+		services: {
+			findByPeer: jest.fn().mockResolvedValue([]),
+			create: jest.fn((value: Record<string, unknown>) => ({ id: 'service-1', ...value })),
+			save: jest.fn((value: Record<string, unknown>) => Promise.resolve(value)),
+			delete: jest.fn().mockResolvedValue(undefined),
+		},
+		libraries: {
+			findByService: jest.fn().mockResolvedValue([]),
+			delete: jest.fn().mockResolvedValue(undefined),
+		},
+		matches: {
+			deleteForItems: jest.fn().mockResolvedValue(0),
+			deleteForService: jest.fn().mockResolvedValue(0),
+		},
+		items: {
+			countByService: jest.fn().mockResolvedValue(0),
+			findStale: jest.fn().mockResolvedValue([]),
+			remove: jest.fn().mockResolvedValue(undefined),
+		},
+		serviceManager: {
+			probe: jest.fn().mockResolvedValue({ libraries: [] }),
+			scan: jest.fn().mockResolvedValue(undefined),
+			refresh: jest.fn().mockResolvedValue(undefined),
+		},
 	};
 
 	const manager = new PeerManager(
 		fakes.peers as unknown as PeerRepository,
 		fakes.invites as unknown as PeerInviteRepository,
-		{ findByPeer: jest.fn().mockResolvedValue([]) } as unknown as MediaServiceRepository,
-		{ countByService: jest.fn().mockResolvedValue(0) } as unknown as MediaItemRepository,
+		fakes.services as unknown as MediaServiceRepository,
+		fakes.items as unknown as MediaItemRepository,
 		fakes.links as unknown as PeerLinkService,
 		{
 			getValue: jest.fn().mockResolvedValue('https://rendezvous.test'),
 		} as unknown as SettingsService,
 		{ emit: jest.fn() } as unknown as EventGatewayService,
+		fakes.libraries as unknown as LibraryRepository,
+		fakes.matches as unknown as MediaMatchRepository,
+		fakes.serviceManager as unknown as ServiceManager,
 	);
 
 	return { manager, fakes };
@@ -133,6 +175,129 @@ const foreignInvite = (expiresAt: Date, code = 'abc123'): string =>
 	`mcs://invite/${code}?fingerprint=${THEIR_FINGERPRINT}&rendezvous=https%3A%2F%2Frendezvous.test&secret=s3cr3t&exp=${expiresAt.toISOString()}`;
 
 describe('PeerManager', () => {
+	describe('what a link brings', () => {
+		it('registers nothing for a peer that has only asked', async () => {
+			// A pending peer has agreed to nothing. Registering a service for one would
+			// put a stranger's name in the services screen on the strength of a request.
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow({ status: PeerStatus.PENDING }));
+			fakes.peers.findByFingerprint.mockResolvedValue(null);
+
+			await manager.add({ fingerprint: THEIR_FINGERPRINT });
+
+			expect(fakes.services.create).not.toHaveBeenCalled();
+		});
+
+		it('registers a peer as a remote service of ours the moment the link settles', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING }),
+			);
+
+			await manager.approve('peer-1');
+
+			expect(fakes.services.create).toHaveBeenCalledWith(
+				expect.objectContaining({
+					name: 'Alice',
+					type: 'peer',
+					// We cannot write into somebody else's disk, so it is never local and
+					// never a destination.
+					scope: 'remote',
+					baseUrl: 'peer://peer-1',
+					peerId: 'peer-1',
+				}),
+			);
+		});
+
+		it('asks a peer for nothing until there is a link to ask over', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING }),
+			);
+			fakes.links.isLinked.mockReturnValue(false);
+
+			await manager.approve('peer-1');
+
+			// The row exists so the screens have something to show; the libraries arrive
+			// with the first connection.
+			expect(fakes.services.save).toHaveBeenCalled();
+			expect(fakes.serviceManager.probe).not.toHaveBeenCalled();
+		});
+
+		it('indexes everything the first time and only what changed afterwards', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING }),
+			);
+			fakes.links.isLinked.mockReturnValue(true);
+			fakes.services.findByPeer.mockResolvedValue([
+				{ id: 'service-1', name: 'Alice', baseUrl: 'peer://peer-1', lastScanAt: new Date() },
+			]);
+
+			await manager.approve('peer-1');
+
+			expect(fakes.serviceManager.refresh).toHaveBeenCalledWith('service-1');
+			expect(fakes.serviceManager.scan).not.toHaveBeenCalled();
+		});
+
+		it('lets a link settle even when the catalogue cannot be read', async () => {
+			// Failing here would tell somebody their friend refused them because a
+			// catalogue page timed out.
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING }),
+			);
+			fakes.links.isLinked.mockReturnValue(true);
+			fakes.serviceManager.probe.mockRejectedValue(new Error('link closed'));
+
+			await expect(manager.approve('peer-1')).resolves.toMatchObject({
+				status: PeerStatus.LINKED,
+			});
+		});
+
+		it('takes back what a peer brought when it is unlinked, matches included', async () => {
+			// A match names an item on each side and only one of them is reached by a
+			// foreign key, so unlinking used to leave rows pointing at media that no
+			// longer exists.
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow());
+			fakes.services.findByPeer.mockResolvedValue([{ id: 'service-1' }]);
+			fakes.libraries.findByService.mockResolvedValue([{ id: 'library-1' }]);
+			fakes.items.findStale.mockResolvedValue([{ id: 'item-1' }]);
+
+			await manager.remove('peer-1');
+
+			expect(fakes.matches.deleteForItems).toHaveBeenCalledWith(['item-1']);
+			expect(fakes.matches.deleteForService).toHaveBeenCalledWith('service-1');
+			expect(fakes.libraries.delete).toHaveBeenCalledWith({
+				id: 'library-1',
+				serviceId: 'service-1',
+			});
+			expect(fakes.services.delete).toHaveBeenCalledWith({ id: 'service-1' });
+			expect(fakes.peers.delete).toHaveBeenCalledWith({ id: 'peer-1' });
+		});
+
+		it('renames what a peer brought without opening a link to do it', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow({ name: 'peer-aaaaaaaa' }));
+			fakes.services.findByPeer.mockResolvedValue([{ id: 'service-1', name: 'peer-aaaaaaaa' }]);
+
+			await manager.rename('peer-1', 'The cottage');
+
+			expect(fakes.services.save).toHaveBeenCalledWith(
+				expect.objectContaining({ name: 'The cottage' }),
+			);
+			expect(fakes.serviceManager.probe).not.toHaveBeenCalled();
+		});
+	});
+
 	describe('an inbound link', () => {
 		const credential = {
 			fingerprint: THEIR_FINGERPRINT,

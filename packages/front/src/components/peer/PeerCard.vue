@@ -45,6 +45,18 @@
 	const incoming = computed(() => pending.value && props.peer.direction === PeerDirection.INCOMING);
 	const outgoing = computed(() => pending.value && props.peer.direction === PeerDirection.OUTGOING);
 	const viaFriend = computed(() => props.peer.trust === PeerTrust.FRIEND_OF_FRIEND);
+
+	/*
+	 * Read through `?? null` rather than off the peer, because an older gateway — and
+	 * any record written before the handshake existed — carries neither field. A
+	 * template that reached straight for `peer.capabilities.length` threw on every
+	 * such row, which is a blank peers screen rather than a missing line.
+	 *
+	 * Null is also the honest reading of an absent version: it means we have never
+	 * actually talked to them, which is not the same as their speaking version zero.
+	 */
+	const protocol = computed(() => props.peer.protocol ?? null);
+	const capabilities = computed(() => props.peer.capabilities ?? []);
 	const relayed = computed(() => props.peer.linkMode === PeerLinkMode.RELAY);
 </script>
 
@@ -116,6 +128,24 @@
 
 			<p v-if="relayed" class="text-caption text-medium-emphasis mt-2 mb-0">
 				{{ $t('peer.relay_hint') }}
+			</p>
+
+			<!--
+				What was agreed on the wire, which is the honest answer to "why can I
+				not swarm from them". Guarded: a peer recorded before the handshake
+				existed has no version, and that is not the same as speaking version
+				zero — it means we have never actually talked to them.
+			-->
+			<p
+				v-if="protocol !== null"
+				class="text-caption text-medium-emphasis mt-2 mb-0"
+				data-test="peer-protocol"
+			>
+				{{ $t('peer.protocol', { version: protocol }) }}
+				<template v-if="capabilities.length > 0">
+					· {{ $t('peer.capabilities') }}
+					<span data-test="peer-capabilities">{{ capabilities.join(', ') }}</span>
+				</template>
 			</p>
 
 			<p class="text-caption text-medium-emphasis mt-2 mb-0">

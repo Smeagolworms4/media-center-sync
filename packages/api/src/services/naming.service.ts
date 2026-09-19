@@ -19,6 +19,20 @@ export interface NameableItem {
 	sourcePath?: string | null;
 }
 
+/**
+ * What tells two versions of one media apart, in the words a media server reads.
+ *
+ * Both fields are labels and neither is an identity — see `MediaVersion`. They exist
+ * so that a second copy lands under a name that says what it is, rather than under
+ * `Film (2) .mkv`, which is unique and tells a library nothing.
+ */
+export interface VersionMarks {
+	/** `Extended`, `Director's Cut` — from the service, or from a `{edition-…}` tag. */
+	edition?: string | null;
+	/** `2160p`, `1080p`: the resolution band, which is what a quality suffix means. */
+	quality?: string | null;
+}
+
 export interface NamingContext {
 	/**
 	 * File names our own library already uses for this show, most relevant first.
@@ -90,6 +104,64 @@ export class NamingService {
 		const directory = this._directory(item, context);
 
 		return directory === '' ? name : `${directory}/${name}`;
+	}
+
+	/**
+	 * The same file under a name the path it wanted is not already using.
+	 *
+	 * Called only when something occupies the rendered path, and the convention is not
+	 * invented here: both servers read a version suffix after the last ` - ` of a file
+	 * name — `Film (2009) - 2160p.mkv` beside `Film (2009) - 1080p.mkv` is how Jellyfin
+	 * is told they are two versions of one film — and Plex additionally parses
+	 * `{edition-Director's Cut}` anywhere in the name and strips it before matching the
+	 * title. Writing the edition inside that tag therefore satisfies both at once: Plex
+	 * reads the edition, Jellyfin reads a version name, and neither ends up with a
+	 * second film whose title has grown a suffix.
+	 *
+	 * The edition wins over the resolution when both are known, because it is the
+	 * statement somebody made about the content and the resolution is a fact about the
+	 * encode — and two copies of one cut differ by the second while two cuts differ by
+	 * the first.
+	 *
+	 * `attempt` counts from one and only ever grows: the caller retries until the path
+	 * is free, so this has to keep producing new names — two 2160p encodes of one cut
+	 * exist, and the label alone would collide with itself for ever.
+	 */
+	public disambiguate(relativeName: string, marks: VersionMarks, attempt: number): string {
+		const cut = relativeName.replace(/\\/g, '/');
+		const slash = cut.lastIndexOf('/');
+		const directory = slash === -1 ? '' : cut.slice(0, slash + 1);
+		const name = slash === -1 ? cut : cut.slice(slash + 1);
+		const extension = this._extension(name);
+		const stem = extension === '' ? name : name.slice(0, name.length - extension.length);
+		const label = this._versionLabel(marks);
+
+		// A source whose own name already carries the label is the case where repeating
+		// it would produce `Film {edition-Extended} - {edition-Extended}.mkv` and still
+		// collide. The counter is the only thing left that is guaranteed to differ.
+		const usable =
+			label !== null && !stem.toLowerCase().includes(label.toLowerCase()) ? label : null;
+
+		const suffix =
+			usable === null
+				? String(attempt + 1)
+				: attempt === 1
+					? usable
+					: `${usable} (${attempt})`;
+
+		return `${directory}${this.sanitise(`${stem} - ${suffix}${extension}`)}`;
+	}
+
+	private _versionLabel(marks: VersionMarks): string | null {
+		const edition = marks.edition?.trim();
+
+		if (edition) {
+			return `{edition-${this.sanitise(edition)}}`;
+		}
+
+		const quality = marks.quality?.trim();
+
+		return quality ? this.sanitise(quality) : null;
 	}
 
 	/**

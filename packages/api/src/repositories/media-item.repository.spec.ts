@@ -172,4 +172,171 @@ describe('MediaItemRepository', () => {
 
 		await expect(items.findStale(library.id, [])).resolves.toHaveLength(1);
 	});
+
+	it('lists the top of a library, which is what has no parent', async () => {
+		const series = await anItem({ kind: MediaKind.SERIES, title: 'B series' });
+
+		await anItem({ parentId: series.id, title: 'An episode' });
+		await anItem({ kind: MediaKind.MOVIE, title: 'A film' });
+
+		const roots = await items.findRoots(library.id);
+
+		expect(roots.map((item) => item.title)).toEqual(['A film', 'B series']);
+	});
+
+	it('reads several identifiers at once, and asks nothing for none', async () => {
+		await anItem({ externalId: 'one' });
+		await anItem({ externalId: 'two' });
+
+		await expect(items.findByExternalIds(service.id, ['one', 'two'])).resolves.toHaveLength(2);
+		// An empty list is a query nobody needs to run, and `IN ()` is not valid SQL on
+		// either engine.
+		await expect(items.findByExternalIds(service.id, [])).resolves.toEqual([]);
+	});
+
+	it('narrows a search to one service, and one parent', async () => {
+		const parent = await anItem({ kind: MediaKind.SERIES, externalId: 'parent' });
+
+		await anItem({ parentId: parent.id, externalId: 'child' });
+
+		const [mine] = await items.search({ serviceId: service.id });
+		const [nobodys] = await items.search({ serviceId: 'another-service' });
+		const [children] = await items.search({ parentId: parent.id });
+
+		expect(mine).toHaveLength(2);
+		expect(nobodys).toHaveLength(0);
+		expect(children.map((item) => item.externalId)).toEqual(['child']);
+	});
+
+	it('counts the rows of one library and of one service', async () => {
+		await anItem();
+		await anItem();
+
+		await expect(items.countByLibrary(library.id)).resolves.toBe(2);
+		await expect(items.countByLibrary('another-library')).resolves.toBe(0);
+		await expect(items.countByService(service.id)).resolves.toBe(2);
+	});
+
+	it('counts the states of one service rather than of everything', async () => {
+		await anItem({ syncState: SyncState.MISSING });
+
+		const mine = await items.countByState(service.id);
+		const nobodys = await items.countByState('another-service');
+
+		expect(mine[SyncState.MISSING]).toBe(1);
+		expect(nobodys[SyncState.MISSING]).toBe(0);
+	});
+
+	it('writes a state onto the rows named, and runs nothing for an empty list', async () => {
+		const item = await anItem({ syncState: SyncState.UNKNOWN });
+
+		await items.setSyncState([], SyncState.IN_SYNC);
+		await expect(items.findOneBy({ id: item.id })).resolves.toMatchObject({
+			syncState: SyncState.UNKNOWN,
+		});
+
+		await items.setSyncState([item.id], SyncState.IN_SYNC);
+		await expect(items.findOneBy({ id: item.id })).resolves.toMatchObject({
+			syncState: SyncState.IN_SYNC,
+		});
+	});
+
+	it('offers for fingerprinting only the files that have no identity yet', async () => {
+		// The filter cannot be pushed into SQL: the file lives in a `simple-json`
+		// column that neither engine can look inside.
+		const file = {
+			path: '/media/shows/a.mkv',
+			size: 1,
+			container: null,
+			videoCodec: null,
+			audioCodec: null,
+			width: null,
+			height: null,
+			durationMs: null,
+			bitrate: null,
+			quickHash: null,
+			contentId: null,
+			checksum: null,
+		};
+
+		await anItem({ externalId: 'no-hash', file });
+		await anItem({ externalId: 'hashed', file: { ...file, quickHash: 'q1-abc' } });
+		await anItem({ externalId: 'empty-path', file: { ...file, path: '' } });
+		await anItem({ externalId: 'no-file', file: null });
+
+		const fingerprintable = await items.findFingerprintable(library.id);
+
+		expect(fingerprintable.map((item) => item.externalId)).toEqual(['no-hash']);
+	});
+
+	describe('grouped listings', () => {
+		it('answers nothing for a filter nothing can satisfy', async () => {
+			// An empty list is a filter nobody satisfies, not the absence of one —
+			// asking for a friend nobody has linked must answer nothing, and answering
+			// the whole library instead looks exactly like the filter being ignored.
+			await anItem();
+
+			await expect(items.findGroupSeeds({ serviceIds: [] })).resolves.toEqual([]);
+			await expect(items.findGroupSeeds({ libraryIds: [] })).resolves.toEqual([]);
+		});
+
+		it('narrows to the libraries and the kind asked for', async () => {
+			await anItem({ kind: MediaKind.MOVIE });
+			await anItem({ kind: MediaKind.EPISODE });
+
+			const films = await items.findGroupSeeds({
+				libraryIds: [library.id],
+				kind: MediaKind.MOVIE,
+			});
+
+			expect(films).toHaveLength(1);
+			await expect(items.findGroupSeeds({ libraryIds: ['elsewhere'] })).resolves.toEqual([]);
+		});
+
+		it('takes the top of each tree whatever the library holds', async () => {
+			// A library of concerts or audiobooks has no kind this model names, so a
+			// filter derived from the kind would show parents and children together.
+			const series = await anItem({ kind: MediaKind.SERIES });
+
+			await anItem({ parentId: series.id });
+
+			const roots = await items.findGroupSeeds({ rootsOnly: true });
+
+			expect(roots.map((row) => row.id)).toEqual([series.id]);
+		});
+
+		it('searches the normalised title here too', async () => {
+			await anItem({ title: 'Amélie', normalizedTitle: 'amelie' });
+			await anItem({ title: 'Arrival', normalizedTitle: 'arrival' });
+
+			await expect(items.findGroupSeeds({ search: 'amelie' })).resolves.toHaveLength(1);
+			// An empty search is not a search, or every listing would filter on nothing.
+			await expect(items.findGroupSeeds({ search: '' })).resolves.toHaveLength(2);
+		});
+
+		it('reads the engine’s idea of a boolean back as one', async () => {
+			// `getRawMany` skips the entity layer that would have converted it, and the
+			// engines disagree: SQLite hands back 0 and 1, PostgreSQL false and true. A
+			// `=== true` would be silently false for every ignored item on the engine
+			// that ships by default, and the filter would simply appear not to work.
+			await anItem({ ignored: true });
+			await anItem({ ignored: false });
+
+			const seeds = await items.findGroupSeeds({});
+
+			expect(seeds.map((row) => row.ignored).sort()).toEqual([false, true]);
+		});
+
+		it('reads the same projection for identifiers pulled in from outside the filter', async () => {
+			const parent = await anItem({ kind: MediaKind.SERIES });
+			const child = await anItem({ parentId: parent.id });
+
+			await expect(items.findDigests([parent.id, parent.id])).resolves.toHaveLength(1);
+			await expect(items.findChildDigests([parent.id])).resolves.toMatchObject([
+				{ id: child.id },
+			]);
+			await expect(items.findByIds([child.id])).resolves.toHaveLength(1);
+			await expect(items.findDigests([])).resolves.toEqual([]);
+		});
+	});
 });

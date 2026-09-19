@@ -281,6 +281,13 @@
 			"not_held_here": "Só outro servidor o tem.",
 			"none": "Nenhum serviço tem este elemento."
 		},
+		"version": {
+			"title": "Versões",
+			"held": "já aqui",
+			"nothing_to_pull": "nada para transferir — só nós a temos",
+			"here_count": "{count} de {total} versões aqui",
+			"transfer_count": "nenhuma versão escolhida — decide a prioridade configurada | uma versão escolhida, uma transferência | {count} versões escolhidas, {count} transferências"
+		},
 		"match": {
 			"title": "Correlações",
 			"action": "Correlações",
@@ -481,7 +488,9 @@
 			"rename": "Renomear",
 			"block": "Bloquear",
 			"unblock": "Desbloquear"
-		}
+		},
+		"protocol": "Protocolo {version}",
+		"capabilities": "sabe fazer"
 	},
 	"share": {
 		"subtitle": "O que este gateway expõe, decidido biblioteca a biblioteca.",
@@ -617,7 +626,10 @@
 		"cache_ttl": "Duração da cache (segundos)",
 		"cache_ttl_help": "Quanto tempo a resposta de um serviço continua válida. O suficiente para que dez separadores abertos custem um único pedido.",
 		"full_scan": "Agendamento da análise completa",
-		"full_scan_help": "Uma atualização só vê o que um serviço anuncia como novo. Vazio desativa a passagem agendada; o botão funciona sempre."
+		"full_scan_help": "Uma atualização só vê o que um serviço anuncia como novo. Vazio desativa a passagem agendada; o botão funciona sempre.",
+		"instance_name": "Nome desta gateway",
+		"instance_name_help": "O que os seus amigos veem em vez do nome da máquina. Num contentor esse nome é uma sequência aleatória.",
+		"instance_name_placeholder": "Sala"
 	},
 	"sync": {
 		"subtitle": "As intenções permanentes, e o que fizeram de facto.",
@@ -953,7 +965,8 @@
 			"resource_not_found": "O serviço multimédia respondeu, e já não tem este elemento.",
 			"unauthorized": "O serviço multimédia recusou o gateway. Verifique o token.",
 			"duplicate": "Este serviço multimédia já está registado.",
-			"handler_unknown": "Este tipo de serviço multimédia não é suportado."
+			"handler_unknown": "Este tipo de serviço multimédia não é suportado.",
+			"auth_unsupported": "Um par não pode iniciar a sessão de ninguém; escolha antes um servidor multimédia."
 		},
 		"library": {
 			"not_found": "Esta biblioteca já não existe.",
@@ -986,7 +999,8 @@
 			"not_found": "Esta transferência já não existe.",
 			"not_resumable": "Esta transferência não pode ser retomada e tem de recomeçar.",
 			"no_space": "Espaço livre insuficiente na biblioteca de destino.",
-			"checksum_mismatch": "O ficheiro transferido não corresponde à sua soma de verificação."
+			"checksum_mismatch": "O ficheiro transferido não corresponde à sua soma de verificação.",
+			"target_occupied": "Outro ficheiro já ocupa o caminho onde este iria aterrar e não foi possível construir um nome livre. Nada foi sobrescrito."
 		},
 		"settings": {
 			"invalid": "Estas definições foram recusadas.",

@@ -33,6 +33,7 @@ import type {
 	MetadataService,
 	NamingService,
 	PlacementService,
+	QualityService,
 	SchedulerService,
 	SettingsService,
 	TransferEngineService,
@@ -56,6 +57,7 @@ const SETTINGS: Settings = {
 	allowFriendsOfFriends: false,
 	allowSwarm: true,
 	rendezvousUrl: null,
+	instanceName: null,
 	publicUrl: null,
 	peerAddress: null,
 	defaultTargetPath: null,
@@ -336,6 +338,9 @@ const build = (
 			get: jest.fn().mockResolvedValue({ ...SETTINGS, ...world.settings }),
 		} as unknown as SettingsService,
 		fakes.naming as unknown as NamingService,
+		// Asked for one label and nothing else — see the constructor. The real bands
+		// are pinned down in the quality service's own suite.
+		{ resolutionLabel: () => '1080p' } as unknown as QualityService,
 		fakes.metadata as unknown as MetadataService,
 		fakes.placement as unknown as PlacementService,
 		fakes.engine as unknown as TransferEngineService,
@@ -372,6 +377,60 @@ describe('SyncManager', () => {
 			const planning = await manager.plan({});
 
 			expect(planning.itemsPlanned).toBe(1);
+		});
+
+		/**
+		 * Two versions of one film are two transfers, and one file is one.
+		 *
+		 * The grouping used to be the title alone, so a theatrical cut and an extended
+		 * one — same title, same year, same identifier — collapsed into a single planned
+		 * item and whichever the service order put first was fetched, with the run
+		 * reporting that the media had been dealt with.
+		 */
+		it('plans one transfer per version when two services hold different files', async () => {
+			const { manager } = build({
+				items: [
+					item({
+						id: 'item-theatrical',
+						serviceId: 'service-fast',
+						file: file({ contentId: 'q1-theatrical', path: '/source/Titanic.mkv' }),
+					}),
+					item({
+						id: 'item-extended',
+						serviceId: 'service-slow',
+						externalId: 'ext-2',
+						file: file({ contentId: 'q1-extended', path: '/source/Titanic.Extended.mkv' }),
+					}),
+				],
+			});
+
+			const planning = await manager.plan({
+				sourceServiceIds: ['service-fast', 'service-slow'],
+			});
+
+			expect(planning.items.map((planned) => planned.itemId).sort()).toEqual([
+				'item-extended',
+				'item-theatrical',
+			]);
+			expect(planning.estimate.itemCount).toBe(2);
+		});
+
+		it('still plans one transfer for one file two services both hold', async () => {
+			// The case that must not break: the same bytes on two servers is one thing to
+			// pull, and splitting on the row would download it twice into one path.
+			const { manager } = build({
+				items: [
+					item({ id: 'item-fast', file: file({ contentId: 'q1-same' }) }),
+					item({
+						id: 'item-slow',
+						serviceId: 'service-slow',
+						externalId: 'ext-2',
+						file: file({ contentId: 'q1-same' }),
+					}),
+				],
+			});
+
+			expect((await manager.plan({})).itemsPlanned).toBe(1);
 		});
 
 		it('refuses to plan when no service is registered at all', async () => {

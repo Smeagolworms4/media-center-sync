@@ -79,11 +79,25 @@ export enum IntroductionScope {
  * back in the path — for control rather than for data, but back in it, and offline
  * the moment my gateway is down.
  *
- * Bounded by an expiry rather than by a revocation list, deliberately. A revocation
- * list is only as good as the last time it was fetched, which is another online
- * check, and it fails open exactly when the network is broken. A short life means an
- * introduction I regret stops working on its own, and the cost of that choice — A
- * must come back for a new one — is paid by the party who wanted the favour.
+ * **The expiry bounds the first handshake, not the friendship.** An introduction is a
+ * bootstrap and nothing more: once A and B have completed a handshake they hold each
+ * other's fingerprint and key, which is all an ordinary peer link has ever needed, so
+ * from that moment they reconnect directly and for ever without anybody's help. The
+ * introducer can go offline permanently and nothing between them breaks. Asking to be
+ * re-introduced to somebody you already know would be a step that exists only to
+ * serve the design rather than the people using it.
+ *
+ * So the voucher's life is measured in minutes, not months: it needs to survive long
+ * enough for A to dial B once. That also settles what a revocation list would have
+ * been for, and the honest answer is: nothing useful. A list is only as good as the
+ * last time it was fetched, it fails open exactly when the network is broken, and by
+ * the time anybody consulted it the two ends would already know each other.
+ *
+ * Which is worth saying plainly, because it is the real cost of this design:
+ * **introducing cannot be undone.** It is not lending access that can be taken back —
+ * it is telling two people about each other, and afterwards that is between them.
+ * Whoever presses the button should understand they are making an introduction, not
+ * granting a permission.
  */
 export interface PeerIntroduction {
 	id: string;

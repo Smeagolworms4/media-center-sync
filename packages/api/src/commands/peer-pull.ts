@@ -21,9 +21,11 @@ import { runCommand } from './context';
  * of.
  *
  * It deliberately goes through `PeerLinkService` rather than through the transfer
- * engine: the engine needs a plan, a source and a target, and none of those exist for
- * a peer whose catalogue has not been imported — which, today, is nothing's job. The
- * gap is real and this command is where it shows.
+ * engine, and still does now that linking a peer registers it as a media service and
+ * imports its catalogue: going through the engine would prove that a plan, a source
+ * and a target agree, which is what the functional tests are for. What only two real
+ * machines can show is the wire underneath — the handshake, the framing, the ranges —
+ * and this asks for those and nothing else.
  */
 runCommand(async (app) => {
 	const [wanted, itemId] = process.argv.slice(2);

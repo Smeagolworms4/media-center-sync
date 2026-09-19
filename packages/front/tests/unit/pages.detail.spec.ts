@@ -195,6 +195,97 @@ describe('pages/LibraryItem', () => {
 		expect(wrapper.text()).toContain('Follow the configured priority');
 	});
 
+	/**
+	 * The requirement, end to end: several versions kept, and several pulled.
+	 *
+	 * One version could be chosen and one only, so a household that wanted the extended
+	 * cut *and* the theatrical one had to run two syncs and hope the second did not land
+	 * on the first.
+	 */
+	it('pulls every version somebody ticked, in one call and as one transfer each', async () => {
+		const twoVersions = mediaGroup({
+			sources: [
+				{
+					itemId: 'copy-theatrical',
+					serviceId: 's1',
+					serviceName: 'Bob\u2019s Jellyfin',
+					serviceType: MediaServiceType.JELLYFIN,
+					scope: MediaServiceScope.REMOTE,
+					peerId: 'p1',
+					peerName: 'Bob',
+					quality: null,
+					companions: null,
+					bytes: 1024,
+					versionId: 'q1-theatrical',
+					edition: null,
+					local: false,
+					sync: SyncState.MISSING,
+				},
+				{
+					itemId: 'copy-extended',
+					serviceId: 's1',
+					serviceName: 'Bob\u2019s Jellyfin',
+					serviceType: MediaServiceType.JELLYFIN,
+					scope: MediaServiceScope.REMOTE,
+					peerId: 'p1',
+					peerName: 'Bob',
+					quality: null,
+					companions: null,
+					bytes: 4096,
+					versionId: 'q1-extended',
+					edition: 'Extended Cut',
+					local: false,
+					sync: SyncState.MISSING,
+				},
+			],
+			versions: [
+				{
+					versionId: 'q1-theatrical',
+					edition: null,
+					quality: null,
+					bytes: 1024,
+					heldLocally: false,
+					sourceItemIds: ['copy-theatrical'],
+				},
+				{
+					versionId: 'q1-extended',
+					edition: 'Extended Cut',
+					quality: null,
+					bytes: 4096,
+					heldLocally: false,
+					sourceItemIds: ['copy-extended'],
+				},
+			],
+		});
+
+		const stub = stubFetchRoutes({ ...routes, '/api/media/groups/m1': { body: twoVersions } });
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const boxes = wrapper.findAll('[data-test="group-source"] input');
+		expect(boxes).toHaveLength(2);
+
+		await boxes[0].setValue(true);
+		await boxes[1].setValue(true);
+		await settle();
+
+		// Both cuts are on the same server, so the choice cannot be said in service
+		// identifiers — it is said in the rows themselves, which is what the planner
+		// then turns into one transfer each.
+		expect(wrapper.find('[data-test="source-selection"]').text()).toContain('2 transfers');
+
+		await wrapper.find('[data-test="item-sync"]').trigger('click');
+		await settle();
+
+		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
+		expect(JSON.parse(String(run?.[1]?.body))).toMatchObject({
+			scope: { itemIds: ['copy-theatrical', 'copy-extended'] },
+		});
+	});
+
 	it('shows the seasons of a series as cards, each with what is missing under it', async () => {
 		stubFetchRoutes({
 			...routes,

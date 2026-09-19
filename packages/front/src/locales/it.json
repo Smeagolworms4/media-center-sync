@@ -281,6 +281,13 @@
 			"not_held_here": "Solo un altro server lo detiene.",
 			"none": "Nessun servizio detiene questo elemento."
 		},
+		"version": {
+			"title": "Versioni",
+			"held": "già qui",
+			"nothing_to_pull": "niente da recuperare — ce l’abbiamo solo noi",
+			"here_count": "{count} di {total} versioni qui",
+			"transfer_count": "nessuna versione scelta — decide la priorità configurata | una versione scelta, un trasferimento | {count} versioni scelte, {count} trasferimenti"
+		},
 		"match": {
 			"title": "Correlazioni",
 			"action": "Corrispondenze",
@@ -481,7 +488,9 @@
 			"rename": "Rinomina",
 			"block": "Blocca",
 			"unblock": "Sblocca"
-		}
+		},
+		"protocol": "Protocollo {version}",
+		"capabilities": "sa fare"
 	},
 	"share": {
 		"subtitle": "Ciò che questo gateway espone, deciso una libreria alla volta.",
@@ -617,7 +626,10 @@
 		"cache_ttl": "Durata della cache (secondi)",
 		"cache_ttl_help": "Per quanto tempo la risposta di un servizio resta valida. Abbastanza perché dieci schede aperte costino una sola richiesta.",
 		"full_scan": "Pianificazione della scansione completa",
-		"full_scan_help": "Un aggiornamento vede solo ciò che un servizio segnala come nuovo. Vuoto disattiva il passaggio pianificato; il pulsante funziona sempre."
+		"full_scan_help": "Un aggiornamento vede solo ciò che un servizio segnala come nuovo. Vuoto disattiva il passaggio pianificato; il pulsante funziona sempre.",
+		"instance_name": "Nome di questo gateway",
+		"instance_name_help": "Ciò che i tuoi amici vedono al posto del nome macchina. In un contenitore quel nome è una stringa casuale.",
+		"instance_name_placeholder": "Salotto"
 	},
 	"sync": {
 		"subtitle": "Intenzioni permanenti, e ciò che hanno fatto davvero.",
@@ -953,7 +965,8 @@
 			"resource_not_found": "Il servizio multimediale ha risposto, e non ha più questo elemento.",
 			"unauthorized": "Il gateway è stato rifiutato da questo servizio multimediale. Controlla il suo token.",
 			"duplicate": "Questo servizio multimediale è già registrato.",
-			"handler_unknown": "Questo tipo di servizio multimediale non è supportato."
+			"handler_unknown": "Questo tipo di servizio multimediale non è supportato.",
+			"auth_unsupported": "Un peer non può autenticare nessuno; scegli invece un server multimediale."
 		},
 		"library": {
 			"not_found": "Questa libreria non esiste più.",
@@ -986,7 +999,8 @@
 			"not_found": "Questo trasferimento non esiste più.",
 			"not_resumable": "Questo trasferimento non può essere ripreso e deve ricominciare da capo.",
 			"no_space": "Spazio libero insufficiente nella libreria di destinazione.",
-			"checksum_mismatch": "Il file scaricato non corrisponde al suo checksum."
+			"checksum_mismatch": "Il file scaricato non corrisponde al suo checksum.",
+			"target_occupied": "Qualcos’altro occupa già il percorso su cui questo file sarebbe arrivato e non è stato possibile costruire un nome libero. Nulla è stato sovrascritto."
 		},
 		"settings": {
 			"invalid": "Queste impostazioni sono state rifiutate.",

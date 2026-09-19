@@ -281,6 +281,13 @@
 			"not_held_here": "Nur ein anderer Server hat das.",
 			"none": "Kein Dienst hat dieses Element."
 		},
+		"version": {
+			"title": "Versionen",
+			"held": "schon hier",
+			"nothing_to_pull": "nichts zu holen — nur wir haben das",
+			"here_count": "{count} von {total} Versionen hier",
+			"transfer_count": "keine Version gewählt — die eingestellte Priorität entscheidet | eine Version gewählt, eine Übertragung | {count} Versionen gewählt, {count} Übertragungen"
+		},
 		"match": {
 			"title": "Korrelationen",
 			"action": "Korrelationen",
@@ -481,7 +488,9 @@
 			"rename": "Umbenennen",
 			"block": "Blockieren",
 			"unblock": "Entsperren"
-		}
+		},
+		"protocol": "Protokoll {version}",
+		"capabilities": "kann"
 	},
 	"share": {
 		"subtitle": "Was dieses Gateway preisgibt, Bibliothek für Bibliothek entschieden.",
@@ -617,7 +626,10 @@
 		"cache_ttl": "Cache-Lebensdauer (Sekunden)",
 		"cache_ttl_help": "Wie lange die Antwort eines Dienstes gültig bleibt. Lang genug, dass zehn offene Tabs eine Anfrage kosten.",
 		"full_scan": "Zeitplan für den vollständigen Scan",
-		"full_scan_help": "Eine Aktualisierung sieht nur, was ein Dienst als neu meldet. Leer schaltet den geplanten Durchlauf ab; die Schaltfläche funktioniert immer."
+		"full_scan_help": "Eine Aktualisierung sieht nur, was ein Dienst als neu meldet. Leer schaltet den geplanten Durchlauf ab; die Schaltfläche funktioniert immer.",
+		"instance_name": "Name dieses Gateways",
+		"instance_name_help": "Was Ihre Freunde anstelle des Hostnamens sehen. In einem Container ist dieser Name eine zufällige Zeichenfolge.",
+		"instance_name_placeholder": "Wohnzimmer"
 	},
 	"sync": {
 		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",
@@ -953,7 +965,8 @@
 			"resource_not_found": "Der Mediendienst hat geantwortet und hat dieses Element nicht mehr.",
 			"unauthorized": "Dieser Mediendienst hat das Gateway abgewiesen. Prüfen Sie den Token.",
 			"duplicate": "Dieser Mediendienst ist bereits registriert.",
-			"handler_unknown": "Diese Art von Mediendienst wird nicht unterstützt."
+			"handler_unknown": "Diese Art von Mediendienst wird nicht unterstützt.",
+			"auth_unsupported": "Ein Peer kann niemanden anmelden; wählen Sie stattdessen einen Medienserver."
 		},
 		"library": {
 			"not_found": "Diese Bibliothek gibt es nicht mehr.",
@@ -986,7 +999,8 @@
 			"not_found": "Diese Übertragung gibt es nicht mehr.",
 			"not_resumable": "Diese Übertragung lässt sich nicht fortsetzen und muss von vorn beginnen.",
 			"no_space": "Nicht genug freier Speicher in der Zielbibliothek.",
-			"checksum_mismatch": "Die heruntergeladene Datei stimmt nicht mit ihrer Prüfsumme überein."
+			"checksum_mismatch": "Die heruntergeladene Datei stimmt nicht mit ihrer Prüfsumme überein.",
+			"target_occupied": "Etwas anderes belegt bereits den Pfad, auf dem diese Datei landen würde, und es ließ sich kein freier Name bilden. Es wurde nichts überschrieben."
 		},
 		"settings": {
 			"invalid": "Diese Einstellungen wurden abgelehnt.",

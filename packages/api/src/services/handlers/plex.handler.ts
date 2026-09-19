@@ -692,6 +692,11 @@ export class PlexHandler implements MediaServiceHandler {
 			quickHash: null,
 			contentId: null,
 			checksum: null,
+			// Plex is the only service either handler talks to that has a word for the
+			// cut, and it is worth taking: a library whose two copies of one film are
+			// told apart by a Plex edition rather than by a `{edition-…}` in the
+			// filename would otherwise arrive here as two nameless versions.
+			edition: asString(firstOf(raw, 'editionTitle', 'edition')),
 		};
 	}
 }

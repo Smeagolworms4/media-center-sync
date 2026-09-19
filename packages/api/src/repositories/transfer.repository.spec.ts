@@ -76,6 +76,79 @@ describe('TransferRepository', () => {
 		});
 	});
 
+	it('groups a job’s transfers oldest first, and an item’s newest first', async () => {
+		// A job detail reads down its transfers in the order they were planned; an
+		// item's history reads the most recent attempt first, which is the one anybody
+		// asking about an item wants to see.
+		const first = await transfers.save(
+			transfers.create({
+				jobId: 'job-1',
+				itemId: 'item-1',
+				title: 'First',
+				state: TransferState.DONE,
+				targetPath: '/media/a.mkv',
+				workPath: '/var/a.part',
+				createdAt: new Date('2026-01-01T00:00:00.000Z'),
+			}),
+		);
+		const second = await transfers.save(
+			transfers.create({
+				jobId: 'job-1',
+				itemId: 'item-1',
+				title: 'Second',
+				state: TransferState.QUEUED,
+				targetPath: '/media/b.mkv',
+				workPath: '/var/b.part',
+				createdAt: new Date('2026-02-01T00:00:00.000Z'),
+			}),
+		);
+
+		await expect(transfers.findByJob('job-1')).resolves.toMatchObject([
+			{ id: first.id },
+			{ id: second.id },
+		]);
+		await expect(transfers.findByItem('item-1')).resolves.toMatchObject([
+			{ id: second.id },
+			{ id: first.id },
+		]);
+		await expect(transfers.findByJob('job-2')).resolves.toEqual([]);
+	});
+
+	it('finds the other transfers pulling the same file, which is how a swarm forms', async () => {
+		await transfers.save(
+			transfers.create({
+				itemId: 'item-1',
+				contentId: 'q1-abc',
+				title: 'Ours',
+				state: TransferState.DOWNLOADING,
+				targetPath: '/media/a.mkv',
+				workPath: '/var/a.part',
+			}),
+		);
+		await transfers.save(
+			transfers.create({
+				itemId: 'item-2',
+				contentId: 'q1-other',
+				title: 'Somebody else’s',
+				state: TransferState.DOWNLOADING,
+				targetPath: '/media/b.mkv',
+				workPath: '/var/b.part',
+			}),
+		);
+
+		await expect(transfers.findByContentId('q1-abc')).resolves.toHaveLength(1);
+	});
+
+	it('moves a transfer to a state without reading the row first', async () => {
+		const transfer = await aTransfer(TransferState.QUEUED);
+
+		await transfers.setState(transfer.id, TransferState.PAUSED);
+
+		await expect(transfers.findOneBy({ id: transfer.id })).resolves.toMatchObject({
+			state: TransferState.PAUSED,
+		});
+	});
+
 	it('forgets old finished transfers and keeps the ones still waiting', async () => {
 		const old = new Date(Date.now() - 90 * 86_400_000);
 

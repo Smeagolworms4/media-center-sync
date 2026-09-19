@@ -9,10 +9,21 @@ export class MediaServiceRepository extends Repository<MediaService> {
 		super(MediaService, dataSource.createEntityManager());
 	}
 
-	/** The services whose libraries the gateway can write into. */
+	/**
+	 * The services whose libraries the gateway can write into.
+	 *
+	 * A peer is excluded whatever its scope reads, and this is the enforcement of the
+	 * rule `serviceMode` states: the files are on somebody else's disk, so a
+	 * peer-backed row can never be a destination. This is the read every caller uses to
+	 * decide where a transfer lands, which makes it the right place to make that
+	 * impossible rather than merely unlikely — a row that arrived as local, by a bug or
+	 * by somebody's hand on the database, would otherwise be planned onto a path that
+	 * does not exist here, and the failure would arrive at the end of a completed
+	 * download.
+	 */
 	public findLocal(): Promise<MediaService[]> {
 		return this.find({
-			where: { scope: MediaServiceScope.LOCAL },
+			where: { scope: MediaServiceScope.LOCAL, peerId: IsNull() },
 			order: { priority: 'ASC', name: 'ASC' },
 		});
 	}

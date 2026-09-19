@@ -1,5 +1,12 @@
 import type { DataSource } from 'typeorm';
-import { MediaServiceScope, MediaServiceStatus, MediaServiceType } from '@mcs/shared';
+import {
+	MediaServiceScope,
+	MediaServiceStatus,
+	MediaServiceType,
+	PeerStatus,
+	PeerTrust,
+} from '@mcs/shared';
+import { Peer } from '@/entities';
 import { createTestDataSource } from '../../test/utils/database';
 import { MediaServiceRepository } from './media-service.repository';
 
@@ -66,6 +73,44 @@ describe('MediaServiceRepository', () => {
 		const ordered = await services.findByPriority();
 
 		expect(ordered.map((service) => service.name)).toEqual(['first', 'second', 'third']);
+	});
+
+	it('never offers a service reached through a peer as somewhere to write', async () => {
+		/*
+		 * The files are on somebody else's disk.
+		 *
+		 * The scope is written `local` here on purpose, because that is the only way
+		 * this can go wrong: a row that arrived local by a bug or by a hand on the
+		 * database. Planning a transfer onto it would write to a path that does not
+		 * exist on this machine, and the failure would arrive at the end of a completed
+		 * download rather than before it started.
+		 */
+		const peer = await dataSource.getRepository(Peer).save(
+			dataSource.getRepository(Peer).create({
+				name: 'Alice',
+				fingerprint: 'a'.repeat(64),
+				status: PeerStatus.LINKED,
+				trust: PeerTrust.FRIEND,
+			}),
+		);
+
+		await aService('home', MediaServiceScope.LOCAL, 10);
+		await services.save(
+			services.create({
+				name: 'Alice',
+				type: MediaServiceType.PEER,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: `peer://${peer.id}`,
+				peerId: peer.id,
+				priority: 500,
+			}),
+		);
+
+		const destinations = await services.findLocal();
+
+		expect(destinations.map((service) => service.name)).toEqual(['home']);
+		// And it is still there to read from: excluded as a destination, never hidden.
+		await expect(services.findByPeer(peer.id)).resolves.toHaveLength(1);
 	});
 
 	it('records a probe result', async () => {

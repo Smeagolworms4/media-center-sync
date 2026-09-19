@@ -185,6 +185,75 @@ describe('NamingService', () => {
 		});
 	});
 
+	/**
+	 * What a second version of one media is called when the first one holds the path.
+	 *
+	 * The suffix is not decoration: it is the sentence both media servers read to
+	 * decide that two files are two versions of one film rather than two films. Get it
+	 * wrong and the library shows `Titanic` twice, or shows one and quietly ignores the
+	 * other — which is what made overwriting the first one look like a tidy outcome.
+	 */
+	describe('disambiguate', () => {
+		it('writes an edition in the tag Plex parses and Jellyfin keeps', () => {
+			// Plex strips `{edition-…}` before matching the title, so it reads Titanic
+			// with an edition of `Extended Cut`; Jellyfin reads everything after the last
+			// ` - ` as the version name and files it under the same film. One string, two
+			// servers, neither of them confused about which film it is.
+			expect(
+				service.disambiguate(
+					'Titanic (1997)/Titanic (1997).mkv',
+					{ edition: 'Extended Cut', quality: '2160p' },
+					1,
+				),
+			).toBe('Titanic (1997)/Titanic (1997) - {edition-Extended Cut}.mkv');
+		});
+
+		it('falls back to the resolution, which is the other suffix both servers read', () => {
+			expect(
+				service.disambiguate(
+					'The Expanse (2015)/Season 01/The Expanse - S01E02.mkv',
+					{ edition: null, quality: '2160p' },
+					1,
+				),
+			).toBe('The Expanse (2015)/Season 01/The Expanse - S01E02 - 2160p.mkv');
+		});
+
+		it('counts when there is nothing to say, rather than colliding politely', () => {
+			expect(service.disambiguate('Film.mkv', { edition: null, quality: null }, 1)).toBe(
+				'Film - 2.mkv',
+			);
+			expect(service.disambiguate('Film.mkv', { edition: null, quality: null }, 2)).toBe(
+				'Film - 3.mkv',
+			);
+		});
+
+		it('keeps producing new names, because two 2160p encodes of one cut exist', () => {
+			expect(service.disambiguate('Film.mkv', { quality: '2160p' }, 2)).toBe(
+				'Film - 2160p (2).mkv',
+			);
+		});
+
+		it('does not repeat a label the source name already carries', () => {
+			// `Film {edition-Extended} - {edition-Extended}.mkv` is both ugly and, more to
+			// the point, the same name again: the collision would still be there.
+			expect(
+				service.disambiguate('Film {edition-Extended}.mkv', { edition: 'Extended' }, 1),
+			).toBe('Film {edition-Extended} - 2.mkv');
+		});
+
+		it('leaves the folders alone and only renames the file', () => {
+			expect(
+				service.disambiguate('Show (2015)/Season 01/Show - S01E02.mkv', { quality: '1080p' }, 1),
+			).toBe('Show (2015)/Season 01/Show - S01E02 - 1080p.mkv');
+		});
+
+		it('sanitises a label that arrived from somebody else\'s library', () => {
+			expect(service.disambiguate('Film.mkv', { edition: 'Cut: the "good" one' }, 1)).toBe(
+				'Film - {edition-Cut the good one}.mkv',
+			);
+		});
+	});
+
 	describe('extensions', () => {
 		it('lowercases the extension it keeps', () => {
 			expect(

@@ -62,14 +62,17 @@ import {
 	MetadataService,
 	NamingService,
 	PlacementService,
+	QualityService,
 	SchedulerService,
 	SettingsService,
 	TransferEngineService,
 	applyCeilings,
+	editionOf,
 	needsAcknowledgement,
 	refusesRun,
 	targetSpace,
 	toLocalPath,
+	versionIdOf,
 	type PlacementLibrary,
 	type RunCeilings,
 	type TransferSourceRef,
@@ -177,6 +180,14 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		private readonly _transfers: TransferRepository,
 		private readonly _settings: SettingsService,
 		private readonly _naming: NamingService,
+		/**
+		 * Asked for one thing only: what to call a copy that has to sit beside another.
+		 *
+		 * The resolution band is the suffix both media servers read as a version name,
+		 * and re-deriving it from a height here would be a second set of thresholds to
+		 * disagree with the one the comparator ranks on.
+		 */
+		private readonly _quality: QualityService,
 		private readonly _metadata: MetadataService,
 		private readonly _placement: PlacementService,
 		private readonly _engine: TransferEngineService,
@@ -959,6 +970,16 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const seriesTitles = await this._seriesTitles(planned.map((entry) => entry.item));
 		const siblings = await this._localSiblings(planned.map((entry) => entry.item));
 
+		/*
+		 * Paths this plan has already handed out.
+		 *
+		 * Nothing is written while a plan is being built, so the filesystem answers
+		 * "free" for every one of them — and two versions of one episode, which render
+		 * the same name, would both be given it. The second transfer would then land on
+		 * the first hours later, with the run reporting two successes.
+		 */
+		const claimed = new Set<string>();
+
 		for (const entry of planned) {
 			const nameable = {
 				kind: entry.item.kind,
@@ -977,6 +998,14 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			const siblingPath =
 				entry.local?.file?.path ?? siblings.get(entry.item.normalizedTitle) ?? null;
 
+			// What tells this copy apart from the one already sitting where it wants to
+			// land. Both are labels — the version itself is the fingerprint — and they
+			// are only read when a name has to be found, never to decide anything.
+			const marks = {
+				edition: editionOf(entry.item.file),
+				quality: this._quality.resolutionLabel(entry.item.file?.height ?? null),
+			};
+
 			const target = await this._placement.resolve({
 				kind: entry.item.kind,
 				settings,
@@ -984,9 +1013,26 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				relativeName: (libraryRoot) =>
 					this._naming.render(settings.naming, nameable, { libraryRoot, siblingPath }),
 				existingPath: entry.local?.file?.path ?? null,
+				/*
+				 * Our own copy of *this version* is the only file this pull may replace.
+				 *
+				 * It is null for a version we do not hold, which is precisely the case
+				 * where landing on the rendered name would destroy another version. The
+				 * price is visible and worth naming: running the same sync twice before
+				 * the index has caught up leaves a second file beside the first rather
+				 * than writing over it, because nothing in the index yet says the file
+				 * there is ours. A duplicate somebody can delete beats a version nobody
+				 * can get back.
+				 */
+				replacesPath: entry.local?.file?.path ?? null,
+				disambiguate: (relativeName, attempt) =>
+					this._naming.disambiguate(relativeName, marks, attempt),
+				reserved: claimed,
 				preferredLibraryId: effective.targetLibraryId,
 				requiredBytes: entry.item.file?.size ?? 0,
 			});
+
+			claimed.add(target.path);
 
 			items.push({
 				itemId: entry.item.id,
@@ -1335,14 +1381,28 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	}
 
 	/**
-	 * What makes two rows the same media.
+	 * What makes two rows the same thing to pull.
 	 *
-	 * The same key the correlation indexes on. Using the item identifier instead would
-	 * plan one transfer per service holding the episode, which is the failure this
-	 * grouping exists to prevent.
+	 * The same key the correlation indexes on, plus the version. Using the item
+	 * identifier instead would plan one transfer per service holding the episode, which
+	 * is the failure this grouping exists to prevent — and using the title alone, which
+	 * is what it did, collapsed two versions of one media into a single transfer, so
+	 * asking for the extended cut and the theatrical one fetched whichever the service
+	 * order put first and reported that the other had been dealt with.
+	 *
+	 * A row nobody has fingerprinted has no version and falls into the one bucket it
+	 * used to share with everything else. That is deliberately the old behaviour: it
+	 * keeps the same file on three unfingerprinted services one transfer, where giving
+	 * each row an identity of its own would download it three times into one path.
 	 */
 	private _identity(item: MediaItem): string {
-		return [item.kind, item.normalizedTitle, item.seasonNumber ?? '', item.episodeNumber ?? ''].join('|');
+		return [
+			item.kind,
+			item.normalizedTitle,
+			item.seasonNumber ?? '',
+			item.episodeNumber ?? '',
+			versionIdOf(item.file) ?? '',
+		].join('|');
 	}
 
 	private async _placementLibraries(): Promise<PlacementLibrary[]> {

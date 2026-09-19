@@ -51,6 +51,7 @@
 		allowFriendsOfFriends: true,
 		allowSwarm: true,
 		rendezvousUrl: '',
+		instanceName: '',
 		publicUrl: '',
 		peerAddress: '',
 		defaultTargetPath: '',
@@ -89,6 +90,7 @@
 		// the suggestion came from and saving is what accepts it. A value that is
 		// already set is never overwritten: it was chosen deliberately, and this screen
 		// is opened from every machine on the network.
+		model.instanceName = settings.instanceName ?? '';
 		model.publicUrl = settings.publicUrl ?? browserOrigin;
 		model.peerAddress = settings.peerAddress ?? '';
 		model.defaultTargetPath = settings.defaultTargetPath ?? '';
@@ -187,6 +189,8 @@
 				allowSwarm: model.allowSwarm,
 				rendezvousUrl: model.rendezvousUrl || null,
 				// An emptied box is a setting being cleared, which the API spells null.
+				// Empty means "no name of my own", and the hostname stands again.
+				instanceName: model.instanceName || null,
 				publicUrl: model.publicUrl || null,
 				peerAddress: model.peerAddress || null,
 				defaultTargetPath: model.defaultTargetPath || null,
@@ -295,7 +299,18 @@
 
 				<v-card-text>
 					<v-text-field
+						v-model="model.instanceName"
+						v-bind="form.field('instanceName')"
+						data-test="settings-instance-name"
+						:hint="$t('settings.instance_name_help')"
+						:label="$t('settings.instance_name')"
+						persistent-hint
+						:placeholder="$t('settings.instance_name_placeholder')"
+					/>
+
+					<v-text-field
 						v-model="model.publicUrl"
+						class="mt-4"
 						v-bind="form.field('publicUrl')"
 						data-test="settings-public-url"
 						:hint="$t('settings.public_url_help')"

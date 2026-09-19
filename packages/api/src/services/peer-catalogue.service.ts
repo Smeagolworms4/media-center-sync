@@ -1,25 +1,23 @@
-import { PeerTrust, ShareVisibility, type MediaKind, type QualitySummary } from '@mcs/shared';
+import {
+	PeerCapability,
+	PeerTrust,
+	ShareVisibility,
+	type CatalogueEntry,
+	type PeerLibrary,
+} from '@mcs/shared';
 import { Injectable, Logger } from '@nestjs/common';
 import { PeerLinkService } from './peer-link.service';
 
-/** One row of a catalogue, ours or theirs. Metadata only; bytes are asked for later. */
-export interface CatalogueEntry {
-	itemId: string;
-	serviceId: string;
-	libraryId: string;
-	kind: MediaKind;
-	title: string;
-	normalizedTitle: string;
-	year: number | null;
-	seasonNumber: number | null;
-	episodeNumber: number | null;
-	contentId: string | null;
-	quickHash: string | null;
-	size: number | null;
-	quality: QualitySummary | null;
-	/** False when the policy exposes the title but not the file. */
-	pullable: boolean;
-}
+/**
+ * How many pages of a peer's catalogue one import will walk.
+ *
+ * A ceiling rather than a trust: the far end decides when its pages stop, and a
+ * gateway that answers a full page forever — by accident or on purpose — would
+ * otherwise keep this loop running for as long as it cared to. Five hundred rows a
+ * page puts the cap at a quarter of a million items, which is more than anybody
+ * shares and far less than forever.
+ */
+const MAX_CATALOGUE_PAGES = 500;
 
 /** The subset of a share policy this service decides on. */
 export interface CataloguePolicy {
@@ -118,7 +116,9 @@ export class PeerCatalogueService {
 		const byLibrary = new Map(policies.map((policy) => [policy.libraryId, policy]));
 
 		return entries.flatMap((entry) => {
-			const policy = byLibrary.get(entry.libraryId);
+			// A row that names no library cannot be matched against a policy, and the
+			// rule below decides the rest: no policy means nothing was shared.
+			const policy = entry.libraryId ? byLibrary.get(entry.libraryId) : undefined;
 
 			// No policy at all means nothing was shared. Defaulting to visible would
 			// expose a library the moment somebody links, which is the wrong default
@@ -131,20 +131,72 @@ export class PeerCatalogueService {
 		});
 	}
 
-	/** What a linked peer exposes to us, as they have already filtered it. */
+	/**
+	 * Which of their libraries this peer shares with us.
+	 *
+	 * Empty for a peer that does not advertise the capability, and that is a fallback
+	 * rather than a failure: a gateway from before this method existed answers "not
+	 * supported" and its catalogue is still perfectly good. The caller files those rows
+	 * into one library instead of three, which is exactly what it had before.
+	 */
+	public async fetchLibraries(peerId: string): Promise<PeerLibrary[]> {
+		if (!this._links.supports(peerId, PeerCapability.LIBRARIES)) {
+			return [];
+		}
+
+		const answer = await this._links
+			.request<{ libraries?: PeerLibrary[] }>(peerId, 'catalogue.libraries', {})
+			.catch((error: unknown) => {
+				this._logger.warn(`Peer ${peerId} did not answer its libraries: ${String(error)}`);
+
+				return { libraries: [] };
+			});
+
+		return (answer.libraries ?? []).filter((library) => typeof library?.externalId === 'string');
+	}
+
+	/**
+	 * What a linked peer exposes to us, as they have already filtered it.
+	 *
+	 * Paged all the way through rather than asked once, because one answer carries a
+	 * page and the page size is the far end's decision. Asking once and stopping was
+	 * survivable only while nothing called this: it silently imported the first few
+	 * hundred rows of a library and reported the rest as missing, which reads as a
+	 * friend who deleted half their series.
+	 *
+	 * A page that fails ends the walk with what was collected instead of throwing. Half
+	 * a catalogue is worth having — the next refresh fills the rest — and a link that
+	 * drops in the middle of an import must not lose the pages that already crossed.
+	 */
 	public async fetchCatalogue(
 		peerId: string,
 		query: { since?: string | null; libraryId?: string | null } = {},
 	): Promise<CatalogueEntry[]> {
-		const answer = await this._links
-			.request<{ entries?: CatalogueEntry[] }>(peerId, 'catalogue.list', query)
-			.catch((error: unknown) => {
-				this._logger.warn(`Peer ${peerId} did not answer the catalogue: ${String(error)}`);
+		const entries: CatalogueEntry[] = [];
 
-				return { entries: [] };
-			});
+		for (let page = 1; page <= MAX_CATALOGUE_PAGES; page += 1) {
+			const answer = await this._links
+				.request<{ entries?: CatalogueEntry[] }>(peerId, 'catalogue.list', { ...query, page })
+				.catch((error: unknown) => {
+					this._logger.warn(`Peer ${peerId} did not answer the catalogue: ${String(error)}`);
 
-		return answer.entries ?? [];
+					return null;
+				});
+
+			const rows = answer?.entries ?? [];
+
+			entries.push(...rows);
+
+			// An empty page is the end, and it is the only honest stop: the page size is
+			// the far end's decision, so a short page cannot be told from a full one
+			// without asking them what theirs is. A peer holding an exact multiple of
+			// their page size costs one extra round trip and nothing else.
+			if (answer === null || rows.length === 0) {
+				break;
+			}
+		}
+
+		return entries;
 	}
 
 	/**

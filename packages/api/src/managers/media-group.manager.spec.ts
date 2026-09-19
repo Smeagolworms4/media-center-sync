@@ -572,6 +572,123 @@ describe('MediaGroupManager', () => {
 		});
 	});
 
+	/**
+	 * What the poster expands into when somebody asks which copies are worth holding.
+	 *
+	 * The fold is on the fingerprint and on nothing else, which is the only rule that
+	 * survives contact with a real library: the same file on three servers is one thing
+	 * to pull, and two files under one title are two, whatever their titles, their
+	 * editions or their scrapers agree on.
+	 */
+	describe('versions', () => {
+		it('folds the copies of one file into a single version', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'a', file: file({ contentId: 'q1-same' }) }),
+					item({ id: 'b', serviceId: 'remote', file: file({ contentId: 'q1-same' }) }),
+				],
+				matches: [correlation()],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions).toHaveLength(1);
+			expect(group.versions[0].sourceItemIds.sort()).toEqual(['a', 'b']);
+			expect(group.versions[0].heldLocally).toBe(true);
+		});
+
+		it('keeps two encodes of one cut as two things to choose between', async () => {
+			// They correlate — same cut, same running time — and they are still two
+			// files. Holding one of them is an ordinary state and not a failed sync.
+			const { manager } = build({
+				items: [
+					item({ id: 'a', file: file({ contentId: 'q1-1080', height: 1080 }) }),
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						file: file({ contentId: 'q1-2160', height: 2160 }),
+					}),
+				],
+				matches: [correlation()],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions.map((version) => version.versionId)).toEqual(['q1-1080', 'q1-2160']);
+			expect(group.versions.map((version) => version.heldLocally)).toEqual([true, false]);
+			expect(group.versions[1].quality?.dominant?.resolution).toBe('2160p');
+		});
+
+		it('says a version is not held when only somebody else has it', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'a', serviceId: 'remote', file: file({ contentId: 'q1-theirs' }) }),
+				],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions).toEqual([
+				expect.objectContaining({ versionId: 'q1-theirs', heldLocally: false }),
+			]);
+		});
+
+		it('carries the edition, wherever among the copies it was found', async () => {
+			// Only Plex reports one and only some filenames carry the tag, so a label
+			// found on any copy of the same bytes describes them all.
+			const { manager } = build({
+				items: [
+					item({ id: 'a', file: file({ contentId: 'q1-same' }) }),
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						file: file({ contentId: 'q1-same', edition: 'Extended Cut' }),
+					}),
+				],
+				matches: [correlation()],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions[0].edition).toBe('Extended Cut');
+			expect(group.sources.find((source) => source.itemId === 'b')?.edition).toBe('Extended Cut');
+		});
+
+		it('reads the edition tag off a filename when nobody reported one', async () => {
+			const { manager } = build({
+				items: [
+					item({
+						id: 'a',
+						file: file({
+							contentId: 'q1-x',
+							path: '/library/Titanic (1997) {edition-Theatrical}.mkv',
+						}),
+					}),
+				],
+			});
+
+			expect((await manager.groups(query())).items[0].versions[0].edition).toBe('Theatrical');
+		});
+
+		it('lists no version for a copy nobody has fingerprinted', async () => {
+			// Honest rather than convenient: giving an unfingerprinted row an identity of
+			// its own would show the one file two servers hold as two versions, and
+			// offering both would download it twice into one path.
+			const { manager } = build({
+				items: [
+					item({ id: 'a', file: file({ contentId: null }) }),
+					item({ id: 'b', serviceId: 'remote', file: file({ contentId: null }) }),
+				],
+				matches: [correlation()],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions).toEqual([]);
+			expect(group.sources.map((source) => source.versionId)).toEqual([null, null]);
+		});
+	});
+
 	describe('children', () => {
 		const season = (): World =>
 			({

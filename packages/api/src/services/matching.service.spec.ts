@@ -273,6 +273,128 @@ describe('MatchingService', () => {
 		});
 	});
 
+	/**
+	 * The line between "encoded twice" and "two different films under one title".
+	 *
+	 * Everything in this table shares an IMDb number, a title and a year, because that
+	 * is the real case: a theatrical cut and an extended one are the same work to every
+	 * scraper on earth. Only the running time separates them, and getting the threshold
+	 * wrong costs something in both directions — too tight and every film in the library
+	 * doubles, too loose and somebody who asked for the extended cut is handed the
+	 * theatrical one and told it is the same file.
+	 */
+	describe('versions of one film', () => {
+		const theatrical = 194 * 60 * 1000;
+
+		const cases: { name: string; durationMs: number; merges: boolean }[] = [
+			{ name: 'the same encode twice', durationMs: theatrical, merges: true },
+			{ name: 'a re-encode a few seconds shorter', durationMs: theatrical - 8_000, merges: true },
+			{
+				name: 'a copy with a second of black trimmed off each end',
+				durationMs: theatrical - 2_000,
+				merges: true,
+			},
+			{ name: 'a copy just inside two minutes', durationMs: theatrical - 119_000, merges: true },
+			{ name: 'a copy just outside two minutes', durationMs: theatrical - 121_000, merges: false },
+			{ name: 'an extended cut', durationMs: theatrical + 15 * 60 * 1000, merges: false },
+		];
+
+		it.each(cases)('$name: merges = $merges', ({ durationMs, merges }) => {
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				title: 'Titanic',
+				normalizedTitle: 'titanic',
+				year: 1997,
+				externalIds: { imdb: 'tt0120338' },
+				file: file({ path: '/media/Films/Titanic (1997).mkv', durationMs: theatrical }),
+			});
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				// A different encode of whichever cut this row is: another codec, another
+				// resolution, another size. None of it is evidence about the content, and
+				// none of it may decide the question.
+				file: file({
+					path: '/srv/movies/Titanic (1997) 2160p.mkv',
+					durationMs,
+					videoCodec: 'x264',
+					width: 3840,
+					height: 2160,
+					size: 20_000_000_000,
+				}),
+			});
+
+			const scored = service.score(local, remote, options());
+
+			expect(scored === null ? null : scored.strategy).toBe(
+				merges ? MatchStrategy.EXTERNAL_ID : null,
+			);
+		});
+
+		it('keeps two cuts apart even when nothing but the title is left to go on', () => {
+			// The guard has to sit in front of every strategy and not only the identifier
+			// one: two cuts of one film have the same title and the same year, so a title
+			// match would put back together exactly what the duration just separated.
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				normalizedTitle: 'titanic',
+				year: 1997,
+				externalIds: {},
+				file: file({ durationMs: theatrical }),
+			});
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				file: file({ durationMs: theatrical + 15 * 60 * 1000 }),
+			});
+
+			expect(service.score(local, remote, options())).toBeNull();
+		});
+
+		it('merges two cuts of an episode, because there the numbers are the identity', () => {
+			// A recap, a double-length finale and a series whose specials run long are all
+			// ordinary, and splitting on duration would ungroup shows that correlate
+			// perfectly today. The season and episode numbers already say what this is.
+			const local = candidate({ file: file({ durationMs: 2_700_000 }) });
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				file: file({ durationMs: 5_400_000 }),
+			});
+
+			expect(service.score(local, remote, options())?.strategy).toBe(MatchStrategy.EXTERNAL_ID);
+		});
+
+		it('merges two copies of one file whatever their clocks say', () => {
+			// Proof beats inference: the fingerprint is the version, so a service that
+			// reports a wrong duration — and they do — cannot split a file from itself.
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				file: file({ contentId: 'q1-same', durationMs: theatrical }),
+			});
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				file: file({ contentId: 'q1-same', durationMs: theatrical + 20 * 60 * 1000 }),
+			});
+
+			expect(service.score(local, remote, options())?.strategy).toBe(MatchStrategy.CHECKSUM);
+		});
+	});
+
 	describe('threshold', () => {
 		it('applies a match above the threshold', () => {
 			const local = candidate();

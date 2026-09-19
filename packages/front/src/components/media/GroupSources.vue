@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { MediaGroupSource, MediaService } from '@mcs/shared';
+	import type { MediaGroupSource, MediaService, MediaVersion } from '@mcs/shared';
 	import { SyncState } from '@mcs/shared';
 	import { computed } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
@@ -9,35 +9,41 @@
 	import { type MediaOriginDescriptor, useMediaOrigin } from '@/composables/useMediaOrigin';
 
 	/**
-	 * Every server that holds this media, and which one a pull should use.
+	 * What there is to hold, and which of it to pull.
 	 *
-	 * The card upstairs says "we have it" or "a friend has it" in two marks; this is
-	 * where that becomes something to act on — each copy with its quality and its
-	 * size, ours marked, in the order the gateway itself would consult them. Seeing
-	 * that a friend's copy is the 2160p one and ours is the 720p is the whole reason
-	 * somebody opens this page.
+	 * The list is versions rather than servers, because those are two different
+	 * questions and only one of them is the one being asked. Three friends holding the
+	 * same file are one thing to fetch; a 1080p and a 2160p under one title are two,
+	 * and somebody who asked for the extended cut and received the theatrical one has
+	 * been given the wrong film. So a row is a version, with the copies of it
+	 * underneath, and several rows can be chosen at once — which is the whole point:
+	 * holding two of the three cuts is an ordinary thing to want.
 	 *
-	 * Each copy also says what sits beside it — the `.nfo`, the artwork, the
-	 * subtitles — because a copy that is bigger and better encoded but has no
-	 * metadata is not obviously the one to pull, and that is a choice somebody can
-	 * only make if the list says so.
+	 * Each row says whether we already have it, because that is the first thing anybody
+	 * looks for, and a version only we hold has nothing to offer — it is listed, marked
+	 * and not selectable, rather than hidden, since "you already have this one" is an
+	 * answer and an empty list is not.
 	 *
-	 * Each copy carries its own state as well as the group's: the group says the
-	 * media is outdated, and only the per-copy state says which one is the old one —
-	 * without it somebody is told to pull without being told from where.
+	 * Each copy also says what sits beside it — the `.nfo`, the artwork, the subtitles —
+	 * because a copy that is bigger and better encoded but has no metadata is not
+	 * obviously the one to pull. And each says how far away it is: a copy on a friend's
+	 * server and a copy on somebody their friend introduced are not the same offer.
 	 *
-	 * And each says how far away it is. A copy on a friend's server and a copy on
-	 * somebody their friend introduced are not the same offer — the second is a
-	 * gateway nobody here ever agreed to — and the row is where that has to be
-	 * readable, because this is the list a pull is chosen from.
-	 *
-	 * Left alone the pull follows the priority configured once in the administration
-	 * screen, and the list says so rather than showing an empty selection: pinning a
-	 * source into every run would mean revisiting them all the day a friend's server
-	 * moves.
+	 * Left alone, nothing is chosen and the pull follows the priority configured once in
+	 * the administration screen. The list says so rather than showing an empty selection:
+	 * pinning a source into every run would mean revisiting them all the day a friend's
+	 * server moves.
 	 */
 	const props = withDefaults(defineProps<{
 		sources?: MediaGroupSource[];
+		/**
+		 * The distinct versions the gateway could tell apart, ours first.
+		 *
+		 * Empty is ordinary rather than an error: a copy nobody has fingerprinted cannot
+		 * be said to be the same as, or different from, anything, so the list falls back
+		 * to one row per copy — which is what it always was.
+		 */
+		versions?: MediaVersion[];
 		/** The registered services, read only for the priority they are ranked by. */
 		services?: MediaService[];
 		/** Peer names by identifier, for the sources reached through a friend. */
@@ -45,12 +51,20 @@
 		disabled?: boolean;
 	}>(), {
 		sources: () => [],
+		versions: () => [],
 		services: () => [],
 		peerNames: () => ({}),
 		disabled: false,
 	});
 
-	const selected = defineModel<string | null>({ default: null });
+	/**
+	 * The copies to pull, named by item and never by service.
+	 *
+	 * A service can hold two versions of one film, so a set of service identifiers
+	 * cannot say which of them was asked for — and that ambiguity is exactly the bug
+	 * this screen exists to fix.
+	 */
+	const selected = defineModel<string[]>({ default: () => [] });
 
 	const priorities = computed(() => {
 		const map: Record<string, number> = {};
@@ -78,7 +92,64 @@
 		));
 	});
 
-	const defaultSource = computed(() => ordered.value[0] ?? null);
+	const defaultSource = computed(() => ordered.value.find(one => !one.local) ?? ordered.value[0] ?? null);
+
+	/** One thing to hold: a version when we can tell versions apart, a copy otherwise. */
+	interface SourceOffer {
+		key: string;
+		edition: string | null;
+		heldLocally: boolean;
+		/** Every copy of it, in the order the gateway would consult them. */
+		copies: MediaGroupSource[];
+		/** The copy a pull would use, or null when only we have it. */
+		from: MediaGroupSource | null;
+	}
+
+	const offers = computed<SourceOffer[]>(() => {
+		const grouped: SourceOffer[] = [];
+		const taken = new Set<string>();
+
+		for (const version of props.versions) {
+			const copies = ordered.value.filter(one => one.versionId === version.versionId);
+			if (copies.length === 0) {
+				continue;
+			}
+			for (const copy of copies) {
+				taken.add(copy.itemId);
+			}
+			grouped.push({
+				key: version.versionId,
+				edition: version.edition,
+				heldLocally: version.heldLocally,
+				copies,
+				from: copies.find(one => !one.local) ?? null,
+			});
+		}
+
+		// Whatever the fingerprints could not place: one row each, which is what this
+		// list was before versions existed. Folding them together on their titles would
+		// be a guess, and the guess costs a file.
+		for (const source of ordered.value) {
+			if (taken.has(source.itemId)) {
+				continue;
+			}
+			grouped.push({
+				key: source.itemId,
+				edition: source.edition,
+				heldLocally: source.local,
+				copies: [source],
+				from: source.local ? null : source,
+			});
+		}
+
+		return grouped;
+	});
+
+	const heldCount = computed(() => offers.value.filter(offer => offer.heldLocally).length);
+
+	function labelOf (offer: SourceOffer): string {
+		return offer.from?.serviceName ?? offer.copies[0]?.serviceName ?? '';
+	}
 
 	const { originOf, describeMediaOrigin } = useMediaOrigin();
 
@@ -107,92 +178,131 @@
 	<div class="group-sources" data-test="source-picker">
 		<p class="text-caption text-medium-emphasis mb-1">{{ $t('media.source.title') }}</p>
 
-		<v-radio-group
-			v-model="selected"
-			class="group-sources_group"
-			:disabled="disabled"
-			hide-details
-		>
-			<v-radio class="group-sources_default" data-test="source-default" :value="null">
-				<template #label>
-					<span>
-						{{ $t('media.source.follow_priority') }}
-						<span v-if="defaultSource" class="text-medium-emphasis">
-							{{ $t('media.source.follow_priority_hint', { name: defaultSource.serviceName }) }}
-						</span>
-					</span>
-				</template>
-			</v-radio>
+		<!--
+			The default is stated rather than offered as a row to tick. With several
+			versions selectable, an empty selection is already a decision — follow the
+			priority — and a checkbox saying so would be a third state nobody wants.
+		-->
+		<p v-if="offers.length > 0" class="text-caption text-medium-emphasis mb-2" data-test="source-default">
+			{{ $t('media.source.follow_priority') }}
+			<span v-if="defaultSource">
+				{{ $t('media.source.follow_priority_hint', { name: defaultSource.serviceName }) }}
+			</span>
+		</p>
 
-			<v-radio
-				v-for="source of ordered"
-				:key="source.itemId"
+		<div class="group-sources_group">
+			<div
+				v-for="offer of offers"
+				:key="offer.key"
 				class="group-sources_option"
-				:data-local="source.local"
-				:data-state="source.sync"
+				:data-held="offer.heldLocally"
+				:data-local="offer.copies[0].local"
+				:data-state="offer.copies[0].sync"
 				data-test="group-source"
-				:value="source.serviceId"
 			>
-				<template #label>
-					<span class="group-sources_label">
-						<!--
-							Only when the copy actually carries a state. A row of question
-							marks beside a state the header already gives says nothing, and
-							an older gateway simply does not send this field.
-						-->
-						<SyncStateIcon
-							v-if="source.sync && source.sync !== SyncState.UNKNOWN"
-							:size="16"
-							:state="source.sync"
-						/>
+				<v-checkbox
+					v-model="selected"
+					density="compact"
+					:disabled="disabled || offer.from === null"
+					hide-details
+					:value="offer.from?.itemId ?? offer.copies[0].itemId"
+				>
+					<template #label>
+						<span class="group-sources_label">
+							<!--
+								Only when the copy actually carries a state. A row of question
+								marks beside a state the header already gives says nothing, and
+								an older gateway simply does not send this field.
+							-->
+							<SyncStateIcon
+								v-if="offer.copies[0].sync && offer.copies[0].sync !== SyncState.UNKNOWN"
+								:size="16"
+								:state="offer.copies[0].sync"
+							/>
 
-						<span class="group-sources_name">{{ source.serviceName }}</span>
+							<span class="group-sources_name">{{ labelOf(offer) }}</span>
 
-						<v-chip
-							v-if="source.local"
-							color="state-in-sync"
-							data-test="group-source-ours"
-							label
-							size="x-small"
-							variant="tonal"
-						>
-							{{ $t('media.source.ours') }}
-						</v-chip>
+							<v-chip
+								v-if="offer.edition"
+								data-test="group-source-edition"
+								label
+								size="x-small"
+								variant="tonal"
+							>
+								{{ offer.edition }}
+							</v-chip>
 
-						<!--
-							Only where the copy is not ours: the chip beside it already says
-							`ours`, and two chips saying the same word is noise on every row of
-							a gateway with one server.
-						-->
-						<v-chip
-							v-if="!source.local && originOfItem(source)"
-							:data-origin="originOfItem(source)!.origin"
-							data-test="group-source-origin"
-							label
-							:prepend-icon="originOfItem(source)!.icon"
-							size="x-small"
-							variant="outlined"
-						>
-							{{ $t(originOfItem(source)!.labelKey) }}
-						</v-chip>
+							<QualityChip :quality="offer.copies[0].quality" size="x-small" />
 
-						<span v-if="peerNameOf(source)" class="text-caption text-medium-emphasis">
-							{{ $t('media.source.via_peer', { peer: peerNameOf(source) }) }}
+							<span v-if="offer.copies[0].bytes !== null" class="text-caption text-medium-emphasis">
+								<ByteSize :bytes="offer.copies[0].bytes" />
+							</span>
+
+							<!--
+								Holding a version is a fact worth stating and never a failure:
+								a media whose three cuts we hold two of is finished business,
+								not a half-broken sync, so this is a mark and not a warning.
+							-->
+							<v-chip
+								v-if="offer.heldLocally"
+								color="state-in-sync"
+								data-test="group-source-ours"
+								label
+								size="x-small"
+								variant="tonal"
+							>
+								{{ $t('media.version.held') }}
+							</v-chip>
+
+							<span
+								v-if="offer.from === null"
+								class="text-caption text-medium-emphasis"
+								data-test="group-source-nothing"
+							>
+								{{ $t('media.version.nothing_to_pull') }}
+							</span>
+
+							<!--
+								Only where the copy is not ours: the chip beside it already says
+								so, and two chips saying the same word is noise on every row of
+								a gateway with one server.
+							-->
+							<template v-for="copy of offer.copies" :key="copy.itemId">
+								<v-chip
+									v-if="!copy.local && originOfItem(copy)"
+									:data-origin="originOfItem(copy)!.origin"
+									data-test="group-source-origin"
+									label
+									:prepend-icon="originOfItem(copy)!.icon"
+									size="x-small"
+									variant="outlined"
+								>
+									{{ $t(originOfItem(copy)!.labelKey) }}
+								</v-chip>
+
+								<span v-if="peerNameOf(copy)" class="text-caption text-medium-emphasis">
+									{{ $t('media.source.via_peer', { peer: peerNameOf(copy) }) }}
+								</span>
+							</template>
+
+							<CompanionMarks :companions="offer.copies[0].companions" />
 						</span>
+					</template>
+				</v-checkbox>
+			</div>
+		</div>
 
-						<QualityChip :quality="source.quality" size="x-small" />
+		<p
+			v-if="offers.length > 0"
+			class="text-caption text-medium-emphasis"
+			data-test="source-selection"
+		>
+			{{ $t('media.version.here_count', { count: heldCount, total: offers.length }) }}
+			·
+			{{ $t('media.version.transfer_count', { count: selected.length }, selected.length) }}
+		</p>
 
-						<span v-if="source.bytes !== null" class="text-caption text-medium-emphasis">
-							<ByteSize :bytes="source.bytes" />
-						</span>
-
-						<CompanionMarks :companions="source.companions" />
-					</span>
-				</template>
-			</v-radio>
-		</v-radio-group>
-
-		<p v-if="ordered.length === 0" class="text-caption text-medium-emphasis">
+		<p v-if="offers.length === 0" class="text-caption text-medium-emphasis">
 			{{ $t('media.source.none') }}
 		</p>
 	</div>

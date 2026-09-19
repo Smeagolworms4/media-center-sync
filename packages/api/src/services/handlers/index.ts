@@ -4,10 +4,12 @@ export * from './handler.registry';
 export * from './jellyfin.handler';
 export * from './media-handler.interface';
 export * from './payload';
+export * from './peer.handler';
 export * from './plex.handler';
 
 import { HandlerRegistry } from './handler.registry';
 import { JellyfinHandler } from './jellyfin.handler';
+import { PeerHandler } from './peer.handler';
 import { PlexHandler } from './plex.handler';
 
 /**
@@ -17,4 +19,4 @@ import { PlexHandler } from './plex.handler';
  * the half that bites: the module providing these must also import `DiscoveryModule`
  * or the registry finds none of them, silently. See `HandlerRegistry`.
  */
-export const MEDIA_HANDLER_PROVIDERS = [HandlerRegistry, JellyfinHandler, PlexHandler];
+export const MEDIA_HANDLER_PROVIDERS = [HandlerRegistry, JellyfinHandler, PlexHandler, PeerHandler];

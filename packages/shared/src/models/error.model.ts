@@ -27,6 +27,16 @@ export const ErrorKey = {
 	SERVICE_UNAUTHORIZED: 'error.service.unauthorized',
 	SERVICE_DUPLICATE: 'error.service.duplicate',
 	SERVICE_HANDLER_UNKNOWN: 'error.service.handler_unknown',
+	/**
+	 * This kind of service cannot sign anybody in, and never will.
+	 *
+	 * A peer is a media service in every way the index cares about, but there is one
+	 * thing it is not: an account system. Answering with a made-up identity, or with
+	 * the generic refusal, would let somebody set a friend's gateway as the gateway's
+	 * authentication provider and discover the mistake at the sign-in screen, where
+	 * the only thing on offer is "wrong credentials".
+	 */
+	SERVICE_AUTH_UNSUPPORTED: 'error.service.auth_unsupported',
 
 	LIBRARY_NOT_FOUND: 'error.library.not_found',
 	LIBRARY_PATH_UNREADABLE: 'error.library.path_unreadable',
@@ -83,6 +93,15 @@ export const ErrorKey = {
 	TRANSFER_NOT_RESUMABLE: 'error.transfer.not_resumable',
 	TRANSFER_NO_SPACE: 'error.transfer.no_space',
 	TRANSFER_CHECKSUM_MISMATCH: 'error.transfer.checksum_mismatch',
+	/**
+	 * Something already occupies the path, and no free name could be built for it.
+	 *
+	 * Refusing is the whole point: two versions of one episode render the same name,
+	 * and the second one used to land on the first at the end of a completed download —
+	 * silently, with nothing anywhere reporting an error. A transfer that stops with
+	 * this key has cost a download; the alternative cost somebody their file.
+	 */
+	TRANSFER_TARGET_OCCUPIED: 'error.transfer.target_occupied',
 
 	USER_NOT_FOUND: 'error.user.not_found',
 	USER_LAST_ADMIN: 'error.user.last_admin',

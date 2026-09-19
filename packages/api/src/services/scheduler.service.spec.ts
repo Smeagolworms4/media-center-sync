@@ -172,6 +172,82 @@ describe('SchedulerService', () => {
 		expect(service.nextRunAt('unknown')).toBeNull();
 	});
 
+	it('says when a plan it holds is next due', () => {
+		// The plans screen shows it, and a null there reads as "never" rather than as
+		// "this service could not work it out".
+		service.registerPlans([plan({ schedule: '0 2 * * *' })]);
+
+		const next = service.nextRunAt('plan-1');
+
+		expect(next).toBeInstanceOf(Date);
+		expect((next as Date).getTime()).toBeGreaterThan(Date.now());
+	});
+
+	describe('when a job fires', () => {
+		/** The real `CronJob` is what is registered, so the tick is fired through it. */
+		async function fire(name: string): Promise<void> {
+			const job = cronJobs.get(name) as unknown as { fireOnTick: () => Promise<void> | void };
+
+			await job.fireOnTick();
+			// The callbacks are started rather than awaited by `CronJob`, so the tasks
+			// they run settle a turn of the loop later.
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+
+		it('runs the full scan that was handed in', async () => {
+			const fullScan = jest.fn(async () => undefined);
+
+			service.onFullScan(fullScan);
+			await service.reload();
+			await fire('mcs:full-scan');
+
+			expect(fullScan).toHaveBeenCalledTimes(1);
+		});
+
+		it('runs the cleanup with the retention the settings carry', async () => {
+			// The number belongs to the settings and is read when the job is registered,
+			// so changing it and reloading is what makes a new retention take effect.
+			const cleanup = jest.fn(async () => undefined);
+
+			settings.transferHistoryDays = 7;
+			service.onCleanup(cleanup);
+			await service.reload();
+			await fire('mcs:cleanup');
+
+			expect(cleanup).toHaveBeenCalledWith(7);
+		});
+
+		it('runs the plan the job is named after, and no other', async () => {
+			const onPlan = jest.fn(async () => undefined);
+
+			service.onPlan(onPlan);
+			service.registerPlans([plan(), plan({ id: 'plan-2', schedule: '0 5 * * *' })]);
+			await fire('mcs:plan:plan-2');
+
+			expect(onPlan).toHaveBeenCalledWith('plan-2');
+			expect(onPlan).toHaveBeenCalledTimes(1);
+		});
+
+		it('does nothing at all when nobody handed a task in', async () => {
+			// The jobs are registered at boot and the managers attach their tasks
+			// afterwards, so a tick landing in that window has nothing to call.
+			await service.reload();
+
+			await expect(fire('mcs:cleanup')).resolves.toBeUndefined();
+			await expect(fire('mcs:full-scan')).resolves.toBeUndefined();
+		});
+
+		it('does not let a failing plan take the schedule down', async () => {
+			service.onPlan(async () => {
+				throw new Error('the library is not mounted');
+			});
+			service.registerPlans([plan()]);
+
+			await expect(fire('mcs:plan:plan-1')).resolves.toBeUndefined();
+			expect(cronJobs.has('mcs:plan:plan-1')).toBe(true);
+		});
+	});
+
 	it('drops every job when the module goes down', async () => {
 		await service.reload();
 		service.registerPlans([plan()]);

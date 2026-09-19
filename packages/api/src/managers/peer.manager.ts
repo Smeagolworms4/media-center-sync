@@ -3,6 +3,9 @@ import { hostname } from 'node:os';
 import {
 	ErrorKey,
 	EventName,
+	MediaServiceScope,
+	MediaServiceStatus,
+	MediaServiceType,
 	PeerDirection,
 	PeerStatus,
 	PeerTrust,
@@ -23,9 +26,11 @@ import {
 	ServiceUnavailableException,
 	UnauthorizedException,
 } from '@nestjs/common';
-import type { Peer as PeerEntity } from '@/entities';
+import type { MediaService as MediaServiceEntity, Peer as PeerEntity } from '@/entities';
 import {
+	LibraryRepository,
 	MediaItemRepository,
+	MediaMatchRepository,
 	MediaServiceRepository,
 	PeerInviteRepository,
 	PeerRepository,
@@ -35,11 +40,24 @@ import {
 	EventGatewayService,
 	PeerLinkService,
 	SettingsService,
+	peerBaseUrl,
 	type PeerAdmission,
 	type PeerCredential,
 	type PeerLinkAuthority,
 } from '@/services';
 import { toMediaService, toPeer } from './mappers';
+import { ServiceManager } from './service.manager';
+
+/**
+ * Where a peer's media sits in the order sources are consulted.
+ *
+ * Behind everything of ours by default, and deliberately so: pulling from a friend
+ * costs their upload and somebody else's evening, while reading from a server in the
+ * next room costs nothing. It is an ordinary priority on an ordinary service row, so
+ * anybody who disagrees can change it on the service — including per run, which is
+ * what a sync's own source order is for.
+ */
+export const PEER_SERVICE_PRIORITY = 500;
 
 /** Default life of an invitation. Long enough to send, short enough to forget about. */
 export const DEFAULT_INVITE_TTL_MINUTES = 60;
@@ -73,6 +91,9 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		private readonly _links: PeerLinkService,
 		private readonly _settings: SettingsService,
 		private readonly _events: EventGatewayService,
+		private readonly _libraries: LibraryRepository,
+		private readonly _mediaMatches: MediaMatchRepository,
+		private readonly _serviceManager: ServiceManager,
 	) {}
 
 	public async list(): Promise<Peer[]> {
@@ -96,8 +117,23 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	public async identity(): Promise<PeerIdentity> {
 		const rendezvous = await this._settings.getValue('rendezvousUrl');
 
-		return this._links.identity(hostname(), rendezvous);
+		return this._links.identity(await this._instanceName(), rendezvous);
 	}
+
+	/**
+	 * What we call ourselves to other people.
+	 *
+	 * The hostname is the fallback and not the answer: inside a container it is a
+	 * random hex string, so a friend's peer list read `d9b90135` where they were
+	 * looking for "Living room". A blank setting means nobody chose one, which is
+	 * different from choosing an empty name.
+	 */
+	private async _instanceName(): Promise<string> {
+		const chosen = (await this._settings.getValue('instanceName'))?.trim();
+
+		return chosen && chosen.length > 0 ? chosen : hostname();
+	}
+
 
 	/**
 	 * Mint an invitation.
@@ -110,7 +146,7 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		const secret = randomBytes(24).toString('base64url');
 		const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
 		const rendezvous = (await this._settings.getValue('rendezvousUrl')) ?? '';
-		const identity = this._links.identity(hostname(), rendezvous);
+		const identity = this._links.identity(await this._instanceName(), rendezvous);
 
 		await this._invites.save(
 			this._invites.create({ code, secretHash: this._hash(secret), expiresAt }),
@@ -197,6 +233,7 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 			)
 			: this._invites.markUsed(known.id, peer.id));
 
+		await this._adoptServices(peer);
 		this._emit(peer);
 
 		return this._present(peer);
@@ -299,6 +336,7 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 
 		const saved = await this._peers.save(peer);
 
+		await this._adoptServices(saved);
 		this._emit(saved);
 
 		return saved;
@@ -348,7 +386,21 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 
 		peer.name = name;
 
-		return this._present(await this._peers.save(peer));
+		const saved = await this._peers.save(peer);
+
+		// What they brought carries their name. Leaving the service row on the old one
+		// means the peers screen and the services screen name the same machine two
+		// different things, and only one of them is what somebody just typed. A rename
+		// is not a reason to open a link or re-read a catalogue, so only the name moves.
+		for (const service of await this._services.findByPeer(saved.id)) {
+			if (service.name !== saved.name) {
+				service.name = saved.name;
+
+				await this._services.save(service);
+			}
+		}
+
+		return this._present(saved);
 	}
 
 	/**
@@ -382,11 +434,159 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		return this.read(id);
 	}
 
+	/**
+	 * Unlink, and take back everything the link brought.
+	 *
+	 * Their services, their libraries, their rows and the matches that named them go
+	 * with the peer — and nothing of ours does. The database would cascade most of it
+	 * on its own, but not the matches: a match names an item on each side and only one
+	 * of the two is reached by a foreign key, so unlinking used to leave rows pointing
+	 * at media that no longer exists. Doing it here also means it happens identically
+	 * on both engines rather than depending on whether foreign keys are enforced.
+	 */
 	public async remove(id: string): Promise<void> {
 		const peer = await this._require(id);
 
 		this._links.disconnect(peer.id);
+
+		for (const service of await this._services.findByPeer(peer.id)) {
+			await this._forgetLibraries(service.id, await this._libraries.findByService(service.id));
+			await this._mediaMatches.deleteForService(service.id);
+			await this._services.delete({ id: service.id });
+		}
+
 		await this._peers.delete({ id: peer.id });
+	}
+
+	/**
+	 * Register what a peer shares as a media service of ours, and keep it in step.
+	 *
+	 * This is the whole bet, made concrete: a peer is a media service with an
+	 * introduction service bolted on, so linking one registers it the way registering
+	 * a Jellyfin does. From here on nothing downstream knows the difference —
+	 * indexing, correlation, categories, missing counts, quality summaries, sync plans
+	 * and transfers all read an ordinary service row.
+	 *
+	 * Deliberately one service per peer rather than one per library of theirs. A peer
+	 * is one machine, one link, one bandwidth budget and one thing to put in a source
+	 * order; their libraries are libraries, which is exactly what libraries are for.
+	 *
+	 * It never throws. A peer that cannot be asked right now is a service with no
+	 * libraries yet, and the next connection fills it — where a failure here would
+	 * fail the link itself, and somebody would be told their friend refused them
+	 * because a catalogue page timed out.
+	 */
+	private async _adoptServices(peer: PeerEntity): Promise<void> {
+		if (peer.status !== PeerStatus.LINKED) {
+			return;
+		}
+
+		try {
+			const service = await this._peerService(peer);
+
+			if (!this._links.isLinked(peer.id)) {
+				return;
+			}
+
+			// Through the service manager, which owns what registering means: it probes,
+			// writes the status and adopts the libraries the probe reported. A second
+			// implementation of that here is a second place for "what a service holds"
+			// to be decided, and they would disagree within the month.
+			const probe = await this._serviceManager.probe(service.id);
+
+			await this._unshared(service.id, probe.libraries.map((library) => library.externalId));
+
+			// A first link indexes everything they share; afterwards only what changed,
+			// which is what the cursor on each library is for. Both are detached — the
+			// caller is a link settling, not somebody waiting on a catalogue.
+			if (service.lastScanAt === null) {
+				await this._serviceManager.scan(service.id);
+			} else {
+				await this._serviceManager.refresh(service.id);
+			}
+		} catch (error) {
+			this._logger.warn(
+				`Could not register what ${peer.name} shares: ${String(error)}`,
+			);
+		}
+	}
+
+	/**
+	 * The service row standing for this peer, created the first time we link.
+	 *
+	 * Registered remote, always, and the scope is not a default somebody can change
+	 * their way out of: `serviceMode` reads a service with a peer as a peer's whatever
+	 * the scope says, and the repository refuses to offer one as a destination. We
+	 * cannot write into somebody else's disk, and a transfer planned onto one would
+	 * fail at the end of a completed download.
+	 *
+	 * The name follows theirs. Renaming a peer renames what it brought, because two
+	 * names for one machine on two screens is a question nobody can answer.
+	 */
+	private async _peerService(peer: PeerEntity): Promise<MediaServiceEntity> {
+		const baseUrl = peerBaseUrl(peer.id);
+		const existing = (await this._services.findByPeer(peer.id)).find(
+			(service) => service.baseUrl === baseUrl,
+		);
+
+		if (existing === undefined) {
+			return this._services.save(
+				this._services.create({
+					name: peer.name,
+					type: MediaServiceType.PEER,
+					scope: MediaServiceScope.REMOTE,
+					baseUrl,
+					peerId: peer.id,
+					priority: PEER_SERVICE_PRIORITY,
+					status: MediaServiceStatus.UNKNOWN,
+				}),
+			);
+		}
+
+		if (existing.name === peer.name) {
+			return existing;
+		}
+
+		existing.name = peer.name;
+
+		return this._services.save(existing);
+	}
+
+	/**
+	 * Drop the libraries a peer has stopped sharing.
+	 *
+	 * Adopting libraries creates and updates and never deletes, which is right for a
+	 * media server — a library missing from one probe is usually a server mid-restart —
+	 * and wrong for a peer, where a library disappearing is somebody having changed
+	 * their mind on purpose. Leaving it behind would keep showing a friend's films in
+	 * the categories and counting them as available to pull, which is the one thing
+	 * un-sharing was meant to stop.
+	 */
+	private async _unshared(serviceId: string, stillShared: string[]): Promise<void> {
+		const gone = (await this._libraries.findByService(serviceId)).filter(
+			(library) => !stillShared.includes(library.externalId),
+		);
+
+		if (gone.length > 0) {
+			await this._forgetLibraries(serviceId, gone);
+		}
+	}
+
+	/** Their rows, their matches and the library rows themselves, in that order. */
+	private async _forgetLibraries(
+		serviceId: string,
+		libraries: { id: string }[],
+	): Promise<void> {
+		for (const library of libraries) {
+			const items = await this._items.findStale(library.id, []);
+
+			if (items.length > 0) {
+				await this._mediaMatches.deleteForItems(items.map((item) => item.id));
+				await this._items.remove(items);
+			}
+
+			await this._libraries.delete({ id: library.id, serviceId });
+		}
 	}
 
 	/** Open the link now, so a screen can say whether it is direct or relayed. */
@@ -436,6 +636,9 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 
 		const refreshed = await this._require(peer.id);
 
+		// Now rather than when the row settled: the libraries can only be asked for over
+		// a live link, and this is the first moment there is one.
+		await this._adoptServices(refreshed);
 		this._emit(refreshed);
 
 		return this._present(refreshed);
@@ -449,7 +652,11 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		return Promise.all(
 			services.map(async (service) =>
 				toMediaService(service, {
-					libraryCount: 0,
+					// Counted rather than reported as zero. It was a placeholder from when
+					// nothing ever gave a peer-backed service any libraries; now that
+					// linking one registers what they share, a hard zero is a screen saying
+					// a friend shares nothing while their films are listed underneath it.
+					libraryCount: await this._libraries.count({ where: { serviceId: service.id } }),
 					itemCount: await this._items.countByService(service.id),
 				}),
 			),

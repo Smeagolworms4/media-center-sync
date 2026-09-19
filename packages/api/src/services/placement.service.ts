@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { access, mkdir, statfs } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import { ErrorKey, LibraryKind, MediaKind, PlacementStrategy, type Settings } from '@mcs/shared';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 
@@ -41,6 +41,34 @@ export interface PlacementRequest {
 	preferredLibraryId?: string | null;
 	/** Refuse a target that cannot hold this. Zero skips the check. */
 	requiredBytes?: number;
+	/**
+	 * The one file this pull is allowed to land on: the copy it replaces.
+	 *
+	 * Everything else that already occupies the rendered path is somebody's file, and
+	 * the difference is the difference between an upgrade and a loss. Pulling a 2160p
+	 * over our own 1080p is what a sync is for and writes the same path on purpose;
+	 * pulling an extended cut whose name happens to render identically is the case that
+	 * used to destroy the theatrical one at the end of a completed download.
+	 */
+	replacesPath?: string | null;
+	/**
+	 * Another name for the same file, when the first one is taken.
+	 *
+	 * A callback rather than a rule here, because the conventions are the naming
+	 * service's: which suffix a media server reads is a naming question, and placement
+	 * only knows which paths are free. Without one, an occupied path is refused rather
+	 * than guessed at.
+	 */
+	disambiguate?: (relativeName: string, attempt: number) => string;
+	/**
+	 * Paths earlier items of the same run already claimed.
+	 *
+	 * The filesystem cannot answer for them: nothing has been written yet when a plan is
+	 * built, so two versions planned in one pass both find the path free and both get
+	 * it. The second one would then overwrite the first hours later, which is the same
+	 * loss by a slower route.
+	 */
+	reserved?: Iterable<string>;
 }
 
 export interface PlacementTarget {
@@ -56,6 +84,15 @@ export interface PlacementTarget {
 	/** Why the fallback happened, for the transfer's history. */
 	reason: string | null;
 }
+
+/**
+ * How many alternative names are tried before a transfer is refused.
+ *
+ * Generous enough that a household with a dozen encodes of one film is served, small
+ * enough that a bug in a caller's naming callback fails in milliseconds rather than
+ * stat-ing the filesystem for ever.
+ */
+const MAX_NAME_ATTEMPTS = 50;
 
 interface DirectoryProbe {
 	writable: boolean;
@@ -91,14 +128,17 @@ export class PlacementService {
 			const probe = await this._probe(directory, request.requiredBytes ?? 0);
 
 			if (probe.writable) {
+				const free = await this._freePath(request, attempt.root, relativeName);
+				const notes = free.note === null ? rejected : [...rejected, free.note];
+
 				return {
 					libraryId: attempt.library.id,
 					libraryName: attempt.library.name,
 					directory,
-					path: join(attempt.root, this._safeRelative(relativeName)),
+					path: free.path,
 					strategy: attempt.strategy,
 					fallback: attempt.strategy !== request.settings.placement || attempt.fallback,
-					reason: rejected.length > 0 ? rejected.join('; ') : null,
+					reason: notes.length > 0 ? notes.join('; ') : null,
 				};
 			}
 
@@ -114,6 +154,81 @@ export class PlacementService {
 			key: outOfSpace ? ErrorKey.TRANSFER_NO_SPACE : ErrorKey.LIBRARY_PATH_NOT_WRITABLE,
 			detail: rejected.length > 0 ? rejected : 'no local library is writable',
 		});
+	}
+
+	/**
+	 * The first path in this library nothing already holds.
+	 *
+	 * The check the whole feature turns on, and it did not exist: placement asked
+	 * whether the *directory* could be written into and never whether the *file* was
+	 * already there, so two versions of one episode — which render the same name —
+	 * produced two transfers, the second of which replaced the first at the moment it
+	 * finished. Nothing failed, nothing was logged, and the file was gone.
+	 *
+	 * Two things may legitimately be landed on: the copy this pull replaces, and
+	 * nothing else. A reserved path belongs to an earlier item of the same run and is
+	 * treated exactly like an existing file, because in an hour it will be one.
+	 *
+	 * The existing file is never renamed. Moving somebody's file to make room for ours
+	 * is the same surprise as overwriting it, one directory listing later — and a media
+	 * server that has already indexed it would show a phantom until the next scan.
+	 */
+	private async _freePath(
+		request: PlacementRequest,
+		root: string,
+		relativeName: string,
+	): Promise<{ path: string; note: string | null }> {
+		const reserved = new Set([...(request.reserved ?? [])].map((path) => resolve(path)));
+		const replaces = request.replacesPath ? resolve(request.replacesPath) : null;
+		const wanted = join(root, this._safeRelative(relativeName));
+
+		if (!(await this._occupied(wanted, reserved, replaces))) {
+			return { path: wanted, note: null };
+		}
+
+		for (let attempt = 1; request.disambiguate && attempt <= MAX_NAME_ATTEMPTS; attempt += 1) {
+			const candidate = join(
+				root,
+				this._safeRelative(request.disambiguate(relativeName, attempt)),
+			);
+
+			if (candidate === wanted) {
+				continue;
+			}
+
+			if (!(await this._occupied(candidate, reserved, replaces))) {
+				return {
+					path: candidate,
+					note: `${basename(wanted)} is taken, landing as ${basename(candidate)}`,
+				};
+			}
+		}
+
+		throw new ConflictException({
+			key: ErrorKey.TRANSFER_TARGET_OCCUPIED,
+			detail: wanted,
+		});
+	}
+
+	private async _occupied(
+		path: string,
+		reserved: ReadonlySet<string>,
+		replaces: string | null,
+	): Promise<boolean> {
+		const absolute = resolve(path);
+
+		if (absolute === replaces) {
+			return false;
+		}
+
+		if (reserved.has(absolute)) {
+			return true;
+		}
+
+		return access(absolute, constants.F_OK).then(
+			() => true,
+			() => false,
+		);
 	}
 
 	private _nameFor(request: PlacementRequest, root: string): string {

@@ -472,13 +472,24 @@ advertised capabilities are stored on the peer.
 
 | Method | Answers | Capability |
 |---|---|---|
-| `catalogue.list` | `{ entries: CatalogueEntry[] }`, filtered by the share policies | `catalogue` |
+| `catalogue.list` | `{ entries: CatalogueEntry[] }`, filtered by the share policies; takes `page`, `since` and `libraryId` | `catalogue` |
+| `catalogue.libraries` | `{ libraries: PeerLibrary[] }` — the shared libraries, by the handle their rows carry | `libraries` |
 | `catalogue.holders` | `{ holders: ContentHolder[] }` for a `contentId`, ourselves first | `announce` |
-| `media.describe` | `{ size, resumable }` for one published identifier | `content` |
+| `media.describe` | `{ size, resumable, entry }` for one published identifier | `content` |
 | `media.range` | bytes | `content` |
 | `media.revalidate` | `{ externalId, file }`; `file: null` means gone | `revalidate` |
 | `swarm.bitfield` | `{ pieces: null }` — this gateway holds whole files only | `swarm` |
 | `swarm.piece` | bytes | `swarm` |
+
+A peer is a media service on the other side of the link: `catalogue.libraries` is what
+lets its shared libraries be registered as libraries here rather than as one bag of
+files, and every `CatalogueEntry` carries the `libraryId` it belongs to. Both are
+additions rather than a version change — a gateway that advertises `catalogue` and not
+`libraries` answers `error.peer.method_unsupported`, its rows arrive without a library
+handle, and everything it shares is filed under one library called `Shared`.
+
+What crosses is our own row identifiers — the item's and its library's — and never a
+path or the identifier the media server underneath keys its rows by.
 
 A value answer is `{ id, result }` or `{ id, error: <ErrorKey> }`. A byte answer is a
 sequence of binary frames, each prefixed with the four-byte big-endian identifier of
