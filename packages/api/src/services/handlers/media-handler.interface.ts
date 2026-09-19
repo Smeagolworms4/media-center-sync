@@ -1,0 +1,212 @@
+import type { Readable } from 'node:stream';
+import type {
+	ExternalIds,
+	LibraryKind,
+	MediaFileInfo,
+	MediaKind,
+	MediaServiceProbe,
+	MediaServiceType,
+} from '@mcs/shared';
+
+/**
+ * Everything a handler needs to reach one registered service.
+ *
+ * The handlers are deliberately stateless: they are singletons shared by every
+ * service of their type, and the connection travels as an argument. A gateway that
+ * holds three Jellyfins has one Jellyfin handler, not three, and nothing in a
+ * handler may remember which one it last talked to.
+ */
+export interface ServiceConnection {
+	/** Identifier of the registered service, only used to label errors and sources. */
+	id: string;
+	type: MediaServiceType;
+	baseUrl: string;
+	token: string | null;
+	username: string | null;
+	password: string | null;
+	/** Overrides the handler default. A service behind a slow link needs more. */
+	timeoutMs?: number;
+}
+
+/** A library as the service describes it, before the gateway maps it to a local path. */
+export interface NormalisedLibrary {
+	externalId: string;
+	name: string;
+	kind: LibraryKind;
+	/**
+	 * Paths as the service reports them, which are the service's own — not ours.
+	 * Mapping them onto something the gateway can write to is the library manager's
+	 * problem, and it is why `Library.localPath` exists separately.
+	 */
+	paths: string[];
+}
+
+/**
+ * One item as a handler produces it.
+ *
+ * This is the shape the indexing layer persists; it carries no gateway identifier
+ * because a handler has no idea what we already store. Parents are referenced by
+ * their identifier inside the service, and resolved to our own rows afterwards.
+ */
+export interface NormalisedMediaItem {
+	externalId: string;
+	parentExternalId: string | null;
+	kind: MediaKind;
+	title: string;
+	/** Already reduced by the title normaliser, so every handler agrees on the form. */
+	normalizedTitle: string;
+	year: number | null;
+	seasonNumber: number | null;
+	episodeNumber: number | null;
+	externalIds: ExternalIds;
+	overview: string | null;
+	artworkUrl: string | null;
+	/** Null for a node that holds no file of its own — a series, a season. */
+	file: MediaFileInfo | null;
+	addedAt: string | null;
+}
+
+/**
+ * Who the far end says somebody is, when that service authenticates our users.
+ *
+ * The gateway does not want to be one more password to remember, so a sign-in is
+ * forwarded to a media service the person already has an account on. What comes
+ * back is an identity, never a right: the role is ours to decide.
+ */
+export interface ExternalIdentity {
+	externalUserId: string;
+	username: string;
+	displayName: string | null;
+	email: string | null;
+	avatarUrl: string | null;
+	/** Session token the service handed back, when it hands one back. */
+	token: string | null;
+}
+
+export interface LibraryScanOptions {
+	/** Restrict the scan. Left empty, the handler yields everything it understands. */
+	kinds?: MediaKind[];
+	/** How many rows a page asks for. Handlers clamp it to what the API tolerates. */
+	pageSize?: number;
+	signal?: AbortSignal;
+}
+
+/**
+ * What an incremental refresh found, and where to resume from.
+ *
+ * The cursor is opaque on purpose: Jellyfin counts in save dates, Plex in epoch
+ * seconds, and the next handler will count in something else again. Only the
+ * handler that produced a cursor ever reads it back.
+ */
+export interface LibraryRefresh {
+	items: NormalisedMediaItem[];
+	cursor: string | null;
+}
+
+/** Half-open byte range, inclusive on both ends like HTTP says. */
+export interface ByteRange {
+	start: number;
+	end: number;
+}
+
+/**
+ * A byte source opened against a service.
+ *
+ * `acceptsRanges` is load-bearing rather than informational: a source that ignores
+ * `Range` cannot be resumed, so a transfer against it has to fall back to a single
+ * connection and say so, instead of silently writing the whole file into the slot
+ * meant for its first chunk.
+ */
+export interface MediaStream {
+	stream: Readable;
+	/** Length of this response, not of the file, when a range was asked for. */
+	contentLength: number | null;
+	/** Total size of the file when the server told us, through `Content-Range`. */
+	totalLength: number | null;
+	acceptsRanges: boolean;
+	contentType: string | null;
+}
+
+/** Minimal reference to an item, so both an entity and a scan result fit. */
+export interface MediaItemRef {
+	externalId: string;
+	file?: MediaFileInfo | null;
+}
+
+/**
+ * The contract every media service speaks through.
+ *
+ * Adding Emby, Kodi or a plain HTTP index means writing one class implementing this
+ * and decorating it with `@MediaHandler`; nothing else in the application knows the
+ * difference. Which is also the constraint: anything a handler cannot express here
+ * has to be expressed as a degraded answer, never as a special case leaking upwards.
+ */
+export interface MediaServiceHandler {
+	readonly type: MediaServiceType;
+
+	/**
+	 * Reachability, authentication and shape, in one round trip when possible.
+	 *
+	 * A probe never throws for a service that answers badly — an unreachable server
+	 * and a wrong token are both ordinary answers the settings screen renders, and
+	 * turning them into exceptions only moves the mapping somewhere less convenient.
+	 */
+	probe(connection: ServiceConnection): Promise<MediaServiceProbe>;
+
+	/** Used when this service is the gateway's authentication provider. */
+	authenticate(
+		connection: ServiceConnection,
+		username: string,
+		password: string,
+	): Promise<ExternalIdentity>;
+
+	listLibraries(connection: ServiceConnection): Promise<NormalisedLibrary[]>;
+
+	/**
+	 * Full scan, page by page.
+	 *
+	 * An async iterable rather than an array because a library of forty thousand
+	 * episodes must not be held in memory at once, and because the caller wants to
+	 * report progress and be cancellable between pages.
+	 */
+	scanLibrary(
+		connection: ServiceConnection,
+		library: NormalisedLibrary,
+		options?: LibraryScanOptions,
+	): AsyncIterable<NormalisedMediaItem>;
+
+	/**
+	 * Only what changed since the cursor, plus the new cursor.
+	 *
+	 * This is the path that runs every few minutes, and the reason the interface can
+	 * stay fast: it reads the gateway's own index, never a media service, and that
+	 * index is kept current by asking each service for its own short list of recent
+	 * changes instead of re-reading everything.
+	 */
+	refreshLibrary(
+		connection: ServiceConnection,
+		library: NormalisedLibrary,
+		cursor: string | null,
+	): Promise<LibraryRefresh>;
+
+	/** Null when the service no longer holds it — which is an answer, not a failure. */
+	getItem(
+		connection: ServiceConnection,
+		externalId: string,
+	): Promise<NormalisedMediaItem | null>;
+
+	/** The bytes a transfer pulls. A missing range means the whole file. */
+	openStream(
+		connection: ServiceConnection,
+		item: MediaItemRef,
+		range?: ByteRange,
+	): Promise<MediaStream>;
+
+	/**
+	 * A URL a third party could fetch directly, when the service can mint one.
+	 *
+	 * Null is the normal answer for a service that only serves authenticated
+	 * requests; callers fall back to `openStream` rather than treating it as an error.
+	 */
+	getDownloadUrl(connection: ServiceConnection, item: MediaItemRef): Promise<string | null>;
+}
