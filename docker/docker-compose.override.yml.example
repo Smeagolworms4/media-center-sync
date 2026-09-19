@@ -1,0 +1,11 @@
+# Copy to `docker-compose.override.yml` (git ignores it) and point the gateway at
+# your libraries. Compose reads it automatically on top of `docker-compose.yml`.
+#
+# The path on the right must be the SAME one your media service sees. If Jellyfin
+# has `/media/Shows` and the gateway writes somewhere else, every transfer will
+# succeed, the files will really be there, and the library will stay empty — with
+# nothing anywhere reporting an error.
+services:
+    api:
+        volumes:
+            - /mnt/nas:/media
