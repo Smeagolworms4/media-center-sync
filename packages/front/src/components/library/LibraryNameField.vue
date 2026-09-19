@@ -102,7 +102,12 @@
 
 		<FormMainError :form="form" />
 
-		<p class="text-caption text-medium-emphasis mt-2 mb-0" data-test="library-category">
+		<p
+			class="text-caption text-medium-emphasis mt-2 mb-0"
+			:data-category="category?.key ?? ''"
+			:data-merged="mergedCount"
+			data-test="library-category"
+		>
 			<template v-if="category">
 				{{ $t('library.category_is', { name: category.name }) }}
 				<template v-if="mergedCount > 1">

@@ -112,6 +112,7 @@
 		:data-library="libraryId ?? ''"
 		:data-local="local"
 		data-test="library-section"
+		:data-total="total"
 	>
 		<header class="library-section_header">
 			<v-icon class="library-section_icon" :icon="icon" size="20" />

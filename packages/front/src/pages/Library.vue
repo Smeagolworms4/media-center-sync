@@ -426,7 +426,7 @@
 	const syncSelected = tryCallback(async () => {
 		syncing.value = true;
 		try {
-			await syncStore.run({ itemIds: [...selection.value] });
+			await syncStore.run({ scope: { itemIds: [...selection.value] } });
 			void notify('library.sync_started');
 			clearSelection();
 		} finally {

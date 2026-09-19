@@ -175,7 +175,7 @@ describe('pages/LibraryItem', () => {
 		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
 		expect(run).toBeDefined();
 		expect(JSON.parse(String(run?.[1]?.body))).toMatchObject({
-			rootItemId: 'm1',
+			scope: { rootItemIds: ['m1'] },
 			filter: { missingOnly: true },
 		});
 	});
@@ -494,7 +494,10 @@ describe('pages/SyncPlan', () => {
 		schedule: '0 4 * * *',
 		sourceServiceIds: ['s1'],
 		targetLibraryId: 'l1',
-		rootItemId: null,
+		scope: {},
+		maxItemsPerRun: null,
+		maxBytesPerRun: null,
+		estimate: null,
 		filter: { missingOnly: true },
 		lastRunAt: null,
 		nextRunAt: null,

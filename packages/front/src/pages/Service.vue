@@ -181,6 +181,7 @@
 							v-for="(library, index) of libraries"
 							:key="library.id"
 							class="service_library"
+							:data-library="library.id"
 							data-test="service-library"
 						>
 							<v-divider v-if="index > 0" class="mb-4" />

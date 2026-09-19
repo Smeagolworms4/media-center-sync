@@ -44,6 +44,15 @@ const PROGRESS_INTERVAL_BYTES = 4 * 1024 * 1024;
 /** Resolves the sources for a transfer. Supplied by the sync manager. */
 export type SourceResolver = (transfer: Transfer) => Promise<TransferSourceRef[]>;
 
+/**
+ * Told that a transfer changed state. Supplied by whoever keeps a record of it.
+ *
+ * The engine moves bytes and does not know what a job is, so it reports rather than
+ * updates — the same arrangement as the source resolver, and for the same reason: the
+ * decision of what a state change means belongs above this class.
+ */
+export type StateListener = (transfer: Transfer) => void | Promise<void>;
+
 interface RuntimeSource {
 	ref: TransferSourceRef;
 	capabilities: TransportCapabilities;
@@ -173,6 +182,15 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	private readonly _queue: string[] = [];
 	private readonly _limiter = new RateLimiter(0);
 
+	/**
+	 * Told whenever a transfer's state changes, in registration order.
+	 *
+	 * A list rather than a single callback because more than one thing upstream has a
+	 * legitimate interest — the job detail today, whatever wants it tomorrow — and a
+	 * setter would let the second registration silently unhook the first.
+	 */
+	private readonly _stateListeners: StateListener[] = [];
+
 	private _resolveSources: SourceResolver | null = null;
 	private _draining = false;
 	private _pumping = false;
@@ -195,6 +213,30 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	 */
 	public setSourceResolver(resolver: SourceResolver): void {
 		this._resolveSources = resolver;
+	}
+
+	/** Follow every state change, rather than asking on a timer what has moved. */
+	public onTransferState(listener: StateListener): void {
+		this._stateListeners.push(listener);
+	}
+
+	/**
+	 * Say that a transfer changed, to the open interfaces and to whoever is listening.
+	 *
+	 * One place, so that a new state added to the engine reaches both without anybody
+	 * remembering to. Listener failures are logged and swallowed: a job detail that
+	 * cannot be written must not take down the transfer that was reporting itself.
+	 */
+	private _announce(transfer: Transfer, sources: RuntimeSource[] = []): void {
+		this._events.emit(EventName.TRANSFER_STATE, this._toPublic(transfer, sources));
+
+		for (const listener of this._stateListeners) {
+			void Promise.resolve()
+				.then(() => listener(transfer))
+				.catch((error: unknown) => {
+					this._logger.warn(`A transfer state listener failed: ${String(error)}`);
+				});
+		}
 	}
 
 	/**
@@ -285,7 +327,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		// the disk space somebody cancelled the transfer to free.
 		await rm(transfer.workPath, { force: true }).catch(() => undefined);
 
-		this._events.emit(EventName.TRANSFER_STATE, this._toPublic(transfer, []));
+		this._announce(transfer);
 	}
 
 	/**
@@ -744,7 +786,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 
 		await this._transfers.save(transfer);
 
-		this._events.emit(EventName.TRANSFER_STATE, this._toPublic(transfer, running.sources));
+		this._announce(transfer, running.sources);
 		this._events.flushProgress();
 	}
 
@@ -1013,7 +1055,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 
 		await this._transfers.save(transfer);
 
-		this._events.emit(EventName.TRANSFER_STATE, this._toPublic(transfer, []));
+		this._announce(transfer);
 	}
 
 	private async _fail(
@@ -1028,7 +1070,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 
 		await this._transfers.save(transfer);
 
-		this._events.emit(EventName.TRANSFER_STATE, this._toPublic(transfer, []));
+		this._announce(transfer);
 	}
 
 	/**

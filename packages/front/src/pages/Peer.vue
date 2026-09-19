@@ -117,7 +117,7 @@
 		busy.value = true;
 		try {
 			await syncStore.run({
-				itemIds: [itemId],
+				scope: { itemIds: [itemId] },
 				...(browsing.value ? { sourceServiceIds: [browsing.value.serviceId] } : {}),
 			});
 			void notify('peer.pull_started');

@@ -13,7 +13,6 @@ import {
 import {
 	ApiBearerAuth,
 	ApiConflictResponse,
-	ApiForbiddenResponse,
 	ApiNoContentResponse,
 	ApiOkResponse,
 	ApiOperation,
@@ -55,10 +54,17 @@ export class UserController {
 
 	@Patch(':id')
 	@Granted(Right.USER_MANAGE)
-	@ApiOperation({ summary: 'Change an account’s profile or role' })
+	@ApiOperation({
+		summary: 'Change an account’s profile or role',
+		description:
+			'The username is not offered: a mirrored account does not own it here, and an ' +
+			'internal one is renamed nowhere else either.',
+	})
 	@ApiOkResponse({ description: 'User' })
-	@ApiForbiddenResponse({ description: 'error.auth.forbidden on a mirrored account' })
-	@ApiConflictResponse({ description: 'error.auth.forbidden when it is the last administrator' })
+	// The key the manager really throws. It said `error.auth.forbidden`, which is what
+	// a caller would then have matched on and never seen — and "forbidden" on a screen
+	// where you are the administrator reads as a bug rather than as the safeguard it is.
+	@ApiConflictResponse({ description: 'error.user.last_admin when it is the last administrator' })
 	public update(
 		@Param('id', ParseUUIDPipe) id: string,
 		@Body() body: UpdateUserDto,

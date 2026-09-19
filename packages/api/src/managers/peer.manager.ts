@@ -13,6 +13,7 @@ import {
 	type PeerInvite,
 } from '@mcs/shared';
 import {
+	ConflictException,
 	Injectable,
 	Logger,
 	NotFoundException,
@@ -251,9 +252,23 @@ export class PeerManager implements PeerCredentialVerifier {
 	 * a link the other side has not agreed to, and the first pull would then fail with
 	 * an authentication error rather than with the honest answer, which is that they
 	 * have not answered yet.
+	 *
+	 * That rule was written here and on the route while nothing enforced it, so the
+	 * interface's approve button settled our own outgoing requests. A conflict rather
+	 * than a refusal, because nothing is wrong with the caller or their rights — the
+	 * peer is simply in the one state where this is not the operation to run.
 	 */
 	public async approve(id: string): Promise<Peer> {
-		return this._present(await this._settle(await this._require(id)));
+		const peer = await this._require(id);
+
+		if (peer.direction === PeerDirection.OUTGOING) {
+			// Not `PEER_REJECTED`: that one says the far end refused us, which is the
+			// opposite fact and reads as alarming news about a request that is simply
+			// still outstanding.
+			throw new ConflictException(ErrorKey.PEER_AWAITING_THEM);
+		}
+
+		return this._present(await this._settle(peer));
 	}
 
 	/**

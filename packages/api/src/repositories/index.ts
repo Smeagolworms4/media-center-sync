@@ -9,6 +9,7 @@ export * from './session.repository';
 export * from './setting.repository';
 export * from './share-policy.repository';
 export * from './sync-job.repository';
+export * from './sync-job-item.repository';
 export * from './sync-plan.repository';
 export * from './transfer.repository';
 export * from './transfer-chunk.repository';

@@ -98,9 +98,10 @@
 						<v-expansion-panel
 							v-for="library of libraries"
 							:key="library.id"
+							:data-library="library.id"
 							data-test="share-library"
 						>
-							<v-expansion-panel-title>
+							<v-expansion-panel-title data-test="share-library-open">
 								<span class="settings-shares_title">
 									{{ library.name }}
 									<span class="text-caption text-medium-emphasis ml-2">
@@ -116,6 +117,7 @@
 										? 'state-unknown'
 										: 'state-in-sync'"
 									data-test="share-visibility-chip"
+									:data-visibility="visibilityOf(library.id)"
 									label
 									size="small"
 									variant="tonal"

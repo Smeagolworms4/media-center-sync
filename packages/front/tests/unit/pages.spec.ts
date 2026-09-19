@@ -1068,7 +1068,7 @@ describe('App', () => {
 /** Kept out of the page suites above: `LibraryKind` is only needed by this one. */
 describe('vocabulary', () => {
 	it('has a word for every library kind the API can report', async () => {
-		const en = (await import('@/locales/en')).default;
+		const en = (await import('@/locales/en.json')).default;
 
 		for (const kind of Object.values(LibraryKind)) {
 			expect(en.library.kind[kind]).toBeTruthy();

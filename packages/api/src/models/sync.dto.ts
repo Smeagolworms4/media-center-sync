@@ -53,6 +53,52 @@ export class SyncFilterDto {
 }
 
 /**
+ * What a sync covers.
+ *
+ * Every field is a list, and they intersect: naming both a category and a subtree means
+ * the part of that subtree in that category. An empty scope is not a mistake the
+ * validation can catch — it means "everything", which is a legitimate thing to ask for
+ * once and a dangerous thing to schedule, so it is the manager that insists on an
+ * acknowledgement rather than this class.
+ *
+ * The array sizes are bounded because each entry becomes an `IN (…)` of its own, and a
+ * body carrying ten thousand identifiers is a query no engine plans well.
+ */
+export class SyncScopeDto {
+	@ApiPropertyOptional({
+		type: [String],
+		description: 'Merged categories, which is the unit people think in.',
+	})
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(50)
+	@IsString({ each: true })
+	@MaxLength(120, { each: true })
+	public categoryKeys?: string[];
+
+	@ApiPropertyOptional({ type: [String] })
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(50)
+	@IsUUID('4', { each: true })
+	public libraryIds?: string[];
+
+	@ApiPropertyOptional({ type: [String], description: 'Subtrees: a show, a season, a collection.' })
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(50)
+	@IsUUID('4', { each: true })
+	public rootItemIds?: string[];
+
+	@ApiPropertyOptional({ type: [String] })
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(500)
+	@IsUUID('4', { each: true })
+	public itemIds?: string[];
+}
+
+/**
  * A standing intent.
  *
  * `sourceServiceIds` left empty is not an oversight: it means "follow the priority
@@ -87,10 +133,11 @@ export class CreateSyncPlanDto {
 	@IsUUID()
 	public targetLibraryId?: string | null;
 
-	@ApiPropertyOptional()
+	@ApiPropertyOptional({ type: SyncScopeDto })
 	@IsOptional()
-	@IsUUID()
-	public rootItemId?: string | null;
+	@ValidateNested()
+	@Type(() => SyncScopeDto)
+	public scope?: SyncScopeDto;
 
 	@ApiPropertyOptional({ type: SyncFilterDto })
 	@IsOptional()
@@ -98,10 +145,34 @@ export class CreateSyncPlanDto {
 	@Type(() => SyncFilterDto)
 	public filter?: SyncFilterDto;
 
+	@ApiPropertyOptional({
+		nullable: true,
+		description: 'A ceiling on one run. Null means none, which is a choice, not the default.',
+	})
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	public maxItemsPerRun?: number | null;
+
+	@ApiPropertyOptional({ nullable: true })
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	public maxBytesPerRun?: number | null;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsBoolean()
 	public enabled?: boolean;
+
+	@ApiPropertyOptional({
+		description:
+			'Enable a plan whose scope names nothing, knowingly. Refused without it, because ' +
+			'"synchronise everything, every night" is what an empty form produces.',
+	})
+	@IsOptional()
+	@IsBoolean()
+	public acknowledgeUnbounded?: boolean;
 }
 
 export class UpdateSyncPlanDto extends CreateSyncPlanDto {
@@ -124,16 +195,11 @@ export class RunSyncDto {
 	@IsUUID()
 	public planId?: string;
 
-	@ApiPropertyOptional({ type: [String] })
+	@ApiPropertyOptional({ type: SyncScopeDto })
 	@IsOptional()
-	@IsArray()
-	@IsUUID('4', { each: true })
-	public itemIds?: string[];
-
-	@ApiPropertyOptional()
-	@IsOptional()
-	@IsUUID()
-	public rootItemId?: string;
+	@ValidateNested()
+	@Type(() => SyncScopeDto)
+	public scope?: SyncScopeDto;
 
 	@ApiPropertyOptional({ type: [String] })
 	@IsOptional()
@@ -151,6 +217,27 @@ export class RunSyncDto {
 	@ValidateNested()
 	@Type(() => SyncFilterDto)
 	public filter?: SyncFilterDto;
+
+	@ApiPropertyOptional({ nullable: true })
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	public maxItemsPerRun?: number | null;
+
+	@ApiPropertyOptional({ nullable: true })
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	public maxBytesPerRun?: number | null;
+
+	@ApiPropertyOptional({
+		description:
+			'Start although a destination is tight or could not be probed. Never lets a refusal ' +
+			'through: that one is arithmetic.',
+	})
+	@IsOptional()
+	@IsBoolean()
+	public acknowledgeSpace?: boolean;
 }
 
 /**

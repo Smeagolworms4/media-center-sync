@@ -42,8 +42,21 @@ export class ShareManager {
 	public async list(): Promise<SharePolicy[]> {
 		const policies = await this._policies.find();
 		const libraries = await this._librariesOf(policies.map((policy) => policy.libraryId));
+		// Read once for the whole page rather than per row, and passed through: the
+		// mapper treats an unstated scope as remote, so a list that left it out reported
+		// every policy as making us a relay — including our own libraries, which makes
+		// the flag say nothing on the one screen that shows them side by side.
+		const localServices = await this._localServiceIds();
 
-		return policies.map((policy) => toSharePolicy(policy, libraries.get(policy.libraryId) ?? null));
+		return policies.map((policy) => {
+			const library = libraries.get(policy.libraryId) ?? null;
+
+			return toSharePolicy(
+				policy,
+				library,
+				library !== null && localServices.has(library.serviceId),
+			);
+		});
 	}
 
 	/**

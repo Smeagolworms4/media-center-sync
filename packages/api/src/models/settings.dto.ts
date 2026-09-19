@@ -44,6 +44,20 @@ export class UpdateSettingsDto {
 	@Max(32)
 	public maxParallelTransfers?: number;
 
+	@ApiPropertyOptional({
+		minimum: 0,
+		maximum: 1099511627776,
+		description:
+			'Free space the gateway will not knowingly eat into. A run that would cross it is ' +
+			'reported as tight and has to be acknowledged; one that would not fit at all is refused. ' +
+			'0 means fill the disk to the last byte.',
+	})
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	@Max(1099511627776)
+	public diskReserveBytes?: number;
+
 	@ApiPropertyOptional({ minimum: 1, maximum: 16 })
 	@IsOptional()
 	@IsInt()

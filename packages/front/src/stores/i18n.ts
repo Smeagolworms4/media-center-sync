@@ -11,8 +11,8 @@ import {
 /**
  * The locale the whole application agrees on.
  *
- * The catalogues themselves are bundled (see `plugins/i18n`); this store only
- * holds the current choice, because three unrelated consumers need it: vue-i18n,
+ * The catalogues themselves live in `plugins/i18n`, which loads them; this store
+ * only holds the current choice, because three unrelated consumers need it: vue-i18n,
  * the Vuetify locale, and the `X-Locale` header the caller sends so the API can
  * answer in the same language when it has to produce prose of its own.
  */

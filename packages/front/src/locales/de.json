@@ -1,0 +1,998 @@
+{
+	"app": {
+		"name": "Media Center Sync",
+		"tagline": "Ihre Medien, wo immer sie liegen",
+		"loading": "Gateway wird gestartet…"
+	},
+	"nav": {
+		"dashboard": "Übersicht",
+		"library": "Mediathek",
+		"services": "Dienste",
+		"peers": "Peers",
+		"sync": "Sync",
+		"transfers": "Übertragungen",
+		"settings": "Einstellungen",
+		"shares": "Freigaben",
+		"users": "Benutzer"
+	},
+	"actions": {
+		"validate": "Bestätigen",
+		"cancel": "Abbrechen",
+		"close": "Schließen",
+		"retry": "Erneut versuchen",
+		"sign_in": "Anmelden",
+		"sign_out": "Abmelden",
+		"back_home": "Zurück zur Übersicht",
+		"back": "Zurück",
+		"refresh": "Aktualisieren",
+		"save": "Speichern",
+		"add": "Hinzufügen",
+		"copy": "Kopieren",
+		"copied": "Kopiert"
+	},
+	"auth": {
+		"title": "Anmelden",
+		"subtitle": "Verwenden Sie das Konto, das Sie bereits auf einem Ihrer Mediendienste haben.",
+		"subtitle_internal": "Anmeldung mit dem eigenen Konto dieses Gateways.",
+		"subtitle_service": "Anmeldung mit Ihrem {provider}-Konto.",
+		"subtitle_external": "Anmeldung über {provider}.",
+		"provider": "Anmelden mit",
+		"provider_only": "Der einzige Zugang, den dieses Gateway derzeit anbietet.",
+		"username": "Benutzername",
+		"password": "Passwort",
+		"redirect": "Weiter",
+		"redirect_hint": "Sie werden zu {provider} weitergeleitet, um die Anmeldung abzuschließen.",
+		"no_provider_title": "Kein Zugang eingerichtet",
+		"no_provider_text": "Dieses Gateway hat noch keinen Authentifizierungsanbieter. Registrieren Sie einen Mediendienst oder legen Sie das erste interne Konto auf der Kommandozeile an, und laden Sie diese Seite neu.",
+		"signed_out": "Sie wurden abgemeldet.",
+		"session_restored": "Willkommen zurück, {name}.",
+		"account": "Konto"
+	},
+	"setup": {
+		"title": "Erster Start",
+		"welcome": "Willkommen bei {name}",
+		"tagline": "Ein Gateway für alle Medienserver, Ihre und die Ihrer Freunde.",
+		"intro": "Dieses Gateway hält die Medienserver in diesem Haus — und die Ihrer Freunde — miteinander im Einklang. Es ist noch nichts eingerichtet, also bleibt eines zu tun: das Konto anlegen, mit dem Sie sich anmelden werden.",
+		"promise": {
+			"index": "Die Jellyfin- und Plex-Server indexieren, die Sie ohnehin betreiben.",
+			"friends": "Das Gateway eines Freundes verbinden und sehen, was er teilen möchte.",
+			"pull": "Holen, was hier fehlt — in die richtige Bibliothek, benannt wie alles andere bei Ihnen."
+		},
+		"account": "Das erste Konto",
+		"account_help": "Es ist ein Administrator, und solange kein Mediendienst registriert ist, der einzige Zugang.",
+		"display_name": "Ihr Name",
+		"display_name_hint": "Optional. So nennt Sie diese Oberfläche; der Benutzername ist das, womit Sie sich anmelden.",
+		"confirmation": "Passwort wiederholen",
+		"password_hint": "Mindestens {min} Zeichen. Dieses Gateway ist am Ende womöglich von außerhalb des Hauses erreichbar.",
+		"action": "Konto anlegen und starten",
+		"why_no_default": "Es gibt hier bewusst kein Standardpasswort: Ein mitgeliefertes auf einem Gerät, das aus dem Netz erreichbar ist, ist genau der Weg, auf dem Fremde ein Gateway finden. Dieser Bildschirm steht nur offen, solange kein Konto existiert, und schließt endgültig, sobald es eines gibt.",
+		"version": "Gateway-Version {version}",
+		"already_claimed": "Dieses Gateway wurde soeben eingerichtet. Melden Sie sich mit dem angelegten Konto an.",
+		"failed": "Das Konto konnte nicht angelegt werden."
+	},
+	"theme": {
+		"toggle": "Design wechseln",
+		"light": "Hell",
+		"dark": "Dunkel"
+	},
+	"locale": {
+		"label": "Sprache",
+		"en": "English",
+		"fr": "Français",
+		"es": "Español",
+		"pt": "Português",
+		"ru": "Русский",
+		"de": "Deutsch",
+		"it": "Italiano",
+		"zh": "中文"
+	},
+	"connection": {
+		"label": "Live-Aktualisierung",
+		"online": "Live",
+		"connecting": "Verbindung…",
+		"offline": "Offline"
+	},
+	"common": {
+		"empty_title": "Nichts hier",
+		"empty_text": "Es gibt noch nichts anzuzeigen.",
+		"error_title": "Etwas ist schiefgelaufen",
+		"error_text": "Das Gateway konnte nicht antworten. Versuchen Sie es gleich noch einmal.",
+		"never": "nie",
+		"unknown": "unbekannt",
+		"yes": "Ja",
+		"no": "Nein",
+		"placeholder": "Diese Seite ist noch nicht gebaut.",
+		"copy_failed": "Das Kopieren ist fehlgeschlagen. Markieren Sie den Wert und kopieren Sie ihn von Hand."
+	},
+	"general": {
+		"byte_unit": "B"
+	},
+	"cron": {
+		"describe": {
+			"every_minute": "Jede Minute.",
+			"every_n_minutes": "Alle {count} Minuten.",
+			"every_n_hours": "Alle {count} Stunden, bei Minute {minute}.",
+			"hourly_at": "Jede Stunde, bei Minute {minute}.",
+			"daily_at": "Täglich um {time}.",
+			"weekly_at": "Jeden {day} um {time}.",
+			"monthly_at": "Am {day}. jeden Monats, um {time}.",
+			"custom": "Ein Zeitplan, den dieser Bildschirm nicht in Worte fassen kann. Er ist trotzdem gültig.",
+			"invalid": "Erwartet werden fünf Felder, etwa 0 4 * * *."
+		},
+		"day": {
+			"0": "Sonntag",
+			"1": "Montag",
+			"2": "Dienstag",
+			"3": "Mittwoch",
+			"4": "Donnerstag",
+			"5": "Freitag",
+			"6": "Samstag"
+		}
+	},
+	"dashboard": {
+		"subtitle": "Was über dieses Gateway gerade wissenswert ist.",
+		"services": "Mediendienste",
+		"services_offline": "{count} ohne Antwort",
+		"services_all_online": "Alle antworten",
+		"missing": "Fehlt hier",
+		"missing_hint": "Anderswo bekannt, hier nicht vorhanden",
+		"active_transfers": "Laufende Übertragungen",
+		"queued": "{count} in der Warteschlange",
+		"peers": "Peers",
+		"peers_unreachable": "{count} nicht erreichbar",
+		"needs_attention": "Zu erledigen",
+		"all_well_title": "Nichts zu erledigen",
+		"all_well_text": "Jeder Dienst antwortet, jede Bibliothek ist beschreibbar, und keine Übertragung ist fehlgeschlagen.",
+		"recent_jobs": "Letzte Durchläufe",
+		"no_jobs_title": "Noch keine Synchronisierung gelaufen",
+		"no_jobs_text": "Legen Sie einen Plan an, oder starten Sie eine einmalige Synchronisierung von einer Medienseite aus.",
+		"go_to_sync": "Sync öffnen",
+		"all_jobs": "Alle Durchläufe ansehen",
+		"problem": {
+			"library_not_writable": "{name} ist nicht beschreibbar — Übertragungen würden dort landen, wo Ihr Server nie hinsieht",
+			"service_offline": "{name} antwortet nicht",
+			"service_unauthorized": "{name} hat das Gateway abgewiesen — prüfen Sie den Token",
+			"peer_unreachable": "{name} ist nicht erreichbar",
+			"transfer_failed": "{name} ist fehlgeschlagen"
+		}
+	},
+	"library": {
+		"title": "Bibliotheken",
+		"subtitle": "Alles, was das Gateway indexiert hat, über alle Dienste hinweg.",
+		"empty_title": "Kein Treffer",
+		"empty_text": "Keine indexierten Medien passen zu diesen Filtern. Erweitern Sie sie, oder scannen Sie zuerst einen Dienst.",
+		"empty_service_title": "Noch keine Bibliothek",
+		"empty_service_text": "Dieser Dienst hat keine Bibliothek gemeldet. Scannen Sie ihn, oder prüfen Sie seine Zugangsdaten.",
+		"select_all": "Alles auf dieser Seite auswählen",
+		"select": "Auswählen",
+		"selected_count": "nichts ausgewählt | {count} ausgewählt | {count} ausgewählt",
+		"see_all": "Öffnen",
+		"section_count": "kein Element | {count} Element | {count} Elemente",
+		"section_empty": "Nichts in dieser Kategorie passt zu diesen Filtern.",
+		"section_latest": "neueste Zugänge",
+		"section_local": "Bei uns",
+		"everything": "Über alle Kategorien",
+		"categories": "Ihre Bibliotheken",
+		"categories_hint": "Bibliotheken gleichen Namens, auf allen Servern, als eine gesehen.",
+		"view": {
+			"grid": "Poster",
+			"list": "Liste"
+		},
+		"sync_selected": "{count} Ausgewählte synchronisieren",
+		"sync_started": "Die Synchronisierung steht in der Warteschlange.",
+		"saved": "Bibliothek gespeichert.",
+		"alias": "Name hier",
+		"position": "Reihenfolge",
+		"naming_help": "Der Name gehört diesem Gateway: Der Dienst behält den, den er meldet, und ein erneuter Scan macht das nicht rückgängig. Die Reihenfolge geht vom kleinsten Wert aufwärts und entscheidet zugleich, welche Kategorie gewinnt, wenn dasselbe Medium in zweien einsortiert ist.",
+		"category_is": "Angezeigt als „{name}“",
+		"category_merged": "mit {count} weiterer Bibliothek dieses Namens zusammengeführt | mit {count} weiteren Bibliotheken dieses Namens zusammengeführt",
+		"category_alone": "eigene Kategorie",
+		"category_unknown": "Die Kategorien wurden noch nicht gelesen.",
+		"reported_name": "Der Dienst nennt sie „{name}“.",
+		"local_path": "Lokaler Pfad",
+		"local_path_hint": "Wo das Gateway diese Dateien sieht. Es muss dasselbe Verzeichnis sein, das Ihr Medienserver liest.",
+		"reported_paths": "Vom Dienst gemeldet",
+		"default_target": "Standardziel",
+		"free_space": "Freier Speicher",
+		"check_failed": "Dieser Pfad konnte nicht geprüft werden.",
+		"item_count": "{count} Element | {count} Element | {count} Elemente",
+		"unwritable_warning": "{count} dieser Bibliotheken sind nicht beschreibbar, es kann also nichts hineingeholt werden.",
+		"kind": {
+			"movies": "Filme",
+			"shows": "Serien",
+			"music": "Musik",
+			"other": "Sonstiges"
+		},
+		"problem": {
+			"no_path": "Es ist kein lokaler Pfad gesetzt, das Gateway kann also nicht in diese Bibliothek schreiben.",
+			"missing": "Diesen Pfad gibt es nicht, so wie das Gateway ihn sieht.",
+			"unreadable": "Das Gateway kann diesen Pfad nicht lesen.",
+			"not_writable": "Das Gateway kann hier nicht schreiben, es kann also keine Übertragung in dieser Bibliothek landen."
+		}
+	},
+	"category": {
+		"empty": "Noch keine Kategorie. Registrieren Sie einen Mediendienst und scannen Sie ihn; seine Bibliotheken erscheinen hier.",
+		"local": "Bei uns",
+		"libraries": "keine Bibliothek | {count} Bibliothek | {count} Bibliotheken"
+	},
+	"media": {
+		"children": "Inhalt",
+		"child_count": "kein Element | {count} Element | {count} Elemente",
+		"no_children_title": "Nichts unterhalb dieses Elements",
+		"no_children_text": "Dieses Element hat weder Staffel noch Episode noch Mitglied im Index.",
+		"season_episode": "S{season}E{episode}",
+		"held_by": "vorhanden auf {services}",
+		"missing_count": "nichts fehlt | {count} fehlt | {count} fehlen",
+		"sync_this": "Synchronisieren",
+		"sync_missing": "{count} fehlende holen",
+		"column": {
+			"title": "Titel",
+			"kind": "Art",
+			"year": "Jahr",
+			"sources": "Vorhanden auf",
+			"quality": "Qualität",
+			"size": "Größe"
+		},
+		"kind": {
+			"movie": "Film",
+			"series": "Serie",
+			"season": "Staffel",
+			"episode": "Episode",
+			"collection": "Sammlung"
+		},
+		"filter": {
+			"search": "Suchen",
+			"service": "Dienst",
+			"services": "Server",
+			"library": "Bibliothek",
+			"origin": "Herkunft",
+			"kind": "Art",
+			"state": "Status",
+			"sort": "Sortieren nach",
+			"clear": "Filter zurücksetzen"
+		},
+		"sort": {
+			"title": "Titel",
+			"year": "Jahr",
+			"added_at": "Zuletzt hinzugefügt",
+			"latest_first": "Neueste Zugänge zuerst"
+		},
+		"origin": {
+			"local": "Bei uns",
+			"direct": "Direkt",
+			"friend": "Freunde",
+			"friend_of_friend": "Freundesfreunde",
+			"unknown": "Ein anderes Gateway"
+		},
+		"origin_help": {
+			"local": "Ein Server, in den dieses Gateway schreiben kann.",
+			"direct": "Ein entfernter Server, der hier registriert ist — eine zweite Maschine von Ihnen oder ein öffentlicher.",
+			"friend": "Über einen Peer, mit dem Sie sich selbst verbunden haben.",
+			"friend_of_friend": "Über einen Peer, den einer Ihrer Freunde vorgestellt hat. Niemand hier hat ihm je zugestimmt."
+		},
+		"source": {
+			"title": "Holen von",
+			"follow_priority": "Der eingestellten Priorität folgen",
+			"follow_priority_hint": "(derzeit {name} zuerst)",
+			"priority": "Priorität {priority}",
+			"via_peer": "über {peer}",
+			"ours": "bei uns",
+			"held_here": "Einer Ihrer eigenen Dienste hat das.",
+			"not_held_here": "Nur ein anderer Server hat das.",
+			"none": "Kein Dienst hat dieses Element."
+		},
+		"match": {
+			"title": "Korrelationen",
+			"action": "Korrelationen",
+			"empty_title": "Keine Korrelation",
+			"empty_text": "Nichts anderes im Index wurde bisher mit diesem Element abgeglichen.",
+			"strategy": {
+				"checksum": "Gleiche Prüfsumme",
+				"external_id": "Gleiche externe Kennung",
+				"season_episode": "Gleiche Staffel und Episode",
+				"normalized_title": "Ähnlicher Titel",
+				"path": "Gleicher Pfad",
+				"manual": "Von Hand bestätigt"
+			},
+			"confidence": "Konfidenz {value} %",
+			"confirm": "Bestätigen",
+			"confirmed": "Korrelation bestätigt.",
+			"confirmed_at": "bestätigt",
+			"removed": "Korrelation entfernt."
+		}
+	},
+	"override": {
+		"title": "Dieses Element korrigieren",
+		"action": "Korrigieren",
+		"intro": "Was ein Medienserver falsch hat, hier korrigiert und sonst nirgends. Die Korrektur erreicht die Kategorie, unter der das Element erscheint, die Korrelationen und die Einsortierung — und der nächste Scan wendet sie erneut an, statt sie zu verwerfen.",
+		"clear_help": "Ein Feld unangetastet zu lassen, behält das, was der Dienst gesagt hat. Der Radierer entfernt den Wert ganz, und so wird man ein Jahr los, das ein Scraper erfunden hat.",
+		"library": "Bibliothek",
+		"library_hint": "Zu welcher Bibliothek es gehört und damit unter welcher Kategorie es erscheint.",
+		"identifiers": "Kennungen",
+		"identifiers_hint": "Was eine Korrelation verlässlich macht: Zwei Server nummerieren dieselbe Episode unterschiedlich und sind sich über eine TVDB-Kennung trotzdem einig.",
+		"restore": "Wiederherstellen, was der Dienst gemeldet hat",
+		"saved": "Korrektur gespeichert.",
+		"restored": "Die Antwort des Dienstes gilt wieder.",
+		"failed": "Diese Korrektur wurde abgelehnt.",
+		"changed_count": "nichts geändert | {count} Feld geändert | {count} Felder geändert",
+		"field": {
+			"title": "Titel",
+			"series_title": "Name der Serie",
+			"series_title_hint": "Bei einer Episode: der Name, nach dem ihr Ordner benannt ist.",
+			"year": "Jahr",
+			"season": "Staffel",
+			"episode": "Episode",
+			"overview": "Beschreibung"
+		},
+		"id": {
+			"tvdb": "TVDB",
+			"tmdb": "TMDB",
+			"imdb": "IMDb"
+		},
+		"state": {
+			"was": "Der Dienst sagt „{value}“.",
+			"was_empty": "Der Dienst sagt hier nichts.",
+			"cleared": "Geleert: Dieses Feld bleibt leer, was der Dienst auch sagt.",
+			"cleared_was": "Geleert: Der Dienst sagt „{value}“, und dieses Gateway ignoriert es."
+		}
+	},
+	"service": {
+		"subtitle": "Die Medienserver, aus denen dieses Gateway liest und in die es schreibt.",
+		"add": "Dienst hinzufügen",
+		"edit": "Dienst bearbeiten",
+		"saved": "Dienst gespeichert.",
+		"removed": "Dienst entfernt.",
+		"empty_title": "Kein Dienst registriert",
+		"empty_text": "Registrieren Sie das Jellyfin oder Plex, das Sie ohnehin betreiben, und das Gateway indexiert es.",
+		"counts": "{libraries} Bibliotheken · {items} Elemente",
+		"last_scan": "Letzter vollständiger Scan",
+		"last_probe": "Zuletzt geprüft",
+		"remove_title": "Diesen Dienst entfernen?",
+		"remove_confirm": "{name} und alles daraus Indexierte wird aus dem Gateway entfernt. Die Dateien selbst bleiben unberührt.",
+		"scan_started": "Ein vollständiger Scan ist gestartet. Er meldet seinen Fortschritt hier.",
+		"refresh_started": "Eine Aktualisierung ist gestartet.",
+		"status": {
+			"unknown": "Nicht geprüft",
+			"online": "Antwortet",
+			"offline": "Antwortet nicht",
+			"unauthorized": "Abgewiesen"
+		},
+		"scope": {
+			"local": "Lokal — kann Dateien empfangen",
+			"remote": "Entfernt — nur lesend"
+		},
+		"field": {
+			"name": "Name",
+			"type": "Art",
+			"scope": "Bereich",
+			"base_url": "Adresse",
+			"base_url_hint": "Mit Port, etwa http://192.168.0.10:8096",
+			"token": "API-Token",
+			"token_hint": "Im Medienserver selbst erstellt. Nach dem Speichern wird er nie wieder angezeigt.",
+			"token_hint_edit": "Leer lassen, um den bereits hinterlegten Token zu behalten.",
+			"priority": "Priorität",
+			"priority_hint": "Kleinster Wert zuerst, wenn dasselbe Medium auf mehreren Diensten verfügbar ist.",
+			"auth_provider": "Anmeldung über diesen Dienst",
+			"auth_provider_hint": "Seine Konten werden zu Zugängen für dieses Gateway."
+		},
+		"probe": {
+			"action": "Verbindung testen",
+			"ok": "{name} erreicht, Version {version}.",
+			"ok_short": "Der Dienst hat geantwortet.",
+			"failed": "Der Dienst hat nicht geantwortet oder die Zugangsdaten abgelehnt.",
+			"libraries": "keine Bibliothek gefunden | {count} Bibliothek gefunden | {count} Bibliotheken gefunden",
+			"unauthorized": "Der Dienst hat geantwortet, aber diese Zugangsdaten abgelehnt. Prüfen Sie den Token.",
+			"unreachable": "Der Dienst war unter dieser Adresse nicht erreichbar."
+		},
+		"action": {
+			"probe": "Prüfen",
+			"scan": "Vollständiger Scan",
+			"refresh": "Aktualisieren"
+		}
+	},
+	"peer": {
+		"subtitle": "Die anderen Gateways, mit denen dieses verbunden ist.",
+		"name": "Name",
+		"empty_title": "Kein Peer verbunden",
+		"empty_text": "Fügen Sie den Fingerabdruck eines Freundes ein oder geben Sie ihm eine Einladung — beides verbindet die beiden Gateways.",
+		"shares": "{services} Dienste · {items} geteilte Elemente",
+		"last_seen": "zuletzt gesehen",
+		"relay_hint": "Diese Verbindung läuft über das Rendezvous, dessen Bandbreite sich alle teilen, die es nutzen.",
+		"remove_title": "Diesen Peer entfernen?",
+		"remove_confirm": "Die Verbindung mit {name} wird gelöst. Was bereits von dort geholt wurde, bleibt.",
+		"connecting": "Verbindung zum Peer…",
+		"blocked": "Peer blockiert.",
+		"unblocked": "Peer entsperrt.",
+		"renamed": "Peer umbenannt.",
+		"removed": "Peer entfernt.",
+		"linked": "Peer verbunden.",
+		"approved": "Anfrage angenommen.",
+		"browse": "Ansehen, was sie teilen",
+		"open_in_library": "In der Mediathek öffnen",
+		"no_libraries": "Dieser Dienst hat keine Bibliothek gemeldet.",
+		"no_services_title": "Nichts mit uns geteilt",
+		"no_services_text": "Dieser Peer hat keinen Dienst mit uns geteilt oder wurde noch nicht erreicht.",
+		"pull_all": "Alles Fehlende holen",
+		"pull_missing": "Holen, was fehlt",
+		"pull_started": "Der Abruf steht in der Warteschlange.",
+		"direction": {
+			"incoming": "Wartet auf Sie",
+			"outgoing": "Wartet auf die Gegenseite",
+			"incoming_hint": "Dieses Gateway möchte sich mit Ihrem verbinden. Nehmen Sie an, oder blockieren Sie es.",
+			"outgoing_hint": "Angefragt. Hier ist nichts zu tun, bis die Gegenseite annimmt."
+		},
+		"add": {
+			"tab": "Per Fingerabdruck",
+			"hint": "Eine Verbindung braucht nur, dass jede Seite den Fingerabdruck der anderen kennt. Fügen Sie seinen ein, und er bekommt eine Anfrage mit Ihrem.",
+			"fingerprint": "Sein Fingerabdruck",
+			"fingerprint_hint": "So, wie sein eigenes Gateway ihn unter „Dieses Gateway“ anzeigt.",
+			"address": "Seine Adresse",
+			"address_hint": "Optional. Wird zuerst versucht, wenn Sie sie kennen; sonst findet das Rendezvous ihn.",
+			"action": "Anfrage senden"
+		},
+		"status": {
+			"pending": "Verbindung ausstehend",
+			"linked": "Verbunden",
+			"unreachable": "Nicht erreichbar",
+			"blocked": "Blockiert"
+		},
+		"trust": {
+			"friend": "Freund",
+			"friend_of_friend": "Freund eines Freundes",
+			"friend_of_friend_via": "Freund eines Freundes, über {peer}"
+		},
+		"link_mode": {
+			"direct": "Direkte Verbindung",
+			"relay": "Über das Relay"
+		},
+		"identity": {
+			"title": "Dieses Gateway",
+			"node_id": "Knoten-Kennung",
+			"node_id_help": "Der beständige Name dieses Gateways im gemeinsamen Netz. Einmal erzeugt und bewusst nicht der Fingerabdruck: Ein Schlüsselwechsel darf dieses Gateway nicht wie einen neuen Teilnehmer aussehen lassen. Sie ist das, was man nennt, wenn eine Ankündigung von einem Freundesfreund im Kreis läuft.",
+			"fingerprint": "Fingerabdruck",
+			"rendezvous": "Rendezvous",
+			"direct_address": "Direkte Adresse",
+			"direct_ok": "Direkte Verbindungen sind möglich, Übertragungen laufen also nicht über das Relay.",
+			"relay_only": "Möglich sind nur Verbindungen über das Relay. Alles funktioniert, aber Übertragungen teilen sich das Rendezvous mit allen anderen, die es nutzen. Den Peer-Port weiterzuleiten würde das beheben."
+		},
+		"invite": {
+			"open": "Gateway verbinden",
+			"title": "Zwei Gateways verbinden",
+			"create_tab": "Jemanden einladen",
+			"accept_tab": "Einladung annehmen",
+			"create_hint": "Eine Einladung trägt den Fingerabdruck dieses Gateways und ein einmaliges Geheimnis. Sie läuft ab, und sie verfällt bei Gebrauch.",
+			"create_action": "Einladung erstellen",
+			"url": "Einladungslink",
+			"code": "Einladungscode",
+			"expires": "Läuft ab",
+			"one_shot": "sie kann nur einmal verwendet werden.",
+			"paste": "Einladungslink oder -code",
+			"name": "Diesen Peer benennen",
+			"name_hint": "Optional. Wie dieses Gateway in Ihren Listen heißen soll.",
+			"accept_action": "Annehmen"
+		},
+		"catalogue": {
+			"empty_title": "Nichts anzuzeigen",
+			"empty_text": "Diese Bibliothek ist leer, oder nichts darin ist mit uns geteilt."
+		},
+		"action": {
+			"approve": "Annehmen",
+			"connect": "Jetzt verbinden",
+			"rename": "Umbenennen",
+			"block": "Blockieren",
+			"unblock": "Entsperren"
+		}
+	},
+	"share": {
+		"subtitle": "Was dieses Gateway preisgibt, Bibliothek für Bibliothek entschieden.",
+		"libraries": "Bibliotheken",
+		"no_libraries_title": "Keine Bibliothek zum Teilen",
+		"no_libraries_text": "Registrieren Sie zuerst einen Dienst; seine Bibliotheken erscheinen hier.",
+		"visibility": "Wer sie sehen darf",
+		"make_private": "Wieder privat machen",
+		"made_private": "Diese Bibliothek ist wieder privat.",
+		"saved": "Freigabe gespeichert.",
+		"allowed": "Immer erlaubt",
+		"allowed_hint": "Diese Peers sehen diese Bibliothek, was die Regel oben auch sagt.",
+		"denied": "Immer verweigert",
+		"denied_hint": "Diese Peers sehen sie nie, was die Regel oben auch sagt.",
+		"rate_limit": "Bandbreitengrenze",
+		"rate_limit_hint": "Wie viel diese Bibliothek ausliefert, etwa 2M. Leer bedeutet keine Grenze.",
+		"rate_summary": {
+			"global": "Alles, was dieses Gateway sendet, ist auf {rate} begrenzt.",
+			"global_none": "Keine globale Upload-Grenze: Dieses Gateway sendet so schnell, wie die Leitung es zulässt.",
+			"libraries": "Bibliotheken, die ihre eigene Auslieferung begrenzen:",
+			"libraries_none": "Keine Bibliothek begrenzt ihre eigene Auslieferung."
+		},
+		"visibility_value": {
+			"private": "Niemand",
+			"friends": "Meine Peers",
+			"friends_of_friends": "Meine Peers und deren Peers"
+		},
+		"visibility_help": {
+			"private": "Nichts wird geteilt. Eine Bibliothek ohne Regel ist privat.",
+			"friends": "Die Gateways, mit denen Sie sich selbst verbunden haben.",
+			"friends_of_friends": "Ihre Peers und die Peers, die sie vorstellen."
+		},
+		"audit": {
+			"title": "Was ein Peer sehen würde",
+			"peer": "Peer",
+			"hint": "Wählen Sie einen Peer, um vor dem Speichern genau zu sehen, was dieses Gateway ihm zeigen würde.",
+			"intro": "{peer} ist ein {trust}. Er würde sehen:",
+			"nothing_title": "Überhaupt nichts",
+			"nothing_text": "Dieser Peer sieht keine Ihrer Bibliotheken."
+		}
+	},
+	"user": {
+		"subtitle": "Wer sich anmelden darf und was er tun darf.",
+		"empty_title": "Kein Konto",
+		"empty_text": "An diesem Gateway hat sich noch niemand angemeldet.",
+		"mirrored_hint": "Von einem Mediendienst gespiegelt: Dem Gateway gehören weder der Benutzername noch das Passwort, also lässt sich hier keines von beiden ändern. Die Rolle schon.",
+		"role_saved": "Rolle gespeichert.",
+		"removed": "Konto entfernt.",
+		"remove_title": "Dieses Konto entfernen?",
+		"remove_confirm": "{name} kann sich dann nicht mehr an diesem Gateway anmelden.",
+		"column": {
+			"username": "Konto",
+			"provider": "Anmeldung über",
+			"role": "Rolle",
+			"last_seen": "Zuletzt gesehen"
+		},
+		"role": {
+			"admin": "Administrator",
+			"user": "Benutzer",
+			"guest": "Gast"
+		}
+	},
+	"settings": {
+		"subtitle": "Wie dieses Gateway ablegt, holt und indexiert.",
+		"saved": "Einstellungen gespeichert.",
+		"group": {
+			"placement": "Wohin Dateien kommen",
+			"transfers": "Übertragungen",
+			"categories": "Kategorien",
+			"peers": "Peers und Freigaben",
+			"index": "Index und Cache"
+		},
+		"placement": "Ablage",
+		"placement_value": {
+			"beside_existing": "Neben unsere eigene Kopie",
+			"default_library": "In die Standardbibliothek",
+			"fixed_path": "In einen festen Pfad"
+		},
+		"placement_help": {
+			"beside_existing": "Hält eine aufgeräumte Bibliothek aufgeräumt und macht bei Sammlungen das Richtige.",
+			"default_library": "Alles einer Art kommt in die Bibliothek, die als deren Standardziel markiert ist.",
+			"fixed_path": "Alles kommt in ein einziges Verzeichnis, was es auch ist."
+		},
+		"fixed_path": "Fester Pfad",
+		"fixed_path_help": "Ein absoluter Pfad, in den das Gateway schreiben kann, etwa /media/incoming.",
+		"naming": "Benennung",
+		"naming_value": {
+			"source": "Namen der Quelle behalten",
+			"local": "An unsere Bibliothek angleichen",
+			"standard": "Standardschema"
+		},
+		"naming_help": {
+			"source": "Die Datei kommt so an, wie die Quelle sie benannt hat.",
+			"local": "Umbenannt, wie Ihre eigene Bibliothek ohnehin benennt.",
+			"standard": "Serie (Jahr)/Staffel 01/Serie - S01E02 - Titel.ext"
+		},
+		"pull_metadata": "Metadaten mitholen",
+		"pull_metadata_help": "Kopiert Artwork, Untertitel und .nfo-Dateien neben das Medium.",
+		"prefer_source_metadata": "Metadaten der Quelle bevorzugen",
+		"prefer_source_metadata_help": "Überschreibt lokale Metadaten, wenn die der Quelle reichhaltiger sind.",
+		"max_parallel": "Gleichzeitige Übertragungen",
+		"max_parallel_help": "Wie viele Dateien gleichzeitig geholt werden.",
+		"max_connections": "Verbindungen pro Quelle",
+		"max_connections_help": "Wie viele Bereiche eine Übertragung bei einer einzelnen Quelle gleichzeitig anfragt.",
+		"chunk_size": "Blockgröße",
+		"chunk_size_help": "Wie viel es wert ist, erneut geholt zu werden, wenn die Prüfung scheitert, etwa 4M.",
+		"download_rate_limit": "Download-Grenze",
+		"upload_rate_limit": "Upload-Grenze",
+		"rate_limit_help": "Etwa 10M. Leer bedeutet keine Grenze.",
+		"upload_rate_limit_help": "Etwa 10M. Leer bedeutet keine Grenze. Sie drosselt alles, was dieses Gateway sendet, auch Peers, die von ihm holen.",
+		"categories_help": "Bibliotheken gleichen Namens sind eine Kategorie, und dies ist die Reihenfolge, in der sie erscheinen. Umbenannt oder umsortiert wird eine Bibliothek auf dem Dienst, der sie hält.",
+		"categories_edit": "Bibliothek umbenennen oder umsortieren",
+		"history_days": "Abgeschlossene Übertragungen behalten",
+		"history_days_help": "In Tagen. Danach verlassen sie die Warteschlange.",
+		"friends_of_friends": "Freundesfreunde zulassen",
+		"friends_of_friends_help": "Lässt Peers, die Ihre Peers vorstellen, dieses Gateway überhaupt erreichen.",
+		"swarm": "Schwarm zulassen",
+		"swarm_help": "Mehrere Peers, die dieselbe Datei haben, können eine Übertragung gemeinsam speisen.",
+		"rendezvous": "Rendezvous",
+		"rendezvous_help": "Der Server, der zwei Gateways einander vorstellt, damit sie eine direkte Verbindung öffnen können.",
+		"match_threshold": "Korrelationsschwelle",
+		"match_threshold_help": "Unterhalb dieses Wertes wird ein Treffer vorgeschlagen statt angewendet.",
+		"refresh_interval": "Aktualisieren alle (Minuten)",
+		"refresh_interval_help": "Wie oft jeder Dienst gefragt wird, was neu ist. Billig, und der Grund, warum der Index aktuell bleibt.",
+		"cache_ttl": "Cache-Lebensdauer (Sekunden)",
+		"cache_ttl_help": "Wie lange die Antwort eines Dienstes gültig bleibt. Lang genug, dass zehn offene Tabs eine Anfrage kosten.",
+		"full_scan": "Zeitplan für den vollständigen Scan",
+		"full_scan_help": "Eine Aktualisierung sieht nur, was ein Dienst als neu meldet. Leer schaltet den geplanten Durchlauf ab; die Schaltfläche funktioniert immer."
+	},
+	"sync": {
+		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",
+		"plans": "Pläne",
+		"jobs": "Letzte Durchläufe",
+		"no_plans_title": "Noch kein Plan",
+		"no_plans_text": "Ein Plan sagt, was von wo nach wo geholt wird — von Hand, nach Zeitplan oder sobald eine Quelle etwas Neues ankündigt.",
+		"no_jobs_title": "Noch kein Durchlauf",
+		"no_jobs_text": "Durchläufe erscheinen hier, sobald ein Plan auslöst oder eine Synchronisierung von Hand gestartet wird.",
+		"run_started": "Die Synchronisierung steht in der Warteschlange.",
+		"job_cancelled": "Der Durchlauf wurde abgebrochen.",
+		"plan_saved": "Plan gespeichert.",
+		"plan_removed": "Plan entfernt.",
+		"state": {
+			"local_only": "Nur lokal",
+			"missing": "Fehlt hier",
+			"in_sync": "Synchron",
+			"outdated": "Veraltet",
+			"conflict": "Konflikt",
+			"syncing": "Wird synchronisiert",
+			"unknown": "Nicht korreliert"
+		},
+		"state_help": {
+			"local_only": "Hier vorhanden und auf keinem anderen Dienst, den wir kennen.",
+			"missing": "Ein anderer Dienst hat es, dieser nicht. Eine Synchronisierung füllt die Lücke.",
+			"in_sync": "Auf beiden Seiten vorhanden, dieselbe Fassung.",
+			"outdated": "Hier vorhanden, aber anderswo gibt es eine bessere Fassung.",
+			"conflict": "Zwei Fassungen, die sich nicht ordnen lassen — verschiedene Schnitte oder Sprachen.",
+			"syncing": "Für dieses Element läuft eine Übertragung.",
+			"unknown": "Noch nicht gegen die anderen Dienste korreliert."
+		},
+		"trigger": {
+			"manual": "Von Hand",
+			"schedule": "Nach Zeitplan",
+			"on_new": "Wenn etwas Neues auftaucht"
+		},
+		"trigger_help": {
+			"manual": "Läuft nur, wenn jemand auf Ausführen drückt.",
+			"schedule": "Läuft nach dem cron-Ausdruck unten.",
+			"on_new": "Läuft, sobald eine Quelle etwas ankündigt, das zu den Filtern passt."
+		},
+		"job_state": {
+			"pending": "Wartet",
+			"running": "Läuft",
+			"paused": "Angehalten",
+			"done": "Fertig",
+			"failed": "Fehlgeschlagen",
+			"cancelled": "Abgebrochen"
+		},
+		"job": {
+			"manual": "Einmalige Synchronisierung",
+			"items": "{done} von {planned} Elementen",
+			"failed": "{count} fehlgeschlagen"
+		},
+		"plan": {
+			"create": "Neuer Plan",
+			"subtitle": "Was von wo nach wo geholt wird.",
+			"name": "Name",
+			"enabled": "Aktiv",
+			"disabled": "Inaktiv",
+			"enable": "Aktivieren",
+			"disable": "Deaktivieren",
+			"trigger": "Läuft",
+			"schedule": "cron-Ausdruck",
+			"sources": "Quellen",
+			"sources_default": "Keine Quelle festgelegt: Der Plan folgt der Dienst-Priorität aus den Einstellungen, und das ist, was die meisten wollen.",
+			"sources_ordered": "In dieser Reihenfolge befragt.",
+			"add_source": "Quelle hinzufügen",
+			"target": "Zielbibliothek",
+			"target_hint": "Leer bedeutet: neben unsere eigene Kopie oder in das Standardziel für diese Art.",
+			"root": "Wurzelelement",
+			"root_hint": "Optional. Die Kennung einer Serie oder Sammlung, um den Plan auf diesen Teilbaum zu beschränken.",
+			"filters": "Filter",
+			"kinds": "Arten",
+			"min_year": "Ab Jahr",
+			"max_bytes": "Größte Datei",
+			"max_bytes_hint": "Etwa 8G. Leer bedeutet keine Grenze.",
+			"title_matches": "Titel enthält",
+			"missing_only": "Nur holen, was fehlt",
+			"replace_outdated": "Eine lokale Datei auch ersetzen, wenn es eine bessere gibt",
+			"run_now": "Jetzt ausführen",
+			"last_run": "Letzter Lauf",
+			"next_run": "nächster Lauf",
+			"remove_title": "Diesen Plan entfernen?",
+			"remove_confirm": "{name} läuft dann nicht mehr. Bereits Geholtes bleibt unberührt."
+		},
+		"preview": {
+			"title": "Was dies holen würde",
+			"action": "Vorschau",
+			"run": "Ausführen",
+			"summary": "Nichts zu holen | {count} Element zu holen | {count} Elemente zu holen",
+			"item": "Element",
+			"source": "Von",
+			"target_path": "Nach",
+			"bytes": "Größe",
+			"empty_title": "Nichts zu holen",
+			"empty_text": "Mit diesen Quellen und Filtern ist bereits alles hier."
+		}
+	},
+	"companions": {
+		"title": "Neben der Datei",
+		"complete": "Nichts fehlt, soweit bekannt",
+		"missing": "fehlt: {list}",
+		"present": "vorhanden",
+		"absent": "fehlt",
+		"never_checked": "Nie geprüft",
+		"never_checked_help": "Das Gateway liest, was neben einer Datei liegt, nur in einer Bibliothek, von der es weiß, wo sie liegt. Das sagt nichts darüber aus, ob die Dateien da sind.",
+		"checked_at": "gelesen",
+		"scan": "Danach suchen",
+		"scan_started": "Der Scan steht in der Warteschlange.",
+		"part": {
+			"nfo": "Metadaten (.nfo)",
+			"poster": "Poster",
+			"fanart": "Fanart",
+			"subtitles": "Untertitel"
+		}
+	},
+	"quality": {
+		"mixed": "gemischt",
+		"unknown": "Qualität unbekannt",
+		"summary": "{count} Datei | {count} Dateien",
+		"total": "Gesamt {size}",
+		"variant_count": "{count} Datei | {count} Dateien"
+	},
+	"bandwidth": {
+		"title": "Bandbreite",
+		"current": "Gerade {rate} unterwegs",
+		"download": "Download-Grenze",
+		"upload": "Upload-Grenze",
+		"custom": "Eigener Wert",
+		"no_cap": "Keine Grenze",
+		"apply": "Anwenden",
+		"saved": "Die Grenzen sind angewendet.",
+		"hint": "Gilt für alle Übertragungen zusammen, sobald es gesetzt ist. Ein leeres Feld bedeutet keine Grenze.",
+		"unit": {
+			"kb": "KB/s",
+			"mb": "MB/s"
+		}
+	},
+	"transfer": {
+		"subtitle": "Was geholt wird, von wem, und was schiefgegangen ist.",
+		"eta": "noch {time}",
+		"no_eta": "Restzeit unbekannt",
+		"no_source": "keine Quelle",
+		"sources": "keine Quelle | {count} Quelle | {count} Quellen",
+		"sources_title": "Quellen, die diese Übertragung speisen",
+		"swarm_sources": "Schwarm aus {count}",
+		"unhealthy_sources": "{count} fehlerhaft",
+		"source_unhealthy": "liefert nicht",
+		"connections": "{count} Verbindung | {count} Verbindung | {count} Verbindungen",
+		"via_peer": "über {peer}",
+		"target_path": "Landet in",
+		"filter_state": "Status",
+		"empty_title": "Die Warteschlange ist leer",
+		"empty_text": "Es wird nichts geholt. Starten Sie eine Synchronisierung, oder holen Sie ein Element von einer Medienseite.",
+		"paused_badge": "Angehalten",
+		"paused_hint": "Hält dort, wo sie stehen geblieben ist: Ihre Blöcke bleiben erhalten, und ein Fortsetzen macht von hier aus weiter.",
+		"queue_paused": "Die Warteschlange ist angehalten — {count} Übertragungen halten dort, wo sie stehen geblieben sind.",
+		"resume_all": "Alles fortsetzen",
+		"resumed_all": "Die Warteschlange läuft wieder.",
+		"replanned": "Das Element wurde erneut eingeplant.",
+		"revalidated": "Eine Übertragung hat es sich anders überlegt, nachdem sie ihre Quelle gefragt hat.",
+		"verify_ok": "Die Datei auf der Platte ist unversehrt.",
+		"verify_corrupt": "Die Datei auf der Platte stimmt nicht. Die Reparatur holt nur die schlechten Blöcke erneut.",
+		"state": {
+			"queued": "In der Warteschlange",
+			"connecting": "Verbindet",
+			"downloading": "Lädt",
+			"paused": "Angehalten",
+			"verifying": "Prüft",
+			"repairing": "Repariert",
+			"placing": "Legt ab",
+			"done": "Fertig",
+			"failed": "Fehlgeschlagen",
+			"cancelled": "Abgebrochen"
+		},
+		"transport": {
+			"http_range": "HTTP-Bereichsabruf beim Dienst",
+			"peer_direct": "Direkte Verbindung zum Peer",
+			"peer_relay": "Über das Rendezvous weitergeleitet",
+			"swarm": "Schwarm — mehrere Peers speisen gemeinsam"
+		},
+		"stats": {
+			"active": "Laufend",
+			"queued": "In Warteschlange",
+			"paused": "Angehalten",
+			"failed": "Fehlgeschlagen",
+			"rate": "Gesamtrate",
+			"remaining": "noch zu holen"
+		},
+		"verification": {
+			"ok": "Geprüft: {count} Blöcke kontrolliert, alle unversehrt.",
+			"corrupt": "Geprüft: {count} Blöcke stimmen nicht und müssen erneut geholt werden."
+		},
+		"chunks": {
+			"title": "Blöcke",
+			"empty": "Diese Übertragung hat noch keine Blockkarte.",
+			"cell": "Blöcke {from} bis {to}",
+			"scale": "jede Zelle steht für {count} Blöcke"
+		},
+		"chunk_state": {
+			"pending": "Wartet",
+			"active": "Unterwegs",
+			"done": "Vorhanden",
+			"failed": "Fehlgeschlagen",
+			"corrupt": "Beschädigt"
+		},
+		"error_kind": {
+			"source_gone": "Die Quelle hat es nicht mehr",
+			"source_unauthorized": "Die Quelle hat uns abgewiesen",
+			"network": "Die Verbindung ist fehlgeschlagen",
+			"checksum_mismatch": "Die Blöcke stimmen nicht mit ihren Hashes überein",
+			"disk_full": "Kein Platz mehr",
+			"permission_denied": "Das Gateway darf dort nicht schreiben",
+			"target_missing": "Das Zielverzeichnis ist verschwunden",
+			"cancelled": "Absichtlich gestoppt",
+			"unknown": "Sie ist aus unklarem Grund stehen geblieben"
+		},
+		"error_help": {
+			"source_gone": "Es wurde verschoben, gelöscht oder neu kodiert. Es muss eine andere Quelle gefunden werden; ein neuer Versuch träfe auf dieselbe Abwesenheit.",
+			"source_unauthorized": "Die Gegenseite hat geantwortet und nein gesagt. Zu ändern sind ihre Zugangsdaten.",
+			"network": "Ein vorübergehender Fehler — der eine, den ein neuer Versuch wirklich behebt.",
+			"checksum_mismatch": "Blöcke werden einzeln geprüft, eine Reparatur kostet also Megabytes statt der ganzen Datei.",
+			"disk_full": "Die Zielbibliothek hat keinen Platz. Nötig ist eine andere Bibliothek oder etwas Platz.",
+			"permission_denied": "Das Verzeichnis existiert, aber das Gateway kann nicht hineinschreiben.",
+			"target_missing": "Das Verzeichnis, in das die Datei sollte, existiert nicht mehr.",
+			"cancelled": "Jemand hat sie gestoppt. Sie kann erneut gestartet werden.",
+			"unknown": "Zu prüfen, was auf der Platte liegt, ist der billigste Weg zu mehr Klarheit."
+		},
+		"action": {
+			"pause": "Anhalten",
+			"resume": "Fortsetzen",
+			"retry": "Erneut versuchen",
+			"verify": "Prüfen",
+			"repair": "Schlechte Blöcke reparieren",
+			"another_source": "Andere Quelle suchen",
+			"another_target": "Andere Bibliothek wählen",
+			"fix_service": "Dienst in Ordnung bringen",
+			"cancel": "Abbrechen"
+		},
+		"retarget": {
+			"title": "Woandershin holen",
+			"hint": "Das Element wird erneut in die Bibliothek eingeplant, die Sie wählen. Angeboten werden nur Bibliotheken, in die das Gateway schreiben kann.",
+			"library": "Zielbibliothek",
+			"confirm": "Dorthin holen"
+		},
+		"revalidation": {
+			"title": "Warum diese Übertragung es sich anders überlegt hat",
+			"empty": "Für diese Übertragung wurde bei den Quellen nichts nachgefragt.",
+			"pending": "Wartet auf Antwort",
+			"asked_because": "Nachgefragt, weil:",
+			"decided": "entschieden:",
+			"remote_path": "Sie haben es jetzt unter",
+			"outcome": {
+				"confirmed": "Noch da, unverändert",
+				"moved": "Verschoben",
+				"changed": "Neu kodiert",
+				"gone": "Weg",
+				"unreachable": "Keine Antwort"
+			},
+			"action": {
+				"resume": "weitermachen",
+				"repair_local": "unsere schlechten Blöcke erneut holen",
+				"follow_move": "ihm zum neuen Pfad folgen",
+				"switch_source": "eine andere Quelle nutzen",
+				"requeue": "später erneut fragen",
+				"abandon": "diese aufgeben"
+			}
+		}
+	},
+	"pages": {
+		"dashboard": "Übersicht",
+		"library": "Mediathek",
+		"library_item": "Medium",
+		"services": "Mediendienste",
+		"service": "Dienst",
+		"peers": "Peers",
+		"peer": "Peer",
+		"sync": "Sync",
+		"sync_plan": "Sync-Plan",
+		"transfers": "Übertragungen",
+		"settings": "Einstellungen",
+		"settings_shares": "Freigaben",
+		"settings_users": "Benutzer",
+		"not_found": "Seite nicht gefunden",
+		"not_found_text": "Unter dieser Adresse gibt es nichts."
+	},
+	"components": {
+		"paginate": {
+			"table": {
+				"empty": "Kein Ergebnis",
+				"lines_per_page": "Zeilen pro Seite"
+			}
+		}
+	},
+	"validators": {
+		"required": "Dieses Feld ist erforderlich.",
+		"not_null": "Dieses Feld ist erforderlich.",
+		"email": "Geben Sie eine gültige E-Mail-Adresse ein.",
+		"maxlength": "Höchstens {max} Zeichen.",
+		"minlength": "Mindestens {min} Zeichen.",
+		"only_number": "Nur Ziffern.",
+		"only_letters": "Nur Buchstaben.",
+		"password": "Mindestens {length} Zeichen, mit einer Ziffer, einem Klein- und einem Großbuchstaben.",
+		"password_class": "Mindestens {numClasses} verschiedene Arten von Zeichen.",
+		"range": {
+			"min": "Muss mindestens {min} sein.",
+			"max": "Muss höchstens {max} sein."
+		},
+		"reg_exp": "Dieser Wert entspricht nicht dem erwarteten Format ({source}).",
+		"repeat_field": "Die beiden Werte stimmen nicht überein.",
+		"url": "Geben Sie eine gültige URL ein.",
+		"url_with_port": "Geben Sie eine vollständige Adresse ein, etwa http://192.168.0.10:8096.",
+		"cron": "Geben Sie einen gültigen cron-Ausdruck ein, etwa 0 4 * * *.",
+		"absolute_path": "Geben Sie einen absoluten Pfad ein, etwa /media/movies.",
+		"byte_size": "Geben Sie eine Größe wie 512M, 2G oder eine reine Anzahl Bytes ein.",
+		"file_size": "Jede Datei darf höchstens {size} groß sein.",
+		"file_formats": "Dieser Dateityp wird nicht akzeptiert."
+	},
+	"error": {
+		"general": "Etwas ist schiefgelaufen. Versuchen Sie es gleich noch einmal.",
+		"network": "Das Gateway ist nicht erreichbar.",
+		"auth": {
+			"invalid_credentials": "Benutzername oder Passwort ist falsch.",
+			"provider_unknown": "Diese Anmeldemethode gibt es nicht mehr.",
+			"provider_unreachable": "Der Dienst, der Sie authentifiziert, hat nicht geantwortet.",
+			"session_expired": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an.",
+			"forbidden": "Das dürfen Sie nicht."
+		},
+		"service": {
+			"not_found": "Diesen Mediendienst gibt es nicht mehr.",
+			"unreachable": "Der Mediendienst hat nicht geantwortet.",
+			"resource_not_found": "Der Mediendienst hat geantwortet und hat dieses Element nicht mehr.",
+			"unauthorized": "Dieser Mediendienst hat das Gateway abgewiesen. Prüfen Sie den Token.",
+			"duplicate": "Dieser Mediendienst ist bereits registriert.",
+			"handler_unknown": "Diese Art von Mediendienst wird nicht unterstützt."
+		},
+		"library": {
+			"not_found": "Diese Bibliothek gibt es nicht mehr.",
+			"path_unreadable": "Das Gateway kann diesen Pfad nicht lesen.",
+			"path_not_writable": "Das Gateway kann in diesen Pfad nicht schreiben."
+		},
+		"media": {
+			"not_found": "Dieses Medienelement gibt es nicht mehr."
+		},
+		"peer": {
+			"not_found": "Diesen Peer gibt es nicht mehr.",
+			"invite_invalid": "Diese Einladung ist nicht gültig.",
+			"invite_expired": "Diese Einladung ist abgelaufen.",
+			"unreachable": "Der Peer hat nicht geantwortet.",
+			"rejected": "Der Peer hat die Verbindung abgelehnt.",
+			"awaiting_them": "Die Gegenseite hat noch nicht geantwortet, es gibt also nichts zu bestätigen.",
+			"protocol_unsupported": "Dieser Peer spricht eine Version des Protokolls, die dieses Gateway nicht kennt."
+		},
+		"sync": {
+			"plan_not_found": "Diesen Sync-Plan gibt es nicht mehr.",
+			"job_not_found": "Diesen Durchlauf gibt es nicht mehr.",
+			"no_source": "Keine Quelle hat dieses Medium.",
+			"already_running": "Dieser Plan läuft bereits.",
+			"not_enough_space": "Die Zielbibliothek hat keinen Platz für das, was dieser Durchlauf holen würde.",
+			"space_not_acknowledged": "Dieser Durchlauf würde den reservierten Speicher angreifen, oder der freie Speicher ließ sich nicht messen. Bestätigen Sie, um ihn trotzdem zu starten.",
+			"scope_unbounded": "Der Umfang dieses Plans nennt nichts, er würde also alles holen. Bestätigen Sie, um ihn trotzdem zu aktivieren."
+		},
+		"transfer": {
+			"not_found": "Diese Übertragung gibt es nicht mehr.",
+			"not_resumable": "Diese Übertragung lässt sich nicht fortsetzen und muss von vorn beginnen.",
+			"no_space": "Nicht genug freier Speicher in der Zielbibliothek.",
+			"checksum_mismatch": "Die heruntergeladene Datei stimmt nicht mit ihrer Prüfsumme überein."
+		},
+		"settings": {
+			"invalid": "Diese Einstellungen wurden abgelehnt."
+		},
+		"user": {
+			"not_found": "Dieses Konto gibt es nicht mehr.",
+			"last_admin": "Das ist der letzte Administrator. Geben Sie die Rolle zuerst jemand anderem."
+		},
+		"share": {
+			"relay_not_agreed": "Eine Bibliothek, die auf einem anderen Gateway liegt, kann nur über ein Relay geteilt werden. Erlauben Sie zuerst das Relay für diese Freigabe."
+		}
+	},
+	"indications": {
+		"placement": "Wohin geholte Medien kommen, wenn nichts Genaueres etwas anderes sagt.",
+		"match_threshold": "Unterhalb dieses Wertes wird eine Korrelation vorgeschlagen statt angewendet.",
+		"full_scan_cron": "Eine Aktualisierung sieht nur, was ein Dienst als neu meldet; ein vollständiger Durchlauf findet Dateien, die an Ort und Stelle verschoben oder neu kodiert wurden."
+	}
+}

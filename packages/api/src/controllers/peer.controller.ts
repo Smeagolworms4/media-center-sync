@@ -19,6 +19,7 @@ import {
 } from '@nestjs/common';
 import {
 	ApiBearerAuth,
+	ApiConflictResponse,
 	ApiNoContentResponse,
 	ApiCreatedResponse,
 	ApiOkResponse,
@@ -93,6 +94,9 @@ export class PeerController {
 		description: 'Only an incoming request: approving our own would claim a link the other side has not agreed to.',
 	})
 	@ApiOkResponse({ description: 'Peer' })
+	@ApiConflictResponse({
+		description: 'error.peer.rejected on a request we made ourselves',
+	})
 	public approve(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {
 		return this._peers.approve(id);
 	}
@@ -103,7 +107,9 @@ export class PeerController {
 		summary: 'Mint a one-shot, expiring invitation',
 		description: 'Only the hash of its secret is stored; the secret exists in the URL alone.',
 	})
-	@ApiOkResponse({ description: 'PeerInvite' })
+	// A `201`, which is what the route really answers: it mints something. The
+	// annotation said `200`, so the documented status and the served one disagreed.
+	@ApiCreatedResponse({ description: 'PeerInvite' })
 	public createInvite(@Body() body: CreatePeerInviteDto): Promise<PeerInvite> {
 		return this._peers.createInvite(body.ttlMinutes);
 	}

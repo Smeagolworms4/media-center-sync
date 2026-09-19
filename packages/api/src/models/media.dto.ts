@@ -184,6 +184,19 @@ export class MediaGroupQueryDto {
 	@IsBoolean()
 	public rootsOnly?: boolean;
 
+	/**
+	 * Drop what we already hold in full.
+	 *
+	 * Arrives as the string `true` from a query string, so it is transformed before it
+	 * is validated — exactly as `rootsOnly` is, and for the same reason: without it
+	 * the filter works from code and silently fails from a browser.
+	 */
+	@ApiPropertyOptional({ description: 'Hide media held locally with no gap beneath them.' })
+	@IsOptional()
+	@Transform(({ value }) => value === true || value === 'true' || value === '1')
+	@IsBoolean()
+	public hideOwned?: boolean;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsString()
@@ -292,4 +305,16 @@ export class MediaOverrideDto {
 	@IsOptional()
 	@IsObject()
 	public externalIds?: Record<string, string>;
+
+	/**
+	 * Stop this item counting: a special, a recap, a panel filed as an episode.
+	 *
+	 * It stays visible and stays labelled. What changes is that it is excluded from a
+	 * season's missing count, from what a sync plans, and from ever being called
+	 * missing — so a complete season stops reading as incomplete for ever.
+	 */
+	@ApiPropertyOptional({ description: 'Exclude from gap counts and from what a sync plans.' })
+	@IsOptional()
+	@IsBoolean()
+	public ignored?: boolean;
 }

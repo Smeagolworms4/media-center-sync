@@ -24,6 +24,13 @@ export const DEFAULT_SETTINGS: Settings = {
 	pullMetadata: true,
 	preferSourceMetadata: false,
 	maxParallelTransfers: 3,
+	// Five gigabytes, which is roughly one film and comfortably more than the
+	// companions, the thumbnails and the filesystem's own bookkeeping. Low enough that
+	// it does not refuse a run on a modest disk, high enough that a library filled to
+	// this floor still leaves the machine able to write its logs — a disk at exactly
+	// zero free bytes takes everything else on the host down with it, not just the
+	// transfer.
+	diskReserveBytes: 5 * 1024 * 1024 * 1024,
 	maxConnectionsPerSource: 4,
 	chunkSize: 8 * 1024 * 1024,
 	downloadRateLimit: 0,
@@ -41,6 +48,11 @@ export const DEFAULT_SETTINGS: Settings = {
 /** Bounds that keep a typo from taking the gateway, or the media server, down. */
 const NUMERIC_BOUNDS: Partial<Record<keyof Settings, { min: number; max: number }>> = {
 	maxParallelTransfers: { min: 1, max: 32 },
+	// Zero is allowed and means "fill it to the last byte", which is a decision
+	// somebody may legitimately make on a disk that holds nothing else. The ceiling is
+	// a terabyte: past that the reserve is larger than most libraries, and every run
+	// would be refused for room that is never going to be used.
+	diskReserveBytes: { min: 0, max: 1024 * 1024 * 1024 * 1024 },
 	maxConnectionsPerSource: { min: 1, max: 16 },
 	chunkSize: { min: 64 * 1024, max: 256 * 1024 * 1024 },
 	downloadRateLimit: { min: 0, max: Number.MAX_SAFE_INTEGER },

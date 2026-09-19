@@ -64,6 +64,7 @@ const item = (overrides: Partial<MediaItem> = {}): MediaItem =>
 		file: file(),
 		quality: null,
 		syncState: SyncState.IN_SYNC,
+		ignored: false,
 		addedAt: null,
 		childCount: 0,
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -107,6 +108,7 @@ const digest = (row: MediaItem): MediaItemDigest => ({
 	parentId: row.parentId,
 	kind: row.kind,
 	syncState: row.syncState,
+	ignored: row.ignored ?? false,
 });
 
 /**
@@ -381,6 +383,101 @@ describe('MediaGroupManager', () => {
 			// The remote identifier is kept, the representative's own wins where both
 			// have one.
 			expect(group.externalIds).toEqual({ tvdb: '99', provider: 'jf-1' });
+		});
+	});
+
+	describe('hideOwned', () => {
+		/*
+		 * The filter is "nothing left to fetch here", not "the row exists".
+		 *
+		 * A series present locally but three episodes short is precisely what somebody
+		 * opens this screen to find; hiding it because the series row is held would
+		 * drop the only case the filter was asked for.
+		 */
+		it('keeps a series we hold that is still missing an episode', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'show', serviceId: 'local', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-here', serviceId: 'local', parentId: 'show' }),
+					item({ id: 'ep-there', serviceId: 'remote', parentId: 'show-remote' }),
+					item({ id: 'show-remote', serviceId: 'remote', kind: MediaKind.SERIES, file: null }),
+				],
+				matches: [correlation({ localItemId: 'show', remoteItemId: 'show-remote' })],
+			});
+
+			const answer = await manager.groups(query({ hideOwned: true, rootsOnly: true }));
+
+			expect(answer.items.map((group) => group.id)).toContain('show');
+		});
+
+		it('drops a series we hold with no gap under it', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'show', serviceId: 'local', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-here', serviceId: 'local', parentId: 'show' }),
+					item({ id: 'show-remote', serviceId: 'remote', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-there', serviceId: 'remote', parentId: 'show-remote' }),
+				],
+				matches: [
+					correlation({ localItemId: 'show', remoteItemId: 'show-remote' }),
+					correlation({ localItemId: 'ep-here', remoteItemId: 'ep-there' }),
+				],
+			});
+
+			const answer = await manager.groups(query({ hideOwned: true, rootsOnly: true }));
+
+			// Named rather than counted: the fake repository here does not implement
+			// `rootsOnly`, so the episodes come back as groups of their own and a
+			// length would be asserting the harness, not the filter.
+			expect(answer.items.map((group) => group.id)).not.toContain('show');
+		});
+
+		it('keeps what only somebody else holds', async () => {
+			const { manager } = build({
+				items: [item({ id: 'theirs', serviceId: 'remote' })],
+			});
+
+			const answer = await manager.groups(query({ hideOwned: true }));
+
+			expect(answer.items.map((group) => group.id)).toEqual(['theirs']);
+		});
+
+		it('answers the whole shelf when the filter is not asked for', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'show', serviceId: 'local', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-here', serviceId: 'local', parentId: 'show' }),
+				],
+			});
+
+			const answer = await manager.groups(query({ rootsOnly: true }));
+
+			expect(answer.items.map((group) => group.id)).toContain('show');
+		});
+
+		it('does not count an ignored episode as a gap', async () => {
+			// The special that would otherwise keep a finished season looking unfinished.
+			const { manager } = build({
+				items: [
+					item({ id: 'show', serviceId: 'local', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-here', serviceId: 'local', parentId: 'show' }),
+					item({ id: 'show-remote', serviceId: 'remote', kind: MediaKind.SERIES, file: null }),
+					item({
+						id: 'special',
+						serviceId: 'remote',
+						parentId: 'show-remote',
+						seasonNumber: 0,
+						ignored: true,
+					}),
+				],
+				matches: [correlation({ localItemId: 'show', remoteItemId: 'show-remote' })],
+			});
+
+			const answer = await manager.groups(query({ hideOwned: true, rootsOnly: true }));
+
+			// The show is held and its only outstanding child is one nobody counts, so
+			// there is nothing left to fetch and it goes.
+			expect(answer.items.map((group) => group.id)).not.toContain('show');
 		});
 	});
 

@@ -46,7 +46,9 @@
 		schedule: props.plan?.schedule ?? '',
 		sourceServiceIds: [...(props.plan?.sourceServiceIds ?? [])],
 		targetLibraryId: props.plan?.targetLibraryId ?? null,
-		rootItemId: props.plan?.rootItemId ?? '',
+		// One subtree from the form, which is the only part of `SyncScope` this form
+		// offers so far; the full editor is a screen of its own.
+		rootItemId: props.plan?.scope?.rootItemIds?.[0] ?? '',
 		kinds: [...(props.plan?.filter?.kinds ?? [])] as MediaKind[],
 		missingOnly: props.plan?.filter?.missingOnly ?? true,
 		replaceOutdated: props.plan?.filter?.replaceOutdated ?? false,
@@ -109,7 +111,7 @@
 	function runRequest (): RunSyncRequest {
 		return {
 			...(props.plan ? { planId: props.plan.id } : {}),
-			...(model.rootItemId ? { rootItemId: model.rootItemId } : {}),
+			...(model.rootItemId ? { scope: { rootItemIds: [model.rootItemId] } } : {}),
 			sourceServiceIds: [...model.sourceServiceIds],
 			targetLibraryId: model.targetLibraryId,
 			filter: filter(),
@@ -137,7 +139,7 @@
 				schedule: scheduled.value && model.schedule ? model.schedule : null,
 				sourceServiceIds: [...model.sourceServiceIds],
 				targetLibraryId: model.targetLibraryId,
-				rootItemId: model.rootItemId || null,
+				scope: model.rootItemId ? { rootItemIds: [model.rootItemId] } : {},
 				filter: filter(),
 			};
 			const saved = props.plan

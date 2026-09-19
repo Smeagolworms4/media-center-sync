@@ -132,6 +132,17 @@ interface ChildIndex {
 interface GroupSkeleton {
 	memberIds: string[];
 	sync: SyncState;
+	/** At least one copy sits on a service whose libraries we can write into. */
+	held: boolean;
+	/**
+	 * Children known somewhere and absent here, ignored ones excluded.
+	 *
+	 * Zero unless the caller asked for it: working it out costs a query over every
+	 * child of every group in the result, not just the page being rendered, and the
+	 * only filter that needs it is `hideOwned`. Paying for it on every listing would
+	 * make the common case slower to serve a question nobody asked.
+	 */
+	missingCount: number;
 }
 
 /** What a listing needs to know about the world, read once per request. */
@@ -209,12 +220,25 @@ export class MediaGroupManager {
 			parentIds,
 		});
 
-		const skeletons = await this._skeletons(seeds, context);
+		const skeletons = await this._skeletons(seeds, context, query.hideOwned === true);
 		const states = query.states ?? [];
-		const matching =
+		const byState =
 			states.length === 0
 				? skeletons
 				: skeletons.filter((skeleton) => states.includes(skeleton.sync));
+
+		/*
+		 * "Hide what I already have" means hidden only when there is nothing left to
+		 * fetch beneath it either.
+		 *
+		 * A series we hold with three episodes short is the case somebody opens this
+		 * screen to find, and a filter that dropped it because the series row itself
+		 * exists would hide exactly that. So holding it is not enough — the gaps have
+		 * to be closed too, and an ignored child is not a gap.
+		 */
+		const matching = query.hideOwned === true
+			? byState.filter((skeleton) => !skeleton.held || skeleton.missingCount > 0)
+			: byState;
 
 		const window = matching.slice((page - 1) * limit, page * limit);
 		const groups = await this._read(
@@ -367,6 +391,7 @@ export class MediaGroupManager {
 	private async _skeletons(
 		seeds: MediaItemDigest[],
 		context: GroupContext,
+		withGaps = false,
 	): Promise<GroupSkeleton[]> {
 		const order: string[] = [];
 		const byRoot = new Map<string, string[]>();
@@ -392,14 +417,87 @@ export class MediaGroupManager {
 			digests.set(digest.id, digest);
 		}
 
+		const gaps = withGaps
+			? await this._gapCounts([...byRoot.values()].flat(), context)
+			: new Map<string, number>();
+
 		return order.map((root) => {
 			const memberIds = byRoot.get(root) as string[];
 			const members = memberIds
 				.map((id) => digests.get(id))
 				.filter((digest): digest is MediaItemDigest => digest !== undefined);
 
-			return { memberIds, sync: this._state(members, context) };
+			return {
+				memberIds,
+				sync: this._state(members, context),
+				held: members.some((member) => context.local.has(member.serviceId)),
+				missingCount: gaps.get(root) ?? 0,
+			};
 		});
+	}
+
+	/**
+	 * How many children each group is short of, by group root.
+	 *
+	 * The same folding `_childGroups` does for the page being rendered, over every
+	 * group in the result instead — a child known on two servers counts once, a child
+	 * we hold under another name counts as held, and an ignored child does not count
+	 * at all. Kept as its own method rather than shared with `_childGroups` because
+	 * that one also builds the map a group's `childCount` is read from, and merging
+	 * them would make the cheap path pay for the expensive one.
+	 */
+	private async _gapCounts(
+		memberIds: string[],
+		context: GroupContext,
+	): Promise<Map<string, number>> {
+		const children = await this._items.findChildDigests(memberIds);
+		const byId = new Map(children.map((child) => [child.id, child]));
+		const parentOf = new Map<string, string>();
+
+		for (const child of children) {
+			if (child.parentId !== null) {
+				parentOf.set(child.id, context.graph.root(child.parentId));
+			}
+		}
+
+		const counted = new Map<string, Set<string>>();
+		const gaps = new Map<string, number>();
+
+		for (const child of children) {
+			const parentRoot = parentOf.get(child.id);
+
+			if (parentRoot === undefined) {
+				continue;
+			}
+
+			const childRoot = context.graph.root(child.id);
+			const seen = counted.get(parentRoot) ?? new Set<string>();
+
+			if (seen.has(childRoot)) {
+				continue;
+			}
+
+			seen.add(childRoot);
+			counted.set(parentRoot, seen);
+
+			const copies = context.graph.members(child.id);
+
+			if (copies.some((id) => byId.get(id)?.ignored === true)) {
+				continue;
+			}
+
+			const held = copies.some((id) => {
+				const copy = byId.get(id);
+
+				return copy !== undefined && context.local.has(copy.serviceId);
+			});
+
+			if (!held) {
+				gaps.set(parentRoot, (gaps.get(parentRoot) ?? 0) + 1);
+			}
+		}
+
+		return gaps;
 	}
 
 	/** The full rows for one page of groups, and the children those groups count. */
@@ -519,6 +617,24 @@ export class MediaGroupManager {
 				const root = context.graph.root(child.id);
 
 				if (groups.has(root)) {
+					continue;
+				}
+
+				/*
+				 * An ignored child is not a gap.
+				 *
+				 * Specials and recaps a scraper filed as episodes make a complete
+				 * season read as incomplete for ever, and a count that is never zero
+				 * is a count people stop reading. Tested on any copy of the child, not
+				 * on this one: the decision is about the media, not about which server
+				 * happened to list it — the same reason holding it is tested that way
+				 * two lines below.
+				 */
+				const ignored = context.graph
+					.members(child.id)
+					.some((id) => children.byId.get(id)?.ignored === true);
+
+				if (ignored) {
 					continue;
 				}
 

@@ -172,7 +172,7 @@
 	 */
 	const replan = tryCallback(async (transfer: Transfer, libraryId: string | null) => {
 		await syncStore.run({
-			itemIds: [transfer.itemId],
+			scope: { itemIds: [transfer.itemId] },
 			...(libraryId ? { targetLibraryId: libraryId } : {}),
 		});
 		void notify('transfer.replanned');

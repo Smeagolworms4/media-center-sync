@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import type { SyncFilter } from '@mcs/shared';
+import type { SyncFilter, SyncScope } from '@mcs/shared';
 import { SyncTrigger } from '@mcs/shared';
 import { Timestampable } from './timestampable.entity';
 
@@ -43,14 +43,35 @@ export class SyncPlan extends Timestampable {
 	@Column({ type: 'uuid', nullable: true })
 	public targetLibraryId!: string | null;
 
-	/** Restrict to a subtree — one series, one collection. */
-	@ApiProperty({ nullable: true })
-	@Column({ type: 'uuid', nullable: true })
-	public rootItemId!: string | null;
+	/**
+	 * What this plan covers, stated rather than implied.
+	 *
+	 * A column of its own rather than a subtree identifier, because "synchronise" on
+	 * its own honestly reads as "move an entire media library" and that is measured in
+	 * terabytes. An empty object is deliberately not "everything is fine": it is the
+	 * unbounded case, which needs acknowledging before the plan can be enabled.
+	 */
+	@ApiProperty()
+	@Column({ type: 'simple-json', default: '{}' })
+	public scope!: SyncScope;
 
 	@ApiProperty()
 	@Column({ type: 'simple-json', default: '{}' })
 	public filter!: SyncFilter;
+
+	/**
+	 * A ceiling on one run, so a schedule cannot run away.
+	 *
+	 * Null means no ceiling. That is a choice somebody has to make rather than the
+	 * default reading of an empty field, which is why the form asks for it.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'int', nullable: true })
+	public maxItemsPerRun!: number | null;
+
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'bigint', nullable: true })
+	public maxBytesPerRun!: number | null;
 
 	@ApiProperty({ nullable: true })
 	@Column({ type: 'datetime', nullable: true })

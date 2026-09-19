@@ -32,42 +32,81 @@
 	const hasReported = computed(() => props.reported.length > 0);
 
 	function toggleCleared (): void {
-		cleared.value = !cleared.value;
+		/*
+		 * The new state is decided once, and never read back off the model.
+		 *
+		 * `cleared` is a `defineModel`, so writing to it emits to the parent and the
+		 * value only comes back on the next render: reading it on the line below
+		 * answered the state before the click, and the box was emptied on the click
+		 * that restored it and filled on the click that erased it — one interaction
+		 * behind, for ever. Nothing failed, the two writes simply disagreed.
+		 */
+		const next = !cleared.value;
+		cleared.value = next;
 		// Coming back from cleared restores the service's answer rather than an empty
 		// box: that is what "not corrected" means, and it is the state somebody is
 		// asking for when they undo a clear.
-		value.value = cleared.value ? '' : props.reported;
+		value.value = next ? '' : props.reported;
 	}
 </script>
 
 <template>
 	<div class="override-field" :class="{ 'override-field--cleared': cleared }">
+		<!--
+			`readonly`, never `disabled`.
+
+			Vuetify puts `pointer-events: none` on a disabled input, and that includes
+			the icon inside it — so a cleared field could be cleared and never restored:
+			the one button that undoes the decision was the one button the browser would
+			no longer deliver a click to. Nothing said so, the icon simply did nothing.
+			Read-only says the same thing to somebody typing and keeps the way back.
+		-->
 		<v-textarea
 			v-if="type === 'textarea'"
 			v-bind="field ?? {}"
-			:append-inner-icon="cleared ? 'mdi-backup-restore' : 'mdi-eraser'"
 			auto-grow
 			:data-test="`override-${name}`"
-			:disabled="cleared"
 			:label="label"
 			:model-value="value"
+			:readonly="cleared"
 			rows="3"
-			@click:append-inner="toggleCleared"
 			@update:model-value="value = $event"
-		/>
+		>
+			<template #append-inner>
+				<v-icon
+					:aria-label="label"
+					:data-test="`override-${name}-clear`"
+					:icon="cleared ? 'mdi-backup-restore' : 'mdi-eraser'"
+					role="button"
+					tabindex="0"
+					@click="toggleCleared"
+					@keydown.enter="toggleCleared"
+				/>
+			</template>
+		</v-textarea>
 
 		<v-text-field
 			v-else
 			v-bind="field ?? {}"
-			:append-inner-icon="cleared ? 'mdi-backup-restore' : 'mdi-eraser'"
 			:data-test="`override-${name}`"
-			:disabled="cleared"
 			:label="label"
 			:model-value="value"
+			:readonly="cleared"
 			:type="type"
-			@click:append-inner="toggleCleared"
 			@update:model-value="value = $event"
-		/>
+		>
+			<template #append-inner>
+				<v-icon
+					:aria-label="label"
+					:data-test="`override-${name}-clear`"
+					:icon="cleared ? 'mdi-backup-restore' : 'mdi-eraser'"
+					role="button"
+					tabindex="0"
+					@click="toggleCleared"
+					@keydown.enter="toggleCleared"
+				/>
+			</template>
+		</v-text-field>
 
 		<p
 			v-if="cleared"

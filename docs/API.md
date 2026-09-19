@@ -182,12 +182,14 @@ Confirming or deleting a match is how a human overrules the scoring. Both are re
 | POST | `/sync/plans` | `CreateSyncPlanDto` | `SyncPlan` | `SYNC_MANAGE` |
 | GET | `/sync/plans/:id` | — | `SyncPlan` | `SYNC_READ` |
 | PATCH | `/sync/plans/:id` | `UpdateSyncPlanDto` | `SyncPlan` | `SYNC_MANAGE` |
+| POST | `/sync/plans/:id/estimate` | — | `SyncEstimate` | `SYNC_READ` |
 | DELETE | `/sync/plans/:id` | — | `204` | `SYNC_MANAGE` |
 | POST | `/sync/preview` | `RunSyncDto` | `SyncPreview` | `SYNC_READ` |
 | POST | `/sync/run` | `RunSyncDto` | `SyncJob` | `SYNC_RUN` |
 | POST | `/sync/companions` | `PullCompanionsDto` | `CompanionPullResult[]` | `SYNC_RUN` |
 | GET | `/sync/jobs` | page, limit, state (query) | `ResultList<SyncJob>` | `SYNC_READ` |
 | GET | `/sync/jobs/:id` | — | `SyncJob` | `SYNC_READ` |
+| GET | `/sync/jobs/:id/items` | page, limit (query) | `ResultList<SyncJobItem>` | `SYNC_READ` |
 | POST | `/sync/jobs/:id/cancel` | — | `SyncJob` | `SYNC_RUN` |
 
 `/sync/companions` fetches only what sits beside files already on the disk — the
@@ -198,7 +200,65 @@ it is not an answer, and it was the only one they had.
 
 `/sync/preview` takes exactly the same body as `/sync/run` and changes nothing. That
 symmetry is the point: what you were shown is what will happen, because the same code
-computed both.
+computed both. It extends to the ceilings and to the free space: a preview reports the
+same `stoppedBy` and the same `targets` a run would, so a plan cut short is visible
+before it is started rather than afterwards.
+
+### What a sync covers
+
+A plan carries a `SyncScope`, and it is a first-class part of it rather than something
+reconstructed from the filter — because a schedule that says only "synchronise" honestly
+reads as "move an entire media library", and that is measured in terabytes. Its fields
+intersect: naming a category and a subtree means the part of that subtree in that
+category. `categoryKeys` are merged categories, which is the unit people think in — "keep
+my Shows in step" is one intent, and naming the four libraries called Shows across three
+servers stops being true the moment somebody adds a fourth server.
+
+A scope that names nothing means everything, and a plan with one cannot be **enabled**
+without `acknowledgeUnbounded`: `409 error.sync.scope_unbounded`. An empty form produces
+exactly that plan, and almost nobody means it.
+
+`/sync/plans/:id/estimate` recomputes what the scope currently comes to, in items and
+bytes. It is a `POST` although it changes nothing: it walks every source and resolves a
+placement per item, which is not something a list of plans should pay for on every read.
+`SyncPlan.estimate` is therefore `null` everywhere else — an estimate stored against a
+plan would not go stale, it would be believed.
+
+### Room on the destination
+
+`SyncPreview` and `SyncJob` both carry a `TargetSpace` per destination: what it has, what
+this would write into it, and the reserve from `Settings.diskReserveBytes`. Both numbers
+are known before a byte moves — every source announces the size of its files and every
+library is probed for free space — and filling a disk is not an error that reports itself:
+the transfer dies at ninety per cent with `ENOSPC`, the media server indexes the truncated
+file as a real one, and somebody finds out days later.
+
+A run is therefore answered before it starts:
+
+| Verdict | `/sync/run` |
+|---|---|
+| `fits` | starts |
+| `tight` — fits, but crosses the reserve | `409 error.sync.space_not_acknowledged`, unless `acknowledgeSpace` |
+| `unknown` — no local path, or the probe failed | the same. Never read as "it fits" |
+| `insufficient` — it does not fit | `409 error.sync.not_enough_space`, whatever the caller acknowledges |
+
+The refusal is arithmetic, which is why no flag gets past it. The comparison is made over
+the whole run rather than per file: three films that each fit on their own and do not fit
+together is the case a per-file check cannot see.
+
+`maxItemsPerRun` and `maxBytesPerRun` cut a run short — on the plan, or in the body of one
+run — and set `stoppedBy`. They stop at the first item that does not fit rather than
+packing the remaining room with smaller ones, so the order the plan chose is kept and
+tomorrow's run continues where today's ended.
+
+### The lines of a run
+
+`/sync/jobs/:id/items` serves a run line by line. A job that reports "412 of 900" and
+nothing else is a number to watch, not something to act on: the two questions anybody has
+are which item is stuck and where it is being written. Each line carries its `transferId`
+once something is moving it, so opening a progress reaches the bytes on the event stream;
+a line a ceiling dropped is kept as `skipped`, which is what makes `stoppedBy` legible
+afterwards.
 
 ## Transfers
 
@@ -250,10 +310,22 @@ accepting sees exactly who is asking. The invitation bundles the same thing into
 code so one person can do the whole job, which is easier and puts a shared secret in a
 chat log. Both are offered; neither is mandatory.
 
+`/peers/:id/approve` settles a request **somebody made of us**, and answers `409
+error.peer.rejected` on one we made ourselves. Approving our own would declare a link
+the far end never agreed to, and the first pull would then fail with an authentication
+error rather than with the honest answer, which is that they have not answered yet. A
+blocked peer is refused as well, with `401 error.peer.rejected`.
+
 `/peers/identity` is what you hand to somebody so they can find you: the fingerprint,
 the rendezvous, and whether a direct connection is possible at all. The last one is
 worth showing — a gateway whose port is not forwarded works, but every transfer goes
 through a relay and it is better to know that before wondering why it is slow.
+
+`/peers/accept` takes the whole `mcs://invite/…` URL. The bare code parses, but it
+carries neither the secret that proves the invitation nor the fingerprint that says who
+to link to, so it can only ever be refused — `error.peer.invite_invalid` when the code
+is unusable, `error.peer.invite_expired` when it is merely stale, because those are two
+different things to do next.
 
 ## Sharing
 
@@ -267,6 +339,17 @@ through a relay and it is better to know that before wondering why it is slow.
 `PUT`, not `POST`: a library has at most one policy, and the absence of one means
 private. Deleting a policy makes a library private again, which is the same thing as
 never having shared it.
+
+**Sharing a library that is not on one of our own services makes us a relay, and that
+has to be said out loud.** A library on a local service is ours to give: we serve our
+own bytes off our own disk. One on a remote service — a friend's gateway, a Jellyfin we
+merely have an account on — is not, and sharing it means our friends pull *through* us:
+our bandwidth, our connection, and an access somebody granted to us rather than to them.
+That is a real and useful thing to do on purpose, so `relay: true` in the body is the
+agreement, and without it any visibility other than `private` is refused with
+`error.share.relay_not_agreed`. `relays` on the answer is the other half and is
+read-only: it says whether this library *would* make us one, which is a fact about where
+it lives and not something a caller may assert.
 
 `/shares/audit/:peerId` answers the question people actually ask before saving: what
 would *this* peer see of me?
@@ -283,7 +366,15 @@ would *this* peer see of me?
 | DELETE | `/users/:id` | — | `204` | `USER_MANAGE` |
 
 Accounts mirrored from a media service cannot have their username or password changed
-here — the gateway does not own them. Their role can, because that is ours.
+here — the gateway does not own them. Their role can, because that is ours: it says what
+this gateway lets somebody do, and nothing outside knows about it. `UpdateUserDto`
+offers no `username` at all, so the route renames nobody, mirrored or internal.
+
+The last administrator can be neither demoted nor deleted: both answer `409
+error.user.last_admin`. Its own key rather than a generic refusal, because "forbidden"
+on the screen where you *are* the administrator reads as a bug rather than as the
+safeguard it is — and there is no screen for recovering from a gateway nobody can
+configure any more.
 
 ## Peer-facing routes
 

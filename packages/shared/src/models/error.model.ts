@@ -39,11 +39,45 @@ export const ErrorKey = {
 	PEER_INVITE_EXPIRED: 'error.peer.invite_expired',
 	PEER_UNREACHABLE: 'error.peer.unreachable',
 	PEER_REJECTED: 'error.peer.rejected',
+	/**
+	 * We asked them; they have not answered. There is nothing here to approve.
+	 *
+	 * Distinct from `PEER_REJECTED`, which says the far end refused us — the opposite
+	 * fact, and the one a reused key would have told somebody who pressed approve on
+	 * their own outgoing request. A false "they refused you" is worse than no message.
+	 */
+	PEER_AWAITING_THEM: 'error.peer.awaiting_them',
 
 	SYNC_PLAN_NOT_FOUND: 'error.sync.plan_not_found',
 	SYNC_JOB_NOT_FOUND: 'error.sync.job_not_found',
 	SYNC_NO_SOURCE: 'error.sync.no_source',
 	SYNC_ALREADY_RUNNING: 'error.sync.already_running',
+	/**
+	 * A destination cannot hold what the run would put in it.
+	 *
+	 * Arithmetic, not a warning: free space and the size of every file are both known
+	 * before a byte moves. Starting anyway buys a transfer that dies at ninety per cent
+	 * and a truncated file the media server indexes as real, so the run is refused and
+	 * no acknowledgement gets past this one.
+	 */
+	SYNC_NOT_ENOUGH_SPACE: 'error.sync.not_enough_space',
+	/**
+	 * It fits, but only by eating into the reserve — or the disk could not be probed.
+	 *
+	 * Distinct from the refusal above because the answer differs: this one is a
+	 * question, and `acknowledgeSpace` is somebody answering it. Unknown free space is
+	 * asked about rather than assumed, since "we could not measure it" read as "it
+	 * fits" is the same full disk with an alibi.
+	 */
+	SYNC_SPACE_NOT_ACKNOWLEDGED: 'error.sync.space_not_acknowledged',
+	/**
+	 * A plan whose scope names nothing was asked to be enabled.
+	 *
+	 * "Synchronise everything, every night" is what an empty form produces and almost
+	 * never what somebody meant to build, so it takes `acknowledgeUnbounded` to say it
+	 * on purpose.
+	 */
+	SYNC_SCOPE_UNBOUNDED: 'error.sync.scope_unbounded',
 
 	TRANSFER_NOT_FOUND: 'error.transfer.not_found',
 	TRANSFER_NOT_RESUMABLE: 'error.transfer.not_resumable',

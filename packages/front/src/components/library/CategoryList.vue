@@ -36,6 +36,9 @@
 				v-for="category of categories"
 				:key="category.key"
 				class="category-list_row"
+				:data-category="category.key"
+				:data-libraries="category.libraryIds.length"
+				:data-services="category.serviceIds.length"
 				data-test="category-row"
 			>
 				<template #prepend>

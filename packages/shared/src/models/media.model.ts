@@ -179,6 +179,21 @@ export interface MediaOverride {
 	episodeNumber?: number | null;
 	overview?: string | null;
 	externalIds?: ExternalIds;
+	/**
+	 * This one does not count, and stops being nagged about.
+	 *
+	 * Specials, recaps, a convention panel a scraper filed as `S00E14`: things a
+	 * server lists as episodes and nobody considers part of the show. Left in the
+	 * count they make a complete season read as incomplete for ever, which trains
+	 * people to ignore the one number that was supposed to mean something.
+	 *
+	 * It is an override rather than a flag of its own for the reason every other
+	 * correction here is: the service will report the item again on the next scan,
+	 * and a decision kept anywhere else would be undone by it. An ignored item stays
+	 * visible and stays labelled — it is excluded from `missingCount`, from what a
+	 * sync plans, and from ever being called missing, not hidden.
+	 */
+	ignored?: boolean;
 }
 
 /** The overridable fields as the service last reported them, so a change can be shown. */
@@ -363,6 +378,18 @@ export interface MediaGroupQuery {
 	categoryKey?: string;
 	libraryId?: string;
 	kind?: MediaKind;
+	/**
+	 * Drop what we already hold in full, leaving only what needs attention.
+	 *
+	 * "In full" is the whole point and the reason this is not `states=missing`: a
+	 * series we hold with three episodes short is still something to act on, and a
+	 * filter that dropped it because the series itself is present would hide exactly
+	 * the case somebody opened the screen to find. So a group survives this filter
+	 * unless we hold it locally *and* nothing beneath it is missing.
+	 *
+	 * Items marked ignored do not count as gaps — see `MediaOverride.ignored`.
+	 */
+	hideOwned?: boolean;
 	/** Children of this group, addressed by the parent's representative item. */
 	parentId?: string;
 	/**

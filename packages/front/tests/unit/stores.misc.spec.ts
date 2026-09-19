@@ -99,7 +99,7 @@ describe('stores/i18n', () => {
 
 	it('ignores a locale this build does not ship', () => {
 		const i18nStore = useI18nStore();
-		i18nStore.setLocale('de' as never);
+		i18nStore.setLocale('eo' as never);
 
 		expect(i18nStore.locale).toBe('en');
 	});

@@ -31,6 +31,16 @@ export interface Settings {
 	preferSourceMetadata: boolean;
 	/** How many transfers run at once. */
 	maxParallelTransfers: number;
+	/**
+	 * Free space the gateway will not knowingly eat into.
+	 *
+	 * A disk filled to the last byte does not fail politely: the transfer dies at
+	 * ninety per cent with `ENOSPC`, the media server indexes the truncated file as a
+	 * real one, and whoever notices does so days later from a film that stops halfway.
+	 * A run that would cross this floor is reported as tight and needs saying so out
+	 * loud; one that would not fit at all is refused outright.
+	 */
+	diskReserveBytes: number;
 	/** How many connections a single transfer opens against one source. */
 	maxConnectionsPerSource: number;
 	chunkSize: number;

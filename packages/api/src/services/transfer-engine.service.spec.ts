@@ -367,6 +367,31 @@ describe('TransferEngineService', () => {
 		await expect(readFile(join(root, 'work', 't1.part'))).rejects.toThrow();
 	});
 
+	it('tells whoever is listening about a state change, once per change', async () => {
+		// The job detail is kept up to date from this, rather than from a timer over
+		// every live job: the engine reports, and what a state change means is decided
+		// above it.
+		const seen: TransferState[] = [];
+
+		engine.onTransferState((transfer) => {
+			seen.push(transfer.state);
+		});
+
+		await engine.cancel('t1');
+
+		expect(seen).toEqual([TransferState.CANCELLED]);
+	});
+
+	it('does not lose a transfer over a listener that throws', async () => {
+		engine.onTransferState(() => {
+			throw new Error('the job detail is unwritable');
+		});
+
+		await engine.cancel('t1');
+
+		expect((transfers.get('t1') as Transfer).state).toBe(TransferState.CANCELLED);
+	});
+
 	it('pauses a transfer that has not started', async () => {
 		await engine.pause('t1');
 

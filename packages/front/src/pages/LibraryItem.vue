@@ -14,6 +14,7 @@
 	import MediaCard from '@/components/media/MediaCard.vue';
 	import MediaGroupRow from '@/components/media/MediaGroupRow.vue';
 	import MediaPoster from '@/components/media/MediaPoster.vue';
+	import OverrideDialog from '@/components/media/OverrideDialog.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
 	import { useMediaTrail } from '@/composables/useMediaTrail';
@@ -60,6 +61,7 @@
 	const running = ref(false);
 	const chosenSource = ref<string | null>(null);
 	const matchesOpen = ref(false);
+	const overrideOpen = ref(false);
 
 	async function load (): Promise<void> {
 		loading.value = true;
@@ -183,11 +185,23 @@
 	const asCards = computed(
 		() => children.value.length > 0 && children.value[0].kind !== MediaKind.EPISODE);
 
+	/**
+	 * A correction is re-read rather than patched into the page.
+	 *
+	 * It can reclassify the media into another library, and so under another
+	 * category — which is exactly what the trail at the top is built from. Writing the
+	 * corrected fields into the group in place would leave a breadcrumb pointing at
+	 * the category the media just left.
+	 */
+	async function onCorrected (): Promise<void> {
+		await load();
+	}
+
 	const syncThis = tryCallback(async () => {
 		running.value = true;
 		try {
 			await syncStore.run({
-				itemIds: [props.itemId],
+				scope: { itemIds: [props.itemId] },
 				...(chosenSource.value ? { sourceServiceIds: [chosenSource.value] } : {}),
 			});
 			void notify('library.sync_started');
@@ -200,7 +214,9 @@
 		running.value = true;
 		try {
 			await syncStore.run({
-				rootItemId: props.itemId,
+				// A subtree, which is now one shape with every other way of naming what a
+				// sync covers — see `SyncScope`.
+				scope: { rootItemIds: [props.itemId] },
 				filter: { missingOnly: true },
 				...(chosenSource.value ? { sourceServiceIds: [chosenSource.value] } : {}),
 			});
@@ -220,6 +236,15 @@
 
 			<PageHeader :loading="loading" :title="group.title">
 				<template #actions>
+					<v-btn
+						data-test="item-override"
+						prepend-icon="mdi-pencil-outline"
+						variant="text"
+						@click="overrideOpen = true"
+					>
+						{{ $t('override.action') }}
+					</v-btn>
+
 					<v-btn
 						data-test="item-matches"
 						prepend-icon="mdi-link-variant"
@@ -375,6 +400,8 @@
 			</v-card>
 
 			<MatchesDialog v-model="matchesOpen" :item-id="itemId" />
+
+			<OverrideDialog v-model="overrideOpen" :item-id="itemId" @saved="onCorrected" />
 		</template>
 
 		<div v-else class="text-center py-10">

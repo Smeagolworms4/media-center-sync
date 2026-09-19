@@ -29,6 +29,7 @@ import Settings from '@/pages/Settings.vue';
 import SettingsUsers from '@/pages/SettingsUsers.vue';
 import Sync from '@/pages/Sync.vue';
 import Transfers from '@/pages/Transfers.vue';
+import { loadLocaleMessages } from '@/plugins/i18n';
 import { useAuthStore } from '@/stores/auth';
 import { useTokenStore } from '@/stores/token';
 import { dialogStub, mountWithApp, stubFetchRoutes, tooltipStub } from './helpers';
@@ -262,7 +263,10 @@ describe('pages/Sync actions', () => {
 		schedule: '0 4 * * *',
 		sourceServiceIds: ['s1'],
 		targetLibraryId: 'l1',
-		rootItemId: null,
+		scope: {},
+		maxItemsPerRun: null,
+		maxBytesPerRun: null,
+		estimate: null,
 		filter: {},
 		lastRunAt: null,
 		nextRunAt: null,
@@ -518,7 +522,7 @@ describe('pages/Library syncing a selection', () => {
 		await settle();
 
 		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
-		expect(JSON.parse(String(run?.[1]?.body))).toEqual({ itemIds: ['m1'] });
+		expect(JSON.parse(String(run?.[1]?.body))).toEqual({ scope: { itemIds: ['m1'] } });
 		expect(wrapper.find('[data-test="library-selection-bar"]').exists()).toBe(false);
 	});
 });
@@ -598,7 +602,8 @@ describe('pages/Transfers repairing', () => {
 		await settle();
 
 		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
-		expect(JSON.parse(String(run?.[1]?.body))).toEqual({ itemIds: ['m1'], targetLibraryId: 'l1' });
+		expect(JSON.parse(String(run?.[1]?.body)))
+			.toEqual({ scope: { itemIds: ['m1'] }, targetLibraryId: 'l1' });
 	});
 
 	it('sends somebody to the service whose credentials were refused', async () => {
@@ -723,6 +728,10 @@ describe('App shell actions', () => {
 		const { wrapper } = await signedIn();
 
 		(wrapper.vm as any).changeLocale('fr');
+		// Only English is bundled, so the switch is immediate and the French strings
+		// arrive with the chunk. Waiting on the load is what the interface does too —
+		// it simply does it in the background rather than in an assertion.
+		await loadLocaleMessages('fr');
 		await settle(2);
 
 		expect(wrapper.find('.app_nav').text()).toContain('Médiathèque');

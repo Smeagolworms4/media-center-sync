@@ -9,6 +9,7 @@ export * from './session.entity';
 export * from './setting.entity';
 export * from './share-policy.entity';
 export * from './sync-job.entity';
+export * from './sync-job-item.entity';
 export * from './sync-plan.entity';
 export * from './timestampable.entity';
 export * from './transfer.entity';

@@ -3,7 +3,9 @@ import {
 	SyncJobState,
 	type ResultList,
 	type CompanionPullResult,
+	type SyncEstimate,
 	type SyncJob,
+	type SyncJobItem,
 	type SyncPlan,
 	type SyncPreview,
 } from '@mcs/shared';
@@ -42,13 +44,13 @@ import {
 } from '@/models';
 
 /**
- * Paging over the job history.
+ * Paging, for the two lists this controller serves.
  *
  * Declared here rather than in `models/` because it is the shape of one query string
  * and nothing else speaks it. The validation pipe rejects anything the class does not
- * declare, so it has to exist even though it holds three fields.
+ * declare, so it has to exist even though it holds two fields.
  */
-class SyncJobQueryDto {
+class PageQueryDto {
 	@ApiPropertyOptional({ default: 1 })
 	@IsOptional()
 	@Type(() => Number)
@@ -62,7 +64,9 @@ class SyncJobQueryDto {
 	@IsInt()
 	@Min(1)
 	public limit?: number;
+}
 
+class SyncJobQueryDto extends PageQueryDto {
 	@ApiPropertyOptional({ enum: SyncJobState })
 	@IsOptional()
 	@IsEnum(SyncJobState)
@@ -120,6 +124,28 @@ export class SyncController {
 		@Body() body: UpdateSyncPlanDto,
 	): Promise<SyncPlan> {
 		return this._sync.updatePlan(id, body);
+	}
+
+	/**
+	 * A `POST` although it changes nothing, and that is deliberate.
+	 *
+	 * Working out what a scope comes to walks every source and probes a placement per
+	 * item. That is not something a `GET` on the plan should pay for on every read of a
+	 * list of six, and it is not something a browser or a proxy should feel free to
+	 * cache: the answer is only worth anything at the moment it is taken. `SyncPlan.estimate`
+	 * is null everywhere else for the same reason — an estimate from last month would
+	 * not be stale, it would be believed.
+	 */
+	@Post('plans/:id/estimate')
+	@Granted(Right.SYNC_READ)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'What this plan’s scope currently comes to',
+		description: 'Recomputed on the spot, never read back from storage. Changes nothing.',
+	})
+	@ApiOkResponse({ description: 'SyncEstimate' })
+	public estimate(@Param('id', ParseUUIDPipe) id: string): Promise<SyncEstimate> {
+		return this._sync.estimatePlan(id);
 	}
 
 	@Delete('plans/:id')
@@ -188,6 +214,24 @@ export class SyncController {
 	@ApiOkResponse({ description: 'SyncJob' })
 	public readJob(@Param('id', ParseUUIDPipe) id: string): Promise<SyncJob> {
 		return this._sync.readJob(id);
+	}
+
+	/**
+	 * The lines of a run, so a progress bar can be opened.
+	 *
+	 * Paginated because a run carries up to five hundred of them, and each line names
+	 * the transfer moving it — which is what lets a screen follow the bytes on the event
+	 * stream instead of asking this route again.
+	 */
+	@Get('jobs/:id/items')
+	@Granted(Right.SYNC_READ)
+	@ApiOperation({ summary: 'One page of a run, line by line' })
+	@ApiOkResponse({ description: 'ResultList<SyncJobItem>' })
+	public jobItems(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Query() query: PageQueryDto,
+	): Promise<ResultList<SyncJobItem>> {
+		return this._sync.jobItems(id, query);
 	}
 
 	@Post('jobs/:id/cancel')

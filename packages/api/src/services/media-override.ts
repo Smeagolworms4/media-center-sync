@@ -13,6 +13,14 @@ export interface OverridableItem {
 	externalIds: ExternalIds;
 	overrides: MediaOverride | null;
 	reported: MediaReported | null;
+	/**
+	 * Resolved here rather than read from the blob downstream.
+	 *
+	 * It has no `reported` counterpart on purpose: no media server has an opinion
+	 * about whether an episode counts, so there is nothing of the service's to
+	 * restore. Its baseline is simply false.
+	 */
+	ignored: boolean;
 }
 
 /** What the service said, as it stands right now. */
@@ -50,7 +58,10 @@ export const applyOverride = (
 	const reported = item.reported ?? snapshotReported(item);
 
 	// Always start from what the service said, so clearing one field does not leave the
-	// previous correction behind and so two edits in a row do not compound.
+	// previous correction behind and so two edits in a row do not compound. `ignored`
+	// has no reported counterpart — no media server has an opinion about whether an
+	// episode counts — so its baseline is simply false.
+	item.ignored = false;
 	item.libraryId = reported.libraryId;
 	item.title = reported.title;
 	item.year = reported.year;
@@ -75,6 +86,7 @@ export const applyOverride = (
 	if (override === null || override === undefined || Object.keys(override).length === 0) {
 		item.overrides = null;
 		item.reported = null;
+		item.ignored = false;
 		item.normalizedTitle = normalize(seriesOrOwn(item));
 
 		return;
@@ -112,6 +124,14 @@ export const applyOverride = (
 		// Merged rather than replaced: correcting a TVDB number should not throw away
 		// the IMDb one the service got right.
 		item.externalIds = { ...reported.externalIds, ...override.externalIds };
+	}
+
+	/*
+	 * Only an explicit `true` ignores. `undefined` leaves the baseline above, which is
+	 * what "I did not mention this field" has to mean for every field here.
+	 */
+	if (override.ignored !== undefined) {
+		item.ignored = override.ignored === true;
 	}
 
 	item.overrides = override;

@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
-import { SyncJobState, SyncTrigger } from '@mcs/shared';
+import { SyncJobState, SyncStopReason, SyncTrigger, type SyncScope, type TargetSpace } from '@mcs/shared';
 import { Timestampable } from './timestampable.entity';
 
 /**
@@ -57,6 +57,25 @@ export class SyncJob extends Timestampable {
 	@ApiProperty()
 	@Column({ type: 'bigint', default: 0 })
 	public bytesDone!: number;
+
+	/**
+	 * The scope it actually ran with, copied rather than referenced.
+	 *
+	 * A plan gets edited, and a job that read its scope back from the plan would
+	 * explain itself with somebody else's intent six months later.
+	 */
+	@ApiProperty()
+	@Column({ type: 'simple-json', default: '{}' })
+	public scope!: SyncScope;
+
+	/** Where it wrote and how much room was left, as measured at planning time. */
+	@ApiProperty()
+	@Column({ type: 'simple-json', default: '[]' })
+	public targets!: TargetSpace[];
+
+	@ApiProperty({ enum: SyncStopReason, nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public stoppedBy!: SyncStopReason | null;
 
 	@ApiProperty({ nullable: true })
 	@Column({ type: 'varchar', nullable: true })

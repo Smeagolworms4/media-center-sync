@@ -1,0 +1,998 @@
+{
+	"app": {
+		"name": "Media Center Sync",
+		"tagline": "Vos médias, où qu'ils soient",
+		"loading": "Démarrage de la passerelle…"
+	},
+	"nav": {
+		"dashboard": "Tableau de bord",
+		"library": "Médiathèque",
+		"services": "Services",
+		"peers": "Pairs",
+		"sync": "Synchronisation",
+		"transfers": "Transferts",
+		"settings": "Paramètres",
+		"shares": "Partages",
+		"users": "Utilisateurs"
+	},
+	"actions": {
+		"validate": "Valider",
+		"cancel": "Annuler",
+		"close": "Fermer",
+		"retry": "Réessayer",
+		"sign_in": "Se connecter",
+		"sign_out": "Se déconnecter",
+		"back_home": "Retour au tableau de bord",
+		"back": "Retour",
+		"refresh": "Rafraîchir",
+		"save": "Enregistrer",
+		"add": "Ajouter",
+		"copy": "Copier",
+		"copied": "Copié"
+	},
+	"auth": {
+		"title": "Connexion",
+		"subtitle": "Utilisez le compte que vous avez déjà sur l'un de vos services média.",
+		"subtitle_internal": "Connexion avec le compte propre à cette passerelle.",
+		"subtitle_service": "Connexion avec votre compte {provider}.",
+		"subtitle_external": "Connexion via {provider}.",
+		"provider": "Se connecter avec",
+		"provider_only": "Le seul accès que cette passerelle propose pour l'instant.",
+		"username": "Identifiant",
+		"password": "Mot de passe",
+		"redirect": "Continuer",
+		"redirect_hint": "Vous serez redirigé vers {provider} pour terminer la connexion.",
+		"no_provider_title": "Aucun moyen de connexion configuré",
+		"no_provider_text": "Cette passerelle n'a encore aucun fournisseur d'authentification. Enregistrez un service média, ou créez le premier compte interne en ligne de commande, puis rechargez cette page.",
+		"signed_out": "Vous avez été déconnecté.",
+		"session_restored": "Bon retour, {name}.",
+		"account": "Compte"
+	},
+	"setup": {
+		"title": "Premier démarrage",
+		"welcome": "Bienvenue dans {name}",
+		"tagline": "Une passerelle pour tous les serveurs média, les vôtres et ceux de vos amis.",
+		"intro": "Cette passerelle garde les serveurs média de la maison — et ceux de vos amis — d'accord entre eux. Rien n'a encore été configuré, et il n'y a qu'une chose à faire : créer le compte avec lequel vous vous connecterez.",
+		"promise": {
+			"index": "Indexer les Jellyfin et les Plex que vous faites déjà tourner.",
+			"friends": "Relier la passerelle d'un ami, et voir ce qu'il choisit de partager.",
+			"pull": "Récupérer ce qui manque ici, dans la bonne bibliothèque, nommé comme vous nommez le reste."
+		},
+		"account": "Le premier compte",
+		"account_help": "C'est un administrateur, et tant qu'aucun service média n'est enregistré, c'est le seul accès.",
+		"display_name": "Votre nom",
+		"display_name_hint": "Facultatif. Le nom que cette interface vous donne ; l'identifiant est ce avec quoi vous vous connectez.",
+		"confirmation": "Mot de passe, à nouveau",
+		"password_hint": "Au moins {min} caractères. Cette passerelle finira peut-être par être joignable depuis l'extérieur.",
+		"action": "Créer le compte et commencer",
+		"why_no_default": "Il n'y a pas de mot de passe par défaut, et c'est délibéré : en livrer un sur une machine joignable depuis un réseau, c'est ainsi qu'un inconnu trouve une passerelle. Cet écran n'est ouvert que tant qu'aucun compte n'existe, et se ferme définitivement dès qu'il y en a un.",
+		"version": "Passerelle version {version}",
+		"already_claimed": "Cette passerelle vient d'être configurée. Connectez-vous avec le compte qui a été créé.",
+		"failed": "Le compte n'a pas pu être créé."
+	},
+	"theme": {
+		"toggle": "Changer de thème",
+		"light": "Clair",
+		"dark": "Sombre"
+	},
+	"locale": {
+		"label": "Langue",
+		"en": "English",
+		"fr": "Français",
+		"es": "Español",
+		"pt": "Português",
+		"ru": "Русский",
+		"de": "Deutsch",
+		"it": "Italiano",
+		"zh": "中文"
+	},
+	"connection": {
+		"label": "Mises à jour en direct",
+		"online": "En direct",
+		"connecting": "Connexion…",
+		"offline": "Hors ligne"
+	},
+	"common": {
+		"empty_title": "Rien ici",
+		"empty_text": "Il n'y a encore rien à afficher.",
+		"error_title": "Une erreur est survenue",
+		"error_text": "La passerelle n'a pas répondu. Réessayez dans un instant.",
+		"never": "jamais",
+		"unknown": "inconnu",
+		"yes": "Oui",
+		"no": "Non",
+		"placeholder": "Cette page n'est pas encore construite.",
+		"copy_failed": "La copie a échoué. Sélectionnez la valeur et copiez-la à la main."
+	},
+	"general": {
+		"byte_unit": "o"
+	},
+	"cron": {
+		"describe": {
+			"every_minute": "Chaque minute.",
+			"every_n_minutes": "Toutes les {count} minutes.",
+			"every_n_hours": "Toutes les {count} heures, à {minute} minutes.",
+			"hourly_at": "Chaque heure, à {minute} minutes.",
+			"daily_at": "Chaque jour à {time}.",
+			"weekly_at": "Chaque {day} à {time}.",
+			"monthly_at": "Le {day} de chaque mois, à {time}.",
+			"custom": "Une planification que cet écran ne sait pas mettre en mots. Elle reste valide.",
+			"invalid": "Cinq champs sont attendus, par exemple 0 4 * * *."
+		},
+		"day": {
+			"0": "dimanche",
+			"1": "lundi",
+			"2": "mardi",
+			"3": "mercredi",
+			"4": "jeudi",
+			"5": "vendredi",
+			"6": "samedi"
+		}
+	},
+	"dashboard": {
+		"subtitle": "Ce qu'il faut savoir de cette passerelle, maintenant.",
+		"services": "Services média",
+		"services_offline": "{count} sans réponse",
+		"services_all_online": "Tous répondent",
+		"missing": "Manquants ici",
+		"missing_hint": "Connus ailleurs, absents ici",
+		"active_transfers": "Transferts en cours",
+		"queued": "{count} en attente",
+		"peers": "Pairs",
+		"peers_unreachable": "{count} injoignables",
+		"needs_attention": "À traiter",
+		"all_well_title": "Rien à traiter",
+		"all_well_text": "Tous les services répondent, toutes les bibliothèques sont accessibles en écriture, et aucun transfert n'a échoué.",
+		"recent_jobs": "Dernières exécutions",
+		"no_jobs_title": "Aucune synchronisation exécutée",
+		"no_jobs_text": "Créez un plan, ou lancez une synchronisation depuis une page média.",
+		"go_to_sync": "Ouvrir la synchronisation",
+		"all_jobs": "Voir toutes les exécutions",
+		"problem": {
+			"library_not_writable": "{name} n'est pas accessible en écriture — les transferts atterriraient là où votre serveur ne regarde jamais",
+			"service_offline": "{name} ne répond pas",
+			"service_unauthorized": "{name} a refusé la passerelle — vérifiez son jeton",
+			"peer_unreachable": "{name} est injoignable",
+			"transfer_failed": "{name} a échoué"
+		}
+	},
+	"library": {
+		"title": "Bibliothèques",
+		"subtitle": "Tout ce que la passerelle a indexé, sur tous les services.",
+		"empty_title": "Aucun résultat",
+		"empty_text": "Aucun média indexé ne correspond à ces filtres. Élargissez-les, ou analysez d'abord un service.",
+		"empty_service_title": "Aucune bibliothèque",
+		"empty_service_text": "Ce service n'a signalé aucune bibliothèque. Analysez-le, ou vérifiez ses identifiants.",
+		"select_all": "Tout sélectionner sur cette page",
+		"select": "Sélectionner",
+		"selected_count": "aucune sélection | {count} sélectionné | {count} sélectionnés",
+		"see_all": "Ouvrir",
+		"section_count": "aucun élément | {count} élément | {count} éléments",
+		"section_empty": "Rien dans cette catégorie ne correspond à ces filtres.",
+		"section_latest": "ajouts récents",
+		"section_local": "À nous",
+		"everything": "Toutes catégories confondues",
+		"categories": "Vos bibliothèques",
+		"categories_hint": "Les bibliothèques du même nom, sur tous les serveurs, vues comme une seule.",
+		"view": {
+			"grid": "Affiches",
+			"list": "Liste"
+		},
+		"sync_selected": "Synchroniser {count} élément(s)",
+		"sync_started": "La synchronisation a été mise en file.",
+		"saved": "Bibliothèque enregistrée.",
+		"alias": "Nom ici",
+		"position": "Ordre",
+		"naming_help": "Le nom appartient à cette passerelle : le service garde celui qu'il annonce, et une analyse ne peut pas défaire ce choix. L'ordre va du plus petit au plus grand, et décide aussi quelle catégorie l'emporte quand un même média est rangé dans deux d'entre elles.",
+		"category_is": "Affichée comme « {name} »",
+		"category_merged": "fusionnée avec {count} autre bibliothèque de ce nom | fusionnée avec {count} autres bibliothèques de ce nom",
+		"category_alone": "catégorie à elle seule",
+		"category_unknown": "Les catégories n'ont pas encore été lues.",
+		"reported_name": "Le service l'appelle « {name} ».",
+		"local_path": "Chemin local",
+		"local_path_hint": "Là où la passerelle voit ces fichiers. Ce doit être le même répertoire que celui que lit votre serveur média.",
+		"reported_paths": "Signalé par le service",
+		"default_target": "Cible par défaut",
+		"free_space": "Espace libre",
+		"check_failed": "Ce chemin n'a pas pu être vérifié.",
+		"item_count": "{count} élément | {count} élément | {count} éléments",
+		"unwritable_warning": "{count} de ces bibliothèques ne sont pas accessibles en écriture : rien ne peut y être récupéré.",
+		"kind": {
+			"movies": "Films",
+			"shows": "Séries",
+			"music": "Musique",
+			"other": "Autre"
+		},
+		"problem": {
+			"no_path": "Aucun chemin local n'est défini : la passerelle ne peut pas écrire dans cette bibliothèque.",
+			"missing": "Ce chemin n'existe pas tel que la passerelle le voit.",
+			"unreadable": "La passerelle ne peut pas lire ce chemin.",
+			"not_writable": "La passerelle ne peut pas écrire ici : aucun transfert ne peut atterrir dans cette bibliothèque."
+		}
+	},
+	"category": {
+		"empty": "Aucune catégorie pour l'instant. Enregistrez un service média et analysez-le : ses bibliothèques apparaîtront ici.",
+		"local": "À nous",
+		"libraries": "aucune bibliothèque | {count} bibliothèque | {count} bibliothèques"
+	},
+	"media": {
+		"children": "Contenu",
+		"child_count": "aucun élément | {count} élément | {count} éléments",
+		"no_children_title": "Rien sous cet élément",
+		"no_children_text": "Cet élément n'a ni saison, ni épisode, ni membre dans l'index.",
+		"season_episode": "S{season}E{episode}",
+		"held_by": "détenu par {services}",
+		"missing_count": "rien ne manque | {count} manquant | {count} manquants",
+		"sync_this": "Synchroniser",
+		"sync_missing": "Récupérer {count} manquant(s)",
+		"column": {
+			"title": "Titre",
+			"kind": "Type",
+			"year": "Année",
+			"sources": "Détenu par",
+			"quality": "Qualité",
+			"size": "Taille"
+		},
+		"kind": {
+			"movie": "Film",
+			"series": "Série",
+			"season": "Saison",
+			"episode": "Épisode",
+			"collection": "Collection"
+		},
+		"filter": {
+			"search": "Rechercher",
+			"service": "Service",
+			"services": "Serveurs",
+			"library": "Bibliothèque",
+			"origin": "Provenance",
+			"kind": "Type",
+			"state": "État",
+			"sort": "Trier par",
+			"clear": "Effacer les filtres"
+		},
+		"sort": {
+			"title": "Titre",
+			"year": "Année",
+			"added_at": "Ajouts récents",
+			"latest_first": "Ajouts les plus récents d'abord"
+		},
+		"origin": {
+			"local": "À nous",
+			"direct": "Direct",
+			"friend": "Amis",
+			"friend_of_friend": "Amis d'amis",
+			"unknown": "Une autre passerelle"
+		},
+		"origin_help": {
+			"local": "Un serveur dans lequel cette passerelle peut écrire.",
+			"direct": "Un serveur distant enregistré ici — une deuxième machine à vous, ou un serveur public.",
+			"friend": "Via un pair auquel vous vous êtes lié vous-même.",
+			"friend_of_friend": "Via un pair présenté par l'un de vos amis. Personne ici ne lui a jamais donné son accord."
+		},
+		"source": {
+			"title": "Récupérer depuis",
+			"follow_priority": "Suivre la priorité configurée",
+			"follow_priority_hint": "({name} en premier actuellement)",
+			"priority": "priorité {priority}",
+			"via_peer": "via {peer}",
+			"ours": "à nous",
+			"held_here": "Un de vos propres services le détient.",
+			"not_held_here": "Seul un autre serveur le détient.",
+			"none": "Aucun service ne détient cet élément."
+		},
+		"match": {
+			"title": "Corrélations",
+			"action": "Corrélations",
+			"empty_title": "Aucune corrélation",
+			"empty_text": "Rien d'autre dans l'index n'a encore été associé à cet élément.",
+			"strategy": {
+				"checksum": "Même empreinte",
+				"external_id": "Même identifiant externe",
+				"season_episode": "Même saison et épisode",
+				"normalized_title": "Titre similaire",
+				"path": "Même chemin",
+				"manual": "Confirmé à la main"
+			},
+			"confidence": "confiance {value} %",
+			"confirm": "Confirmer",
+			"confirmed": "Corrélation confirmée.",
+			"confirmed_at": "confirmée",
+			"removed": "Corrélation supprimée."
+		}
+	},
+	"override": {
+		"title": "Corriger cet élément",
+		"action": "Corriger",
+		"intro": "Ce qu'un serveur média a mal rangé, corrigé ici et nulle part ailleurs. La correction atteint la catégorie où l'élément apparaît, les corrélations et le classement — et la prochaine analyse la réapplique au lieu de l'effacer.",
+		"clear_help": "Laisser un champ tranquille conserve ce que le service en dit. La gomme supprime la valeur, et c'est ainsi qu'on se débarrasse d'une année inventée par un scraper.",
+		"library": "Bibliothèque",
+		"library_hint": "La bibliothèque dont il relève, donc la catégorie sous laquelle il apparaît.",
+		"identifiers": "Identifiants",
+		"identifiers_hint": "Ce qui rend une corrélation fiable : deux serveurs numérotent le même épisode différemment et s'accordent pourtant sur un identifiant TVDB.",
+		"restore": "Rétablir ce que le service a annoncé",
+		"saved": "Correction enregistrée.",
+		"restored": "La réponse du service est rétablie.",
+		"failed": "Cette correction a été refusée.",
+		"changed_count": "rien de changé | {count} champ modifié | {count} champs modifiés",
+		"field": {
+			"title": "Titre",
+			"series_title": "Nom de la série",
+			"series_title_hint": "Pour un épisode : le nom dont son dossier porte le nom.",
+			"year": "Année",
+			"season": "Saison",
+			"episode": "Épisode",
+			"overview": "Résumé"
+		},
+		"id": {
+			"tvdb": "TVDB",
+			"tmdb": "TMDB",
+			"imdb": "IMDb"
+		},
+		"state": {
+			"was": "Le service annonce « {value} ».",
+			"was_empty": "Le service n'annonce rien ici.",
+			"cleared": "Vidé : ce champ reste vide quoi que dise le service.",
+			"cleared_was": "Vidé : le service annonce « {value} », et cette passerelle l'ignore."
+		}
+	},
+	"service": {
+		"subtitle": "Les serveurs média que cette passerelle lit et alimente.",
+		"add": "Ajouter un service",
+		"edit": "Modifier le service",
+		"saved": "Service enregistré.",
+		"removed": "Service supprimé.",
+		"empty_title": "Aucun service enregistré",
+		"empty_text": "Enregistrez le Jellyfin ou le Plex que vous utilisez déjà, et la passerelle l'indexera.",
+		"counts": "{libraries} bibliothèques · {items} éléments",
+		"last_scan": "Dernière analyse complète",
+		"last_probe": "Dernière vérification",
+		"remove_title": "Supprimer ce service ?",
+		"remove_confirm": "{name} et tout ce qui en a été indexé seront retirés de la passerelle. Les fichiers eux-mêmes ne sont pas touchés.",
+		"scan_started": "Une analyse complète a démarré. Sa progression s'affiche ici.",
+		"refresh_started": "Un rafraîchissement a démarré.",
+		"status": {
+			"unknown": "Non vérifié",
+			"online": "Répond",
+			"offline": "Ne répond pas",
+			"unauthorized": "Refusé"
+		},
+		"scope": {
+			"local": "Local — peut recevoir des fichiers",
+			"remote": "Distant — lecture seule"
+		},
+		"field": {
+			"name": "Nom",
+			"type": "Type",
+			"scope": "Portée",
+			"base_url": "Adresse",
+			"base_url_hint": "Avec le port, par exemple http://192.168.0.10:8096",
+			"token": "Jeton d'API",
+			"token_hint": "Créé dans le serveur média lui-même. Il n'est jamais réaffiché une fois enregistré.",
+			"token_hint_edit": "Laissez vide pour conserver le jeton déjà enregistré.",
+			"priority": "Priorité",
+			"priority_hint": "La plus basse d'abord quand le même média est disponible sur plusieurs services.",
+			"auth_provider": "Se connecter avec ce service",
+			"auth_provider_hint": "Ses comptes deviennent des moyens d'accès à cette passerelle."
+		},
+		"probe": {
+			"action": "Tester la connexion",
+			"ok": "{name} joint, version {version}.",
+			"ok_short": "Le service a répondu.",
+			"failed": "Le service n'a pas répondu, ou a refusé les identifiants.",
+			"libraries": "aucune bibliothèque trouvée | {count} bibliothèque trouvée | {count} bibliothèques trouvées",
+			"unauthorized": "Le service a répondu mais a refusé ces identifiants. Vérifiez le jeton.",
+			"unreachable": "Le service n'a pas pu être joint à cette adresse."
+		},
+		"action": {
+			"probe": "Vérifier",
+			"scan": "Analyse complète",
+			"refresh": "Rafraîchir"
+		}
+	},
+	"peer": {
+		"subtitle": "Les autres passerelles auxquelles celle-ci est liée.",
+		"name": "Nom",
+		"empty_title": "Aucun pair lié",
+		"empty_text": "Collez l'empreinte d'un ami, ou donnez-lui une invitation — les deux relient les passerelles.",
+		"shares": "{services} services · {items} éléments partagés",
+		"last_seen": "vu",
+		"relay_hint": "Ce lien passe par le rendez-vous, dont la bande passante est partagée par tous ceux qui l'utilisent.",
+		"remove_title": "Supprimer ce pair ?",
+		"remove_confirm": "Le lien avec {name} sera rompu. Ce qui a déjà été récupéré reste.",
+		"connecting": "Connexion au pair…",
+		"blocked": "Pair bloqué.",
+		"unblocked": "Pair débloqué.",
+		"renamed": "Pair renommé.",
+		"removed": "Pair supprimé.",
+		"linked": "Pair lié.",
+		"approved": "Demande acceptée.",
+		"browse": "Parcourir ce qu'il partage",
+		"open_in_library": "Ouvrir dans la médiathèque",
+		"no_libraries": "Ce service n'a signalé aucune bibliothèque.",
+		"no_services_title": "Rien ne nous est partagé",
+		"no_services_text": "Ce pair ne nous a partagé aucun service, ou n'a pas encore été joint.",
+		"pull_all": "Récupérer tout ce qui manque",
+		"pull_missing": "Récupérer ce qui manque",
+		"pull_started": "La récupération a été mise en file.",
+		"direction": {
+			"incoming": "En attente de vous",
+			"outgoing": "En attente d'eux",
+			"incoming_hint": "Cette passerelle demande à se relier à la vôtre. Acceptez, ou bloquez-la.",
+			"outgoing_hint": "Demande envoyée. Rien à faire ici tant qu'ils n'ont pas accepté."
+		},
+		"add": {
+			"tab": "Par empreinte",
+			"hint": "Un lien demande seulement que chaque côté connaisse l'empreinte de l'autre. Collez la leur, ils reçoivent une demande affichant la vôtre.",
+			"fingerprint": "Leur empreinte",
+			"fingerprint_hint": "Telle que leur propre passerelle l'affiche, sous « Cette passerelle ».",
+			"address": "Leur adresse",
+			"address_hint": "Facultatif. Essayée en premier quand vous la connaissez ; sinon le rendez-vous les trouve.",
+			"action": "Envoyer la demande"
+		},
+		"status": {
+			"pending": "Lien en attente",
+			"linked": "Lié",
+			"unreachable": "Injoignable",
+			"blocked": "Bloqué"
+		},
+		"trust": {
+			"friend": "Ami",
+			"friend_of_friend": "Ami d'un ami",
+			"friend_of_friend_via": "Ami d'un ami, via {peer}"
+		},
+		"link_mode": {
+			"direct": "Lien direct",
+			"relay": "Via le relais"
+		},
+		"identity": {
+			"title": "Cette passerelle",
+			"node_id": "Identifiant de nœud",
+			"node_id_help": "Le nom stable de cette passerelle sur tout le réseau partagé. Généré une fois, et délibérément différent de l'empreinte : changer de clé ne doit pas la faire passer pour un nouveau participant. C'est ce que l'on cite quand une annonce venue d'un ami d'ami tourne en rond.",
+			"fingerprint": "Empreinte",
+			"rendezvous": "Rendez-vous",
+			"direct_address": "Adresse directe",
+			"direct_ok": "Les connexions directes sont possibles : les transferts ne passent pas par le relais.",
+			"relay_only": "Seuls les liens relayés sont possibles. Tout fonctionne, mais les transferts partagent le rendez-vous avec tous les autres. Ouvrir le port des pairs supprimerait cette limite."
+		},
+		"invite": {
+			"open": "Relier une passerelle",
+			"title": "Lier deux passerelles",
+			"create_tab": "Inviter quelqu'un",
+			"accept_tab": "Accepter une invitation",
+			"create_hint": "Une invitation porte l'empreinte de cette passerelle et un secret à usage unique. Elle expire, et elle se consomme à l'usage.",
+			"create_action": "Créer une invitation",
+			"url": "Lien d'invitation",
+			"code": "Code d'invitation",
+			"expires": "Expire",
+			"one_shot": "elle ne peut servir qu'une fois.",
+			"paste": "Lien ou code d'invitation",
+			"name": "Nommer ce pair",
+			"name_hint": "Facultatif. Le nom sous lequel cette passerelle apparaîtra dans vos listes.",
+			"accept_action": "Accepter"
+		},
+		"catalogue": {
+			"empty_title": "Rien à afficher",
+			"empty_text": "Cette bibliothèque est vide, ou rien n'y est partagé avec nous."
+		},
+		"action": {
+			"approve": "Accepter",
+			"connect": "Connecter maintenant",
+			"rename": "Renommer",
+			"block": "Bloquer",
+			"unblock": "Débloquer"
+		}
+	},
+	"share": {
+		"subtitle": "Ce que cette passerelle expose, décidé bibliothèque par bibliothèque.",
+		"libraries": "Bibliothèques",
+		"no_libraries_title": "Aucune bibliothèque à partager",
+		"no_libraries_text": "Enregistrez d'abord un service ; ses bibliothèques apparaîtront ici.",
+		"visibility": "Qui peut la voir",
+		"make_private": "Rendre privée",
+		"made_private": "Cette bibliothèque est de nouveau privée.",
+		"saved": "Partage enregistré.",
+		"allowed": "Toujours autorisés",
+		"allowed_hint": "Ces pairs voient cette bibliothèque quoi que dise la règle ci-dessus.",
+		"denied": "Toujours refusés",
+		"denied_hint": "Ces pairs ne la voient jamais, quoi que dise la règle ci-dessus.",
+		"rate_limit": "Limite de bande passante",
+		"rate_limit_hint": "Ce que cette bibliothèque sert, par exemple 2M. Vide signifie sans limite.",
+		"rate_summary": {
+			"global": "Tout ce que cette passerelle envoie est limité à {rate}.",
+			"global_none": "Aucune limite globale en envoi : cette passerelle envoie aussi vite que le lien le permet.",
+			"libraries": "Bibliothèques qui limitent elles-mêmes ce qu'elles servent :",
+			"libraries_none": "Aucune bibliothèque ne limite elle-même ce qu'elle sert."
+		},
+		"visibility_value": {
+			"private": "Personne",
+			"friends": "Mes pairs",
+			"friends_of_friends": "Mes pairs et les leurs"
+		},
+		"visibility_help": {
+			"private": "Rien n'est partagé. Une bibliothèque sans règle est privée.",
+			"friends": "Les passerelles que vous avez liées vous-même.",
+			"friends_of_friends": "Vos pairs, et ceux qu'ils présentent."
+		},
+		"audit": {
+			"title": "Ce qu'un pair verrait",
+			"peer": "Pair",
+			"hint": "Choisissez un pair pour voir exactement ce que cette passerelle lui montrerait, avant d'enregistrer.",
+			"intro": "{peer} est un {trust}. Il verrait :",
+			"nothing_title": "Rien du tout",
+			"nothing_text": "Ce pair ne voit aucune de vos bibliothèques."
+		}
+	},
+	"user": {
+		"subtitle": "Qui peut se connecter, et ce qui lui est permis.",
+		"empty_title": "Aucun compte",
+		"empty_text": "Personne ne s'est encore connecté à cette passerelle.",
+		"mirrored_hint": "Miroir d'un service média : la passerelle ne possède ni l'identifiant ni le mot de passe, ils ne peuvent donc pas être changés ici. Le rôle, si.",
+		"role_saved": "Rôle enregistré.",
+		"removed": "Compte supprimé.",
+		"remove_title": "Supprimer ce compte ?",
+		"remove_confirm": "{name} ne pourra plus se connecter à cette passerelle.",
+		"column": {
+			"username": "Compte",
+			"provider": "Se connecte avec",
+			"role": "Rôle",
+			"last_seen": "Vu"
+		},
+		"role": {
+			"admin": "Administrateur",
+			"user": "Utilisateur",
+			"guest": "Invité"
+		}
+	},
+	"settings": {
+		"subtitle": "Comment cette passerelle range, récupère et indexe.",
+		"saved": "Paramètres enregistrés.",
+		"group": {
+			"placement": "Où atterrissent les fichiers",
+			"transfers": "Transferts",
+			"categories": "Catégories",
+			"peers": "Pairs et partage",
+			"index": "Index et cache"
+		},
+		"placement": "Rangement",
+		"placement_value": {
+			"beside_existing": "À côté de notre propre copie",
+			"default_library": "Dans la bibliothèque par défaut",
+			"fixed_path": "Dans un chemin fixe"
+		},
+		"placement_help": {
+			"beside_existing": "Garde en ordre une médiathèque déjà en ordre, et fait ce qu'il faut pour les collections.",
+			"default_library": "Chaque type va dans la bibliothèque marquée comme sa cible par défaut.",
+			"fixed_path": "Tout va dans un seul répertoire, quel que soit le média."
+		},
+		"fixed_path": "Chemin fixe",
+		"fixed_path_help": "Un chemin absolu où la passerelle peut écrire, par exemple /media/incoming.",
+		"naming": "Nommage",
+		"naming_value": {
+			"source": "Garder le nom de la source",
+			"local": "Suivre notre propre médiathèque",
+			"standard": "Schéma standard"
+		},
+		"naming_help": {
+			"source": "Le fichier arrive avec le nom que la source lui donne.",
+			"local": "Renommé comme votre propre médiathèque nomme déjà les choses.",
+			"standard": "Série (Année)/Saison 01/Série - S01E02 - Titre.ext"
+		},
+		"pull_metadata": "Récupérer aussi les métadonnées",
+		"pull_metadata_help": "Copie les jaquettes, les sous-titres et les fichiers .nfo à côté du média.",
+		"prefer_source_metadata": "Préférer les métadonnées de la source",
+		"prefer_source_metadata_help": "Remplace les métadonnées locales quand celles de la source sont plus riches.",
+		"max_parallel": "Transferts simultanés",
+		"max_parallel_help": "Combien de fichiers sont récupérés en même temps.",
+		"max_connections": "Connexions par source",
+		"max_connections_help": "Combien de plages un transfert demande en même temps à une seule source.",
+		"chunk_size": "Taille des morceaux",
+		"chunk_size_help": "Ce qu'il faut re-télécharger quand une vérification échoue, par exemple 4M.",
+		"download_rate_limit": "Limite en téléchargement",
+		"upload_rate_limit": "Limite en envoi",
+		"rate_limit_help": "Par exemple 10M. Vide signifie sans limite.",
+		"upload_rate_limit_help": "Par exemple 10M. Vide signifie sans limite. Cela bride tout ce que cette passerelle envoie, y compris ce que les pairs y récupèrent.",
+		"categories_help": "Les bibliothèques de même nom forment une catégorie, et voici l'ordre dans lequel elles apparaissent. Une bibliothèque se renomme et se réordonne sur le service qui la détient.",
+		"categories_edit": "Renommer ou réordonner une bibliothèque",
+		"history_days": "Conserver les transferts terminés",
+		"history_days_help": "En jours. Passé ce délai, ils quittent la file.",
+		"friends_of_friends": "Autoriser les amis d'amis",
+		"friends_of_friends_help": "Permet aux pairs que vos pairs présentent d'atteindre cette passerelle.",
+		"swarm": "Autoriser l'essaim",
+		"swarm_help": "Plusieurs pairs détenant le même fichier peuvent alimenter un même transfert.",
+		"rendezvous": "Rendez-vous",
+		"rendezvous_help": "Le serveur qui présente deux passerelles pour qu'elles ouvrent un lien direct.",
+		"match_threshold": "Seuil de corrélation",
+		"match_threshold_help": "En dessous de ce score, une corrélation est proposée plutôt qu'appliquée.",
+		"refresh_interval": "Rafraîchir toutes les (minutes)",
+		"refresh_interval_help": "À quelle fréquence chaque service est interrogé sur ses nouveautés. Peu coûteux, et c'est ce qui garde l'index à jour.",
+		"cache_ttl": "Durée du cache (secondes)",
+		"cache_ttl_help": "Combien de temps une réponse de service reste valable. Assez longtemps pour que dix onglets ouverts coûtent une requête.",
+		"full_scan": "Planification de l'analyse complète",
+		"full_scan_help": "Un rafraîchissement ne voit que ce qu'un service annonce comme nouveau. Vide désactive le passage planifié ; le bouton fonctionne toujours."
+	},
+	"sync": {
+		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",
+		"plans": "Plans",
+		"jobs": "Dernières exécutions",
+		"no_plans_title": "Aucun plan",
+		"no_plans_text": "Un plan dit quoi récupérer, depuis où, vers où — à la main, sur une planification, ou dès qu'une source annonce une nouveauté.",
+		"no_jobs_title": "Aucune exécution",
+		"no_jobs_text": "Les exécutions apparaissent ici dès qu'un plan se déclenche ou qu'une synchronisation est lancée à la main.",
+		"run_started": "La synchronisation a été mise en file.",
+		"job_cancelled": "L'exécution a été annulée.",
+		"plan_saved": "Plan enregistré.",
+		"plan_removed": "Plan supprimé.",
+		"state": {
+			"local_only": "Uniquement ici",
+			"missing": "Manquant ici",
+			"in_sync": "Synchronisé",
+			"outdated": "Obsolète",
+			"conflict": "Conflit",
+			"syncing": "En cours",
+			"unknown": "Non corrélé"
+		},
+		"state_help": {
+			"local_only": "Présent ici et sur aucun autre service connu.",
+			"missing": "Un autre service le possède, pas celui-ci. Une synchronisation le récupère.",
+			"in_sync": "Présent des deux côtés, même version.",
+			"outdated": "Présent ici, mais une meilleure version existe ailleurs.",
+			"conflict": "Deux versions non comparables — montages ou langues différents.",
+			"syncing": "Un transfert est en cours pour cet élément.",
+			"unknown": "Pas encore corrélé avec les autres services."
+		},
+		"trigger": {
+			"manual": "Manuelle",
+			"schedule": "Planifiée",
+			"on_new": "À chaque nouveauté"
+		},
+		"trigger_help": {
+			"manual": "Ne s'exécute que lorsque quelqu'un le demande.",
+			"schedule": "S'exécute selon l'expression cron ci-dessous.",
+			"on_new": "S'exécute dès qu'une source annonce quelque chose qui passe les filtres."
+		},
+		"job_state": {
+			"pending": "En attente",
+			"running": "En cours",
+			"paused": "En pause",
+			"done": "Terminée",
+			"failed": "Échouée",
+			"cancelled": "Annulée"
+		},
+		"job": {
+			"manual": "Synchronisation ponctuelle",
+			"items": "{done} éléments sur {planned}",
+			"failed": "{count} en échec"
+		},
+		"plan": {
+			"create": "Nouveau plan",
+			"subtitle": "Quoi récupérer, depuis où, vers où.",
+			"name": "Nom",
+			"enabled": "Actif",
+			"disabled": "Désactivé",
+			"enable": "Activer",
+			"disable": "Désactiver",
+			"trigger": "Déclenchement",
+			"schedule": "Expression cron",
+			"sources": "Sources",
+			"sources_default": "Aucune source fixée : le plan suit la priorité des services définie dans les paramètres, ce qui convient à presque tout le monde.",
+			"sources_ordered": "Consultées dans cet ordre.",
+			"add_source": "Ajouter une source",
+			"target": "Bibliothèque cible",
+			"target_hint": "Vide signifie : à côté de notre propre copie, ou dans la cible par défaut de ce type.",
+			"root": "Élément racine",
+			"root_hint": "Facultatif. L'identifiant d'une série ou d'une collection, pour restreindre le plan à ce sous-arbre.",
+			"filters": "Filtres",
+			"kinds": "Types",
+			"min_year": "À partir de l'année",
+			"max_bytes": "Fichier le plus gros",
+			"max_bytes_hint": "Par exemple 8G. Vide signifie sans limite.",
+			"title_matches": "Le titre contient",
+			"missing_only": "Ne récupérer que ce qui manque",
+			"replace_outdated": "Remplacer aussi un fichier local quand il en existe un meilleur",
+			"run_now": "Exécuter",
+			"last_run": "Dernière exécution",
+			"next_run": "prochaine",
+			"remove_title": "Supprimer ce plan ?",
+			"remove_confirm": "{name} ne s'exécutera plus. Rien de ce qui a déjà été récupéré n'est touché."
+		},
+		"preview": {
+			"title": "Ce qui serait récupéré",
+			"action": "Prévisualiser",
+			"run": "Lancer",
+			"summary": "Rien à récupérer | {count} élément à récupérer | {count} éléments à récupérer",
+			"item": "Élément",
+			"source": "Depuis",
+			"target_path": "Vers",
+			"bytes": "Taille",
+			"empty_title": "Rien à récupérer",
+			"empty_text": "Avec ces sources et ces filtres, tout est déjà là."
+		}
+	},
+	"companions": {
+		"title": "À côté du fichier",
+		"complete": "Rien de connu ne manque",
+		"missing": "manquant : {list}",
+		"present": "présent",
+		"absent": "absent",
+		"never_checked": "Jamais inspecté",
+		"never_checked_help": "La passerelle ne lit ce qui accompagne un fichier que dans une bibliothèque dont elle connaît le chemin. Cela ne dit rien de la présence des fichiers.",
+		"checked_at": "lu",
+		"scan": "Lancer une analyse",
+		"scan_started": "L'analyse a été mise en file.",
+		"part": {
+			"nfo": "Métadonnées (.nfo)",
+			"poster": "Affiche",
+			"fanart": "Fanart",
+			"subtitles": "Sous-titres"
+		}
+	},
+	"quality": {
+		"mixed": "mixte",
+		"unknown": "qualité inconnue",
+		"summary": "{count} fichier | {count} fichiers",
+		"total": "Total {size}",
+		"variant_count": "{count} fichier | {count} fichiers"
+	},
+	"bandwidth": {
+		"title": "Bande passante",
+		"current": "{rate} en ce moment",
+		"download": "Plafond de réception",
+		"upload": "Plafond d'envoi",
+		"custom": "Personnalisé",
+		"no_cap": "Sans limite",
+		"apply": "Appliquer",
+		"saved": "Les plafonds ont été appliqués.",
+		"hint": "Appliqué à tous les transferts ensemble, dès qu'il est défini. Un champ vide signifie aucune limite.",
+		"unit": {
+			"kb": "Ko/s",
+			"mb": "Mo/s"
+		}
+	},
+	"transfer": {
+		"subtitle": "Ce qui est récupéré, auprès de qui, et ce qui a échoué.",
+		"eta": "il reste {time}",
+		"no_eta": "temps restant inconnu",
+		"no_source": "aucune source",
+		"sources": "aucune source | {count} source | {count} sources",
+		"sources_title": "Sources qui alimentent ce transfert",
+		"swarm_sources": "Essaim de {count}",
+		"unhealthy_sources": "{count} en échec",
+		"source_unhealthy": "ne sert plus",
+		"connections": "{count} connexion | {count} connexion | {count} connexions",
+		"via_peer": "via {peer}",
+		"target_path": "Atterrit dans",
+		"filter_state": "État",
+		"empty_title": "La file est vide",
+		"empty_text": "Rien n'est en cours de récupération. Lancez une synchronisation, ou récupérez un élément depuis une page média.",
+		"paused_badge": "En pause",
+		"paused_hint": "Maintenu là où il s'est arrêté : ses morceaux sont conservés, et la reprise repart d'ici.",
+		"queue_paused": "La file est en pause — {count} transferts attendent là où ils se sont arrêtés.",
+		"resume_all": "Tout reprendre",
+		"resumed_all": "La file repart.",
+		"replanned": "L'élément a été replanifié.",
+		"revalidated": "Un transfert a changé d'avis après avoir interrogé sa source.",
+		"verify_ok": "Le fichier sur le disque est intact.",
+		"verify_corrupt": "Le fichier sur le disque ne correspond pas. La réparation ne re-téléchargera que les morceaux fautifs.",
+		"state": {
+			"queued": "En attente",
+			"connecting": "Connexion",
+			"downloading": "Téléchargement",
+			"paused": "En pause",
+			"verifying": "Vérification",
+			"repairing": "Réparation",
+			"placing": "Rangement",
+			"done": "Terminé",
+			"failed": "Échoué",
+			"cancelled": "Annulé"
+		},
+		"transport": {
+			"http_range": "HTTP par plages vers le service",
+			"peer_direct": "Lien direct vers le pair",
+			"peer_relay": "Relayé par le rendez-vous",
+			"swarm": "Essaim — plusieurs pairs alimentent ensemble"
+		},
+		"stats": {
+			"active": "En cours",
+			"queued": "En attente",
+			"paused": "En pause",
+			"failed": "En échec",
+			"rate": "Débit total",
+			"remaining": "restant à récupérer"
+		},
+		"verification": {
+			"ok": "Vérifié : {count} morceaux contrôlés, tous intacts.",
+			"corrupt": "Vérifié : {count} morceaux ne correspondent pas et doivent revenir."
+		},
+		"chunks": {
+			"title": "Morceaux",
+			"empty": "Ce transfert n'a pas encore de carte des morceaux.",
+			"cell": "morceaux {from} à {to}",
+			"scale": "chaque case représente {count} morceaux"
+		},
+		"chunk_state": {
+			"pending": "En attente",
+			"active": "En vol",
+			"done": "Détenu",
+			"failed": "Échoué",
+			"corrupt": "Corrompu"
+		},
+		"error_kind": {
+			"source_gone": "La source ne le détient plus",
+			"source_unauthorized": "La source nous a refusés",
+			"network": "La connexion a échoué",
+			"checksum_mismatch": "Les morceaux ne correspondent pas à leurs empreintes",
+			"disk_full": "Plus d'espace disque",
+			"permission_denied": "La passerelle ne peut pas écrire là",
+			"target_missing": "Le répertoire cible a disparu",
+			"cancelled": "Arrêté volontairement",
+			"unknown": "Arrêté pour une raison indéterminée"
+		},
+		"error_help": {
+			"source_gone": "Le fichier a été déplacé, supprimé ou réencodé. Il faut une autre source ; réessayer retomberait sur la même absence.",
+			"source_unauthorized": "Le serveur distant a répondu et a dit non. Ce sont ses identifiants qu'il faut corriger.",
+			"network": "Une panne passagère — c'est le seul cas qu'un nouvel essai résout vraiment.",
+			"checksum_mismatch": "Les morceaux sont vérifiés un par un : une réparation coûte quelques mégaoctets, pas le fichier entier.",
+			"disk_full": "La bibliothèque cible n'a plus de place. Il faut une autre bibliothèque, ou de l'espace.",
+			"permission_denied": "Le répertoire existe mais la passerelle ne peut pas y écrire.",
+			"target_missing": "Le répertoire vers lequel allait le fichier n'existe plus.",
+			"cancelled": "Quelqu'un l'a arrêté. Il peut repartir.",
+			"unknown": "Vérifier ce qui est sur le disque est le moyen le moins coûteux d'en savoir plus."
+		},
+		"action": {
+			"pause": "Mettre en pause",
+			"resume": "Reprendre",
+			"retry": "Réessayer",
+			"verify": "Vérifier",
+			"repair": "Réparer les morceaux fautifs",
+			"another_source": "Chercher une autre source",
+			"another_target": "Choisir une autre bibliothèque",
+			"fix_service": "Corriger le service",
+			"cancel": "Annuler"
+		},
+		"retarget": {
+			"title": "Le récupérer ailleurs",
+			"hint": "L'élément sera replanifié vers la bibliothèque choisie. Seules les bibliothèques accessibles en écriture sont proposées.",
+			"library": "Bibliothèque cible",
+			"confirm": "Le récupérer là"
+		},
+		"revalidation": {
+			"title": "Pourquoi ce transfert a changé d'avis",
+			"empty": "Rien n'a été demandé aux sources pour ce transfert.",
+			"pending": "En attente de réponse",
+			"asked_because": "Demandé à cause de :",
+			"decided": "décision :",
+			"remote_path": "Il le détient désormais à",
+			"outcome": {
+				"confirmed": "Toujours là, inchangé",
+				"moved": "Déplacé",
+				"changed": "Réencodé",
+				"gone": "Disparu",
+				"unreachable": "Sans réponse"
+			},
+			"action": {
+				"resume": "continuer",
+				"repair_local": "re-télécharger nos morceaux fautifs",
+				"follow_move": "suivre son nouveau chemin",
+				"switch_source": "utiliser une autre source",
+				"requeue": "redemander plus tard",
+				"abandon": "abandonner celui-ci"
+			}
+		}
+	},
+	"pages": {
+		"dashboard": "Tableau de bord",
+		"library": "Médiathèque",
+		"library_item": "Média",
+		"services": "Services média",
+		"service": "Service",
+		"peers": "Pairs",
+		"peer": "Pair",
+		"sync": "Synchronisation",
+		"sync_plan": "Plan de synchronisation",
+		"transfers": "Transferts",
+		"settings": "Paramètres",
+		"settings_shares": "Partages",
+		"settings_users": "Utilisateurs",
+		"not_found": "Page introuvable",
+		"not_found_text": "Il n'y a rien à cette adresse."
+	},
+	"components": {
+		"paginate": {
+			"table": {
+				"empty": "Aucun résultat",
+				"lines_per_page": "Lignes par page"
+			}
+		}
+	},
+	"validators": {
+		"required": "Ce champ est obligatoire.",
+		"not_null": "Ce champ est obligatoire.",
+		"email": "Saisissez une adresse email valide.",
+		"maxlength": "Utilisez au plus {max} caractères.",
+		"minlength": "Utilisez au moins {min} caractères.",
+		"only_number": "Chiffres uniquement.",
+		"only_letters": "Lettres uniquement.",
+		"password": "Utilisez au moins {length} caractères, avec un chiffre, une minuscule et une majuscule.",
+		"password_class": "Utilisez au moins {numClasses} types de caractères différents.",
+		"range": {
+			"min": "La valeur doit être au moins {min}.",
+			"max": "La valeur doit être au plus {max}."
+		},
+		"reg_exp": "Cette valeur ne correspond pas au format attendu ({source}).",
+		"repeat_field": "Les deux valeurs ne correspondent pas.",
+		"url": "Saisissez une URL valide.",
+		"url_with_port": "Saisissez une adresse complète, par exemple http://192.168.0.10:8096.",
+		"cron": "Saisissez une expression cron valide, par exemple 0 4 * * *.",
+		"absolute_path": "Saisissez un chemin absolu, par exemple /media/films.",
+		"byte_size": "Saisissez une taille comme 512M, 2G, ou un nombre d'octets.",
+		"file_size": "Chaque fichier doit faire au plus {size}.",
+		"file_formats": "Ce type de fichier n'est pas accepté."
+	},
+	"error": {
+		"general": "Une erreur est survenue. Réessayez dans un instant.",
+		"network": "La passerelle est injoignable.",
+		"auth": {
+			"invalid_credentials": "Identifiant ou mot de passe incorrect.",
+			"provider_unknown": "Ce moyen de connexion n'est plus disponible.",
+			"provider_unreachable": "Le service qui vous authentifie n'a pas répondu.",
+			"session_expired": "Votre session a expiré. Reconnectez-vous.",
+			"forbidden": "Vous n'avez pas le droit de faire cela."
+		},
+		"service": {
+			"not_found": "Ce service média n'existe plus.",
+			"resource_not_found": "Le service a répondu, et ne détient plus cet élément.",
+			"unreachable": "Le service média n'a pas répondu.",
+			"unauthorized": "Le service média a refusé la passerelle. Vérifiez son jeton.",
+			"duplicate": "Ce service média est déjà enregistré.",
+			"handler_unknown": "Ce type de service média n'est pas supporté."
+		},
+		"library": {
+			"not_found": "Cette bibliothèque n'existe plus.",
+			"path_unreadable": "La passerelle ne peut pas lire ce chemin.",
+			"path_not_writable": "La passerelle ne peut pas écrire dans ce chemin."
+		},
+		"media": {
+			"not_found": "Ce média n'existe plus."
+		},
+		"peer": {
+			"not_found": "Ce pair n'existe plus.",
+			"invite_invalid": "Cette invitation n'est pas valide.",
+			"invite_expired": "Cette invitation a expiré.",
+			"unreachable": "Le pair n'a pas répondu.",
+			"rejected": "Le pair a refusé le lien.",
+			"awaiting_them": "Ils n'ont pas encore répondu, il n'y a donc rien à approuver.",
+			"protocol_unsupported": "Ce pair parle une version du protocole que cette passerelle ne connaît pas."
+		},
+		"sync": {
+			"plan_not_found": "Ce plan de synchronisation n'existe plus.",
+			"job_not_found": "Cette exécution n'existe plus.",
+			"no_source": "Aucune source ne détient ce média.",
+			"already_running": "Ce plan est déjà en cours d'exécution.",
+			"not_enough_space": "La bibliothèque de destination n'a pas la place pour ce que cette exécution récupérerait.",
+			"space_not_acknowledged": "Cette exécution entamerait la réserve d'espace, ou l'espace libre n'a pas pu être mesuré. Confirmez pour la lancer quand même.",
+			"scope_unbounded": "Le périmètre de ce plan ne désigne rien : il récupérerait tout. Confirmez pour l'activer quand même."
+		},
+		"transfer": {
+			"not_found": "Ce transfert n'existe plus.",
+			"not_resumable": "Ce transfert ne peut pas reprendre et doit recommencer.",
+			"no_space": "Espace libre insuffisant sur la bibliothèque cible.",
+			"checksum_mismatch": "Le fichier téléchargé ne correspond pas à son empreinte."
+		},
+		"settings": {
+			"invalid": "Ces paramètres ont été refusés."
+		},
+		"user": {
+			"not_found": "Ce compte n'existe plus.",
+			"last_admin": "C'est le dernier administrateur. Donnez le rôle à quelqu'un d'autre d'abord."
+		},
+		"share": {
+			"relay_not_agreed": "Une bibliothèque hébergée sur une autre passerelle ne peut être partagée qu'en la relayant. Autorisez le relais sur ce partage d'abord."
+		}
+	},
+	"indications": {
+		"placement": "Où atterrissent les médias récupérés quand rien de plus précis ne le dit.",
+		"match_threshold": "En dessous de ce score, une corrélation est proposée plutôt qu'appliquée.",
+		"full_scan_cron": "Un rafraîchissement ne voit que ce qu'un service annonce comme nouveau ; un passage complet rattrape les fichiers déplacés ou réencodés sur place."
+	}
+}

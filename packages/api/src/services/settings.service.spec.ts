@@ -78,6 +78,20 @@ describe('SettingsService', () => {
 		expect((await service.get()).maxParallelTransfers).toBe(32);
 	});
 
+	it('keeps a disk reserve somebody can actually run against', async () => {
+		// Zero is a real answer — fill the disk to the last byte, on a machine that holds
+		// nothing else — and a reserve larger than most libraries would refuse every run
+		// for room that is never going to be used.
+		await expect(service.update({ diskReserveBytes: 0 })).resolves.toBeDefined();
+		await expect(service.update({ diskReserveBytes: 2 * 1024 ** 4 })).rejects.toThrow();
+
+		stored.set('diskReserveBytes', String(9 * 1024 ** 4));
+
+		service.invalidate();
+
+		expect((await service.get()).diskReserveBytes).toBe(1024 ** 4);
+	});
+
 	it('writes only the keys it was given', async () => {
 		await service.update({ maxParallelTransfers: 5 });
 

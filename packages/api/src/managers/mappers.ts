@@ -11,7 +11,9 @@ import type {
 	ResultList,
 	Revalidation as RevalidationModel,
 	SharePolicy as SharePolicyModel,
+	SyncEstimate,
 	SyncJob as SyncJobModel,
+	SyncJobItem as SyncJobItemModel,
 	SyncPlan as SyncPlanModel,
 	Transfer as TransferModel,
 	TransferChunk as TransferChunkModel,
@@ -27,6 +29,7 @@ import type {
 	Revalidation,
 	SharePolicy,
 	SyncJob,
+	SyncJobItem,
 	SyncPlan,
 	Transfer,
 	TransferChunk,
@@ -164,7 +167,15 @@ export const toMediaMatch = (match: MediaMatch): MediaMatchModel => ({
 	createdAt: match.createdAt.toISOString(),
 });
 
-export const toSyncPlan = (plan: SyncPlan): SyncPlanModel => ({
+/**
+ * A plan, with an estimate only when somebody has just taken one.
+ *
+ * The estimate is a parameter rather than a column, and the default is null on
+ * purpose: a library grows and a friend links a server, so a figure stored last month
+ * would be worse than none — it would be believed. Null reads as "nobody has worked it
+ * out", which is a different answer from zero and is shown as such.
+ */
+export const toSyncPlan = (plan: SyncPlan, estimate: SyncEstimate | null = null): SyncPlanModel => ({
 	id: plan.id,
 	name: plan.name,
 	enabled: plan.enabled,
@@ -172,8 +183,11 @@ export const toSyncPlan = (plan: SyncPlan): SyncPlanModel => ({
 	schedule: plan.schedule,
 	sourceServiceIds: plan.sourceServiceIds,
 	targetLibraryId: plan.targetLibraryId,
-	rootItemId: plan.rootItemId,
+	scope: plan.scope ?? {},
 	filter: plan.filter,
+	maxItemsPerRun: plan.maxItemsPerRun === null ? null : Number(plan.maxItemsPerRun),
+	maxBytesPerRun: plan.maxBytesPerRun === null ? null : Number(plan.maxBytesPerRun),
+	estimate,
 	lastRunAt: iso(plan.lastRunAt),
 	nextRunAt: iso(plan.nextRunAt),
 	createdAt: plan.createdAt.toISOString(),
@@ -193,8 +207,30 @@ export const toSyncJob = (job: SyncJob, planName: string | null = null): SyncJob
 	itemsFailed: job.itemsFailed,
 	bytesPlanned: bytes(job.bytesPlanned),
 	bytesDone: bytes(job.bytesDone),
+	scope: job.scope ?? {},
+	targets: job.targets ?? [],
+	stoppedBy: job.stoppedBy,
 	error: job.error,
 	createdAt: job.createdAt.toISOString(),
+});
+
+export const toSyncJobItem = (item: SyncJobItem): SyncJobItemModel => ({
+	id: item.id,
+	jobId: item.jobId,
+	itemId: item.itemId,
+	title: item.title,
+	kind: item.kind,
+	sourceServiceId: item.sourceServiceId,
+	sourceServiceName: item.sourceServiceName,
+	targetLibraryId: item.targetLibraryId,
+	targetPath: item.targetPath,
+	bytes: bytes(item.bytes),
+	bytesDone: bytes(item.bytesDone),
+	state: item.state,
+	transferId: item.transferId,
+	error: item.error,
+	startedAt: iso(item.startedAt),
+	finishedAt: iso(item.finishedAt),
 });
 
 /**

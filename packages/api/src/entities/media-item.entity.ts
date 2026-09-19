@@ -151,6 +151,19 @@ export class MediaItem extends Timestampable {
 	@Column({ type: 'simple-json', nullable: true })
 	public reported!: MediaReported | null;
 
+	/**
+	 * Excluded from every count, resolved from the override on write.
+	 *
+	 * A column rather than a read of `overrides.ignored` because it is read by
+	 * aggregates — the missing count of a season, what a sync plans — and those run
+	 * over thousands of rows. Reaching into a JSON blob to decide whether each one
+	 * counts turns a grouped query into a scan, and the number it produces is the one
+	 * a poster shows.
+	 */
+	@ApiProperty()
+	@Column({ type: 'boolean', default: false })
+	public ignored!: boolean;
+
 	@ApiProperty({ enum: SyncState })
 	@Column({ type: 'varchar', default: SyncState.UNKNOWN })
 	public syncState!: SyncState;

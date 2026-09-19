@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
 	ErrorKey,
 	EventName,
 	MediaKind,
 	MediaServiceScope,
+	SyncJobItemState,
 	SyncJobState,
 	SyncState,
+	SyncStopReason,
 	SyncTrigger,
 	TransferState,
 	TransferTransport,
@@ -14,11 +16,15 @@ import {
 	type CreateSyncPlanRequest,
 	type ResultList,
 	type RunSyncRequest,
+	type SyncEstimate,
 	type SyncFilter,
 	type Settings,
 	type SyncJob,
+	type SyncJobItem,
 	type SyncPlan,
 	type SyncPreview,
+	type SyncScope,
+	type TargetSpace,
 	type UpdateSyncPlanRequest,
 } from '@mcs/shared';
 import {
@@ -30,13 +36,14 @@ import {
 	OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { In } from 'typeorm';
+import { In, type FindOptionsWhere } from 'typeorm';
 import type { MediaConfig } from '@/config';
 import type {
 	Library as LibraryEntity,
 	MediaItem,
 	MediaService as MediaServiceEntity,
 	SyncJob as SyncJobEntity,
+	SyncJobItem as SyncJobItemEntity,
 	SyncPlan as SyncPlanEntity,
 	Transfer as TransferEntity,
 } from '@/entities';
@@ -45,6 +52,7 @@ import {
 	MediaItemRepository,
 	MediaMatchRepository,
 	MediaServiceRepository,
+	SyncJobItemRepository,
 	SyncJobRepository,
 	SyncPlanRepository,
 	TransferRepository,
@@ -57,11 +65,17 @@ import {
 	SchedulerService,
 	SettingsService,
 	TransferEngineService,
+	applyCeilings,
+	needsAcknowledgement,
+	refusesRun,
+	targetSpace,
 	toLocalPath,
 	type PlacementLibrary,
+	type RunCeilings,
 	type TransferSourceRef,
 } from '@/services';
-import { pageBounds, paginate, toSyncJob, toSyncPlan } from './mappers';
+import { LibraryManager } from './library.manager';
+import { pageBounds, paginate, toSyncJob, toSyncJobItem, toSyncPlan } from './mappers';
 
 /**
  * How many items one plan may carry.
@@ -85,6 +99,7 @@ export interface PlannedItem {
 	sourceServiceId: string;
 	sourceServiceName: string;
 	targetLibraryId: string;
+	targetLibraryName: string;
 	targetPath: string;
 	bytes: number;
 	contentId: string | null;
@@ -92,19 +107,28 @@ export interface PlannedItem {
 }
 
 export interface SyncPlanning {
+	/** What the run will do, once the ceilings have had their say. */
 	items: PlannedItem[];
 	itemsPlanned: number;
 	bytesPlanned: number;
+	/** Planned, then cut by a ceiling. Recorded as skipped lines, never silently lost. */
+	dropped: PlannedItem[];
+	/** What was asked for, resolved and echoed back. */
+	scope: SyncScope;
+	/** What the scope comes to, before any ceiling. Not the same number as above. */
+	estimate: SyncEstimate;
+	targets: TargetSpace[];
+	stoppedBy: SyncStopReason | null;
 }
 
 /** A run request with the plan behind it already folded in. */
 interface EffectiveRequest {
 	planId: string | null;
-	itemIds: string[];
-	rootItemId: string | null;
+	scope: SyncScope;
 	sourceServiceIds: string[];
 	targetLibraryId: string | null;
 	filter: SyncFilter;
+	ceilings: RunCeilings;
 }
 
 /**
@@ -136,10 +160,20 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	public constructor(
 		private readonly _plans: SyncPlanRepository,
 		private readonly _jobs: SyncJobRepository,
+		private readonly _lines: SyncJobItemRepository,
 		private readonly _items: MediaItemRepository,
 		private readonly _matches: MediaMatchRepository,
 		private readonly _services: MediaServiceRepository,
 		private readonly _libraries: LibraryRepository,
+		/**
+		 * Asked which libraries a merged category stands for, and how a path probes.
+		 *
+		 * A manager rather than a repository because both answers are decisions and
+		 * neither belongs to this one: `Shows` is four libraries across three servers
+		 * today and five tomorrow, and re-deriving that here would leave two versions of
+		 * the merging rule to disagree with each other.
+		 */
+		private readonly _libraryManager: LibraryManager,
 		private readonly _transfers: TransferRepository,
 		private readonly _settings: SettingsService,
 		private readonly _naming: NamingService,
@@ -165,6 +199,10 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 */
 	public onModuleInit(): void {
 		this._engine.setSourceResolver((transfer) => this.resolveSources(transfer));
+		// Pushed by the engine rather than polled from here. A timer over the transfers
+		// of every live job is a query every second for rows that change twice an hour,
+		// and it still shows a stale line for as long as its interval.
+		this._engine.onTransferState((transfer) => this._recordTransferState(transfer));
 		this._scheduler.onPlan(async (planId) => {
 			await this.run({ planId }, SyncTrigger.SCHEDULE);
 		});
@@ -179,7 +217,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	public async listPlans(): Promise<SyncPlan[]> {
 		const plans = await this._plans.find({ order: { name: 'ASC' } });
 
-		return plans.map(toSyncPlan);
+		return plans.map((plan) => toSyncPlan(plan));
 	}
 
 	public async readPlan(id: string): Promise<SyncPlan> {
@@ -187,6 +225,11 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	}
 
 	public async createPlan(request: CreateSyncPlanRequest): Promise<SyncPlan> {
+		const scope = request.scope ?? {};
+		const enabled = request.enabled ?? true;
+
+		this._refuseBlindSchedule(scope, enabled, request.acknowledgeUnbounded === true);
+
 		const plan = await this._plans.save(
 			this._plans.create({
 				name: request.name,
@@ -194,9 +237,11 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				schedule: request.schedule ?? null,
 				sourceServiceIds: request.sourceServiceIds ?? [],
 				targetLibraryId: request.targetLibraryId ?? null,
-				rootItemId: request.rootItemId ?? null,
+				scope,
 				filter: request.filter ?? {},
-				enabled: request.enabled ?? true,
+				maxItemsPerRun: request.maxItemsPerRun ?? null,
+				maxBytesPerRun: request.maxBytesPerRun ?? null,
+				enabled,
 			}),
 		);
 
@@ -214,15 +259,55 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		plan.sourceServiceIds = patch.sourceServiceIds ?? plan.sourceServiceIds;
 		plan.targetLibraryId =
 			patch.targetLibraryId === undefined ? plan.targetLibraryId : patch.targetLibraryId;
-		plan.rootItemId = patch.rootItemId === undefined ? plan.rootItemId : patch.rootItemId;
+		plan.scope = patch.scope ?? plan.scope;
 		plan.filter = patch.filter ?? plan.filter;
+		plan.maxItemsPerRun =
+			patch.maxItemsPerRun === undefined ? plan.maxItemsPerRun : patch.maxItemsPerRun;
+		plan.maxBytesPerRun =
+			patch.maxBytesPerRun === undefined ? plan.maxBytesPerRun : patch.maxBytesPerRun;
 		plan.enabled = patch.enabled ?? plan.enabled;
+
+		// Tested against the plan as it will be, not against the patch. Enabling an
+		// existing unbounded plan sends `{ enabled: true }` and nothing else, and a
+		// check that only read the body would let exactly that through.
+		this._refuseBlindSchedule(plan.scope, plan.enabled, patch.acknowledgeUnbounded === true);
 
 		const saved = await this._plans.save(plan);
 
 		await this._reschedule();
 
 		return toSyncPlan(saved);
+	}
+
+	/**
+	 * What this plan's scope currently comes to, recomputed on the spot.
+	 *
+	 * A route of its own rather than a field filled in on every read, for two reasons
+	 * that point the same way. It costs a walk of every source and a placement probe per
+	 * item, which is not something a list of six plans should pay for. And an estimate
+	 * is only worth anything at the moment it is taken — a library grows, a friend links
+	 * a server — so one stored against the plan would be believed long after it stopped
+	 * being true. `SyncPlan.estimate` is therefore null everywhere except in the answer
+	 * to this call.
+	 */
+	public async estimatePlan(id: string): Promise<SyncEstimate> {
+		const plan = await this._requirePlan(id);
+
+		return (await this.plan({ planId: plan.id })).estimate;
+	}
+
+	/**
+	 * Refuse to stand up a plan that says "everything".
+	 *
+	 * An empty scope is what an empty form produces, and enabled is the default, so
+	 * without this the easiest plan to create is the one that would move a whole media
+	 * library at four in the morning. Saying it on purpose is one flag; discovering it
+	 * from the disk usage is a weekend.
+	 */
+	private _refuseBlindSchedule(scope: SyncScope, enabled: boolean, acknowledged: boolean): void {
+		if (enabled && isUnbounded(scope) && !acknowledged) {
+			throw new ConflictException(ErrorKey.SYNC_SCOPE_UNBOUNDED);
+		}
 	}
 
 	public async deletePlan(id: string): Promise<void> {
@@ -239,6 +324,9 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		return {
 			itemsPlanned: planning.itemsPlanned,
 			bytesPlanned: planning.bytesPlanned,
+			scope: planning.scope,
+			targets: planning.targets,
+			stoppedBy: planning.stoppedBy,
 			items: planning.items.map((item) => ({
 				itemId: item.itemId,
 				title: item.title,
@@ -277,6 +365,8 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const planning = await this.plan(request);
 		const settings = await this._settings.get();
 
+		this._refuseOnSpace(planning.targets, request.acknowledgeSpace === true);
+
 		const job = await this._jobs.save(
 			this._jobs.create({
 				planId: request.planId ?? null,
@@ -286,8 +376,17 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				finishedAt: planning.items.length === 0 ? new Date() : null,
 				itemsPlanned: planning.itemsPlanned,
 				bytesPlanned: planning.bytesPlanned,
+				scope: planning.scope,
+				targets: planning.targets,
+				stoppedBy: planning.stoppedBy,
 			}),
 		);
+
+		// The lines come before the transfers, and all of them at once. A run that dies
+		// on its third transfer is then still something somebody can open and read
+		// rather than three orphaned rows and no record of what the other four hundred
+		// were going to be.
+		await this._recordLines(job.id, planning);
 
 		for (const planned of planning.items) {
 			const id = randomUUID();
@@ -327,6 +426,160 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		this._events.emit(EventName.JOB_STATE, model);
 
 		return model;
+	}
+
+	/**
+	 * Stop a run that a destination cannot take.
+	 *
+	 * The refusal and the question are two different answers on purpose. `INSUFFICIENT`
+	 * is arithmetic — the files are larger than the free space — and no acknowledgement
+	 * gets past it, because starting anyway buys a transfer that dies at ninety per cent
+	 * and a truncated file the media server indexes as real. Tight and unprobeable are
+	 * questions, and `acknowledgeSpace` is somebody answering them.
+	 *
+	 * Both happen before the job row exists. A half-run abandoned for want of room is
+	 * the failure this whole check exists to avoid, so nothing is created until it is
+	 * known that the bytes have somewhere to go.
+	 */
+	private _refuseOnSpace(targets: TargetSpace[], acknowledged: boolean): void {
+		if (refusesRun(targets)) {
+			throw new ConflictException({ key: ErrorKey.SYNC_NOT_ENOUGH_SPACE, targets });
+		}
+
+		if (!acknowledged && needsAcknowledgement(targets)) {
+			throw new ConflictException({ key: ErrorKey.SYNC_SPACE_NOT_ACKNOWLEDGED, targets });
+		}
+	}
+
+	/**
+	 * Write the run down, line by line, including the lines it will not do.
+	 *
+	 * The ones a ceiling dropped are recorded as skipped rather than left out: a job
+	 * that planned four hundred items and shows fifty is a job whose `stoppedBy` has to
+	 * be taken on faith, and the whole point of the detail is not having to.
+	 */
+	private async _recordLines(jobId: string, planning: SyncPlanning): Promise<void> {
+		const rows: SyncJobItemEntity[] = [];
+		let position = 0;
+
+		for (const planned of planning.items) {
+			rows.push(this._line(jobId, position++, planned, SyncJobItemState.PENDING));
+		}
+
+		for (const planned of planning.dropped) {
+			rows.push(this._line(jobId, position++, planned, SyncJobItemState.SKIPPED));
+		}
+
+		if (rows.length > 0) {
+			await this._lines.save(rows);
+		}
+	}
+
+	private _line(
+		jobId: string,
+		position: number,
+		planned: PlannedItem,
+		state: SyncJobItemState,
+	): SyncJobItemEntity {
+		return this._lines.create({
+			jobId,
+			position,
+			itemId: planned.itemId,
+			title: planned.title,
+			kind: planned.kind,
+			sourceServiceId: planned.sourceServiceId,
+			sourceServiceName: planned.sourceServiceName,
+			targetLibraryId: planned.targetLibraryId === '' ? null : planned.targetLibraryId,
+			targetPath: planned.targetPath,
+			bytes: planned.bytes,
+			bytesDone: 0,
+			state,
+			// Null until a transfer is actually moving this one, which is what the
+			// contract says the field means: a queued line has no bytes to reach.
+			transferId: null,
+			error: null,
+			startedAt: null,
+			finishedAt: null,
+		});
+	}
+
+	/** One page of a run's lines, in the order the plan chose. */
+	public async jobItems(
+		jobId: string,
+		query: { page?: number; limit?: number },
+	): Promise<ResultList<SyncJobItem>> {
+		await this._requireJob(jobId);
+
+		const { page, limit } = pageBounds(query.page, query.limit);
+		const [rows, total] = await this._lines.findPage(jobId, (page - 1) * limit, limit);
+
+		return paginate(rows.map(toSyncJobItem), total, page, limit);
+	}
+
+	/**
+	 * A transfer moved; bring its line, and the job's counters, up to date.
+	 *
+	 * The counters are recounted from the lines rather than incremented here. An event
+	 * arrives twice whenever a transfer is resumed after a restart, and a job that
+	 * reports 901 done out of 900 is one nobody believes again — including about the
+	 * runs where it was right.
+	 *
+	 * Live bytes are deliberately not written here: they move several times a second and
+	 * the line carries its transfer's identifier precisely so a progress bar can follow
+	 * the transfer's own stream. What lands in the row is what survives a restart.
+	 */
+	private async _recordTransferState(transfer: TransferEntity): Promise<void> {
+		if (transfer.jobId === null) {
+			return;
+		}
+
+		const line = await this._lines.findLine(transfer.jobId, transfer.itemId);
+
+		if (line === null) {
+			return;
+		}
+
+		const state = jobItemStateOf(transfer.state);
+
+		line.state = state;
+		line.bytesDone = Number(transfer.bytesDone);
+		line.transferId =
+			state === SyncJobItemState.PENDING || state === SyncJobItemState.SKIPPED
+				? null
+				: transfer.id;
+		line.error = transfer.error;
+		line.startedAt = transfer.startedAt;
+		line.finishedAt = transfer.finishedAt;
+
+		await this._lines.save(line);
+		await this._settleJob(transfer.jobId);
+	}
+
+	/** The job's counters, and whether it is over. */
+	private async _settleJob(jobId: string): Promise<void> {
+		const job = await this._jobs.findOne({ where: { id: jobId } });
+
+		if (job === null) {
+			return;
+		}
+
+		const progress = await this._lines.progressOf(jobId);
+
+		job.itemsDone = progress.done;
+		job.itemsFailed = progress.failed;
+		job.bytesDone = progress.bytesDone;
+
+		// Only a run still believed to be going gets finished here. A cancelled job
+		// whose transfers are still reporting their own cancellation would otherwise
+		// come back as done, and the stop button would look like it had failed.
+		if (job.state === SyncJobState.RUNNING && progress.open === 0) {
+			job.state = SyncJobState.DONE;
+			job.finishedAt = new Date();
+		}
+
+		const model = toSyncJob(await this._jobs.save(job), await this._planName(job.planId));
+
+		this._events.emit(EventName.JOB_STATE, model);
 	}
 
 	/**
@@ -538,6 +791,10 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			}
 		}
 
+		// Before the job is saved, so that a failure here leaves a job still marked as
+		// running rather than a stopped one whose lines say they are still going.
+		await this._lines.skipUnfinished(job.id);
+
 		job.state = SyncJobState.CANCELLED;
 		job.finishedAt = new Date();
 
@@ -686,7 +943,17 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			(await this._services.find()).map((service) => [service.id, service.name]),
 		);
 		const items: PlannedItem[] = [];
-		let bytesPlanned = 0;
+
+		// Taken over everything the scope covers, before the ceilings and before the
+		// walk's own limit, because that is the question the estimate answers: what this
+		// plan is for, not what the next run of it will do.
+		const estimate: SyncEstimate = {
+			itemCount: wanted.length,
+			bytes: wanted.reduce((total, entry) => total + (entry.item.file?.size ?? 0), 0),
+			unbounded: isUnbounded(effective.scope),
+			truncated: wanted.length > MAX_PLANNED_ITEMS,
+			computedAt: new Date().toISOString(),
+		};
 
 		const planned = wanted.slice(0, MAX_PLANNED_ITEMS);
 		const seriesTitles = await this._seriesTitles(planned.map((entry) => entry.item));
@@ -721,8 +988,6 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				requiredBytes: entry.item.file?.size ?? 0,
 			});
 
-			bytesPlanned += entry.item.file?.size ?? 0;
-
 			items.push({
 				itemId: entry.item.id,
 				localItemId: entry.local?.id ?? null,
@@ -731,6 +996,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				sourceServiceId: entry.item.serviceId,
 				sourceServiceName: services.get(entry.item.serviceId) ?? '',
 				targetLibraryId: target.libraryId,
+				targetLibraryName: target.libraryName,
 				targetPath: target.path,
 				bytes: entry.item.file?.size ?? 0,
 				contentId: entry.item.file?.contentId ?? null,
@@ -738,23 +1004,102 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			});
 		}
 
-		return { items, itemsPlanned: items.length, bytesPlanned };
+		// The ceilings cut here rather than in `run()`, so that what a preview shows is
+		// what a run does — including the part it will not do. A preview that ignored
+		// them would promise four hundred episodes and deliver fifty.
+		const cut = applyCeilings(items, effective.ceilings);
+		const bytesPlanned = cut.kept.reduce((total, item) => total + item.bytes, 0);
+
+		return {
+			items: cut.kept,
+			itemsPlanned: cut.kept.length,
+			bytesPlanned,
+			dropped: cut.dropped,
+			scope: effective.scope,
+			estimate,
+			targets: await this._targets(cut.kept, libraries, settings),
+			stoppedBy: cut.stoppedBy,
+		};
 	}
 
-	/** The plan's fields, overridden by whatever the request said explicitly. */
+	/**
+	 * Every destination this would write into, with the room left after it.
+	 *
+	 * Grouped by library rather than reported per file, because free space is a
+	 * property of the filesystem and not of a transfer: twelve episodes of two
+	 * gigabytes into a library with three free is the sentence somebody needs, and
+	 * checking each file on its own would pass all twelve.
+	 *
+	 * The probe goes through the library manager — the same one `make library/check`
+	 * uses — so that the free space shown before a run and the free space shown on the
+	 * libraries screen can never be two different measurements of the same disk.
+	 */
+	private async _targets(
+		items: PlannedItem[],
+		libraries: PlacementLibrary[],
+		settings: Settings,
+	): Promise<TargetSpace[]> {
+		const grouped = new Map<string, { name: string; path: string | null; bytes: number }>();
+
+		for (const item of items) {
+			const library = libraries.find((candidate) => candidate.id === item.targetLibraryId);
+			const existing = grouped.get(item.targetLibraryId);
+
+			grouped.set(item.targetLibraryId, {
+				name: library?.name ?? item.targetLibraryName,
+				// A fixed path outside every registered library has no `localPath` to
+				// ask about, so the destination directory itself is probed. It answers
+				// for the same filesystem, which is the only thing this number is about.
+				path: library?.localPath ?? dirname(item.targetPath),
+				bytes: (existing?.bytes ?? 0) + item.bytes,
+			});
+		}
+
+		return Promise.all(
+			[...grouped.entries()].map(async ([libraryId, group]) => {
+				const probe = await this._libraryManager.probe(group.path);
+
+				return targetSpace({
+					libraryId,
+					libraryName: group.name,
+					localPath: group.path,
+					freeBytes: probe.freeBytes,
+					requiredBytes: group.bytes,
+					reserveBytes: settings.diskReserveBytes,
+				});
+			}),
+		);
+	}
+
+	/**
+	 * The plan's fields, overridden by whatever the request said explicitly.
+	 *
+	 * The scope is taken whole rather than merged field by field: a request that names
+	 * three shows means those three shows, not those three shows plus whatever the plan
+	 * also covered.
+	 */
 	private async _effective(request: RunSyncRequest): Promise<EffectiveRequest> {
 		const plan = request.planId === undefined ? null : await this._requirePlan(request.planId);
 
 		return {
 			planId: plan?.id ?? null,
-			itemIds: request.itemIds ?? [],
-			rootItemId: request.rootItemId ?? plan?.rootItemId ?? null,
+			scope: request.scope ?? plan?.scope ?? {},
 			sourceServiceIds: request.sourceServiceIds ?? plan?.sourceServiceIds ?? [],
 			targetLibraryId:
 				request.targetLibraryId === undefined
 					? (plan?.targetLibraryId ?? null)
 					: request.targetLibraryId,
 			filter: request.filter ?? plan?.filter ?? {},
+			ceilings: {
+				maxItems:
+					request.maxItemsPerRun === undefined
+						? (numberOrNull(plan?.maxItemsPerRun) ?? null)
+						: request.maxItemsPerRun,
+				maxBytes:
+					request.maxBytesPerRun === undefined
+						? (numberOrNull(plan?.maxBytesPerRun) ?? null)
+						: request.maxBytesPerRun,
+			},
 		};
 	}
 
@@ -773,35 +1118,93 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		return (await this._services.findByPriority()).map((service) => service.id);
 	}
 
+	/**
+	 * Everything the scope covers, on the services we are allowed to ask.
+	 *
+	 * The fields of a scope intersect. Naming both a category and a subtree means the
+	 * part of that subtree in that category, which is the reading somebody filling in a
+	 * form expects — and an empty intersection is an empty run, not everything.
+	 */
 	private async _candidates(
 		effective: EffectiveRequest,
 		order: string[],
 	): Promise<MediaItem[]> {
-		if (effective.itemIds.length > 0) {
-			return this._items.find({ where: { id: In(effective.itemIds) } });
-		}
-
 		if (order.length === 0) {
 			throw new NotFoundException(ErrorKey.SYNC_NO_SOURCE);
 		}
 
-		const withinRoot =
-			effective.rootItemId === null ? null : await this._descendants(effective.rootItemId);
+		const scope = effective.scope;
+		const libraryIds = await this._scopedLibraries(scope);
+		const itemIds = await this._scopedItems(scope);
 
-		const items = await this._items.find({
-			where:
-				withinRoot === null
-					? { serviceId: In(order) }
-					: { serviceId: In(order), id: In([...withinRoot]) },
-		});
+		if (libraryIds?.length === 0 || itemIds?.length === 0) {
+			// The scope named something that resolves to nothing — a category whose
+			// libraries have all gone, a subtree that was deleted. Nothing is the right
+			// answer; falling through would run it against everything.
+			return [];
+		}
 
-		return items;
+		const where: FindOptionsWhere<MediaItem> = { serviceId: In(order) };
+
+		if (libraryIds !== null) {
+			where.libraryId = In(libraryIds);
+		}
+
+		if (itemIds !== null) {
+			where.id = In(itemIds);
+		}
+
+		return this._items.find({ where });
 	}
 
-	/** Everything under one node, the node itself included. */
-	private async _descendants(rootItemId: string): Promise<Set<string>> {
-		const seen = new Set<string>([rootItemId]);
-		let frontier = [rootItemId];
+	/**
+	 * The libraries a scope names, categories resolved. Null means "no restriction".
+	 *
+	 * A merged category is the unit people think in — "keep my Shows in step" is one
+	 * intent — and naming the four libraries called Shows across three servers is not
+	 * the same thing: it stops being true the moment somebody adds a fourth server.
+	 */
+	private async _scopedLibraries(scope: SyncScope): Promise<string[] | null> {
+		const explicit = scope.libraryIds ?? [];
+		const keys = scope.categoryKeys ?? [];
+
+		if (keys.length === 0) {
+			return explicit.length === 0 ? null : explicit;
+		}
+
+		const merged = new Set<string>();
+
+		for (const key of keys) {
+			for (const libraryId of await this._libraryManager.librariesOfCategory(key)) {
+				merged.add(libraryId);
+			}
+		}
+
+		return explicit.length === 0
+			? [...merged]
+			: explicit.filter((libraryId) => merged.has(libraryId));
+	}
+
+	/** The items a scope names, subtrees expanded. Null means "no restriction". */
+	private async _scopedItems(scope: SyncScope): Promise<string[] | null> {
+		const roots = scope.rootItemIds ?? [];
+		const explicit = scope.itemIds ?? [];
+
+		if (roots.length === 0) {
+			return explicit.length === 0 ? null : explicit;
+		}
+
+		const within = await this._descendants(roots);
+
+		return explicit.length === 0
+			? [...within]
+			: explicit.filter((itemId) => within.has(itemId));
+	}
+
+	/** Everything under these nodes, the nodes themselves included. */
+	private async _descendants(rootItemIds: string[]): Promise<Set<string>> {
+		const seen = new Set<string>(rootItemIds);
+		let frontier = [...rootItemIds];
 
 		while (frontier.length > 0) {
 			const children = await this._items.find({ where: { parentId: In(frontier) } });
@@ -1099,3 +1502,51 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	}
 
 }
+
+/**
+ * A scope that names nothing, which means every item on every source.
+ *
+ * Its own test rather than something inferred from a large count, because the
+ * interface refuses to enable an unbounded schedule without an explicit
+ * acknowledgement — and "large" is not a decidable test. An empty array counts as
+ * naming nothing: a form that cleared its last category is back to everything.
+ */
+export const isUnbounded = (scope: SyncScope): boolean =>
+	(scope.categoryKeys?.length ?? 0) === 0 &&
+	(scope.libraryIds?.length ?? 0) === 0 &&
+	(scope.rootItemIds?.length ?? 0) === 0 &&
+	(scope.itemIds?.length ?? 0) === 0;
+
+/**
+ * What one line of a run is doing, from what its transfer is doing.
+ *
+ * A paused transfer reads as pending rather than as a state of its own: nothing is
+ * moving and it will be, which is what pending means here. A cancelled one is skipped,
+ * because the line was planned and then dropped — the same thing a ceiling does to it,
+ * and the same thing somebody reading the run needs to see.
+ */
+export const jobItemStateOf = (state: TransferState): SyncJobItemState => {
+	switch (state) {
+		case TransferState.DONE:
+			return SyncJobItemState.DONE;
+		case TransferState.FAILED:
+			return SyncJobItemState.FAILED;
+		case TransferState.CANCELLED:
+			return SyncJobItemState.SKIPPED;
+		case TransferState.QUEUED:
+		case TransferState.PAUSED:
+			return SyncJobItemState.PENDING;
+		default:
+			return SyncJobItemState.RUNNING;
+	}
+};
+
+/**
+ * A `bigint` column as a number, keeping null as null.
+ *
+ * Depending on the driver a `bigint` comes back as a string, and `Number(null)` is
+ * zero — which would turn "no ceiling" into "a ceiling of nothing" and stop every run
+ * of that plan dead.
+ */
+const numberOrNull = (value: number | string | null | undefined): number | null =>
+	value === null || value === undefined ? null : Number(value);

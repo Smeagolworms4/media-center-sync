@@ -3,8 +3,13 @@ import {
 	MediaKind,
 	NamingScheme,
 	PlacementStrategy,
+	SpaceVerdict,
+	SyncJobItemState,
+	SyncJobState,
 	SyncState,
+	SyncStopReason,
 	SyncTrigger,
+	TransferState,
 	TransferTransport,
 	type MediaFileInfo,
 	type Settings,
@@ -12,12 +17,13 @@ import {
 import { ConflictException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { FindManyOptions, FindOptionsWhere } from 'typeorm';
-import type { MediaItem, MediaService, SyncJob, SyncPlan, Transfer } from '@/entities';
+import type { MediaItem, MediaService, SyncJob, SyncJobItem, SyncPlan, Transfer } from '@/entities';
 import type {
 	LibraryRepository,
 	MediaItemRepository,
 	MediaMatchRepository,
 	MediaServiceRepository,
+	SyncJobItemRepository,
 	SyncJobRepository,
 	SyncPlanRepository,
 	TransferRepository,
@@ -31,6 +37,7 @@ import type {
 	SettingsService,
 	TransferEngineService,
 } from '@/services';
+import type { LibraryManager } from './library.manager';
 import { SyncManager } from './sync.manager';
 
 const SETTINGS: Settings = {
@@ -40,6 +47,7 @@ const SETTINGS: Settings = {
 	pullMetadata: false,
 	preferSourceMetadata: false,
 	maxParallelTransfers: 3,
+	diskReserveBytes: 1_000_000,
 	maxConnectionsPerSource: 4,
 	chunkSize: 8 * 1024 * 1024,
 	downloadRateLimit: 0,
@@ -128,7 +136,16 @@ interface World {
 		placement: { resolve: jest.Mock; prepare: jest.Mock };
 		transfers: { save: jest.Mock; create: jest.Mock; findByJob: jest.Mock };
 		jobs: { save: jest.Mock; create: jest.Mock; findLiveForPlan: jest.Mock; findOne: jest.Mock };
-		engine: { enqueue: jest.Mock; cancel: jest.Mock; setSourceResolver: jest.Mock };
+		lines: {
+			save: jest.Mock;
+			create: jest.Mock;
+			findPage: jest.Mock;
+			skipUnfinished: jest.Mock;
+			findLine: jest.Mock;
+			progressOf: jest.Mock;
+		};
+		libraryManager: { librariesOfCategory: jest.Mock; probe: jest.Mock };
+		engine: { enqueue: jest.Mock; cancel: jest.Mock; setSourceResolver: jest.Mock; onTransferState: jest.Mock };
 		metadata: { discover: jest.Mock; apply: jest.Mock; mergeExternalIds: jest.Mock };
 		naming: { render: jest.Mock };
 		services: { findWithSecrets: jest.Mock };
@@ -144,6 +161,7 @@ const build = (
 		settings?: Partial<Settings>;
 		plans?: SyncPlan[];
 		localServices?: MediaService[];
+		categoryLibraries?: string[];
 	} = {},
 ): World => {
 	const items = world.items ?? [
@@ -154,30 +172,41 @@ const build = (
 	const matches = world.matches ?? [];
 
 	const itemRepository = {
+		/**
+		 * Every constraint the query carries, not the first one recognised.
+		 *
+		 * A scope is an intersection — a category and a subtree together mean the part
+		 * of that subtree in that category — so a fake that answered on `serviceId` and
+		 * ignored the `libraryId` beside it would let a broken intersection pass.
+		 */
 		find: jest.fn((options?: FindManyOptions<MediaItem>) => {
 			const where = (options?.where ?? {}) as FindOptionsWhere<MediaItem>;
+			const matching = (candidate: MediaItem): boolean => {
+				if (where.id !== undefined && !valuesOf(where.id).includes(candidate.id)) {
+					return false;
+				}
 
-			if (where.id !== undefined) {
-				const wanted = valuesOf(where.id);
+				if (
+					where.parentId !== undefined &&
+					!valuesOf(where.parentId).includes(candidate.parentId ?? '')
+				) {
+					return false;
+				}
 
-				return Promise.resolve(items.filter((candidate) => wanted.includes(candidate.id)));
-			}
+				if (
+					where.serviceId !== undefined &&
+					!valuesOf(where.serviceId).includes(candidate.serviceId)
+				) {
+					return false;
+				}
 
-			if (where.parentId !== undefined) {
-				const wanted = valuesOf(where.parentId);
-
-				return Promise.resolve(
-					items.filter((candidate) => wanted.includes(candidate.parentId ?? '')),
+				return (
+					where.libraryId === undefined ||
+					valuesOf(where.libraryId).includes(candidate.libraryId)
 				);
-			}
+			};
 
-			if (where.serviceId !== undefined) {
-				const wanted = valuesOf(where.serviceId);
-
-				return Promise.resolve(items.filter((candidate) => wanted.includes(candidate.serviceId)));
-			}
-
-			return Promise.resolve(items);
+			return Promise.resolve(items.filter(matching));
 		}),
 		findOne: jest.fn((options: { where: { id: string } }) =>
 			Promise.resolve(items.find((candidate) => candidate.id === options.where.id) ?? null),
@@ -224,10 +253,32 @@ const build = (
 			findLiveForPlan: jest.fn().mockResolvedValue(null),
 			findOne: jest.fn().mockResolvedValue(null),
 		},
+		lines: {
+			save: jest.fn((value: unknown) => Promise.resolve(value)),
+			create: jest.fn((value: Partial<SyncJobItem>) => value as SyncJobItem),
+			findPage: jest.fn().mockResolvedValue([[], 0]),
+			skipUnfinished: jest.fn().mockResolvedValue(undefined),
+			findLine: jest.fn().mockResolvedValue(null),
+			progressOf: jest.fn().mockResolvedValue({ done: 0, failed: 0, bytesDone: 0, open: 0 }),
+		},
+		libraryManager: {
+			librariesOfCategory: jest.fn().mockResolvedValue(world.categoryLibraries ?? []),
+			// Room to spare unless a test says otherwise: the space verdict has its own
+			// table-driven suite, and every other test here would otherwise be asserting
+			// about a disk it never meant to mention.
+			probe: jest.fn().mockResolvedValue({
+				exists: true,
+				readable: true,
+				writable: true,
+				freeBytes: 1_000_000_000_000,
+				error: null,
+			}),
+		},
 		engine: {
 			enqueue: jest.fn().mockResolvedValue(undefined),
 			cancel: jest.fn().mockResolvedValue(undefined),
 			setSourceResolver: jest.fn(),
+			onTransferState: jest.fn(),
 		},
 		metadata: {
 			discover: jest.fn().mockResolvedValue([]),
@@ -263,6 +314,7 @@ const build = (
 			setRunStamps: jest.fn().mockResolvedValue(undefined),
 		} as unknown as SyncPlanRepository,
 		fakes.jobs as unknown as SyncJobRepository,
+		fakes.lines as unknown as SyncJobItemRepository,
 		itemRepository as unknown as MediaItemRepository,
 		{
 			find: jest.fn().mockResolvedValue(matches),
@@ -275,6 +327,7 @@ const build = (
 			findWithSecrets: fakes.services.findWithSecrets,
 		} as unknown as MediaServiceRepository,
 		{ findByServices: jest.fn().mockResolvedValue([]) } as unknown as LibraryRepository,
+		fakes.libraryManager as unknown as LibraryManager,
 		fakes.transfers as unknown as TransferRepository,
 		{
 			get: jest.fn().mockResolvedValue({ ...SETTINGS, ...world.settings }),
@@ -587,6 +640,7 @@ describe('SyncManager', () => {
 				name: 'Nightly',
 				trigger: SyncTrigger.SCHEDULE,
 				schedule: '0 4 * * *',
+				scope: { categoryKeys: ['shows'] },
 			});
 
 			expect(fakes.scheduler.registerPlans).toHaveBeenCalled();
@@ -608,6 +662,373 @@ describe('SyncManager', () => {
 			const { manager } = build();
 
 			await expect(manager.readPlan('ghost')).rejects.toThrow(ErrorKey.SYNC_PLAN_NOT_FOUND);
+		});
+	});
+
+	describe('scope', () => {
+		it('resolves a merged category into the libraries behind it', async () => {
+			const { manager, fakes } = build({
+				items: [
+					item({ id: 'item-shows', libraryId: 'library-shows' }),
+					item({ id: 'item-films', libraryId: 'library-films', externalId: 'ext-2' }),
+				],
+				categoryLibraries: ['library-shows'],
+			});
+
+			const planning = await manager.plan({ scope: { categoryKeys: ['shows'] } });
+
+			expect(fakes.libraryManager.librariesOfCategory).toHaveBeenCalledWith('shows');
+			expect(planning.items.map((entry) => entry.itemId)).toEqual(['item-shows']);
+		});
+
+		it('intersects the fields rather than adding them up', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'item-shows', libraryId: 'library-shows' }),
+					item({ id: 'item-films', libraryId: 'library-films', externalId: 'ext-2' }),
+				],
+				categoryLibraries: ['library-shows', 'library-films'],
+			});
+
+			// The part of that subtree in that category, which is what somebody filling
+			// in a form means by naming both.
+			const planning = await manager.plan({
+				scope: { categoryKeys: ['everything'], itemIds: ['item-films'] },
+			});
+
+			expect(planning.items.map((entry) => entry.itemId)).toEqual(['item-films']);
+		});
+
+		it('runs nothing when the scope names something that no longer exists', async () => {
+			const { manager } = build({ categoryLibraries: [] });
+
+			// Falling through to "no restriction" here would turn a category somebody
+			// deleted into a sync of everything, at four in the morning.
+			const planning = await manager.plan({ scope: { categoryKeys: ['gone'] } });
+
+			expect(planning.items).toHaveLength(0);
+		});
+
+		it('echoes back what it was asked for, so a preview reads on its own', async () => {
+			const { manager } = build();
+			const scope = { itemIds: ['item-fast'] };
+
+			expect((await manager.plan({ scope })).scope).toEqual(scope);
+		});
+	});
+
+	describe('estimate', () => {
+		it('counts the scope, not the run the ceilings allow', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'item-a', normalizedTitle: 'a' }),
+					item({ id: 'item-b', normalizedTitle: 'b', externalId: 'ext-2' }),
+				],
+			});
+
+			const planning = await manager.plan({
+				scope: { itemIds: ['item-a', 'item-b'] },
+				maxItemsPerRun: 1,
+			});
+
+			expect(planning.estimate).toMatchObject({ itemCount: 2, bytes: 4_000_000 });
+			expect(planning.itemsPlanned).toBe(1);
+			expect(planning.bytesPlanned).toBe(2_000_000);
+			expect(planning.stoppedBy).toBe(SyncStopReason.MAX_ITEMS);
+			expect(planning.dropped).toHaveLength(1);
+		});
+
+		it('says a scope that names nothing is unbounded', async () => {
+			const { manager } = build();
+
+			expect((await manager.plan({})).estimate.unbounded).toBe(true);
+			expect(
+				(await manager.plan({ scope: { itemIds: ['item-fast'] } })).estimate.unbounded,
+			).toBe(false);
+		});
+
+		it('answers for a stored plan without touching what is stored', async () => {
+			const { manager } = build();
+			const plans = (manager as unknown as { _plans: { findOne: jest.Mock; save: jest.Mock } })
+				._plans;
+
+			plans.findOne.mockResolvedValue({
+				id: 'plan-1',
+				scope: { itemIds: ['item-fast'] },
+				filter: {},
+				sourceServiceIds: [],
+				targetLibraryId: null,
+				maxItemsPerRun: null,
+				maxBytesPerRun: null,
+			} as unknown as SyncPlan);
+
+			const estimate = await manager.estimatePlan('plan-1');
+
+			expect(estimate).toMatchObject({ itemCount: 1, unbounded: false, truncated: false });
+			expect(plans.save).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('free space', () => {
+		/** A destination with exactly this much room, for a plan of two megabytes. */
+		const withFreeBytes = (freeBytes: number | null, settings: Partial<Settings> = {}) => {
+			const world = build({ settings });
+
+			world.fakes.libraryManager.probe.mockResolvedValue({
+				exists: true,
+				readable: true,
+				writable: true,
+				freeBytes,
+				error: null,
+			});
+
+			return world;
+		};
+
+		it('refuses a run a destination cannot take, and creates nothing', async () => {
+			const { manager, fakes } = withFreeBytes(1000);
+
+			await expect(manager.run({})).rejects.toMatchObject({
+				response: { key: ErrorKey.SYNC_NOT_ENOUGH_SPACE },
+			});
+			expect(fakes.jobs.save).not.toHaveBeenCalled();
+			expect(fakes.engine.enqueue).not.toHaveBeenCalled();
+		});
+
+		it('refuses it however loudly the caller acknowledges', async () => {
+			// The refusal is arithmetic. Starting anyway buys a truncated file the media
+			// server indexes as real, which no flag makes acceptable.
+			const { manager } = withFreeBytes(1000);
+
+			await expect(manager.run({ acknowledgeSpace: true })).rejects.toMatchObject({
+				response: { key: ErrorKey.SYNC_NOT_ENOUGH_SPACE },
+			});
+		});
+
+		it('asks before crossing the reserve, and goes ahead once told to', async () => {
+			const { manager } = withFreeBytes(3_000_000, { diskReserveBytes: 5_000_000 });
+
+			await expect(manager.run({})).rejects.toMatchObject({
+				response: { key: ErrorKey.SYNC_SPACE_NOT_ACKNOWLEDGED },
+			});
+			await expect(manager.run({ acknowledgeSpace: true })).resolves.toBeDefined();
+		});
+
+		it('never reads a disk it could not probe as room', async () => {
+			const { manager } = withFreeBytes(null);
+
+			await expect(manager.run({})).rejects.toMatchObject({
+				response: { key: ErrorKey.SYNC_SPACE_NOT_ACKNOWLEDGED },
+			});
+		});
+
+		it('reports the room left on every destination it would write into', async () => {
+			const { manager } = withFreeBytes(100_000_000);
+			const planning = await manager.plan({});
+
+			expect(planning.targets).toEqual([
+				expect.objectContaining({
+					libraryId: 'library-local',
+					requiredBytes: 2_000_000,
+					freeBytes: 100_000_000,
+					remainingBytes: 98_000_000,
+					verdict: SpaceVerdict.FITS,
+				}),
+			]);
+		});
+	});
+
+	describe('the detail of a run', () => {
+		it('writes a line for every item, before a single transfer exists', async () => {
+			const { manager, fakes } = build();
+
+			await manager.run({});
+
+			const [rows] = fakes.lines.save.mock.calls[0] as [SyncJobItem[]];
+
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({
+				title: 'The Trap',
+				state: SyncJobItemState.PENDING,
+				bytes: 2_000_000,
+				// Null until something is actually moving it: a queued line has no bytes
+				// to reach.
+				transferId: null,
+			});
+			expect(fakes.lines.save.mock.invocationCallOrder[0]).toBeLessThan(
+				fakes.transfers.save.mock.invocationCallOrder[0],
+			);
+		});
+
+		it('keeps the lines a ceiling dropped, marked as skipped', async () => {
+			const { manager, fakes } = build({
+				items: [
+					item({ id: 'item-a', normalizedTitle: 'a' }),
+					item({ id: 'item-b', normalizedTitle: 'b', externalId: 'ext-2' }),
+				],
+			});
+
+			await manager.run({ maxItemsPerRun: 1 });
+
+			const [rows] = fakes.lines.save.mock.calls[0] as [SyncJobItem[]];
+
+			// Without them, `stoppedBy` is something the reader has to take on faith.
+			expect(rows.map((row) => row.state)).toEqual([
+				SyncJobItemState.PENDING,
+				SyncJobItemState.SKIPPED,
+			]);
+		});
+
+		it('follows the transfer it hands out, rather than asking on a timer', async () => {
+			const { manager, fakes } = build();
+
+			manager.onModuleInit();
+
+			const line = {
+				id: 'line-1',
+				jobId: 'job-1',
+				itemId: 'item-fast',
+				state: SyncJobItemState.PENDING,
+				transferId: null,
+			} as SyncJobItem;
+
+			fakes.lines.findLine.mockResolvedValue(line);
+			fakes.lines.progressOf.mockResolvedValue({
+				done: 1,
+				failed: 0,
+				bytesDone: 2_000_000,
+				open: 0,
+			});
+			fakes.jobs.findOne.mockResolvedValue({
+				id: 'job-1',
+				planId: null,
+				state: SyncJobState.RUNNING,
+				createdAt: new Date('2026-01-01T00:00:00.000Z'),
+			} as SyncJob);
+
+			const listener = fakes.engine.onTransferState.mock.calls[0][0] as (
+				transfer: Transfer,
+			) => Promise<void>;
+
+			await listener({
+				id: 'transfer-1',
+				jobId: 'job-1',
+				itemId: 'item-fast',
+				state: TransferState.DOWNLOADING,
+				bytesDone: 1_000_000,
+				error: null,
+				startedAt: new Date('2026-01-01T00:01:00.000Z'),
+				finishedAt: null,
+			} as Transfer);
+
+			expect(fakes.lines.save).toHaveBeenCalledWith(
+				expect.objectContaining({
+					state: SyncJobItemState.RUNNING,
+					// The line names its transfer, which is what lets a progress bar be
+					// opened rather than only watched.
+					transferId: 'transfer-1',
+					bytesDone: 1_000_000,
+				}),
+			);
+			// Counted from the lines, never incremented: a resumed transfer reports
+			// `done` twice, and a job that says 901 of 900 is one nobody believes again.
+			expect(fakes.jobs.save).toHaveBeenCalledWith(
+				expect.objectContaining({ itemsDone: 1, state: SyncJobState.DONE }),
+			);
+		});
+
+		it('leaves a cancelled run cancelled, whatever its transfers report next', async () => {
+			const { manager, fakes } = build();
+
+			manager.onModuleInit();
+
+			fakes.lines.findLine.mockResolvedValue({ id: 'line-1', jobId: 'job-1' } as SyncJobItem);
+			fakes.lines.progressOf.mockResolvedValue({ done: 0, failed: 0, bytesDone: 0, open: 0 });
+			fakes.jobs.findOne.mockResolvedValue({
+				id: 'job-1',
+				planId: null,
+				state: SyncJobState.CANCELLED,
+				createdAt: new Date('2026-01-01T00:00:00.000Z'),
+			} as SyncJob);
+
+			const listener = fakes.engine.onTransferState.mock.calls[0][0] as (
+				transfer: Transfer,
+			) => Promise<void>;
+
+			await listener({
+				id: 'transfer-1',
+				jobId: 'job-1',
+				itemId: 'item-fast',
+				state: TransferState.CANCELLED,
+				bytesDone: 0,
+				error: null,
+				startedAt: null,
+				finishedAt: new Date('2026-01-01T00:02:00.000Z'),
+			} as Transfer);
+
+			// A stop button that reports "done" once the transfers finish stopping looks
+			// like it failed.
+			expect(fakes.jobs.save).toHaveBeenCalledWith(
+				expect.objectContaining({ state: SyncJobState.CANCELLED }),
+			);
+		});
+
+		it('records the scope and the free space against the job itself', async () => {
+			const { manager, fakes } = build();
+
+			await manager.run({ scope: { itemIds: ['item-fast'] } });
+
+			expect(fakes.jobs.create).toHaveBeenCalledWith(
+				expect.objectContaining({
+					scope: { itemIds: ['item-fast'] },
+					targets: [expect.objectContaining({ libraryId: 'library-local' })],
+				}),
+			);
+		});
+	});
+
+	describe('a plan that says everything', () => {
+		const unbounded = { name: 'Nightly', trigger: SyncTrigger.SCHEDULE, schedule: '0 4 * * *' };
+
+		it('refuses to be enabled without somebody saying so on purpose', async () => {
+			const { manager } = build();
+
+			await expect(manager.createPlan(unbounded)).rejects.toThrow(
+				ErrorKey.SYNC_SCOPE_UNBOUNDED,
+			);
+		});
+
+		it('is created when the scope is acknowledged', async () => {
+			const { manager } = build();
+
+			await expect(
+				manager.createPlan({ ...unbounded, acknowledgeUnbounded: true }),
+			).resolves.toBeDefined();
+		});
+
+		it('is created disabled without any acknowledgement', async () => {
+			// Nothing runs, so nothing runs away. The acknowledgement is asked for at the
+			// moment somebody enables it.
+			const { manager } = build();
+
+			await expect(manager.createPlan({ ...unbounded, enabled: false })).resolves.toBeDefined();
+		});
+
+		it('refuses to be switched on later, on a body that says only that', async () => {
+			const { manager } = build();
+			const plans = (manager as unknown as { _plans: { findOne: jest.Mock } })._plans;
+
+			plans.findOne.mockResolvedValue({
+				id: 'plan-1',
+				scope: {},
+				filter: {},
+				sourceServiceIds: [],
+				enabled: false,
+			} as unknown as SyncPlan);
+
+			await expect(manager.updatePlan('plan-1', { enabled: true })).rejects.toThrow(
+				ErrorKey.SYNC_SCOPE_UNBOUNDED,
+			);
 		});
 	});
 

@@ -127,7 +127,12 @@
 		</span>
 
 		<div class="media-card_body">
-			<router-link class="media-card_title" :to="to" @click="onOpen">
+			<router-link
+				class="media-card_title"
+				data-test="media-open"
+				:to="to"
+				@click="onOpen"
+			>
 				{{ group.title }}
 			</router-link>
 

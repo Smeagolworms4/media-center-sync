@@ -36,6 +36,8 @@ export interface MediaItemDigest {
 	parentId: string | null;
 	kind: MediaKind;
 	syncState: SyncState;
+	/** Excluded from gap counts and from what a sync plans. See `MediaOverride.ignored`. */
+	ignored: boolean;
 }
 
 /** A group listing's filter, with the parent addressed as a set of items rather than one. */
@@ -233,18 +235,19 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	/**
 	 * The rows a grouped listing starts from, narrow and in order.
 	 *
-	 * Runs `SELECT id, serviceId, libraryId, parentId, kind, syncState FROM media_items`
+	 * Runs `SELECT id, serviceId, libraryId, parentId, kind, syncState, ignored FROM
+	 * media_items`
 	 * with the caller's filters and the usual `ORDER BY`, and no `LIMIT`. The limit is
 	 * missing on purpose: several rows collapse into one group, so a page of rows is
 	 * not a page of groups and slicing here would hand back a short page with a total
-	 * that contradicts it. What is bounded instead is the width — six scalar columns,
+	 * that contradicts it. What is bounded instead is the width — seven scalar columns,
 	 * never the JSON ones.
 	 *
 	 * The identifier is the last `ORDER BY` term so that two rows sharing a title come
 	 * back in the same order every time; without it the group a page starts on depends
 	 * on whatever the engine felt like.
 	 */
-	public findGroupSeeds(query: GroupSeedQuery): Promise<MediaItemDigest[]> {
+	public async findGroupSeeds(query: GroupSeedQuery): Promise<MediaItemDigest[]> {
 		const builder = this._digestQuery();
 
 		/*
@@ -304,33 +307,52 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			});
 		}
 
-		return builder
+		const rows = await builder
 			.orderBy(SORTABLE[query.sort ?? 'title'], query.direction === 'desc' ? 'DESC' : 'ASC')
 			.addOrderBy('item.id', 'ASC')
 			.getRawMany<MediaItemDigest>();
+
+		return MediaItemRepository._digests(rows);
 	}
 
 	/** The same projection, for identifiers a component pulled in from outside the filter. */
-	public findDigests(ids: string[]): Promise<MediaItemDigest[]> {
-		return this._chunked(ids, (chunk) =>
-			this._digestQuery()
-				.andWhere('item.id IN (:...ids)', { ids: chunk })
-				.getRawMany<MediaItemDigest>(),
+	public async findDigests(ids: string[]): Promise<MediaItemDigest[]> {
+		return MediaItemRepository._digests(
+			await this._chunked(ids, (chunk) =>
+				this._digestQuery()
+					.andWhere('item.id IN (:...ids)', { ids: chunk })
+					.getRawMany<MediaItemDigest>(),
+			),
 		);
 	}
 
 	/** The same projection for everything under a set of parents, which is what a group's children are. */
-	public findChildDigests(parentIds: string[]): Promise<MediaItemDigest[]> {
-		return this._chunked(parentIds, (chunk) =>
-			this._digestQuery()
-				.andWhere('item.parentId IN (:...parentIds)', { parentIds: chunk })
-				.getRawMany<MediaItemDigest>(),
+	public async findChildDigests(parentIds: string[]): Promise<MediaItemDigest[]> {
+		return MediaItemRepository._digests(
+			await this._chunked(parentIds, (chunk) =>
+				this._digestQuery()
+					.andWhere('item.parentId IN (:...parentIds)', { parentIds: chunk })
+					.getRawMany<MediaItemDigest>(),
+			),
 		);
 	}
 
 	/** Full rows, for the one page a grouped listing actually renders. */
 	public findByIds(ids: string[]): Promise<MediaItem[]> {
 		return this._chunked(ids, (chunk) => this.find({ where: { id: In(chunk) } }));
+	}
+
+	/**
+	 * Raw rows carry the engine's idea of a boolean, so it is normalised once here.
+	 *
+	 * `getRawMany` skips the entity layer that would have converted it, and the two
+	 * engines disagree: SQLite hands back `0` and `1`, PostgreSQL `false` and `true`.
+	 * `0` is falsy and `1` is truthy, so a plain `if` would work on both and a
+	 * `=== true` would silently be false on SQLite for every ignored item — the filter
+	 * would simply appear not to work, on the engine that ships by default.
+	 */
+	private static _digests(rows: MediaItemDigest[]): MediaItemDigest[] {
+		return rows.map((row) => ({ ...row, ignored: row.ignored === true || Number(row.ignored) === 1 }));
 	}
 
 	private _digestQuery(): SelectQueryBuilder<MediaItem> {
@@ -340,7 +362,8 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			.addSelect('item.libraryId', 'libraryId')
 			.addSelect('item.parentId', 'parentId')
 			.addSelect('item.kind', 'kind')
-			.addSelect('item.syncState', 'syncState');
+			.addSelect('item.syncState', 'syncState')
+			.addSelect('item.ignored', 'ignored');
 	}
 
 	private async _chunked<T>(ids: string[], read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {

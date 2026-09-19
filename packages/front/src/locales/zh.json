@@ -1,0 +1,998 @@
+{
+	"app": {
+		"name": "Media Center Sync",
+		"tagline": "你的媒体，无论它放在哪里",
+		"loading": "正在启动网关…"
+	},
+	"nav": {
+		"dashboard": "概览",
+		"library": "媒体库",
+		"services": "服务",
+		"peers": "对等网关",
+		"sync": "同步",
+		"transfers": "传输",
+		"settings": "设置",
+		"shares": "共享",
+		"users": "用户"
+	},
+	"actions": {
+		"validate": "确认",
+		"cancel": "取消",
+		"close": "关闭",
+		"retry": "重试",
+		"sign_in": "登录",
+		"sign_out": "退出登录",
+		"back_home": "返回概览",
+		"back": "返回",
+		"refresh": "刷新",
+		"save": "保存",
+		"add": "添加",
+		"copy": "复制",
+		"copied": "已复制"
+	},
+	"auth": {
+		"title": "登录",
+		"subtitle": "使用你在某个媒体服务上已有的账号。",
+		"subtitle_internal": "使用此网关自己的账号登录。",
+		"subtitle_service": "使用你的 {provider} 账号登录。",
+		"subtitle_external": "通过 {provider} 登录。",
+		"provider": "登录方式",
+		"provider_only": "此网关目前提供的唯一登录方式。",
+		"username": "用户名",
+		"password": "密码",
+		"redirect": "继续",
+		"redirect_hint": "你将被转到 {provider} 完成登录。",
+		"no_provider_title": "尚未配置登录方式",
+		"no_provider_text": "此网关还没有任何认证提供方。请注册一个媒体服务，或在命令行创建第一个内部账号，然后重新加载此页面。",
+		"signed_out": "你已退出登录。",
+		"session_restored": "欢迎回来，{name}。",
+		"account": "账号"
+	},
+	"setup": {
+		"title": "首次运行",
+		"welcome": "欢迎使用 {name}",
+		"tagline": "一个网关，管好你和朋友们运行的每一台媒体服务器。",
+		"intro": "这个网关让家里的媒体服务器——以及朋友们的——彼此保持同步。目前还没有人认领它，所以只有一件事要做：创建你用来登录的账号。",
+		"promise": {
+			"index": "为你已经在运行的 Jellyfin 和 Plex 服务器建立索引。",
+			"friends": "连接朋友的网关，看看他们选择共享了什么。",
+			"pull": "把这里缺失的内容拉取过来，放进正确的媒体库，并按你自己的方式命名。"
+		},
+		"account": "第一个账号",
+		"account_help": "它是管理员，并且在注册媒体服务之前，它是唯一的登录方式。",
+		"display_name": "你的名字",
+		"display_name_hint": "可选。界面这样称呼你；登录用的是用户名。",
+		"confirmation": "再次输入密码",
+		"password_hint": "至少 {min} 个字符。此网关很可能最终可以从屋外访问到。",
+		"action": "创建账号并开始",
+		"why_no_default": "这里故意不设默认密码：一台联网设备带着出厂密码，陌生人正是这样找到网关的。此页面只在还没有任何账号时开放，一旦有了账号就永久关闭。",
+		"version": "网关版本 {version}",
+		"already_claimed": "此网关刚刚被认领。请用已创建的账号登录。",
+		"failed": "无法创建该账号。"
+	},
+	"theme": {
+		"toggle": "切换主题",
+		"light": "浅色",
+		"dark": "深色"
+	},
+	"locale": {
+		"label": "语言",
+		"en": "English",
+		"fr": "Français",
+		"es": "Español",
+		"pt": "Português",
+		"ru": "Русский",
+		"de": "Deutsch",
+		"it": "Italiano",
+		"zh": "中文"
+	},
+	"connection": {
+		"label": "实时更新",
+		"online": "实时",
+		"connecting": "正在连接…",
+		"offline": "离线"
+	},
+	"common": {
+		"empty_title": "这里空空如也",
+		"empty_text": "暂时没有可显示的内容。",
+		"error_title": "出了点问题",
+		"error_text": "网关没有响应。请稍后重试。",
+		"never": "从未",
+		"unknown": "未知",
+		"yes": "是",
+		"no": "否",
+		"placeholder": "此页面尚未完成。",
+		"copy_failed": "复制失败。请选中内容手动复制。"
+	},
+	"general": {
+		"byte_unit": "B"
+	},
+	"cron": {
+		"describe": {
+			"every_minute": "每分钟一次。",
+			"every_n_minutes": "每 {count} 分钟一次。",
+			"every_n_hours": "每 {count} 小时一次，在第 {minute} 分钟。",
+			"hourly_at": "每小时一次，在第 {minute} 分钟。",
+			"daily_at": "每天 {time}。",
+			"weekly_at": "每{day} {time}。",
+			"monthly_at": "每月 {day} 日 {time}。",
+			"custom": "此页面无法用文字描述的计划。它依然有效。",
+			"invalid": "需要五个字段，例如 0 4 * * *。"
+		},
+		"day": {
+			"0": "星期日",
+			"1": "星期一",
+			"2": "星期二",
+			"3": "星期三",
+			"4": "星期四",
+			"5": "星期五",
+			"6": "星期六"
+		}
+	},
+	"dashboard": {
+		"subtitle": "此刻关于这个网关值得知道的事。",
+		"services": "媒体服务",
+		"services_offline": "{count} 个未响应",
+		"services_all_online": "全部响应正常",
+		"missing": "这里缺失",
+		"missing_hint": "别处有，这里没有",
+		"active_transfers": "正在传输",
+		"queued": "{count} 个排队中",
+		"peers": "对等网关",
+		"peers_unreachable": "{count} 个无法连接",
+		"needs_attention": "需要处理",
+		"all_well_title": "没有需要处理的事",
+		"all_well_text": "每个服务都有响应，每个媒体库都可写入，也没有传输失败。",
+		"recent_jobs": "最近的同步运行",
+		"no_jobs_title": "还没有运行过同步",
+		"no_jobs_text": "创建一个计划，或从媒体页面发起一次性同步。",
+		"go_to_sync": "打开同步",
+		"all_jobs": "查看全部运行",
+		"problem": {
+			"library_not_writable": "{name} 无法写入——传输会落到你的服务器永远不会查看的地方",
+			"service_offline": "{name} 没有响应",
+			"service_unauthorized": "{name} 拒绝了网关——请检查它的令牌",
+			"peer_unreachable": "{name} 无法连接",
+			"transfer_failed": "{name} 失败了"
+		}
+	},
+	"library": {
+		"title": "媒体库",
+		"subtitle": "网关在所有服务上索引到的全部内容。",
+		"empty_title": "没有匹配项",
+		"empty_text": "没有已索引的媒体符合这些筛选条件。放宽条件，或先扫描一个服务。",
+		"empty_service_title": "还没有媒体库",
+		"empty_service_text": "此服务没有报告任何媒体库。扫描它，或检查它的凭据。",
+		"select_all": "选中本页全部",
+		"select": "选择",
+		"selected_count": "已选择 {count} 项",
+		"see_all": "打开",
+		"section_count": "共 {count} 项",
+		"section_empty": "此分类中没有符合这些筛选条件的内容。",
+		"section_latest": "最新加入",
+		"section_local": "我们的",
+		"everything": "所有分类",
+		"categories": "你的媒体库",
+		"categories_hint": "所有服务器上同名的媒体库，视为同一个。",
+		"view": {
+			"grid": "海报",
+			"list": "列表"
+		},
+		"sync_selected": "同步选中的 {count} 项",
+		"sync_started": "同步已排入队列。",
+		"saved": "媒体库已保存。",
+		"alias": "这里的名称",
+		"position": "顺序",
+		"naming_help": "这个名称属于此网关自己：服务保留它自己报告的名称，重新扫描也不会覆盖。顺序按数值从小到大，同一媒体被归入两个分类时也由它决定哪个分类胜出。",
+		"category_is": "显示为“{name}”",
+		"category_merged": "与另外 {count} 个同名媒体库合并",
+		"category_alone": "自成一个分类",
+		"category_unknown": "尚未读取分类。",
+		"reported_name": "服务称它为“{name}”。",
+		"local_path": "本地路径",
+		"local_path_hint": "网关看到这些文件的位置。它必须和媒体服务器读取的目录是同一个。",
+		"reported_paths": "服务报告的路径",
+		"default_target": "默认目标",
+		"free_space": "可用空间",
+		"check_failed": "无法检查此路径。",
+		"item_count": "{count} 项",
+		"unwritable_warning": "其中 {count} 个媒体库无法写入，因此无法把任何内容拉取进去。",
+		"kind": {
+			"movies": "电影",
+			"shows": "剧集",
+			"music": "音乐",
+			"other": "其他"
+		},
+		"problem": {
+			"no_path": "未设置本地路径，网关无法写入此媒体库。",
+			"missing": "在网关看来此路径不存在。",
+			"unreadable": "网关无法读取此路径。",
+			"not_writable": "网关无法在此写入，因此没有传输能落进这个媒体库。"
+		}
+	},
+	"category": {
+		"empty": "还没有分类。注册一个媒体服务并扫描它，它的媒体库就会出现在这里。",
+		"local": "我们的",
+		"libraries": "{count} 个媒体库"
+	},
+	"media": {
+		"children": "内容",
+		"child_count": "共 {count} 项",
+		"no_children_title": "此项目下没有内容",
+		"no_children_text": "索引中此项目没有季、集或成员。",
+		"season_episode": "S{season}E{episode}",
+		"held_by": "拥有者：{services}",
+		"missing_count": "缺失 {count} 项",
+		"sync_this": "同步此项",
+		"sync_missing": "同步缺失的 {count} 项",
+		"column": {
+			"title": "标题",
+			"kind": "类型",
+			"year": "年份",
+			"sources": "拥有者",
+			"quality": "质量",
+			"size": "大小"
+		},
+		"kind": {
+			"movie": "电影",
+			"series": "剧集",
+			"season": "季",
+			"episode": "集",
+			"collection": "合集"
+		},
+		"filter": {
+			"search": "搜索",
+			"service": "服务",
+			"services": "服务器",
+			"library": "媒体库",
+			"origin": "来自哪里",
+			"kind": "类型",
+			"state": "状态",
+			"sort": "排序方式",
+			"clear": "清除筛选"
+		},
+		"sort": {
+			"title": "标题",
+			"year": "年份",
+			"added_at": "最近加入",
+			"latest_first": "最新加入优先"
+		},
+		"origin": {
+			"local": "我们的",
+			"direct": "直连",
+			"friend": "朋友",
+			"friend_of_friend": "朋友的朋友",
+			"unknown": "另一个网关"
+		},
+		"origin_help": {
+			"local": "此网关可以写入的服务器。",
+			"direct": "在这里注册的远程服务器——你的另一台机器，或一台公开的服务器。",
+			"friend": "通过你自己连接的对等网关。",
+			"friend_of_friend": "通过你某位朋友引荐的对等网关。这里没有人直接同意过他们。"
+		},
+		"source": {
+			"title": "拉取来源",
+			"follow_priority": "按配置的优先级",
+			"follow_priority_hint": "（当前 {name} 优先）",
+			"priority": "优先级 {priority}",
+			"via_peer": "经由 {peer}",
+			"ours": "我们的",
+			"held_here": "你自己的某个服务拥有它。",
+			"not_held_here": "只有别的服务器拥有它。",
+			"none": "没有服务拥有此项目。"
+		},
+		"match": {
+			"title": "关联",
+			"action": "匹配项",
+			"empty_title": "没有关联",
+			"empty_text": "索引中还没有别的内容与此项目关联起来。",
+			"strategy": {
+				"checksum": "校验和相同",
+				"external_id": "外部标识符相同",
+				"season_episode": "季和集相同",
+				"normalized_title": "标题相近",
+				"path": "路径相同",
+				"manual": "人工确认"
+			},
+			"confidence": "置信度 {value}%",
+			"confirm": "确认",
+			"confirmed": "关联已确认。",
+			"confirmed_at": "已确认",
+			"removed": "关联已移除。"
+		}
+	},
+	"override": {
+		"title": "修正此项目",
+		"action": "修正",
+		"intro": "媒体服务器弄错的地方，只在这里修正，别处不动。修正会影响它所属的分类、关联和归档方式——而且下次重新扫描会重新应用它，而不是把它抹掉。",
+		"clear_help": "不填某个字段就保留服务给出的值。橡皮擦会彻底清除该值，刮削器凭空造出来的年份就是这样去掉的。",
+		"library": "媒体库",
+		"library_hint": "它属于哪个媒体库，也就决定了它出现在哪个分类下。",
+		"identifiers": "标识符",
+		"identifiers_hint": "关联可靠与否靠它：两台服务器给同一集编号不同，却能在 TVDB 标识符上达成一致。",
+		"restore": "恢复服务报告的内容",
+		"saved": "修正已保存。",
+		"restored": "已恢复服务自己的答案。",
+		"failed": "此修正被拒绝。",
+		"changed_count": "已修改 {count} 个字段",
+		"field": {
+			"title": "标题",
+			"series_title": "剧集名称",
+			"series_title_hint": "对于单集：它所在文件夹以此命名。",
+			"year": "年份",
+			"season": "季",
+			"episode": "集",
+			"overview": "简介"
+		},
+		"id": {
+			"tvdb": "TVDB",
+			"tmdb": "TMDB",
+			"imdb": "IMDb"
+		},
+		"state": {
+			"was": "服务给出的是“{value}”。",
+			"was_empty": "服务在这里没有给出内容。",
+			"cleared": "已清除：无论服务怎么说，此字段都保持为空。",
+			"cleared_was": "已清除：服务给出的是“{value}”，此网关忽略它。"
+		}
+	},
+	"service": {
+		"subtitle": "此网关读取和写入的媒体服务器。",
+		"add": "添加服务",
+		"edit": "编辑服务",
+		"saved": "服务已保存。",
+		"removed": "服务已移除。",
+		"empty_title": "未注册任何服务",
+		"empty_text": "注册你已经在运行的 Jellyfin 或 Plex，网关就会为它建立索引。",
+		"counts": "{libraries} 个媒体库 · {items} 个项目",
+		"last_scan": "上次完整扫描",
+		"last_probe": "上次检查",
+		"remove_title": "移除此服务？",
+		"remove_confirm": "{name} 以及从它索引到的一切都将从网关移除。文件本身不会被动。",
+		"scan_started": "完整扫描已开始。进度会在这里显示。",
+		"refresh_started": "刷新已开始。",
+		"status": {
+			"unknown": "未检查",
+			"online": "有响应",
+			"offline": "无响应",
+			"unauthorized": "被拒绝"
+		},
+		"scope": {
+			"local": "本地——可以接收文件",
+			"remote": "远程——只读"
+		},
+		"field": {
+			"name": "名称",
+			"type": "类型",
+			"scope": "范围",
+			"base_url": "地址",
+			"base_url_hint": "包含端口，例如 http://192.168.0.10:8096",
+			"token": "API 令牌",
+			"token_hint": "在媒体服务器中创建。保存后不会再次显示。",
+			"token_hint_edit": "留空则保留已注册的令牌。",
+			"priority": "优先级",
+			"priority_hint": "同一媒体可从多个服务获取时，数值小的优先。",
+			"auth_provider": "用此服务登录",
+			"auth_provider_hint": "它的账号将成为登录此网关的方式。"
+		},
+		"probe": {
+			"action": "测试连接",
+			"ok": "已连上 {name}，版本 {version}。",
+			"ok_short": "服务已响应。",
+			"failed": "服务没有响应，或拒绝了凭据。",
+			"libraries": "找到 {count} 个媒体库",
+			"unauthorized": "服务有响应，但拒绝了这些凭据。请检查令牌。",
+			"unreachable": "无法通过此地址连接到服务。"
+		},
+		"action": {
+			"probe": "检查",
+			"scan": "完整扫描",
+			"refresh": "刷新"
+		}
+	},
+	"peer": {
+		"subtitle": "与此网关相连的其他网关。",
+		"name": "名称",
+		"empty_title": "未连接任何对等网关",
+		"empty_text": "粘贴朋友的指纹，或给他们一份邀请——两种方式都能把两个网关连起来。",
+		"shares": "{services} 个服务 · {items} 个共享项目",
+		"last_seen": "上次出现",
+		"relay_hint": "此连接经由会合服务器，它的带宽由所有使用者共享。",
+		"remove_title": "移除此对等网关？",
+		"remove_confirm": "与 {name} 的连接将被断开。已经拉取过来的内容会保留。",
+		"connecting": "正在连接对等网关…",
+		"blocked": "对等网关已屏蔽。",
+		"unblocked": "对等网关已解除屏蔽。",
+		"renamed": "对等网关已重命名。",
+		"removed": "对等网关已移除。",
+		"linked": "对等网关已连接。",
+		"approved": "请求已接受。",
+		"browse": "浏览他们共享的内容",
+		"open_in_library": "在媒体库中打开",
+		"no_libraries": "此服务没有报告任何媒体库。",
+		"no_services_title": "没有与我们共享的内容",
+		"no_services_text": "此对等网关还没有与我们共享任何服务，或者还没有连接上。",
+		"pull_all": "拉取所有缺失内容",
+		"pull_missing": "拉取缺失的内容",
+		"pull_started": "拉取已排入队列。",
+		"direction": {
+			"incoming": "等你处理",
+			"outgoing": "等对方处理",
+			"incoming_hint": "这个网关请求与你相连。接受它，或屏蔽对方。",
+			"outgoing_hint": "已发出请求。在对方接受之前，这里无事可做。"
+		},
+		"add": {
+			"tab": "通过指纹",
+			"hint": "建立连接需要的是双方都知道对方的指纹。粘贴他们的指纹，他们就会收到一条带着你的指纹的请求。",
+			"fingerprint": "对方的指纹",
+			"fingerprint_hint": "就是他们自己的网关在“此网关”下显示的那串字符。",
+			"address": "对方的地址",
+			"address_hint": "可选。知道地址时会优先尝试；否则由会合服务器找到他们。",
+			"action": "发送请求"
+		},
+		"status": {
+			"pending": "等待连接",
+			"linked": "已连接",
+			"unreachable": "无法连接",
+			"blocked": "已屏蔽"
+		},
+		"trust": {
+			"friend": "朋友",
+			"friend_of_friend": "朋友的朋友",
+			"friend_of_friend_via": "朋友的朋友，经由 {peer}"
+		},
+		"link_mode": {
+			"direct": "直接连接",
+			"relay": "经由中继"
+		},
+		"identity": {
+			"title": "此网关",
+			"node_id": "节点标识符",
+			"node_id_help": "此网关在共享网络中不变的名字。只生成一次，并且故意不用指纹：轮换密钥不该让它看起来像一个新成员。当朋友的朋友发来的通告开始绕圈时，要报的就是它。",
+			"fingerprint": "指纹",
+			"rendezvous": "会合服务器",
+			"direct_address": "直连地址",
+			"direct_ok": "可以直接连接，因此传输不经过中继。",
+			"relay_only": "只能经由中继连接。一切都能用，但传输要和所有其他使用者共享会合服务器。转发对等端口可以消除这一点。"
+		},
+		"invite": {
+			"open": "连接一个网关",
+			"title": "连接两个网关",
+			"create_tab": "邀请别人",
+			"accept_tab": "接受邀请",
+			"create_hint": "邀请中带有此网关的指纹和一个一次性密钥。它会过期，也会在使用后失效。",
+			"create_action": "创建邀请",
+			"url": "邀请链接",
+			"code": "邀请码",
+			"expires": "过期时间",
+			"one_shot": "只能使用一次。",
+			"paste": "邀请链接或邀请码",
+			"name": "为此对等网关命名",
+			"name_hint": "可选。这个网关在你的列表中的称呼。",
+			"accept_action": "接受"
+		},
+		"catalogue": {
+			"empty_title": "没有可显示的内容",
+			"empty_text": "此媒体库为空，或者其中没有任何内容与我们共享。"
+		},
+		"action": {
+			"approve": "接受",
+			"connect": "立即连接",
+			"rename": "重命名",
+			"block": "屏蔽",
+			"unblock": "解除屏蔽"
+		}
+	},
+	"share": {
+		"subtitle": "此网关对外公开的内容，逐个媒体库决定。",
+		"libraries": "媒体库",
+		"no_libraries_title": "没有可共享的媒体库",
+		"no_libraries_text": "请先注册一个服务，它的媒体库会出现在这里。",
+		"visibility": "谁可以看到",
+		"make_private": "重新设为私有",
+		"made_private": "此媒体库已重新设为私有。",
+		"saved": "共享设置已保存。",
+		"allowed": "始终允许",
+		"allowed_hint": "无论上面的规则如何，这些对等网关都能看到此媒体库。",
+		"denied": "始终禁止",
+		"denied_hint": "无论上面的规则如何，这些对等网关都看不到它。",
+		"rate_limit": "带宽上限",
+		"rate_limit_hint": "此媒体库对外提供的速率，例如 2M。留空表示不限。",
+		"rate_summary": {
+			"global": "此网关发出的所有内容限速 {rate}。",
+			"global_none": "没有全局上传上限：此网关以链路允许的最快速度发送。",
+			"libraries": "单独限制自身对外速率的媒体库：",
+			"libraries_none": "没有媒体库单独限制自身对外速率。"
+		},
+		"visibility_value": {
+			"private": "无人",
+			"friends": "我的对等网关",
+			"friends_of_friends": "我的对等网关及他们的"
+		},
+		"visibility_help": {
+			"private": "不共享任何内容。没有设置策略的媒体库即为私有。",
+			"friends": "你自己连接的网关。",
+			"friends_of_friends": "你的对等网关，以及他们引荐的对等网关。"
+		},
+		"audit": {
+			"title": "对等网关会看到什么",
+			"peer": "对等网关",
+			"hint": "选一个对等网关，在保存前看看此网关会向他们展示什么。",
+			"intro": "{peer} 是{trust}。他们会看到：",
+			"nothing_title": "什么都看不到",
+			"nothing_text": "此对等网关看不到你的任何媒体库。"
+		}
+	},
+	"user": {
+		"subtitle": "谁可以登录，以及他们被允许做什么。",
+		"empty_title": "没有账号",
+		"empty_text": "还没有人登录过此网关。",
+		"mirrored_hint": "从媒体服务同步而来：网关并不拥有这个用户名或密码，因此两者都无法在此修改。角色可以。",
+		"role_saved": "角色已保存。",
+		"removed": "账号已移除。",
+		"remove_title": "移除此账号？",
+		"remove_confirm": "{name} 将无法再登录此网关。",
+		"column": {
+			"username": "账号",
+			"provider": "登录方式",
+			"role": "角色",
+			"last_seen": "上次出现"
+		},
+		"role": {
+			"admin": "管理员",
+			"user": "用户",
+			"guest": "访客"
+		}
+	},
+	"settings": {
+		"subtitle": "此网关如何存放、拉取和索引。",
+		"saved": "设置已保存。",
+		"group": {
+			"placement": "文件存放位置",
+			"transfers": "传输",
+			"categories": "分类",
+			"peers": "对等网关与共享",
+			"index": "索引与缓存"
+		},
+		"placement": "存放方式",
+		"placement_value": {
+			"beside_existing": "放在我们自己的副本旁边",
+			"default_library": "放进默认媒体库",
+			"fixed_path": "放进固定路径"
+		},
+		"placement_help": {
+			"beside_existing": "让整齐的媒体库保持整齐，对合集的处理也最合适。",
+			"default_library": "同一类型的内容都放进标记为该类型默认目标的媒体库。",
+			"fixed_path": "不管是什么，全部放进同一个目录。"
+		},
+		"fixed_path": "固定路径",
+		"fixed_path_help": "网关可写入的绝对路径，例如 /media/incoming。",
+		"naming": "命名",
+		"naming_value": {
+			"source": "沿用来源的名称",
+			"local": "与我们自己的媒体库一致",
+			"standard": "标准方案"
+		},
+		"naming_help": {
+			"source": "文件按来源给出的名称到达。",
+			"local": "按你自己的媒体库已有的命名方式重命名。",
+			"standard": "剧集名 (年份)/Season 01/剧集名 - S01E02 - 标题.ext"
+		},
+		"pull_metadata": "一并拉取元数据",
+		"pull_metadata_help": "连同媒体一起复制封面、字幕和 .nfo 文件。",
+		"prefer_source_metadata": "优先使用来源的元数据",
+		"prefer_source_metadata_help": "当来源的元数据更丰富时覆盖本地元数据。",
+		"max_parallel": "同时传输数",
+		"max_parallel_help": "同时拉取多少个文件。",
+		"max_connections": "每个来源的连接数",
+		"max_connections_help": "一次传输同时向单个来源请求多少个区段。",
+		"chunk_size": "分块大小",
+		"chunk_size_help": "校验失败时值得重新获取的分块大小，例如 4M。",
+		"download_rate_limit": "下载上限",
+		"upload_rate_limit": "上传上限",
+		"rate_limit_help": "例如 10M。留空表示不限。",
+		"upload_rate_limit_help": "例如 10M。留空表示不限。它会限制此网关发出的一切，包括对等网关从这里拉取的内容。",
+		"categories_help": "同名的媒体库归为一个分类，这里是它们的显示顺序。媒体库的重命名和重新排序在持有它的服务上进行。",
+		"categories_edit": "重命名或重新排序媒体库",
+		"history_days": "已完成传输保留",
+		"history_days_help": "单位为天。超过后它们会离开队列。",
+		"friends_of_friends": "允许朋友的朋友",
+		"friends_of_friends_help": "让你的对等网关引荐的对等网关能够连上此网关。",
+		"swarm": "允许群集",
+		"swarm_help": "多个拥有同一文件的对等网关可以共同为一次传输供源。",
+		"rendezvous": "会合服务器",
+		"rendezvous_help": "为两个网关牵线搭桥、让它们建立直接连接的服务器。",
+		"match_threshold": "关联阈值",
+		"match_threshold_help": "低于此分数的匹配只作为建议，不会自动应用。",
+		"refresh_interval": "刷新间隔（分钟）",
+		"refresh_interval_help": "每隔多久询问各服务有什么新内容。开销很小，索引能保持最新正是靠它。",
+		"cache_ttl": "缓存有效期（秒）",
+		"cache_ttl_help": "服务的一次应答可以用多久。足够长的话，十个打开的标签页只需一次请求。",
+		"full_scan": "完整扫描计划",
+		"full_scan_help": "刷新只能看到服务报告为新增的内容。留空则停用定时的完整扫描；按钮始终可用。"
+	},
+	"sync": {
+		"subtitle": "长期的同步意图，以及它们实际做了什么。",
+		"plans": "计划",
+		"jobs": "最近的运行",
+		"no_plans_title": "还没有计划",
+		"no_plans_text": "计划规定拉取什么、从哪里拉、放到哪里——手动执行、按时间表执行，或在来源通告有新内容时执行。",
+		"no_jobs_title": "还没有运行记录",
+		"no_jobs_text": "只要计划触发或有人手动发起同步，运行记录就会出现在这里。",
+		"run_started": "同步已排入队列。",
+		"job_cancelled": "运行已取消。",
+		"plan_saved": "计划已保存。",
+		"plan_removed": "计划已移除。",
+		"state": {
+			"local_only": "仅本地",
+			"missing": "这里缺失",
+			"in_sync": "已同步",
+			"outdated": "已过时",
+			"conflict": "冲突",
+			"syncing": "同步中",
+			"unknown": "未关联"
+		},
+		"state_help": {
+			"local_only": "只有这里有，我们已知的其他服务都没有。",
+			"missing": "别的服务有，这个没有。一次同步就能补上。",
+			"in_sync": "两边都有，版本相同。",
+			"outdated": "这里有，但别处有更好的版本。",
+			"conflict": "两个无法排出优劣的版本——不同剪辑版或不同语言。",
+			"syncing": "此项目正在传输中。",
+			"unknown": "尚未与其他服务做关联。"
+		},
+		"trigger": {
+			"manual": "手动",
+			"schedule": "按时间表",
+			"on_new": "有新内容时"
+		},
+		"trigger_help": {
+			"manual": "只有有人按下运行时才执行。",
+			"schedule": "按下面的 cron 表达式执行。",
+			"on_new": "每当有来源通告了符合筛选条件的内容就执行。"
+		},
+		"job_state": {
+			"pending": "等待中",
+			"running": "运行中",
+			"paused": "已暂停",
+			"done": "已完成",
+			"failed": "已失败",
+			"cancelled": "已取消"
+		},
+		"job": {
+			"manual": "一次性同步",
+			"items": "{planned} 项中的 {done} 项",
+			"failed": "{count} 项失败"
+		},
+		"plan": {
+			"create": "新建计划",
+			"subtitle": "拉取什么、从哪里拉、放到哪里。",
+			"name": "名称",
+			"enabled": "已启用",
+			"disabled": "已停用",
+			"enable": "启用",
+			"disable": "停用",
+			"trigger": "执行方式",
+			"schedule": "cron 表达式",
+			"sources": "来源",
+			"sources_default": "未指定来源：计划按设置中的服务优先级执行，这也是多数人想要的。",
+			"sources_ordered": "按此顺序查询。",
+			"add_source": "添加来源",
+			"target": "目标媒体库",
+			"target_hint": "留空表示：放在我们自己的副本旁边，或放进该类型的默认目标。",
+			"root": "根项目",
+			"root_hint": "可选。某个剧集或合集的标识符，用于把计划限定在那棵子树内。",
+			"filters": "筛选条件",
+			"kinds": "类型",
+			"min_year": "起始年份",
+			"max_bytes": "最大文件",
+			"max_bytes_hint": "例如 8G。留空表示不限。",
+			"title_matches": "标题包含",
+			"missing_only": "只拉取缺失的内容",
+			"replace_outdated": "别处有更好的版本时也替换本地文件",
+			"run_now": "立即运行",
+			"last_run": "上次运行",
+			"next_run": "下次运行",
+			"remove_title": "移除此计划？",
+			"remove_confirm": "{name} 将不再运行。已经拉取的内容不受影响。"
+		},
+		"preview": {
+			"title": "这会拉取什么",
+			"action": "预览",
+			"run": "执行",
+			"summary": "待拉取 {count} 项",
+			"item": "项目",
+			"source": "来自",
+			"target_path": "放到",
+			"bytes": "大小",
+			"empty_title": "没有可拉取的内容",
+			"empty_text": "按这些来源和筛选条件，一切都已经在这里了。"
+		}
+	},
+	"companions": {
+		"title": "文件旁边的附属文件",
+		"complete": "没有已知缺失的内容",
+		"missing": "缺失：{list}",
+		"present": "存在",
+		"absent": "不存在",
+		"never_checked": "从未检查",
+		"never_checked_help": "只有在被告知路径的媒体库中，网关才会读取文件旁边的内容。这并不说明那些文件是否真的存在。",
+		"checked_at": "读取于",
+		"scan": "扫描查找",
+		"scan_started": "扫描已排入队列。",
+		"part": {
+			"nfo": "元数据（.nfo）",
+			"poster": "海报",
+			"fanart": "同人图",
+			"subtitles": "字幕"
+		}
+	},
+	"quality": {
+		"mixed": "混合",
+		"unknown": "质量未知",
+		"summary": "{count} 个文件",
+		"total": "共 {size}",
+		"variant_count": "{count} 个文件"
+	},
+	"bandwidth": {
+		"title": "带宽",
+		"current": "当前速率 {rate}",
+		"download": "下载上限",
+		"upload": "上传上限",
+		"custom": "自定义",
+		"no_cap": "不限速",
+		"apply": "应用",
+		"saved": "限速已生效。",
+		"hint": "设置后立即对所有传输统一生效。字段留空表示不限速。",
+		"unit": {
+			"kb": "KB/s",
+			"mb": "MB/s"
+		}
+	},
+	"transfer": {
+		"subtitle": "正在拉取什么、从谁那里拉，以及哪里出了问题。",
+		"eta": "剩余 {time}",
+		"no_eta": "剩余时间未知",
+		"no_source": "没有来源",
+		"sources": "{count} 个来源",
+		"sources_title": "为此传输供源的来源",
+		"swarm_sources": "{count} 个源组成的群集",
+		"unhealthy_sources": "{count} 个出错",
+		"source_unhealthy": "未在供源",
+		"connections": "{count} 个连接",
+		"via_peer": "经由 {peer}",
+		"target_path": "落到",
+		"filter_state": "状态",
+		"empty_title": "队列是空的",
+		"empty_text": "没有正在拉取的内容。发起一次同步，或从媒体页面拉取一个项目。",
+		"paused_badge": "已暂停",
+		"paused_hint": "停在原地：已有的分块都保留，恢复后从这里继续。",
+		"queue_paused": "队列已暂停——{count} 个传输停在原地。",
+		"resume_all": "全部恢复",
+		"resumed_all": "队列已重新运行。",
+		"replanned": "此项目已重新规划。",
+		"revalidated": "一个传输在询问来源后改变了主意。",
+		"verify_ok": "磁盘上的文件完好。",
+		"verify_corrupt": "磁盘上的文件不匹配。修复只会重新获取损坏的分块。",
+		"state": {
+			"queued": "排队中",
+			"connecting": "连接中",
+			"downloading": "下载中",
+			"paused": "已暂停",
+			"verifying": "校验中",
+			"repairing": "修复中",
+			"placing": "存放中",
+			"done": "已完成",
+			"failed": "已失败",
+			"cancelled": "已取消"
+		},
+		"transport": {
+			"http_range": "对服务使用 HTTP 分段请求",
+			"peer_direct": "与对等网关直接连接",
+			"peer_relay": "经由会合服务器中继",
+			"swarm": "群集——多个对等网关共同供源"
+		},
+		"stats": {
+			"active": "运行中",
+			"queued": "排队中",
+			"paused": "已暂停",
+			"failed": "已失败",
+			"rate": "总速率",
+			"remaining": "待拉取"
+		},
+		"verification": {
+			"ok": "已校验：检查了 {count} 个分块，全部完好。",
+			"corrupt": "已校验：{count} 个分块不匹配，需要重新获取。"
+		},
+		"chunks": {
+			"title": "分块",
+			"empty": "此传输还没有分块图。",
+			"cell": "第 {from} 到 {to} 个分块",
+			"scale": "每格代表 {count} 个分块"
+		},
+		"chunk_state": {
+			"pending": "等待中",
+			"active": "传输中",
+			"done": "已获取",
+			"failed": "已失败",
+			"corrupt": "已损坏"
+		},
+		"error_kind": {
+			"source_gone": "来源已不再拥有它",
+			"source_unauthorized": "来源拒绝了我们",
+			"network": "连接失败",
+			"checksum_mismatch": "分块与其哈希不匹配",
+			"disk_full": "没有剩余空间",
+			"permission_denied": "网关无权写入该位置",
+			"target_missing": "目标目录已不存在",
+			"cancelled": "被主动停止",
+			"unknown": "因不明原因停止"
+		},
+		"error_help": {
+			"source_gone": "它被移动、删除或重新编码了。必须另找一个来源；重试只会再次扑空。",
+			"source_unauthorized": "对端有响应，但说不行。要改的是它的凭据。",
+			"network": "一次临时故障——这正是重试真的管用的那一种。",
+			"checksum_mismatch": "分块是逐个校验的，所以修复只花几兆字节，而不是整个文件。",
+			"disk_full": "目标媒体库没有空间了。需要换一个媒体库，或腾出空间。",
+			"permission_denied": "目录存在，但网关无法写入其中。",
+			"target_missing": "文件原本要去的目录已经不在了。",
+			"cancelled": "有人把它停了。可以重新开始。",
+			"unknown": "校验磁盘上的内容是了解更多情况最省事的办法。"
+		},
+		"action": {
+			"pause": "暂停",
+			"resume": "恢复",
+			"retry": "重试",
+			"verify": "校验",
+			"repair": "修复损坏的分块",
+			"another_source": "另找一个来源",
+			"another_target": "换一个媒体库",
+			"fix_service": "修复该服务",
+			"cancel": "取消"
+		},
+		"retarget": {
+			"title": "拉取到别处",
+			"hint": "此项目将重新规划到你选择的媒体库。只提供网关可以写入的媒体库。",
+			"library": "目标媒体库",
+			"confirm": "拉取到那里"
+		},
+		"revalidation": {
+			"title": "此传输为何改变了主意",
+			"empty": "还没有为此传输向来源问过任何事。",
+			"pending": "等待答复",
+			"asked_because": "询问原因：",
+			"decided": "决定：",
+			"remote_path": "他们现在把它放在",
+			"outcome": {
+				"confirmed": "仍在，未变",
+				"moved": "已移动",
+				"changed": "已重新编码",
+				"gone": "已不存在",
+				"unreachable": "没有答复"
+			},
+			"action": {
+				"resume": "继续",
+				"repair_local": "重新获取我们损坏的分块",
+				"follow_move": "跟到它的新路径",
+				"switch_source": "换一个来源",
+				"requeue": "稍后再问",
+				"abandon": "放弃这一个"
+			}
+		}
+	},
+	"pages": {
+		"dashboard": "概览",
+		"library": "媒体库",
+		"library_item": "媒体",
+		"services": "媒体服务",
+		"service": "服务",
+		"peers": "对等网关",
+		"peer": "对等网关",
+		"sync": "同步",
+		"sync_plan": "同步计划",
+		"transfers": "传输",
+		"settings": "设置",
+		"settings_shares": "共享",
+		"settings_users": "用户",
+		"not_found": "页面未找到",
+		"not_found_text": "此地址下没有任何内容。"
+	},
+	"components": {
+		"paginate": {
+			"table": {
+				"empty": "没有结果",
+				"lines_per_page": "每页行数"
+			}
+		}
+	},
+	"validators": {
+		"required": "此项为必填。",
+		"not_null": "此项为必填。",
+		"email": "请输入有效的电子邮件地址。",
+		"maxlength": "最多 {max} 个字符。",
+		"minlength": "至少 {min} 个字符。",
+		"only_number": "只能填数字。",
+		"only_letters": "只能填字母。",
+		"password": "至少 {length} 个字符，并包含数字、小写字母和大写字母。",
+		"password_class": "至少使用 {numClasses} 种不同类型的字符。",
+		"range": {
+			"min": "不能小于 {min}。",
+			"max": "不能大于 {max}。"
+		},
+		"reg_exp": "此值不符合要求的格式（{source}）。",
+		"repeat_field": "两次输入的内容不一致。",
+		"url": "请输入有效的 URL。",
+		"url_with_port": "请输入完整地址，例如 http://192.168.0.10:8096。",
+		"cron": "请输入有效的 cron 表达式，例如 0 4 * * *。",
+		"absolute_path": "请输入绝对路径，例如 /media/movies。",
+		"byte_size": "请输入大小，例如 512M、2G 或纯字节数。",
+		"file_size": "每个文件最大 {size}。",
+		"file_formats": "不接受此类型的文件。"
+	},
+	"error": {
+		"general": "出了点问题。请稍后重试。",
+		"network": "无法连接到网关。",
+		"auth": {
+			"invalid_credentials": "用户名或密码不正确。",
+			"provider_unknown": "此登录方式已不再可用。",
+			"provider_unreachable": "负责认证你的服务没有响应。",
+			"session_expired": "登录已过期。请重新登录。",
+			"forbidden": "你没有权限这样做。"
+		},
+		"service": {
+			"not_found": "此媒体服务已不存在。",
+			"unreachable": "媒体服务没有响应。",
+			"resource_not_found": "媒体服务有响应，但已不再拥有此项目。",
+			"unauthorized": "此媒体服务拒绝了网关。请检查它的令牌。",
+			"duplicate": "此媒体服务已经注册过了。",
+			"handler_unknown": "不支持此类媒体服务。"
+		},
+		"library": {
+			"not_found": "此媒体库已不存在。",
+			"path_unreadable": "网关无法读取此路径。",
+			"path_not_writable": "网关无法写入此路径。"
+		},
+		"media": {
+			"not_found": "此媒体项目已不存在。"
+		},
+		"peer": {
+			"not_found": "此对等网关已不存在。",
+			"invite_invalid": "此邀请无效。",
+			"invite_expired": "此邀请已过期。",
+			"unreachable": "对等网关没有响应。",
+			"rejected": "对等网关拒绝了连接。",
+			"awaiting_them": "对方尚未回应，因此没有可批准的内容。",
+			"protocol_unsupported": "此对等网关使用的协议版本，本网关不认识。"
+		},
+		"sync": {
+			"plan_not_found": "此同步计划已不存在。",
+			"job_not_found": "此同步运行已不存在。",
+			"no_source": "没有来源拥有此媒体。",
+			"already_running": "此计划已在运行中。",
+			"not_enough_space": "目标媒体库没有足够空间容纳此次运行要拉取的内容。",
+			"space_not_acknowledged": "此次运行会占用预留的空间，或者无法测得可用空间。确认后仍可启动。",
+			"scope_unbounded": "此计划的范围没有指定任何内容，因此会拉取全部。确认后仍可启用。"
+		},
+		"transfer": {
+			"not_found": "此传输已不存在。",
+			"not_resumable": "此传输无法恢复，必须重新开始。",
+			"no_space": "目标媒体库的可用空间不足。",
+			"checksum_mismatch": "下载的文件与其校验和不匹配。"
+		},
+		"settings": {
+			"invalid": "这些设置被拒绝。"
+		},
+		"user": {
+			"not_found": "此账号已不存在。",
+			"last_admin": "这是最后一名管理员。请先把该角色交给其他人。"
+		},
+		"share": {
+			"relay_not_agreed": "存放在另一个网关上的媒体库只能通过中继共享。请先在此共享上允许中继。"
+		}
+	},
+	"indications": {
+		"placement": "在没有更具体规定时，拉取到的媒体存放在哪里。",
+		"match_threshold": "低于此分数的关联只作为建议，不会自动应用。",
+		"full_scan_cron": "刷新只能看到服务报告为新增的内容；完整扫描能发现原地移动或重新编码的文件。"
+	}
+}

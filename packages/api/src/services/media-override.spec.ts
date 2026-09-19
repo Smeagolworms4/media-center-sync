@@ -14,6 +14,7 @@ const anItem = (overrides: Partial<OverridableItem> = {}): OverridableItem => ({
 	externalIds: { tvdb: '5312341', imdb: 'tt4192812' },
 	overrides: null,
 	reported: null,
+	ignored: false,
 	...overrides,
 });
 
@@ -89,6 +90,38 @@ describe('applyOverride', () => {
 		expect(item).toMatchObject({ title: 'Dulcinea', seasonNumber: 1, year: 2015 });
 		expect(item.overrides).toBeNull();
 		expect(item.reported).toBeNull();
+	});
+
+	it('marks an item ignored, and puts it back when the instruction is withdrawn', () => {
+		// A special a scraper filed as an episode. It stays visible and stays labelled
+		// — what changes is that it stops counting as a gap.
+		const item = anItem();
+
+		applyOverride(item, { ignored: true }, normalize);
+		expect(item.ignored).toBe(true);
+
+		applyOverride(item, null, normalize);
+		expect(item.ignored).toBe(false);
+	});
+
+	it('does not ignore an item because some other field was corrected', () => {
+		// The baseline has to be re-applied on every write, or an item ignored once
+		// stays ignored through every later edit that never mentions it.
+		const item = anItem();
+
+		applyOverride(item, { ignored: true }, normalize);
+		applyOverride(item, { title: 'Pilot' }, normalize);
+
+		expect(item.ignored).toBe(false);
+		expect(item.title).toBe('Pilot');
+	});
+
+	it('reads only an explicit true as ignoring', () => {
+		const item = anItem();
+
+		applyOverride(item, { ignored: false }, normalize);
+
+		expect(item.ignored).toBe(false);
 	});
 
 	it('treats an absent instruction the same as a cleared one', () => {
