@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsArray, IsEnum, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
 import { ShareVisibility } from '@mcs/shared';
 
 /**
@@ -26,11 +26,6 @@ export class UpdateSharePolicyDto {
 	@IsArray()
 	@IsUUID('4', { each: true })
 	public deniedPeerIds?: string[];
-
-	@ApiPropertyOptional({ description: 'Catalogue only: titles and artwork, never the files.' })
-	@IsOptional()
-	@IsBoolean()
-	public metadataOnly?: boolean;
 
 	@ApiPropertyOptional({ description: 'Bytes per second. 0 means no cap.' })
 	@IsOptional()

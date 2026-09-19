@@ -3,9 +3,11 @@ import { hostname } from 'node:os';
 import {
 	ErrorKey,
 	EventName,
+	PeerDirection,
 	PeerStatus,
 	PeerTrust,
 	type MediaService,
+	type AddPeerRequest,
 	type Peer,
 	type PeerIdentity,
 	type PeerInvite,
@@ -187,6 +189,133 @@ export class PeerManager implements PeerCredentialVerifier {
 		this._emit(peer);
 
 		return this._present(peer);
+	}
+
+	/**
+	 * Link by fingerprint, with nothing secret in transit.
+	 *
+	 * The invitation is the convenience; this is the plain form of the same thing. What
+	 * a link needs is that each side knows the other's public key fingerprint and has
+	 * said once that it trusts it. Here you paste your friend's, they get a request
+	 * showing yours, and they accept — which costs one more action and buys three
+	 * things a code cannot: nothing secret goes through a chat log, nothing expires,
+	 * and whoever accepts sees exactly who is asking.
+	 *
+	 * The row is created immediately and stays `PENDING` until the far end answers. It
+	 * has to exist before then: without it the interface has nothing to show for the
+	 * thing somebody just did, and a request nobody can see is a request nobody chases.
+	 */
+	public async add(request: AddPeerRequest): Promise<Peer> {
+		const fingerprint = request.fingerprint.trim();
+
+		if (fingerprint === '') {
+			throw new UnauthorizedException(ErrorKey.PEER_INVITE_INVALID);
+		}
+
+		const existing = await this._peers.findByFingerprint(fingerprint);
+
+		// Somebody adding a peer who already asked us is answering, not asking. Treating
+		// it as a fresh outgoing request would leave two halves of one link pointing at
+		// each other and neither of them settled.
+		if (existing !== null && existing.direction === PeerDirection.INCOMING) {
+			return this._present(await this._settle(existing));
+		}
+
+		const peer = await this._peers.save(
+			existing === null
+				? this._peers.create({
+					name: request.name ?? this._defaultName(fingerprint),
+					fingerprint,
+					address: request.address ?? null,
+					status: PeerStatus.PENDING,
+					direction: PeerDirection.OUTGOING,
+					trust: PeerTrust.FRIEND,
+				})
+				: Object.assign(existing, {
+					name: request.name ?? existing.name,
+					address: request.address ?? existing.address,
+					status: existing.status === PeerStatus.BLOCKED ? existing.status : PeerStatus.PENDING,
+					direction: PeerDirection.OUTGOING,
+				}),
+		);
+
+		this._emit(peer);
+
+		return this._present(peer);
+	}
+
+	/**
+	 * Accept a request somebody made of us.
+	 *
+	 * Only an incoming one: approving a request we made ourselves would mean declaring
+	 * a link the other side has not agreed to, and the first pull would then fail with
+	 * an authentication error rather than with the honest answer, which is that they
+	 * have not answered yet.
+	 */
+	public async approve(id: string): Promise<Peer> {
+		return this._present(await this._settle(await this._require(id)));
+	}
+
+	/**
+	 * Turn a pending row into a link.
+	 *
+	 * Takes the row rather than an identifier, because both callers already hold it and
+	 * a second read would be a query bought for nothing — and, in a test, a second stub
+	 * to remember.
+	 */
+	private async _settle(peer: PeerEntity): Promise<PeerEntity> {
+		if (peer.status === PeerStatus.BLOCKED) {
+			throw new UnauthorizedException(ErrorKey.PEER_REJECTED);
+		}
+
+		peer.status = PeerStatus.LINKED;
+		peer.direction = null;
+		peer.trust = PeerTrust.FRIEND;
+
+		const saved = await this._peers.save(peer);
+
+		this._emit(saved);
+
+		return saved;
+	}
+
+	/**
+	 * A gateway we do not know announcing itself.
+	 *
+	 * It creates a pending row and nothing more: no catalogue, no bytes, no trust. The
+	 * only thing an unknown peer can do here is ask, and somebody has to say yes before
+	 * anything else becomes possible.
+	 */
+	public async requested(fingerprint: string, name: string, address: string | null): Promise<void> {
+		const existing = await this._peers.findByFingerprint(fingerprint);
+
+		if (existing !== null && existing.status === PeerStatus.BLOCKED) {
+			// Blocked means blocked. Answering differently would let somebody learn they
+			// are blocked by watching what happens, which is more than they should know.
+			return;
+		}
+
+		// A request answering one of ours settles it: both sides have now named each
+		// other, which is exactly what a link is.
+		if (existing !== null && existing.direction === PeerDirection.OUTGOING) {
+			await this._settle(existing);
+
+			return;
+		}
+
+		const peer = await this._peers.save(
+			existing ??
+				this._peers.create({
+					name: name || this._defaultName(fingerprint),
+					fingerprint,
+					address,
+					status: PeerStatus.PENDING,
+					direction: PeerDirection.INCOMING,
+					trust: PeerTrust.FRIEND,
+				}),
+		);
+
+		this._emit(peer);
 	}
 
 	public async rename(id: string, name: string): Promise<Peer> {

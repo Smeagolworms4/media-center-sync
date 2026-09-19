@@ -1,5 +1,7 @@
 import { InitialSchema1758240000000 } from './1758240000000-InitialSchema';
 import { MediaCompanions1758330000000 } from './1758330000000-MediaCompanions';
+import { PeerDirection1758340000000 } from './1758340000000-PeerDirection';
+import { DropCatalogueOnly1758350000000 } from './1758350000000-DropCatalogueOnly';
 
 /**
  * Every migration, in order, as classes rather than a path glob.
@@ -15,7 +17,14 @@ import { MediaCompanions1758330000000 } from './1758330000000-MediaCompanions';
  * Adding a migration means adding a line here. Forgetting it now fails the same way in
  * every context instead of only in one.
  */
-export const MIGRATIONS = [InitialSchema1758240000000, MediaCompanions1758330000000];
+export const MIGRATIONS = [
+	InitialSchema1758240000000,
+	MediaCompanions1758330000000,
+	PeerDirection1758340000000,
+	DropCatalogueOnly1758350000000,
+];
 
 export * from './1758240000000-InitialSchema';
 export * from './1758330000000-MediaCompanions';
+export * from './1758340000000-PeerDirection';
+export * from './1758350000000-DropCatalogueOnly';

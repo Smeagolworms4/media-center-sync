@@ -32,7 +32,6 @@ const policy = (overrides: Partial<SharePolicy> = {}): SharePolicy =>
 		visibility: ShareVisibility.FRIENDS,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
-		metadataOnly: false,
 		rateLimit: 0,
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
 		updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -102,10 +101,10 @@ describe('ShareManager', () => {
 		it('creates a policy as private when the request said nothing about visibility', async () => {
 			const { manager, fakes } = build();
 
-			const saved = await manager.put('library-1', { metadataOnly: true });
+			const saved = await manager.put('library-1', { rateLimit: 1024 });
 
 			expect(saved.visibility).toBe(ShareVisibility.PRIVATE);
-			expect(saved.metadataOnly).toBe(true);
+			expect(saved.rateLimit).toBe(1024);
 			expect(fakes.policies.create).toHaveBeenCalled();
 		});
 	});
@@ -120,7 +119,7 @@ describe('ShareManager', () => {
 
 			expect(audit.peerName).toBe('Alice');
 			expect(audit.libraries).toEqual([
-				{ libraryId: 'library-1', name: 'Shows', itemCount: 120, metadataOnly: false },
+				{ libraryId: 'library-1', name: 'Shows', itemCount: 120 },
 			]);
 		});
 
@@ -173,13 +172,13 @@ describe('ShareManager', () => {
 			const { manager, fakes } = build();
 
 			fakes.policies.findByLibrary.mockResolvedValue(
-				policy({ metadataOnly: true, rateLimit: 1024 }),
+				policy({ allowedPeerIds: ['peer-9'], rateLimit: 1024 }),
 			);
 
 			const saved = await manager.put('library-1', { visibility: ShareVisibility.PRIVATE });
 
 			expect(saved.visibility).toBe(ShareVisibility.PRIVATE);
-			expect(saved.metadataOnly).toBe(true);
+			expect(saved.allowedPeerIds).toEqual(['peer-9']);
 			expect(saved.rateLimit).toBe(1024);
 		});
 

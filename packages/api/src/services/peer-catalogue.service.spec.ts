@@ -14,7 +14,6 @@ function policy(overrides: Partial<CataloguePolicy> = {}): CataloguePolicy {
 		visibility: ShareVisibility.FRIENDS,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
-		metadataOnly: false,
 		rateLimit: 0,
 		...overrides,
 	};
@@ -112,17 +111,6 @@ describe('PeerCatalogueService', () => {
 
 		it('keeps what the policy allows', () => {
 			expect(service.filterForPeer([entry()], [policy()], peer())).toHaveLength(1);
-		});
-
-		it('shows the title but refuses the file when the policy is metadata only', () => {
-			const [filtered] = service.filterForPeer(
-				[entry()],
-				[policy({ metadataOnly: true })],
-				peer(),
-			);
-
-			expect(filtered.title).toBe('Dulcinea');
-			expect(filtered.pullable).toBe(false);
 		});
 
 		it('never makes an unpullable entry pullable', () => {

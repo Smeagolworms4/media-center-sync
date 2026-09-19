@@ -63,14 +63,12 @@ export class ShareManager {
 				visibility: ShareVisibility.PRIVATE,
 				allowedPeerIds: [],
 				deniedPeerIds: [],
-				metadataOnly: false,
 				rateLimit: 0,
 			});
 
 		policy.visibility = patch.visibility ?? policy.visibility;
 		policy.allowedPeerIds = patch.allowedPeerIds ?? policy.allowedPeerIds;
 		policy.deniedPeerIds = patch.deniedPeerIds ?? policy.deniedPeerIds;
-		policy.metadataOnly = patch.metadataOnly ?? policy.metadataOnly;
 		policy.rateLimit = patch.rateLimit ?? policy.rateLimit;
 
 		const saved = await this._policies.save(policy);
@@ -117,7 +115,6 @@ export class ShareManager {
 				libraryId: policy.libraryId,
 				name: libraries.get(policy.libraryId)?.name ?? '',
 				itemCount: libraries.get(policy.libraryId)?.itemCount ?? 0,
-				metadataOnly: policy.metadataOnly,
 			})),
 		};
 	}
@@ -143,7 +140,6 @@ export class ShareManager {
 		visibility: ShareVisibility;
 		allowedPeerIds: string[];
 		deniedPeerIds: string[];
-		metadataOnly: boolean;
 		rateLimit?: number | string | null;
 	}): CataloguePolicy {
 		return {
@@ -151,7 +147,6 @@ export class ShareManager {
 			visibility: policy.visibility,
 			allowedPeerIds: policy.allowedPeerIds,
 			deniedPeerIds: policy.deniedPeerIds,
-			metadataOnly: policy.metadataOnly,
 			// Stored as a bigint, which the driver hands back as a string on one engine
 			// and a number on the other. Zero is the honest fallback for both, and it
 			// means no cap of this library's own.

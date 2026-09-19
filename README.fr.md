@@ -1,5 +1,9 @@
 # Media Center Sync
 
+[![Build](https://github.com/Smeagolworms4/media-center-sync/actions/workflows/build.yml/badge.svg)](https://github.com/Smeagolworms4/media-center-sync/actions/workflows/build.yml)
+[![Image](https://img.shields.io/badge/ghcr.io-media--center--sync%3Amain-0b7285)](https://github.com/Smeagolworms4/media-center-sync/pkgs/container/media-center-sync)
+[![Licence](https://img.shields.io/badge/licence-MIT-3d7a3d)](LICENSE)
+
 Une passerelle qui se place à côté de vos serveurs multimédias et les maintient
 synchronisés entre eux — et avec ceux de vos amis.
 
@@ -14,10 +18,101 @@ surveille déjà.
 
 ---
 
+## Installation
+
+Un conteneur, un volume, aucun serveur de base de données à gérer.
+
+```yaml
+# compose.yaml
+services:
+  media-center-sync:
+    image: ghcr.io/smeagolworms4/media-center-sync:main
+    restart: unless-stopped
+    ports:
+      - 4200:4200   # the interface and the API, same origin
+      - 4210:4210   # inbound peer connections
+    environment:
+      # Change this. It signs the sessions, and production refuses to start without it.
+      MCS_JWT_SECRET: change-me
+    volumes:
+      # The index, the SQLite file and the transfer scratch space.
+      - mcs-data:/data
+      # Your libraries. See the warning below — this is the one thing to get right.
+      - /mnt/nas:/media
+
+volumes:
+  mcs-data:
+```
+
+```bash
+docker compose up -d
+```
+
+Ouvrez **http://localhost:4200** et connectez-vous avec **`admin` / `admin`**. Changez
+ce mot de passe, enregistrez votre premier service multimédia, et la passerelle
+commence à indexer.
+
+> **Le montage `/media` est la seule chose qui doit absolument être juste.**
+>
+> Il doit pointer vers les mêmes fichiers que ceux vus par votre serveur multimédia. Si
+> votre Jellyfin a `/media/Shows` et que la passerelle écrit dans un répertoire
+> différent qui porte par hasard le même nom, chaque transfert réussira, les fichiers
+> seront bel et bien là, et votre bibliothèque restera vide — sans qu'aucune erreur ne
+> soit signalée nulle part. L'interface le détecte et vous le signale, mais autant bien
+> faire les choses avant la première synchronisation.
+
+Rediriger le port **4210** sur votre routeur est facultatif. Sans cela, les liaisons
+entre pairs retombent sur un relais via le rendez-vous : ça fonctionne, mais la bande
+passante du relais est partagée entre tous ceux qui l'utilisent.
+
+### Environnement
+
+| Variable | Valeur par défaut | Ce qu'elle fait |
+|---|---|---|
+| `MCS_JWT_SECRET` | *(aucune)* | Signe les sessions. **Obligatoire en production** — il n'y a délibérément pas de valeur par défaut. |
+| `MCS_MEDIA_ROOT` | `/media` | Où sont montés vos dossiers de bibliothèque, tels que la passerelle les voit. |
+| `API_PORT` | `4200` | Interface et API. |
+| `PEER_PORT` | `4210` | Connexions entrantes des pairs. |
+| `DB_TYPE` | `sqlite` | `sqlite` ou `postgres`. |
+| `DB_FILE` | `/data/media-center-sync.db` | Fichier SQLite. |
+| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | — | Lues uniquement quand `DB_TYPE=postgres`. |
+| `REDIS_HOST` `REDIS_PORT` | *(vide)* | Vide signifie un cache en mémoire du processus. Utile seulement avec plusieurs passerelles. |
+| `MCS_TRANSFER_ROOT` | `/data/transfer` | Où les pièces s'accumulent avant qu'un fichier ne soit placé. |
+| `MCS_CORS_ORIGINS` | *(vide)* | Séparées par des virgules. Inutile quand l'interface est servie par l'API. |
+| `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | `admin` / `admin` | Le premier compte, créé au premier démarrage. |
+
+SQLite et un cache en mémoire du processus sont les valeurs par défaut à dessein :
+c'est une passerelle qu'on auto-héberge à côté de son serveur multimédia, pas un
+service multi-tenant. Ni un PostgreSQL ni un Redis ne devraient avoir besoin d'être
+maintenus en vie pour rapatrier quelques épisodes. Les deux restent à une variable
+d'environnement de distance, et les migrations sont les mêmes dans un cas comme dans
+l'autre.
+
+### Derrière un reverse proxy
+
+L'API sert l'interface et `/api` sur la même origine, il n'y a donc rien à séparer.
+Deux choses doivent survivre au passage : la **mise à niveau WebSocket** sur
+`/api/events`, sans laquelle chaque barre de progression reste à zéro alors que les
+fichiers arrivent parfaitement bien, et un **délai de lecture généreux**, parce qu'un
+transfert peut durer des heures.
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:4200;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+}
+```
+
+---
+
 ## Table des matières
 
+- [Installation](#installation)
 - [Ce qu'il fait](#ce-quil-fait)
-- [Démarrage rapide](#demarrage-rapide)
 - [Fonctionnement](#fonctionnement)
   - [Services, locaux et distants](#services-locaux-et-distants)
   - [Indexation, et pourquoi la passerelle met en cache](#indexation-et-pourquoi-la-passerelle-met-en-cache)
@@ -29,7 +124,6 @@ surveille déjà.
   - [Pairs, amis, et amis d'amis](#pairs-amis-et-amis-damis)
   - [Partage](#partage)
   - [Connexion](#connexion)
-- [Configuration](#configuration)
 - [Développement](#developpement)
 - [Tests](#tests)
 - [Organisation du projet](#organisation-du-projet)
@@ -64,42 +158,6 @@ surveille déjà.
   transfert.
 - **Vous laisse décider ce que vous partagez**, par bibliothèque, avec qui, et si les
   destinataires reçoivent les fichiers ou seulement le catalogue.
-
-## Démarrage rapide
-
-Un conteneur, un volume, rien à administrer :
-
-```yaml
-services:
-  media-center-sync:
-    image: ghcr.io/smeagolworms4/media-center-sync:main
-    restart: unless-stopped
-    ports:
-      - 4200:4200   # interface and API
-      - 4210:4210   # inbound peer connections
-    environment:
-      - MCS_JWT_SECRET=change-me
-    volumes:
-      - mcs-data:/data
-      - /mnt/nas:/media
-
-volumes:
-  mcs-data:
-```
-
-Ouvrez ensuite `http://localhost:4200` et connectez-vous avec `admin` / `admin`.
-
-> **Le montage `/media` est la seule chose qui doit absolument être juste.** Il doit
-> pointer vers les mêmes fichiers que ceux vus par votre serveur multimédia. Si votre
-> Jellyfin a `/media/Shows` et que la passerelle écrit dans un répertoire différent qui
-> porte par hasard le même nom, chaque transfert réussira, les fichiers seront bel et
-> bien là, et votre bibliothèque restera vide — sans qu'aucune erreur ne soit signalée
-> nulle part. L'interface le détecte et vous le signale, mais autant bien faire les
-> choses avant la première synchronisation.
-
-Rediriger le port 4210 sur votre routeur est facultatif. Sans cela, les liaisons entre
-pairs retombent sur un relais via le rendez-vous : ça fonctionne, mais la bande
-passante du relais est partagée entre tous ceux qui l'utilisent.
 
 ## Fonctionnement
 
@@ -300,31 +358,6 @@ Les sessions sont adossées à la base de données et vérifiées à chaque appe
 que se déconnecter est immédiat, plutôt que de laisser un jeton valide jusqu'à son
 expiration.
 
-## Configuration
-
-Tout est lu depuis l'environnement.
-
-| Variable | Valeur par défaut | Ce qu'elle fait |
-|---|---|---|
-| `MCS_JWT_SECRET` | *(aucune)* | Signe les sessions. **Obligatoire en production** — il n'y a délibérément pas de valeur par défaut. |
-| `MCS_MEDIA_ROOT` | `/media` | Où sont montés les dossiers de bibliothèque, tels que la passerelle les voit. |
-| `API_PORT` | `4200` | Interface et API. |
-| `PEER_PORT` | `4210` | Connexions entrantes des pairs. |
-| `DB_TYPE` | `sqlite` | `sqlite` ou `postgres`. |
-| `DB_FILE` | `/data/media-center-sync.db` | Fichier SQLite. |
-| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | — | Lues uniquement quand `DB_TYPE=postgres`. |
-| `REDIS_HOST` / `REDIS_PORT` | *(vide)* | Vide signifie un cache en mémoire du processus. Utile seulement avec plusieurs passerelles. |
-| `MCS_TRANSFER_ROOT` | `/data/transfer` | Où les pièces s'accumulent avant qu'un fichier ne soit placé. |
-| `MCS_STATIC_ROOT` | *(défini dans l'image)* | L'interface compilée. Non défini, l'API ne sert que `/api`. |
-| `MCS_CORS_ORIGINS` | *(vide)* | Séparées par des virgules. Inutile quand l'interface est servie par l'API. |
-
-SQLite et un cache en mémoire du processus sont les valeurs par défaut à dessein :
-c'est une passerelle qu'on auto-héberge à côté de son serveur multimédia, pas un
-service multi-tenant. Ni un PostgreSQL ni un Redis ne devraient avoir besoin d'être
-maintenus en vie pour rapatrier quelques épisodes. Les deux restent à une variable
-d'environnement de distance, et les migrations sont les mêmes dans un cas comme dans
-l'autre.
-
 ## Développement
 
 Tout tourne dans des conteneurs, Node compris. Il vous faut Docker et Make.
@@ -334,6 +367,11 @@ make up          # start the stack
 make init        # install, migrate, seed
 make dev         # run the API and the interface together
 ```
+
+> Installez via `make`, pas via `npm`. `better-sqlite3` compile un binding natif et
+> les conteneurs sont en Alpine : un binding construit sur un hôte glibc refuse de se
+> charger à l'intérieur, avec une erreur au sujet d'un `ld-linux-x86-64.so.2` manquant
+> qui ne dit rien sur l'origine du problème.
 
 | | |
 |---|---|
@@ -436,3 +474,5 @@ fusion, sans que personne ne l'ait décidé.
 ## Licence
 
 MIT.
+</content>
+</invoke>

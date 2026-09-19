@@ -27,7 +27,6 @@ export interface CataloguePolicy {
 	visibility: ShareVisibility;
 	allowedPeerIds: string[];
 	deniedPeerIds: string[];
-	metadataOnly: boolean;
 	/**
 	 * Bytes per second this library will serve. Zero means no cap of its own.
 	 *
@@ -106,9 +105,10 @@ export class PeerCatalogueService {
 	/**
 	 * The rows a peer is allowed to receive.
 	 *
-	 * `metadataOnly` is applied here rather than by dropping the row, because seeing
-	 * that a friend has a film and being unable to pull it is a useful thing to know —
-	 * it is how somebody decides to ask.
+	 * A library is either shared or it is not. There was a middle setting once — show
+	 * the titles, refuse the files — and it was dropped: seeing something you cannot
+	 * have is not a feature, and anybody who does not want to serve a library simply
+	 * does not share it.
 	 */
 	public filterForPeer(
 		entries: CatalogueEntry[],
@@ -127,7 +127,7 @@ export class PeerCatalogueService {
 				return [];
 			}
 
-			return [{ ...entry, pullable: entry.pullable && !policy.metadataOnly }];
+			return [entry];
 		});
 	}
 

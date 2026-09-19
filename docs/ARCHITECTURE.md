@@ -259,9 +259,15 @@ on the same Jellyfin. **No row means private** — nothing is ever shared by hav
 forgotten, which is the only safe default for a mechanism that exposes files to other
 households.
 
-Each policy carries a visibility, explicit allow and deny lists that override it,
-whether peers get files or only the catalogue, and a bandwidth cap. The audit view
-answers the question people actually ask: what would *this* peer see of me?
+Each policy carries a visibility, explicit allow and deny lists that override it, and
+a bandwidth cap. The audit view answers the question people actually ask: what would
+*this* peer see of me?
+
+There was a middle setting once — show the titles, refuse the files — and it was
+dropped. Seeing something you cannot have is not a feature, and anybody who does not
+want to serve a library simply does not share it. Keeping it meant every screen, every
+filter and every serving path carried a case whose only purpose was to disappoint
+somebody.
 
 ## Authentication
 

@@ -81,7 +81,6 @@ Three states are used:
 | Relayed link through the rendezvous | built |
 | Friend-of-a-friend discovery | built |
 | Sharing per library, with allow and deny lists | built |
-| Catalogue-only sharing | built |
 | Per-library bandwidth caps | built |
 | Audit: what would this peer see of me | built |
 | **The rendezvous server itself** | **not included** — the gateway is a client of one |

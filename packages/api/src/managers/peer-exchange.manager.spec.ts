@@ -70,7 +70,6 @@ const policy = (overrides: Partial<CataloguePolicy> = {}): CataloguePolicy => ({
 	allowedPeerIds: [],
 	deniedPeerIds: [],
 	rateLimit: 0,
-	metadataOnly: false,
 	...overrides,
 });
 
@@ -161,34 +160,6 @@ describe('PeerExchangeManager', () => {
 		});
 	});
 
-	describe('a library shared as catalogue only', () => {
-		it('lists the item, so somebody knows it exists and can ask', async () => {
-			const { manager } = build({ policies: [policy({ metadataOnly: true })] });
-
-			const entries = await manager.catalogue('peer-1');
-
-			expect(entries).toHaveLength(1);
-			expect(entries[0].title).toBe('The Flight');
-		});
-
-		it('publishes no swarm identifier for it', async () => {
-			const { manager } = build({ policies: [policy({ metadataOnly: true })] });
-
-			const [entry] = await manager.catalogue('peer-1');
-
-			expect(entry.contentId).toBeNull();
-		});
-
-		it('refuses the bytes', async () => {
-			const { manager, fakes } = build({ policies: [policy({ metadataOnly: true })] });
-
-			await expect(manager.content('peer-1', 'item-1')).rejects.toThrow(
-				ErrorKey.MEDIA_NOT_FOUND,
-			);
-			expect(fakes.openStream).not.toHaveBeenCalled();
-		});
-	});
-
 	describe('what a catalogue entry carries', () => {
 		it('publishes our own identifiers and never the shape of our disk', async () => {
 			const { manager } = build();
@@ -259,14 +230,6 @@ describe('PeerExchangeManager', () => {
 
 			await expect(manager.announce('peer-1', 'v1:abc:1048576')).resolves.toMatchObject({
 				held: true,
-			});
-		});
-
-		it('does not claim to hold something we only share the catalogue of', async () => {
-			const { manager } = build({ policies: [policy({ metadataOnly: true })] });
-
-			await expect(manager.announce('peer-1', 'v1:abc:1048576')).resolves.toMatchObject({
-				held: false,
 			});
 		});
 

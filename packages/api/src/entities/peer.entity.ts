@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
-import { PeerLinkMode, PeerStatus, PeerTrust } from '@mcs/shared';
+import { PeerDirection, PeerLinkMode, PeerStatus, PeerTrust } from '@mcs/shared';
 import { Timestampable } from './timestampable.entity';
 
 /**
@@ -34,6 +34,18 @@ export class Peer extends Timestampable {
 	@ApiProperty({ enum: PeerStatus })
 	@Column({ type: 'varchar', default: PeerStatus.PENDING })
 	public status!: PeerStatus;
+
+	/**
+	 * Who asked, while the link is pending.
+	 *
+	 * It is the difference between a request waiting on somebody else and one waiting
+	 * on you, and rendering both the same way is how an incoming request sits
+	 * unanswered for a week. Null once the link is settled, because it stops meaning
+	 * anything then.
+	 */
+	@ApiProperty({ enum: PeerDirection, nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public direction!: PeerDirection | null;
 
 	@ApiProperty({ enum: PeerTrust })
 	@Column({ type: 'varchar', default: PeerTrust.FRIEND })

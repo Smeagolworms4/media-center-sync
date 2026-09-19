@@ -276,6 +276,7 @@ export const toPeer = (
 	name: peer.name,
 	fingerprint: peer.fingerprint,
 	status: peer.status,
+	direction: peer.direction,
 	trust: peer.trust,
 	linkMode: peer.linkMode,
 	address: peer.address,
@@ -299,7 +300,6 @@ export const toSharePolicy = (
 	visibility: policy.visibility,
 	allowedPeerIds: policy.allowedPeerIds,
 	deniedPeerIds: policy.deniedPeerIds,
-	metadataOnly: policy.metadataOnly,
 	rateLimit: bytes(policy.rateLimit),
 	updatedAt: policy.updatedAt.toISOString(),
 });

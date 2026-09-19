@@ -178,6 +178,8 @@ for.
 |---|---|---|---|---|
 | GET | `/peers` | — | `Peer[]` | `PEER_READ` |
 | GET | `/peers/identity` | — | `PeerIdentity` | `PEER_READ` |
+| POST | `/peers` | `AddPeerDto` | `Peer` | `PEER_MANAGE` |
+| POST | `/peers/:id/approve` | — | `Peer` | `PEER_MANAGE` |
 | POST | `/peers/invites` | `CreatePeerInviteDto` | `PeerInvite` | `PEER_MANAGE` |
 | POST | `/peers/accept` | `AcceptPeerInviteDto` | `Peer` | `PEER_MANAGE` |
 | GET | `/peers/:id` | — | `Peer` | `PEER_READ` |
@@ -187,6 +189,13 @@ for.
 | POST | `/peers/:id/unblock` | — | `Peer` | `PEER_MANAGE` |
 | POST | `/peers/:id/connect` | — | `Peer` | `PEER_MANAGE` |
 | GET | `/peers/:id/services` | — | `MediaService[]` | `PEER_READ` |
+
+**There are two ways to link, and the code is the convenience rather than the rule.**
+`POST /peers` takes a fingerprint: you paste your friend's, they get a request showing
+yours, they approve it. Nothing secret travels, nothing expires, and the person
+accepting sees exactly who is asking. The invitation bundles the same thing into one
+code so one person can do the whole job, which is easier and puts a shared secret in a
+chat log. Both are offered; neither is mandatory.
 
 `/peers/identity` is what you hand to somebody so they can find you: the fingerprint,
 the rendezvous, and whether a direct connection is possible at all. The last one is

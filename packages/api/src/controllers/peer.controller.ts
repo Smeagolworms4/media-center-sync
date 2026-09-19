@@ -20,6 +20,7 @@ import {
 import {
 	ApiBearerAuth,
 	ApiNoContentResponse,
+	ApiCreatedResponse,
 	ApiOkResponse,
 	ApiOperation,
 	ApiServiceUnavailableResponse,
@@ -28,7 +29,12 @@ import {
 } from '@nestjs/swagger';
 import { Granted } from '@/decorators';
 import { PeerManager } from '@/managers';
-import { AcceptPeerInviteDto, CreatePeerInviteDto, RenamePeerDto } from '@/models';
+import {
+	AcceptPeerInviteDto,
+	AddPeerDto,
+	CreatePeerInviteDto,
+	RenamePeerDto,
+} from '@/models';
 
 /**
  * Other gateways.
@@ -62,6 +68,33 @@ export class PeerController {
 	@ApiOkResponse({ description: 'PeerIdentity' })
 	public identity(): Promise<PeerIdentity> {
 		return this._peers.identity();
+	}
+
+	@Post()
+	@Granted(Right.PEER_MANAGE)
+	@HttpCode(HttpStatus.CREATED)
+	@ApiOperation({
+		summary: 'Link to a peer by fingerprint',
+		description:
+			'The plain form of an invitation: paste their fingerprint, they get a request showing ' +
+			'yours, they accept. Nothing secret travels and nothing expires. The peer stays pending ' +
+			'until they answer.',
+	})
+	@ApiCreatedResponse({ description: 'Peer' })
+	public add(@Body() body: AddPeerDto): Promise<Peer> {
+		return this._peers.add(body);
+	}
+
+	@Post(':id/approve')
+	@Granted(Right.PEER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Accept a link somebody asked of us',
+		description: 'Only an incoming request: approving our own would claim a link the other side has not agreed to.',
+	})
+	@ApiOkResponse({ description: 'Peer' })
+	public approve(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {
+		return this._peers.approve(id);
 	}
 
 	@Post('invites')

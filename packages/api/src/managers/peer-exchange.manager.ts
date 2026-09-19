@@ -125,7 +125,7 @@ export class PeerExchangeManager {
 	public async content(peerId: string, itemId: string, range?: ByteRange): Promise<MediaStream> {
 		const { item, policy } = await this._visible(peerId, itemId);
 
-		if (policy.metadataOnly || item.file === null) {
+		if (item.file === null) {
 			throw new NotFoundException(ErrorKey.MEDIA_NOT_FOUND);
 		}
 
@@ -239,7 +239,7 @@ export class PeerExchangeManager {
 		// something we will refuse to serve would have the far end queue a source that
 		// can never deliver a byte.
 		const held = await this._holdsContent(
-			policies.filter((policy) => !policy.metadataOnly).map((policy) => policy.libraryId),
+			policies.map((policy) => policy.libraryId),
 			contentId,
 		);
 
@@ -292,7 +292,7 @@ export class PeerExchangeManager {
 		// The swarm identifier is only published when the files are shared. It is what
 		// peers advertise holdings by, and handing it out for a catalogue-only library
 		// would invite requests for bytes that will never be served.
-		const pullable = policy !== undefined && !policy.metadataOnly;
+		const pullable = policy !== undefined;
 
 		return {
 			externalId: item.id,

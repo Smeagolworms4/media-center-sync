@@ -6,7 +6,7 @@
  * it is what its owner shared.
  */
 export enum PeerStatus {
-	/** Invitation sent or received, not accepted yet. */
+	/** Asked for, or asked of us, and not accepted yet. */
 	PENDING = 'pending',
 	LINKED = 'linked',
 	/** Linked, but unreachable at the moment. */
@@ -26,6 +26,20 @@ export enum PeerTrust {
 	FRIEND_OF_FRIEND = 'friend_of_friend',
 }
 
+/**
+ * Which side asked.
+ *
+ * Only meaningful while a peer is pending, and it decides what the interface shows:
+ * one is a request waiting on somebody else, the other is a request waiting on you.
+ * Rendering both the same way is how an incoming request sits unanswered for a week.
+ */
+export enum PeerDirection {
+	/** We asked them. Nothing to do here until they accept. */
+	OUTGOING = 'outgoing',
+	/** They asked us. This is the one that needs a decision. */
+	INCOMING = 'incoming',
+}
+
 /** How the link is carried, once negotiated. */
 export enum PeerLinkMode {
 	/** Direct connection, after the rendezvous introduced both ends. */
@@ -40,6 +54,8 @@ export interface Peer {
 	/** Public key fingerprint. This is the identity; the address can change. */
 	fingerprint: string;
 	status: PeerStatus;
+	/** Who asked, while the link is pending. Null once it is settled. */
+	direction: PeerDirection | null;
 	trust: PeerTrust;
 	linkMode: PeerLinkMode | null;
 	/** Last address a link was established on. Informational only. */
@@ -52,6 +68,34 @@ export interface Peer {
 	lastSeenAt: string | null;
 	createdAt: string;
 	updatedAt: string;
+}
+
+/**
+ * Linking by fingerprint, with nothing secret in transit.
+ *
+ * The invitation below is a convenience, not a requirement — and it is worth being
+ * clear about which is which. What a link actually needs is that each side knows the
+ * other's public key fingerprint and has said, once, that it trusts it. An invitation
+ * bundles that into a single code so one person can do the whole thing; this does the
+ * same work in the open, the way people already pair devices: you paste your friend's
+ * fingerprint, they get a request showing yours, they accept.
+ *
+ * It costs one more action and buys three things a code cannot: nothing secret travels
+ * through a chat log, nothing expires, and the person accepting sees exactly who is
+ * asking before agreeing to anything.
+ */
+export interface AddPeerRequest {
+	/** Their public key fingerprint, as their own gateway displays it. */
+	fingerprint: string;
+	/** What to call them here. Defaults to what they announce. */
+	name?: string;
+	/**
+	 * Where to reach them, when you know.
+	 *
+	 * Optional because the rendezvous can find them by fingerprint. Given, it is tried
+	 * first — a direct address is faster and involves nobody else.
+	 */
+	address?: string;
 }
 
 /**

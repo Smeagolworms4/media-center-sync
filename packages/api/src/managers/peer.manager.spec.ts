@@ -1,4 +1,4 @@
-import { ErrorKey, PeerStatus, PeerTrust } from '@mcs/shared';
+import { ErrorKey, PeerDirection, PeerStatus, PeerTrust } from '@mcs/shared';
 import type { Peer, PeerInvite } from '@/entities';
 import type {
 	MediaItemRepository,
@@ -192,6 +192,79 @@ describe('PeerManager', () => {
 			await expect(manager.accept(foreignInvite(new Date(Date.now() + 60_000)))).rejects.toThrow(
 				ErrorKey.PEER_INVITE_INVALID,
 			);
+		});
+	});
+
+	describe('linking by fingerprint', () => {
+		it('records a request and waits, rather than claiming a link', async () => {
+			const { manager, fakes } = build();
+
+			const peer = await manager.add({ fingerprint: 'abc123', name: 'Bob' });
+
+			expect(peer.status).toBe(PeerStatus.PENDING);
+			expect(peer.direction).toBe(PeerDirection.OUTGOING);
+			expect(fakes.peers.save).toHaveBeenCalled();
+		});
+
+		it('settles the link when both sides have now named each other', async () => {
+			// Adding somebody who already asked us is answering, not asking. Treating it
+			// as a fresh outgoing request leaves two halves of one link pointing at each
+			// other and neither of them settled.
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING }),
+			);
+
+			const peer = await manager.add({ fingerprint: 'abc123' });
+
+			expect(peer.status).toBe(PeerStatus.LINKED);
+			expect(peer.direction).toBeNull();
+		});
+
+		it('records an incoming request without granting anything', async () => {
+			const { manager, fakes } = build();
+
+			await manager.requested('abc123', 'Bob', '1.2.3.4:4210');
+
+			const saved = fakes.peers.save.mock.calls[0]?.[0] as { status: string; direction: string };
+
+			expect(saved.status).toBe(PeerStatus.PENDING);
+			expect(saved.direction).toBe(PeerDirection.INCOMING);
+		});
+
+		it('answers a blocked peer with nothing at all', async () => {
+			// Answering differently would let somebody learn they are blocked by watching
+			// what happens, which is more than they should be able to find out.
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
+
+			await manager.requested('abc123', 'Bob', null);
+
+			expect(fakes.peers.save).not.toHaveBeenCalled();
+		});
+
+		it('settles our own outgoing request when they ask back', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(
+				peerRow({ status: PeerStatus.PENDING, direction: PeerDirection.OUTGOING }),
+			);
+
+			await manager.requested('abc123', 'Bob', null);
+
+			const saved = fakes.peers.save.mock.calls[0]?.[0] as { status: string };
+
+			expect(saved.status).toBe(PeerStatus.LINKED);
+		});
+
+		it('refuses to approve a peer that was blocked', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
+
+			await expect(manager.approve('peer-1')).rejects.toThrow(ErrorKey.PEER_REJECTED);
 		});
 	});
 

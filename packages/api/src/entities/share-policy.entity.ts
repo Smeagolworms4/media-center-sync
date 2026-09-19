@@ -33,11 +33,6 @@ export class SharePolicy extends Timestampable {
 	@Column({ type: 'simple-json', default: '[]' })
 	public deniedPeerIds!: string[];
 
-	/** Let peers see titles and artwork without being able to pull the files. */
-	@ApiProperty()
-	@Column({ default: false })
-	public metadataOnly!: boolean;
-
 	/** Bytes per second this library will serve. 0 means no cap. */
 	@ApiProperty()
 	@Column({ type: 'bigint', default: 0 })

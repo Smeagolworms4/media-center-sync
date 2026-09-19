@@ -1,5 +1,9 @@
 # Media Center Sync
 
+[![Build](https://github.com/Smeagolworms4/media-center-sync/actions/workflows/build.yml/badge.svg)](https://github.com/Smeagolworms4/media-center-sync/actions/workflows/build.yml)
+[![Image](https://img.shields.io/badge/ghcr.io-media--center--sync%3Amain-0b7285)](https://github.com/Smeagolworms4/media-center-sync/pkgs/container/media-center-sync)
+[![Licence](https://img.shields.io/badge/licence-MIT-3d7a3d)](LICENSE)
+
 A gateway that sits next to your media servers and keeps them in step with each
 other — and with your friends'.
 
@@ -13,10 +17,96 @@ your own server already watches.
 
 ---
 
+## Install
+
+One container, one volume, no database server to run.
+
+```yaml
+# compose.yaml
+services:
+  media-center-sync:
+    image: ghcr.io/smeagolworms4/media-center-sync:main
+    restart: unless-stopped
+    ports:
+      - 4200:4200   # the interface and the API, same origin
+      - 4210:4210   # inbound peer connections
+    environment:
+      # Change this. It signs the sessions, and production refuses to start without it.
+      MCS_JWT_SECRET: change-me
+    volumes:
+      # The index, the SQLite file and the transfer scratch space.
+      - mcs-data:/data
+      # Your libraries. See the warning below — this is the one thing to get right.
+      - /mnt/nas:/media
+
+volumes:
+  mcs-data:
+```
+
+```bash
+docker compose up -d
+```
+
+Open **http://localhost:4200** and sign in with **`admin` / `admin`**. Change that
+password, register your first media service, and the gateway starts indexing.
+
+> **The `/media` mount is the one thing that has to be right.**
+>
+> It must point at the same files your media server sees. If Jellyfin has
+> `/media/Shows` and the gateway writes somewhere else that merely looks similar,
+> every transfer will succeed, the files will really be there, and your library will
+> stay empty — with nothing, anywhere, reporting an error. The interface probes this
+> and tells you, but it is worth getting right before the first sync.
+
+Forwarding port **4210** on your router is optional. Without it, peer links fall back
+to a relay through the rendezvous: it works, but that relay's bandwidth is shared by
+everyone using it.
+
+### Environment
+
+| Variable | Default | What it does |
+|---|---|---|
+| `MCS_JWT_SECRET` | *(none)* | Signs sessions. **Required in production** — there is deliberately no default. |
+| `MCS_MEDIA_ROOT` | `/media` | Where your libraries are mounted, as the gateway sees them. |
+| `API_PORT` | `4200` | Interface and API. |
+| `PEER_PORT` | `4210` | Inbound peer connections. |
+| `DB_TYPE` | `sqlite` | `sqlite` or `postgres`. |
+| `DB_FILE` | `/data/media-center-sync.db` | SQLite file. |
+| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | — | Read only when `DB_TYPE=postgres`. |
+| `REDIS_HOST` `REDIS_PORT` | *(empty)* | Empty means an in-process cache. Only worth setting with several gateways. |
+| `MCS_TRANSFER_ROOT` | `/data/transfer` | Where pieces accumulate before a file is placed. |
+| `MCS_CORS_ORIGINS` | *(empty)* | Comma-separated. Not needed when the interface is served by the API. |
+| `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | `admin` / `admin` | The first account, created on the first start. |
+
+SQLite and an in-process cache are the defaults on purpose: this is a gateway somebody
+self-hosts next to their media server, not a multi-tenant service. Neither a PostgreSQL
+nor a Redis should have to be kept alive to pull a few episodes. Both remain one
+environment variable away, and the migrations are the same either way.
+
+### Behind a reverse proxy
+
+The API serves the interface and `/api` on the same origin, so there is nothing to
+split. Two things must survive the hop: the **WebSocket upgrade** on `/api/events`,
+without which every progress bar stays at zero while the files arrive perfectly well,
+and a **generous read timeout**, because a transfer can run for hours.
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:4200;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+}
+```
+
+---
+
 ## Table of contents
 
+- [Install](#install)
 - [What it does](#what-it-does)
-- [Quick start](#quick-start)
 - [How it works](#how-it-works)
   - [Services, local and remote](#services-local-and-remote)
   - [Indexing, and why the gateway caches](#indexing-and-why-the-gateway-caches)
@@ -28,7 +118,6 @@ your own server already watches.
   - [Peers, friends, and friends of friends](#peers-friends-and-friends-of-friends)
   - [Sharing](#sharing)
   - [Signing in](#signing-in)
-- [Configuration](#configuration)
 - [Development](#development)
 - [Testing](#testing)
 - [Project layout](#project-layout)
@@ -58,43 +147,7 @@ your own server already watches.
 - **Links gateways peer to peer**, directly when the network allows it and through a
   rendezvous relay when it does not, with friend-of-a-friend discovery so several
   people holding the same file can feed one transfer.
-- **Lets you decide what you share**, per library, with whom, and whether they get the
-  files or only the catalogue.
-
-## Quick start
-
-One container, one volume, nothing to administer:
-
-```yaml
-services:
-  media-center-sync:
-    image: ghcr.io/smeagolworms4/media-center-sync:main
-    restart: unless-stopped
-    ports:
-      - 4200:4200   # interface and API
-      - 4210:4210   # inbound peer connections
-    environment:
-      - MCS_JWT_SECRET=change-me
-    volumes:
-      - mcs-data:/data
-      - /mnt/nas:/media
-
-volumes:
-  mcs-data:
-```
-
-Then open `http://localhost:4200` and sign in with `admin` / `admin`.
-
-> **The `/media` mount is the one thing that has to be right.** It must point at the
-> same files your media server sees. If your Jellyfin has `/media/Shows` and the
-> gateway writes to a different directory that happens to be called the same, every
-> transfer will succeed, the files will really be there, and your library will stay
-> empty — with nothing anywhere reporting an error. The interface probes this and
-> tells you, but it is worth getting right before the first sync.
-
-Forwarding port 4210 on your router is optional. Without it, peer links fall back to
-a relay through the rendezvous: it works, but the relay's bandwidth is shared by
-everyone using it.
+- **Lets you decide what you share**, per library, with whom, and at what bandwidth.
 
 ## How it works
 
@@ -266,29 +319,6 @@ authentication is a provider interface, like everything else here.
 
 Sessions are backed by the database and checked on every call, so signing out is
 immediate rather than leaving a token valid until it expires.
-
-## Configuration
-
-Everything is read from the environment.
-
-| Variable | Default | What it does |
-|---|---|---|
-| `MCS_JWT_SECRET` | *(none)* | Signs sessions. **Required in production** — there is deliberately no default. |
-| `MCS_MEDIA_ROOT` | `/media` | Where library folders are mounted, as the gateway sees them. |
-| `API_PORT` | `4200` | Interface and API. |
-| `PEER_PORT` | `4210` | Inbound peer connections. |
-| `DB_TYPE` | `sqlite` | `sqlite` or `postgres`. |
-| `DB_FILE` | `/data/media-center-sync.db` | SQLite file. |
-| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | — | Read only when `DB_TYPE=postgres`. |
-| `REDIS_HOST` / `REDIS_PORT` | *(empty)* | Empty means an in-process cache. Only worth setting with several gateways. |
-| `MCS_TRANSFER_ROOT` | `/data/transfer` | Where pieces accumulate before a file is placed. |
-| `MCS_STATIC_ROOT` | *(set in the image)* | The built interface. Unset, the API serves only `/api`. |
-| `MCS_CORS_ORIGINS` | *(empty)* | Comma-separated. Not needed when the interface is served by the API. |
-
-SQLite and an in-process cache are the defaults on purpose: this is a gateway somebody
-self-hosts next to their media server, not a multi-tenant service. Neither a PostgreSQL
-nor a Redis should have to be kept alive to pull a few episodes. Both remain one
-environment variable away, and the migrations are the same either way.
 
 ## Development
 

@@ -24,8 +24,6 @@ export interface SharePolicy {
 	allowedPeerIds: string[];
 	/** Peers explicitly denied, whatever the visibility rule says. */
 	deniedPeerIds: string[];
-	/** Let peers see titles and artwork without being able to pull the files. */
-	metadataOnly: boolean;
 	/** Cap the bandwidth this library serves, in bytes per second. 0 means no cap. */
 	rateLimit: number;
 	updatedAt: string;
@@ -34,7 +32,7 @@ export interface SharePolicy {
 export type UpdateSharePolicyRequest = Partial<
 	Pick<
 		SharePolicy,
-		'visibility' | 'allowedPeerIds' | 'deniedPeerIds' | 'metadataOnly' | 'rateLimit'
+		'visibility' | 'allowedPeerIds' | 'deniedPeerIds' | 'rateLimit'
 	>
 >;
 
@@ -43,5 +41,5 @@ export interface ShareAudit {
 	peerId: string;
 	peerName: string;
 	trust: string;
-	libraries: { libraryId: string; name: string; itemCount: number; metadataOnly: boolean }[];
+	libraries: { libraryId: string; name: string; itemCount: number }[];
 }
