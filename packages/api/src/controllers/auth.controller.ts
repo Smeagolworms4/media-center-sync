@@ -10,7 +10,6 @@ import {
 	UnauthorizedException,
 	UseGuards,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import {
 	ApiBearerAuth,
 	ApiNoContentResponse,
@@ -24,6 +23,7 @@ import { ErrorKey } from '@mcs/shared';
 import { CurrentUser, Public } from '@/decorators';
 import { AuthManager } from '@/managers';
 import { ChangePasswordDto, LoginDto, RefreshDto } from '@/models';
+import { SessionGuard } from '@/security';
 
 /**
  * A session, and no right in particular.
@@ -38,19 +38,6 @@ import { ChangePasswordDto, LoginDto, RefreshDto } from '@/models';
  * It lives here rather than under `security/` because it is the plumbing of one
  * controller; the day a second controller needs it, that is where it should move.
  */
-class SessionGuard extends AuthGuard('jwt') {
-	public handleRequest<TUser = SessionUser>(error: unknown, user: TUser | false): TUser {
-		if (error !== null && error !== undefined) {
-			throw error;
-		}
-
-		if (user === false || user === null || user === undefined) {
-			throw new UnauthorizedException(ErrorKey.AUTH_SESSION_EXPIRED);
-		}
-
-		return user;
-	}
-}
 
 /**
  * Getting in, staying in, getting out.

@@ -1,6 +1,5 @@
 import {
 	Right,
-	SyncState,
 	type MediaItem,
 	type MediaMatch,
 	type MediaNode,
@@ -26,32 +25,12 @@ import {
 	ApiOkResponse,
 	ApiOperation,
 	ApiProduces,
-	ApiPropertyOptional,
 	ApiTags,
 } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
-import { IsArray, IsEnum, IsOptional } from 'class-validator';
 import type { Response } from 'express';
 import { Granted } from '@/decorators';
 import { MediaManager } from '@/managers';
 import { ConfirmMatchDto, MediaSearchDto } from '@/models';
-
-/**
- * The browsing query, with one state value read as a list of one.
- *
- * `?states=missing` and `?states=missing&states=outdated` mean the same kind of thing
- * to whoever typed them, and a query string cannot tell them apart: the first arrives
- * as a string and the second as an array. Without this the common case — one state
- * chip selected — answers `400` and the filter simply looks broken.
- */
-class MediaSearchQueryDto extends MediaSearchDto {
-	@ApiPropertyOptional({ enum: SyncState, isArray: true })
-	@IsOptional()
-	@Transform(({ value }) => (Array.isArray(value) ? (value as SyncState[]) : [value as SyncState]))
-	@IsArray()
-	@IsEnum(SyncState, { each: true })
-	public declare states?: SyncState[];
-}
 
 /** How long a browser may keep a poster. Artwork changes on a rescan, not on a reload. */
 const ARTWORK_CACHE_SECONDS = 3600;
@@ -74,7 +53,7 @@ export class MediaController {
 	@Granted(Right.MEDIA_READ)
 	@ApiOperation({ summary: 'One page of the index, filtered' })
 	@ApiOkResponse({ description: 'ResultList<MediaItem>' })
-	public search(@Query() query: MediaSearchQueryDto): Promise<ResultList<MediaItem>> {
+	public search(@Query() query: MediaSearchDto): Promise<ResultList<MediaItem>> {
 		return this._media.search(query);
 	}
 
@@ -92,7 +71,7 @@ export class MediaController {
 	@ApiOkResponse({ description: 'ResultList<MediaItem>' })
 	public children(
 		@Param('id', ParseUUIDPipe) id: string,
-		@Query() query: MediaSearchQueryDto,
+		@Query() query: MediaSearchDto,
 	): Promise<ResultList<MediaItem>> {
 		return this._media.children(id, query);
 	}

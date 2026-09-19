@@ -110,8 +110,15 @@ describe('Browsing the index', () => {
 		expect(page.pagination).toMatchObject({ page: 1, limit: 5, total: 14, pages: 3 });
 	});
 
-	it('caps a page size nobody could render rather than trying to serve it', async () => {
-		const response = await browse('?limit=100000').expect(200);
+	it('refuses a page size nobody could render rather than quietly shrinking it', async () => {
+		// The manager clamps too, so answering 200 with two hundred rows would work —
+		// and would read as the API ignoring what was asked for. A caller that wanted
+		// a hundred thousand rows has a bug, and a 400 is where they find it.
+		await browse('?limit=100000').expect(400);
+	});
+
+	it('serves the largest page it accepts', async () => {
+		const response = await browse('?limit=200').expect(200);
 
 		expect((response.body as ResultList<MediaItem>).pagination.limit).toBe(200);
 	});
