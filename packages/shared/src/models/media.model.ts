@@ -34,8 +34,72 @@ export interface MediaFileInfo {
 	height: number | null;
 	durationMs: number | null;
 	bitrate: number | null;
-	/** Set once computed; correlation prefers it over every other signal. */
+	/**
+	 * Cheap fingerprint: a few sampled ranges plus the exact size.
+	 *
+	 * Hashing a forty-gigabyte episode to find out whether a friend has the same one
+	 * would cost more than downloading it. Sampling the head, the middle and the tail
+	 * and folding in the byte count identifies a file well enough to match on, for the
+	 * price of three reads.
+	 */
+	quickHash: string | null;
+
+	/**
+	 * The swarm identifier, derived from `quickHash` and the size.
+	 *
+	 * Two gateways that hold the same file compute the same value without ever
+	 * exchanging anything, which is what lets them find each other. The torrent
+	 * itself — the piece hashes — is generated on the fly when a swarm transfer
+	 * starts, and never stored: it is a function of the file, not a document about it.
+	 */
+	contentId: string | null;
+
+	/**
+	 * Full hash. Computed only when a transfer is verified, because that is the only
+	 * moment it is worth its cost. Correlation prefers it over every other signal
+	 * when it happens to be there.
+	 */
 	checksum: string | null;
+}
+
+/**
+ * One distinct encoding found under a node.
+ *
+ * `label` is what the tooltip lists, already assembled — the interface should not
+ * have to know that a missing codec means "unknown" rather than an empty string.
+ */
+export interface QualityVariant {
+	label: string;
+	videoCodec: string | null;
+	/** `2160p`, `1080p`, `720p`… derived from the height, not from the title. */
+	resolution: string | null;
+	hdr: string | null;
+	audioCodec: string | null;
+	audioChannels: string | null;
+	container: string | null;
+	/** How many files under this node carry exactly this encoding. */
+	count: number;
+	bytes: number;
+}
+
+/**
+ * What a series, a season or a collection looks like at a glance.
+ *
+ * A library is rarely uniform: a season ripped twice, three episodes re-encoded,
+ * one left in 720p. Showing the dominant encoding and saying `mixed` when there is
+ * more than one is the only summary that does not lie — and the variants are right
+ * there in the tooltip for the moment you need to know which episode is the odd one.
+ */
+export interface QualitySummary {
+	/** `x265 · 1080p`, or `mixed` when the variants disagree. */
+	label: string;
+	mixed: boolean;
+	/** The most common variant, which `label` describes when `mixed` is false. */
+	dominant: QualityVariant | null;
+	/** Every distinct encoding under the node, most common first. */
+	variants: QualityVariant[];
+	fileCount: number;
+	totalBytes: number;
 }
 
 export interface MediaItem {
@@ -54,6 +118,11 @@ export interface MediaItem {
 	overview: string | null;
 	artworkUrl: string | null;
 	file: MediaFileInfo | null;
+	/**
+	 * Aggregated over everything under this node — the node's own file for an
+	 * episode, every episode for a season or a series. Null while unscanned.
+	 */
+	quality: QualitySummary | null;
 	addedAt: string | null;
 	/** Correlation result against the other registered services. */
 	sync: SyncState;

@@ -27,6 +27,8 @@ export interface Library {
 	isDefaultTarget: boolean;
 	itemCount: number;
 	lastScanAt: string | null;
+	/** Last incremental refresh — cheap, frequent, driven by what the service reports. */
+	lastRefreshAt: string | null;
 	createdAt: string;
 	updatedAt: string;
 }

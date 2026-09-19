@@ -1,0 +1,28 @@
+@use './size' as *;
+
+@mixin prefix($property, $value) {
+	#{'-webkit-' + $property}: $value;
+	#{'-moz-' + $property}: $value;
+	#{'-o-' + $property}: $value;
+	#{'-ms-' + $property}: $value;
+	#{$property}: $value;
+}
+
+@mixin clearfix {
+	&:after {
+		content: " ";
+		display: block;
+		clear: both;
+	}
+}
+
+@mixin screen-sm { @media (max-width: #{$screenSm}) { @content; } }
+@mixin screen-sm { @media (max-width: #{$screenSm}) { @content; } }
+@mixin screen-md { @media (max-width: #{$screenMd}) { @content; } }
+@mixin screen-lg { @media (max-width: #{$screenLg}) { @content; } }
+@mixin screen-xl { @media (max-width: #{$screenXl}) { @content; } }
+@mixin not-screen-sm { @media (min-width: #{$screenSm}) { @content; } }
+@mixin not-screen-sm { @media (min-width: #{$screenSm}) { @content; } }
+@mixin not-screen-md { @media (min-width: #{$screenMd}) { @content; } }
+@mixin not-screen-lg { @media (min-width: #{$screenLg}) { @content; } }
+@mixin not-screen-xl { @media (min-width: #{$screenXl}) { @content; } }

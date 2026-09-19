@@ -46,6 +46,34 @@ export interface Settings {
 	rendezvousUrl: string | null;
 	/** Keep finished transfers in the list for this many days. */
 	transferHistoryDays: number;
+
+	/**
+	 * How often the gateway asks a service what changed, in minutes.
+	 *
+	 * The interface never queries a media service directly: it reads the gateway's
+	 * own index, which is what makes a library of forty thousand episodes browsable
+	 * at all. That index is kept current by asking each service for its own list of
+	 * recent additions — a few dozen rows — rather than by re-reading everything.
+	 */
+	refreshIntervalMinutes: number;
+
+	/**
+	 * Cron expression for the full rescan.
+	 *
+	 * A refresh only sees what a service reports as new. Files moved, deleted or
+	 * re-encoded in place go unnoticed, so a full pass still has to happen — rarely,
+	 * at an hour nobody is watching. Empty disables it; the button in the interface
+	 * always works.
+	 */
+	fullScanCron: string | null;
+
+	/**
+	 * How long a service answer stays good, in seconds.
+	 *
+	 * Short enough that a freshly added episode shows up, long enough that ten open
+	 * tabs cost one request instead of ten.
+	 */
+	cacheTtlSeconds: number;
 }
 
 export type UpdateSettingsRequest = Partial<Settings>;
