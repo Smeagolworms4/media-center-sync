@@ -27,6 +27,7 @@ change to this contract and breaks journeys on purpose.
 | `page-title` | `PageHeader.vue` | the current page title |
 | `empty-state` | `EmptyState.vue` | the "nothing here" block |
 | `service-list`, `service-row`, `service-add`, `service-probe` | services page | the registered services |
+| `service-name`, `service-url`, `service-token` | service form | the fields of the add/edit dialog |
 | `media-list`, `media-row`, `sync-state`, `quality-chip` | library pages | the index |
 | `transfer-list`, `transfer-row`, `transfer-progress` | transfers page | the queue |
 | `peer-list`, `peer-row`, `peer-invite` | peers page | the peers |
