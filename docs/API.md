@@ -117,7 +117,21 @@ not designate the same directory accepts transfers the server will never see.
 | GET | `/media/groups` | `MediaGroupQuery` (query) | `ResultList<MediaGroup>` | `MEDIA_READ` |
 | GET | `/media/groups/:id` | — | `MediaGroup` | `MEDIA_READ` |
 | GET | `/media/groups/:id/children` | `MediaGroupQuery` (query) | `ResultList<MediaGroup>` | `MEDIA_READ` |
+| PUT | `/media/:id/override` | `MediaOverrideDto` | `MediaItem` | `MEDIA_READ` |
+| DELETE | `/media/:id/override` | — | `MediaItem` | `MEDIA_READ` |
 | GET | `/media/:id/artwork` | `token` (query, optional) | image bytes | `MEDIA_READ` |
+
+**An override corrects what a media server got wrong, here and only here.** A
+documentary filed under Films, an anime numbered by absolute order against a library
+that expects seasons, a show under a name nobody in the house uses: correcting it on
+the server means moving files and fighting the next scrape. The correction is written
+into the fields everything reads, so it reaches correlation, filing and the category
+the item appears under — one that only changed a label would be worse than none. The
+instruction is kept beside it so a rescan re-applies it instead of undoing it, and the
+service's own answer is kept so the change can be shown and reverted.
+
+An absent field leaves the service's answer alone; an explicit `null` clears it. That
+is how somebody removes a year a scraper invented, so the two cannot be collapsed.
 
 Artwork is proxied rather than linked: the remote service's URL usually needs that
 service's token, and an `<img>` tag carries no `Authorization` header. The gateway

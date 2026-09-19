@@ -155,6 +155,44 @@ export interface MediaCompanions {
 	checkedAt: string | null;
 }
 
+/**
+ * A correction somebody made, field by field.
+ *
+ * Every field a media server can get wrong is here, because every one of them is wrong
+ * somewhere: a documentary series filed under Films, an anime numbered by absolute
+ * order when the library expects seasons, a show whose local name is not the one the
+ * scraper picked. Correcting it on the server means moving files and fighting the next
+ * scrape; correcting it here is a row, and the next rescan re-applies it.
+ *
+ * An absent field means "not corrected" and is left to the service. An explicit `null`
+ * means "cleared", which is a different instruction — it is how somebody removes a
+ * year the scraper invented.
+ */
+export interface MediaOverride {
+	/** Reclassify into another library, which is what moves it between categories. */
+	libraryId?: string | null;
+	title?: string | null;
+	/** The show's name, for an episode — what its folder is named after. */
+	seriesTitle?: string | null;
+	year?: number | null;
+	seasonNumber?: number | null;
+	episodeNumber?: number | null;
+	overview?: string | null;
+	externalIds?: ExternalIds;
+}
+
+/** The overridable fields as the service last reported them, so a change can be shown. */
+export interface MediaReported {
+	libraryId: string;
+	title: string;
+	seriesTitle: string | null;
+	year: number | null;
+	seasonNumber: number | null;
+	episodeNumber: number | null;
+	overview: string | null;
+	externalIds: ExternalIds;
+}
+
 export interface MediaItem {
 	id: string;
 	serviceId: string;
@@ -182,14 +220,17 @@ export interface MediaItem {
 	 */
 	companions: MediaCompanions | null;
 	/**
-	 * The library this item belongs to *here*, when somebody has moved it.
+	 * What somebody corrected by hand, and what the service actually said.
 	 *
-	 * A media server files things by the folder it found them in, and it is sometimes
-	 * wrong: a documentary series lands in Films, an anime in Shows. Correcting it on
-	 * the server means moving files; correcting it here means one row, and the next
-	 * rescan does not undo it. Null means the library the service reported.
+	 * The flat fields above are the effective values — the correction already applied
+	 * — because everything downstream has to see it: a season reassigned by hand must
+	 * change what correlates with what and which folder a pull lands in, or it is a
+	 * label rather than a correction. `overrides` is kept so a rescan can re-apply it
+	 * instead of losing it, and so the interface can show what was changed and undo it.
+	 * `reported` is the service's last word, which is the only way to say "was X".
 	 */
-	libraryOverrideId: string | null;
+	overrides: MediaOverride | null;
+	reported: MediaReported | null;
 	addedAt: string | null;
 	/** Correlation result against the other registered services. */
 	sync: SyncState;

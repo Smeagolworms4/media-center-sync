@@ -7,6 +7,7 @@ export * from './fingerprint.service';
 export * from './handlers';
 export * from './library-path';
 export * from './matching.service';
+export * from './media-override';
 export * from './metadata.service';
 export * from './naming.service';
 export * from './peer-catalogue.service';

@@ -252,18 +252,14 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		}
 
 		/*
-		 * A library filter has to look at the override as well as the reported library.
+		 * The column already holds the effective library.
 		 *
-		 * Somebody who reclassified a documentary out of Films expects it to leave Films
-		 * and appear in Documentaries, in both directions. Filtering on the reported
-		 * column alone leaves it in the category they moved it out of, which is the one
-		 * way of getting this wrong that looks like the feature not working at all.
+		 * A reclassified item has had `libraryId` rewritten, with the service's answer
+		 * kept in `reported`, so a filter here needs no knowledge of overrides at all —
+		 * which is the point of resolving them on write rather than on read.
 		 */
 		if (query.libraryIds !== undefined && query.libraryIds.length > 0) {
-			builder.andWhere(
-				'(COALESCE(item.libraryOverrideId, item.libraryId)) IN (:...libraryIds)',
-				{ libraryIds: query.libraryIds },
-			);
+			builder.andWhere('item.libraryId IN (:...libraryIds)', { libraryIds: query.libraryIds });
 		}
 
 		if (query.kind !== undefined) {

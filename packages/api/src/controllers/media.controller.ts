@@ -16,6 +16,7 @@ import {
 	Param,
 	ParseUUIDPipe,
 	Post,
+	Put,
 	Query,
 	Res,
 	StreamableFile,
@@ -31,7 +32,12 @@ import {
 import type { Response } from 'express';
 import { Granted } from '@/decorators';
 import { MediaGroupManager, MediaManager } from '@/managers';
-import { ConfirmMatchDto, MediaGroupQueryDto, MediaSearchDto } from '@/models';
+import {
+	ConfirmMatchDto,
+	MediaGroupQueryDto,
+	MediaOverrideDto,
+	MediaSearchDto,
+} from '@/models';
 
 /** How long a browser may keep a poster. Artwork changes on a rescan, not on a reload. */
 const ARTWORK_CACHE_SECONDS = 3600;
@@ -155,6 +161,36 @@ export class MediaController {
 		response.setHeader('Cache-Control', `private, max-age=${ARTWORK_CACHE_SECONDS}`);
 
 		return new StreamableFile(artwork.body);
+	}
+
+	@Put(':id/override')
+	@Granted(Right.MEDIA_READ)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Correct what a media server got wrong, locally',
+		description:
+			'Reclassify it, rename the show, reassign a season or an episode number. Written into ' +
+			'the fields everything reads, so the correction reaches correlation and filing, and ' +
+			'kept as an instruction so the next rescan re-applies it rather than undoing it.',
+	})
+	@ApiOkResponse({ description: 'MediaItem' })
+	public override(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: MediaOverrideDto,
+	): Promise<MediaItem> {
+		return this._media.setOverride(id, body);
+	}
+
+	@Delete(':id/override')
+	@Granted(Right.MEDIA_READ)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Put back what the service reported',
+		description: 'Every corrected field returns to the media server’s own answer.',
+	})
+	@ApiOkResponse({ description: 'MediaItem' })
+	public clearOverride(@Param('id', ParseUUIDPipe) id: string): Promise<MediaItem> {
+		return this._media.setOverride(id, null);
 	}
 
 	@Post(':id/matches/:matchId/confirm')

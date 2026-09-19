@@ -7,6 +7,7 @@ import {
 	type MediaFileInfo,
 	type MediaItem,
 	type MediaMatch,
+	type MediaOverride,
 	type MediaNode,
 	type MediaSearchQuery,
 	type ResultList,
@@ -22,6 +23,8 @@ import {
 	CacheService,
 	HandlerRegistry,
 	MatchingService,
+	applyOverride,
+	normalizeTitle,
 	SettingsService,
 	type MatchCandidate,
 	type MatchProposal,
@@ -325,6 +328,31 @@ export class MediaManager {
 	 * from the browser, and without it every one of them would be a request to
 	 * somebody's Raspberry Pi.
 	 */
+	/**
+	 * Correct what a media server got wrong, here and only here.
+	 *
+	 * The correction is written into the fields everything reads, so it reaches
+	 * correlation, filing and the category an item appears under — a season reassigned
+	 * by hand that only changed a label would be worse than nothing. The instruction is
+	 * kept alongside so the next rescan re-applies it, and the service's own answer is
+	 * kept so the change can be shown and undone.
+	 *
+	 * The item is re-correlated immediately: renaming a show or renumbering an episode
+	 * changes what it matches, and leaving that until the next scan means the screen
+	 * that made the correction still shows the old state.
+	 */
+	public async setOverride(id: string, override: MediaOverride | null): Promise<MediaItem> {
+		const item = await this._require(id);
+
+		applyOverride(item, override, normalizeTitle);
+
+		const saved = await this._items.save(item);
+
+		await this.correlateService(saved.serviceId);
+
+		return toMediaItem(await this._require(id));
+	}
+
 	public async artwork(id: string): Promise<Artwork> {
 		const item = await this._require(id);
 

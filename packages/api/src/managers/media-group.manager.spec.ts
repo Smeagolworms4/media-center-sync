@@ -143,7 +143,7 @@ const build = (
 						(row) =>
 							(query.serviceIds === undefined || query.serviceIds.includes(row.serviceId)) &&
 							(query.libraryIds === undefined ||
-								query.libraryIds.includes(row.libraryOverrideId ?? row.libraryId)) &&
+								query.libraryIds.includes(row.libraryId)) &&
 							(query.kind === undefined || row.kind === query.kind) &&
 							(query.parentIds === undefined ||
 								(row.parentId !== null && query.parentIds.includes(row.parentId))) &&

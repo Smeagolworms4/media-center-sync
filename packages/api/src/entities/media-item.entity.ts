@@ -1,6 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import type { ExternalIds, MediaCompanions, MediaFileInfo, QualitySummary } from '@mcs/shared';
+import type {
+	ExternalIds,
+	MediaCompanions,
+	MediaFileInfo,
+	MediaOverride,
+	MediaReported,
+	QualitySummary,
+} from '@mcs/shared';
 import { MediaKind, SyncState } from '@mcs/shared';
 import { Library } from './library.entity';
 import { MediaService } from './media-service.entity';
@@ -119,17 +126,30 @@ export class MediaItem extends Timestampable {
 	public companions!: MediaCompanions | null;
 
 	/**
-	 * The library this item belongs to here, when somebody has moved it.
+	 * What somebody corrected by hand.
 	 *
-	 * A media server files by the folder it found something in, and is sometimes
-	 * wrong. Correcting it there means moving files; correcting it here is one column,
-	 * and a rescan does not undo it — which is the whole reason it is not written back
-	 * into `libraryId`.
+	 * Kept apart from the columns it corrects, and both halves matter. The columns hold
+	 * the effective values, because everything downstream has to see the correction: a
+	 * season reassigned by hand must change what correlates with what and which folder
+	 * a pull lands in, or it is a label rather than a correction. This record is what
+	 * lets a rescan re-apply it instead of overwriting it with the service's answer
+	 * again — which is what "the next scan undoes my edits" looks like from outside.
 	 */
 	@ApiProperty({ nullable: true })
-	@Index()
-	@Column({ type: 'uuid', nullable: true })
-	public libraryOverrideId!: string | null;
+	@Column({ type: 'simple-json', nullable: true })
+	public overrides!: MediaOverride | null;
+
+	/**
+	 * The overridable fields as the service last reported them.
+	 *
+	 * Null when nothing was ever corrected — there is no point storing a copy of what
+	 * the columns already say. It exists so the interface can show what was changed,
+	 * and so clearing an override can put back what was there rather than leaving a
+	 * hole.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'simple-json', nullable: true })
+	public reported!: MediaReported | null;
 
 	@ApiProperty({ enum: SyncState })
 	@Column({ type: 'varchar', default: SyncState.UNKNOWN })

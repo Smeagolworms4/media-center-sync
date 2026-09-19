@@ -22,8 +22,10 @@ import {
 import { readdir } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import {
+	applyOverride,
 	detectCompanions,
 	FingerprintService,
+	normalizeTitle,
 	toLocalPath,
 	EventGatewayService,
 	HandlerRegistry,
@@ -437,6 +439,20 @@ export class ServiceManager {
 		row.artworkUrl = item.artworkUrl;
 		row.file = item.file;
 		row.addedAt = item.addedAt === null ? null : new Date(item.addedAt);
+
+		/*
+		 * A correction somebody made survives the scan that would otherwise undo it.
+		 *
+		 * Everything above has just written what the service says, which is exactly what
+		 * a rescan is for — and exactly what erases a hand-corrected season number, a
+		 * reclassified documentary, a show renamed to what the household actually calls
+		 * it. Re-applying here is what makes those corrections stick, and it is the
+		 * whole reason the instruction is kept rather than only its result.
+		 */
+		if (row.overrides !== null) {
+			row.reported = null;
+			applyOverride(row, row.overrides, normalizeTitle);
+		}
 
 		return this._items.save(row);
 	}

@@ -5,6 +5,7 @@ import {
 	IsBoolean,
 	IsEnum,
 	IsInt,
+	IsObject,
 	IsOptional,
 	IsString,
 	IsUUID,
@@ -215,4 +216,66 @@ export class ConfirmMatchDto {
 	@IsOptional()
 	@IsUUID()
 	public localItemId?: string | null;
+}
+
+/**
+ * A correction to one item, field by field.
+ *
+ * Every field is optional and `null` is meaningful: absent leaves the service's answer
+ * alone, `null` clears it. That distinction is how somebody removes a year a scraper
+ * invented, so the two cannot be collapsed however tempting the shorter validation
+ * would be.
+ */
+export class MediaOverrideDto {
+	@ApiPropertyOptional({ description: 'Reclassify into another library.' })
+	@IsOptional()
+	@IsUUID()
+	public libraryId?: string | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public title?: string | null;
+
+	@ApiPropertyOptional({ description: "The show's name, for an episode." })
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public seriesTitle?: string | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(1800)
+	@Max(2999)
+	public year?: number | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	@Max(999)
+	public seasonNumber?: number | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	@Max(9999)
+	public episodeNumber?: number | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(5000)
+	public overview?: string | null;
+
+	@ApiPropertyOptional({ description: 'Merged with what the service reported, not replacing it.' })
+	@IsOptional()
+	@IsObject()
+	public externalIds?: Record<string, string>;
 }
