@@ -1,6 +1,8 @@
 import {
 	ErrorKey,
+	MediaOrigin,
 	MediaServiceScope,
+	PeerTrust,
 	MediaServiceType,
 	SyncState,
 	type ExternalIds,
@@ -138,6 +140,8 @@ interface GroupContext {
 	peerNames: Map<string, string>;
 	/** Services whose libraries the gateway can write into. */
 	local: Set<string>;
+	/** Peers a friend introduced, rather than ones we linked to ourselves. */
+	friendsOfFriends: Set<string>;
 }
 
 /**
@@ -193,9 +197,10 @@ export class MediaGroupManager {
 			query.parentId === undefined ? undefined : await this._parentScope(query.parentId, context);
 
 		const seeds = await this._items.findGroupSeeds({
-			serviceId: query.serviceId,
-			libraryId: query.libraryId,
+			serviceIds: this._servicesFor(query, context),
+			libraryIds: query.libraryId === undefined ? undefined : [query.libraryId],
 			kind: query.kind,
+			rootsOnly: query.rootsOnly,
 			search: query.search,
 			sort: query.sort,
 			direction: query.direction,
@@ -264,12 +269,60 @@ export class MediaGroupManager {
 			graph: new MatchGraph(pairs),
 			services: new Map(services.map((service) => [service.id, service])),
 			peerNames: new Map(peers.map((peer) => [peer.id, peer.name])),
+			friendsOfFriends: new Set(
+				peers
+					.filter((peer) => peer.trust === PeerTrust.FRIEND_OF_FRIEND)
+					.map((peer) => peer.id),
+			),
 			local: new Set(
 				services
 					.filter((service) => service.scope === MediaServiceScope.LOCAL)
 					.map((service) => service.id),
 			),
 		};
+	}
+
+	/**
+	 * The services a query is allowed to look at.
+	 *
+	 * Two filters that mean different things end up in one list here: naming services
+	 * outright, and naming where copies come from. Somebody asking for "my friends"
+	 * should not have to name six servers, and somebody naming two servers should not
+	 * have their origins guessed. Given both, the intersection is what they asked for —
+	 * these friends' servers, and only those.
+	 */
+	private _servicesFor(query: MediaGroupQuery, context: GroupContext): string[] | undefined {
+		const named = query.serviceIds?.length ? new Set(query.serviceIds) : null;
+		const origins = query.origins?.length ? new Set(query.origins) : null;
+
+		if (named === null && origins === null) {
+			return undefined;
+		}
+
+		const allowed = [...context.services.values()]
+			.filter((service) => named === null || named.has(service.id))
+			.filter((service) => origins === null || origins.has(this._originOf(service, context)))
+			.map((service) => service.id);
+
+		// An empty list is not "no filter": it is a filter nothing satisfies, and
+		// returning undefined here would answer the whole library to somebody who asked
+		// for a friend they have not linked.
+		return allowed;
+	}
+
+	/** Where a service's copies come from, in the terms the filter is written in. */
+	private _originOf(service: MediaServiceEntity, context: GroupContext): MediaOrigin {
+		if (context.local.has(service.id)) {
+			return MediaOrigin.LOCAL;
+		}
+
+		if (service.peerId === null) {
+			return MediaOrigin.DIRECT;
+		}
+
+		return context.friendsOfFriends.has(service.peerId)
+			? MediaOrigin.FRIEND_OF_FRIEND
+			: MediaOrigin.FRIEND;
 	}
 
 	/** The parent group's items, so `parentId` addresses a group and not one copy. */

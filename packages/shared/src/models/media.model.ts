@@ -181,6 +181,15 @@ export interface MediaItem {
 	 * it can only do for a library somebody told it where to find.
 	 */
 	companions: MediaCompanions | null;
+	/**
+	 * The library this item belongs to *here*, when somebody has moved it.
+	 *
+	 * A media server files things by the folder it found them in, and it is sometimes
+	 * wrong: a documentary series lands in Films, an anime in Shows. Correcting it on
+	 * the server means moving files; correcting it here means one row, and the next
+	 * rescan does not undo it. Null means the library the service reported.
+	 */
+	libraryOverrideId: string | null;
 	addedAt: string | null;
 	/** Correlation result against the other registered services. */
 	sync: SyncState;
@@ -274,9 +283,35 @@ export interface MediaGroup {
 	addedAt: string | null;
 }
 
+/**
+ * Where a copy comes from, in the terms somebody actually thinks in.
+ *
+ * Not the same question as which service: "show me what my friends have" is one
+ * filter, and naming six servers to express it is not. The four are exclusive and
+ * cover everything — a service is ours, or a remote one we registered ourselves, or
+ * reached through a friend, or through a friend of theirs.
+ */
+export enum MediaOrigin {
+	/** A service whose libraries we can write into. */
+	LOCAL = 'local',
+	/** A remote service we registered directly — our own second server, a public one. */
+	DIRECT = 'direct',
+	/** Through a peer we linked to ourselves. */
+	FRIEND = 'friend',
+	/** Through a peer one of our friends introduced. */
+	FRIEND_OF_FRIEND = 'friend_of_friend',
+}
+
 export interface MediaGroupQuery {
-	/** Restrict to what one service holds, without ungrouping the rest. */
-	serviceId?: string;
+	/**
+	 * Restrict to what these services hold, without ungrouping the rest.
+	 *
+	 * A list rather than one value because comparing two friends' shelves is the
+	 * ordinary case, and a filter that only takes one makes it impossible.
+	 */
+	serviceIds?: string[];
+	/** Restrict by where a copy comes from, which is a different question to which server. */
+	origins?: MediaOrigin[];
 	libraryId?: string;
 	kind?: MediaKind;
 	/** Children of this group, addressed by the parent's representative item. */

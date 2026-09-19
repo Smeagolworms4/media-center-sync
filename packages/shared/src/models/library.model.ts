@@ -19,6 +19,22 @@ export interface Library {
 	serviceId: string;
 	externalId: string;
 	name: string;
+	/**
+	 * What we call it here, when the name the service gave it is not the useful one.
+	 *
+	 * A friend's `Video2` is not a category anybody can navigate, and renaming it on
+	 * their server is not ours to do. The alias is local and never leaves this gateway;
+	 * `name` stays whatever the service reports, so a rescan cannot undo it.
+	 */
+	alias: string | null;
+	/**
+	 * Where this library sits in the gateway's own order, lowest first.
+	 *
+	 * It decides which category wins when the same media is filed in two of them —
+	 * a series in both `Shows` and `Animes` belongs to whichever comes first — and
+	 * without it that answer would depend on the order rows came back in.
+	 */
+	position: number;
 	kind: LibraryKind;
 	paths: string[];
 	localPath: string | null;
@@ -36,6 +52,8 @@ export interface Library {
 export interface UpdateLibraryRequest {
 	localPath?: string | null;
 	isDefaultTarget?: boolean;
+	alias?: string | null;
+	position?: number;
 }
 
 /** What `make library/check` and the settings screen report. */

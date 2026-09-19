@@ -36,6 +36,28 @@ export class Library extends Timestampable {
 	@Column()
 	public name!: string;
 
+	/**
+	 * What we call it here.
+	 *
+	 * Kept beside `name` rather than replacing it, so a rescan cannot undo somebody's
+	 * renaming: the service keeps reporting `Video2` and we keep showing what they
+	 * chose. Renaming it on a friend's server is not ours to do anyway.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public alias!: string | null;
+
+	/**
+	 * Where this library sits in the gateway's own order, lowest first.
+	 *
+	 * It decides which category wins when the same media is filed in two of them, and
+	 * without it that answer would depend on the order rows came back in — which is to
+	 * say it would change between two identical requests.
+	 */
+	@ApiProperty()
+	@Column({ type: 'int', default: 100 })
+	public position!: number;
+
 	@ApiProperty({ enum: LibraryKind })
 	@Column({ type: 'varchar', default: LibraryKind.OTHER })
 	public kind!: LibraryKind;

@@ -51,6 +51,8 @@ export enum PeerLinkMode {
 export interface Peer {
 	id: string;
 	name: string;
+	/** Their node identifier, learned when the link was established. */
+	nodeId: string | null;
 	/** Public key fingerprint. This is the identity; the address can change. */
 	fingerprint: string;
 	status: PeerStatus;
@@ -145,6 +147,18 @@ export interface CatalogueEntry {
 
 /** This gateway's own identity, shown in the peers screen. */
 export interface PeerIdentity {
+	/**
+	 * A stable identifier for this gateway across the whole shared network.
+	 *
+	 * Generated once and never derived from anything: a key can be rotated and an
+	 * address changes, and neither should make a gateway look like a new participant.
+	 *
+	 * It exists to stop announcements going round in circles. A friend of a friend
+	 * propagates what it hears, so without a name to recognise itself by, a gateway
+	 * receives its own catalogue back through a third party, answers it, and two
+	 * households spend their evening telling each other about the same file.
+	 */
+	nodeId: string;
 	fingerprint: string;
 	name: string;
 	rendezvous: string;

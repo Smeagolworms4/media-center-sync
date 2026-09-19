@@ -72,12 +72,20 @@ describe('PeerLinkService', () => {
 
 		it('describes itself for the peers screen', () => {
 			expect(service.identity('Home', 'https://meet.example.org')).toEqual({
+				nodeId: service.nodeId,
 				fingerprint: service.fingerprint,
 				name: 'Home',
 				rendezvous: 'https://meet.example.org',
 				directAddress: null,
 				directReachable: false,
 			});
+		});
+
+		it('keeps its node identity separate from its key', () => {
+			// A rotated key does not make a gateway a different participant, and the
+			// identifier that stops announcements circling has to survive that.
+			expect(service.nodeId).toEqual(expect.any(String));
+			expect(service.nodeId).not.toBe(service.fingerprint);
 		});
 
 		it('says it is directly reachable when an address is configured', () => {

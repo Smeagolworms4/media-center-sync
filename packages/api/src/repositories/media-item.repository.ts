@@ -39,7 +39,10 @@ export interface MediaItemDigest {
 }
 
 /** A group listing's filter, with the parent addressed as a set of items rather than one. */
-export interface GroupSeedQuery extends Omit<MediaGroupQuery, 'parentId' | 'states'> {
+export interface GroupSeedQuery
+	extends Omit<MediaGroupQuery, 'parentId' | 'states' | 'libraryId' | 'origins'> {
+	/** Resolved from the origins and the service filter before the query is built. */
+	libraryIds?: string[];
 	/** Every item of the parent group, because a series' seasons may live on either. */
 	parentIds?: string[];
 }
@@ -244,12 +247,23 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	public findGroupSeeds(query: GroupSeedQuery): Promise<MediaItemDigest[]> {
 		const builder = this._digestQuery();
 
-		if (query.serviceId !== undefined) {
-			builder.andWhere('item.serviceId = :serviceId', { serviceId: query.serviceId });
+		if (query.serviceIds !== undefined && query.serviceIds.length > 0) {
+			builder.andWhere('item.serviceId IN (:...serviceIds)', { serviceIds: query.serviceIds });
 		}
 
-		if (query.libraryId !== undefined) {
-			builder.andWhere('item.libraryId = :libraryId', { libraryId: query.libraryId });
+		/*
+		 * A library filter has to look at the override as well as the reported library.
+		 *
+		 * Somebody who reclassified a documentary out of Films expects it to leave Films
+		 * and appear in Documentaries, in both directions. Filtering on the reported
+		 * column alone leaves it in the category they moved it out of, which is the one
+		 * way of getting this wrong that looks like the feature not working at all.
+		 */
+		if (query.libraryIds !== undefined && query.libraryIds.length > 0) {
+			builder.andWhere(
+				'(COALESCE(item.libraryOverrideId, item.libraryId)) IN (:...libraryIds)',
+				{ libraryIds: query.libraryIds },
+			);
 		}
 
 		if (query.kind !== undefined) {

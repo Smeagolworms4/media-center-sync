@@ -141,8 +141,9 @@ const build = (
 				full.items
 					.filter(
 						(row) =>
-							(query.serviceId === undefined || row.serviceId === query.serviceId) &&
-							(query.libraryId === undefined || row.libraryId === query.libraryId) &&
+							(query.serviceIds === undefined || query.serviceIds.includes(row.serviceId)) &&
+							(query.libraryIds === undefined ||
+								query.libraryIds.includes(row.libraryOverrideId ?? row.libraryId)) &&
 							(query.kind === undefined || row.kind === query.kind) &&
 							(query.parentIds === undefined ||
 								(row.parentId !== null && query.parentIds.includes(row.parentId))) &&
@@ -633,7 +634,7 @@ describe('MediaGroupManager', () => {
 		it('narrows which groups appear without ungrouping the ones that stay', async () => {
 			const { manager } = build(library());
 
-			const page = await manager.groups(query({ serviceId: 'remote' }));
+			const page = await manager.groups(query({ serviceIds: ['remote'] }));
 
 			expect(page.items.map((group) => group.title)).toEqual(['Alpha', 'Charlie']);
 			// Alpha is shown because the friend holds a copy, and it is still shown with

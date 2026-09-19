@@ -2,6 +2,7 @@ import { InitialSchema1758240000000 } from './1758240000000-InitialSchema';
 import { MediaCompanions1758330000000 } from './1758330000000-MediaCompanions';
 import { PeerDirection1758340000000 } from './1758340000000-PeerDirection';
 import { DropCatalogueOnly1758350000000 } from './1758350000000-DropCatalogueOnly';
+import { CategoriesAndIdentity1758360000000 } from './1758360000000-CategoriesAndIdentity';
 
 /**
  * Every migration, in order, as classes rather than a path glob.
@@ -22,9 +23,11 @@ export const MIGRATIONS = [
 	MediaCompanions1758330000000,
 	PeerDirection1758340000000,
 	DropCatalogueOnly1758350000000,
+	CategoriesAndIdentity1758360000000,
 ];
 
 export * from './1758240000000-InitialSchema';
 export * from './1758330000000-MediaCompanions';
 export * from './1758340000000-PeerDirection';
 export * from './1758350000000-DropCatalogueOnly';
+export * from './1758360000000-CategoriesAndIdentity';

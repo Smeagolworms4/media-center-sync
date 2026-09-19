@@ -27,6 +27,17 @@ export class Peer extends Timestampable {
 	@Column()
 	public fingerprint!: string;
 
+	/**
+	 * Their node identifier, learned when the link was established.
+	 *
+	 * It is what lets an announcement be recognised as one we have already seen, so a
+	 * catalogue travelling through a friend of a friend does not come back to us and
+	 * start a conversation with itself.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public nodeId!: string | null;
+
 	@Exclude()
 	@Column({ type: 'text', nullable: true, select: false })
 	public publicKey!: string | null;

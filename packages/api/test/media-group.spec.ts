@@ -300,7 +300,7 @@ describe('Browsing the index by media rather than by row', () => {
 	});
 
 	it('narrows by service without ungrouping what survives', async () => {
-		const page = await groups(`/media/groups?kind=episode&serviceId=${id.theirs}&limit=50`);
+		const page = await groups(`/media/groups?kind=episode&serviceIds=${id.theirs}&limit=50`);
 		const shared = page.items.find((group) => group.title === 'Episode 1');
 
 		// Four of their rows, four groups — and episode 1 is still shown with both of

@@ -1,4 +1,5 @@
 import {
+	randomUUID,
 	createHash,
 	createPrivateKey,
 	createPublicKey,
@@ -21,6 +22,7 @@ import { RendezvousClient } from './rendezvous.client';
 
 /** Where the gateway's own key pair lives, unless the environment says otherwise. */
 const DEFAULT_DATA_DIR = './data';
+const NODE_ID_FILE = 'node-id';
 const KEY_FILE = 'peer-identity.pem';
 
 const CONNECT_TIMEOUT_MS = 15_000;
@@ -235,16 +237,66 @@ export class PeerLinkService implements OnModuleDestroy {
 	private readonly _publicKeyPem: string;
 	private readonly _fingerprint: string;
 
+	private readonly _nodeId: string;
+
 	public constructor(private readonly _rendezvous: RendezvousClient) {
 		const keys = this._loadOrCreateKeys();
 
 		this._privateKeyPem = keys.privateKey;
 		this._publicKeyPem = keys.publicKey;
 		this._fingerprint = this.fingerprintOf(keys.publicKey);
+		this._nodeId = this._loadOrCreateNodeId();
+	}
+
+	/** This gateway's name on the shared network, whatever its key or address becomes. */
+	public get nodeId(): string {
+		return this._nodeId;
+	}
+
+	/**
+	 * A stable identifier for this gateway, generated once and derived from nothing.
+	 *
+	 * Deliberately not the fingerprint: a key can be rotated, and a gateway that
+	 * rotates its key has not become a different participant. Its whole job is to let
+	 * an announcement be recognised as one we have already seen — a friend of a friend
+	 * propagates what it hears, so without a name to know itself by, a gateway receives
+	 * its own catalogue back through a third party and answers it. Two households then
+	 * spend the evening telling each other about the same file.
+	 *
+	 * Stored beside the key, and regenerated if the file is lost: a new identity costs
+	 * one round of redundant announcements, where refusing to start costs everything.
+	 */
+	private _loadOrCreateNodeId(): string {
+		const path = process.env.PEER_NODE_ID_PATH
+			?? join(process.env.MCS_DATA_DIR ?? DEFAULT_DATA_DIR, NODE_ID_FILE);
+
+		try {
+			const stored = readFileSync(path, 'utf8').trim();
+
+			if (stored !== '') {
+				return stored;
+			}
+		} catch {
+			// Never written, or no longer readable. Both mean the same thing here.
+		}
+
+		const nodeId = randomUUID();
+
+		try {
+			mkdirSync(dirname(path), { recursive: true });
+			writeFileSync(path, nodeId, { mode: 0o600 });
+		} catch (error) {
+			this._logger.warn(
+				`Node identity could not be written to ${path}: it will change on restart (${String(error)})`,
+			);
+		}
+
+		return nodeId;
 	}
 
 	public identity(name: string, rendezvousUrl: string | null): PeerIdentity {
 		return {
+			nodeId: this._nodeId,
 			fingerprint: this._fingerprint,
 			name,
 			rendezvous: rendezvousUrl ?? '',

@@ -118,6 +118,19 @@ export class MediaItem extends Timestampable {
 	@Column({ type: 'simple-json', nullable: true })
 	public companions!: MediaCompanions | null;
 
+	/**
+	 * The library this item belongs to here, when somebody has moved it.
+	 *
+	 * A media server files by the folder it found something in, and is sometimes
+	 * wrong. Correcting it there means moving files; correcting it here is one column,
+	 * and a rescan does not undo it — which is the whole reason it is not written back
+	 * into `libraryId`.
+	 */
+	@ApiProperty({ nullable: true })
+	@Index()
+	@Column({ type: 'uuid', nullable: true })
+	public libraryOverrideId!: string | null;
+
 	@ApiProperty({ enum: SyncState })
 	@Column({ type: 'varchar', default: SyncState.UNKNOWN })
 	public syncState!: SyncState;

@@ -12,7 +12,7 @@ import {
 	MaxLength,
 	Min,
 } from 'class-validator';
-import { MediaKind, SyncState } from '@mcs/shared';
+import { MediaKind, MediaOrigin, SyncState } from '@mcs/shared';
 
 /**
  * Browsing the index.
@@ -112,10 +112,33 @@ export class MediaSearchDto {
  * the ones that survive.
  */
 export class MediaGroupQueryDto {
-	@ApiPropertyOptional()
+	/**
+	 * Several services, because comparing two friends' shelves is the ordinary case.
+	 *
+	 * A single value arrives as a string from a query string and a list as an array;
+	 * both mean the same thing to whoever typed them, so the scalar is read as a list
+	 * of one — exactly as `states` is, and for the same reason.
+	 */
+	@ApiPropertyOptional({ type: [String] })
 	@IsOptional()
-	@IsUUID()
-	public serviceId?: string;
+	@Transform(({ value }) => (Array.isArray(value) ? (value as string[]) : [value as string]))
+	@IsArray()
+	@IsUUID('4', { each: true })
+	public serviceIds?: string[];
+
+	/**
+	 * Where copies come from, which is a different question to which server.
+	 *
+	 * "Show me what my friends have" is one filter; naming six servers to express it
+	 * is not the same thing, and stops being true the moment somebody links a seventh.
+	 */
+	@ApiPropertyOptional({ enum: MediaOrigin, isArray: true })
+	@IsOptional()
+	@Transform(({ value }) =>
+		Array.isArray(value) ? (value as MediaOrigin[]) : [value as MediaOrigin])
+	@IsArray()
+	@IsEnum(MediaOrigin, { each: true })
+	public origins?: MediaOrigin[];
 
 	@ApiPropertyOptional()
 	@IsOptional()
