@@ -209,3 +209,18 @@ function parseTotalLength(contentRange: string | null): number | null {
 
 	return match ? Number(match[1]) : null;
 }
+
+/**
+ * The path part of a URL a handler produced, relative to its service.
+ *
+ * Item artwork is stored as an absolute URL because that is what the interface would
+ * need if it could fetch it directly — it cannot, since an `<img>` carries no
+ * credential — so the handler has to turn it back into something it can sign. A URL
+ * that does not belong to this service is returned untouched and will simply fail to
+ * resolve, which is better than silently fetching somebody else's host with our token.
+ */
+export const relativeTo = (baseUrl: string, url: string): string => {
+	const base = baseUrl.replace(/\/+$/, '');
+
+	return url.startsWith(base) ? (url.slice(base.length) || '/') : url;
+};

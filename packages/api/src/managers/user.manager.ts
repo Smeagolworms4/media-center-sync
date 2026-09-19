@@ -93,7 +93,7 @@ export class UserManager {
 		const user = await this._users.findOne({ where: { id } });
 
 		if (user === null) {
-			throw new NotFoundException(ErrorKey.GENERAL);
+			throw new NotFoundException(ErrorKey.USER_NOT_FOUND);
 		}
 
 		return user;
@@ -108,7 +108,10 @@ export class UserManager {
 		}
 
 		if ((await this._users.countAdmins()) <= 1) {
-			throw new ConflictException(ErrorKey.AUTH_FORBIDDEN);
+			// Its own key rather than a generic refusal: the interface has to be able
+			// to say why, and "forbidden" on a screen where you are the administrator
+			// reads as a bug rather than as a safeguard.
+			throw new ConflictException(ErrorKey.USER_LAST_ADMIN);
 		}
 	}
 }

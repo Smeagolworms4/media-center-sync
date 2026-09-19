@@ -10,7 +10,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { CacheService } from '../cache.service';
 import { normalizeTitle, parseTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
-import { buildUrl, requestJson, requestStream } from './handler.http';
+import { buildUrl, relativeTo, requestJson, requestStream } from './handler.http';
 import type {
 	ByteRange,
 	ExternalIdentity,
@@ -289,6 +289,23 @@ export class PlexHandler implements MediaServiceHandler {
 		const raw = container ? asRecordArray(container.Metadata)[0] : undefined;
 
 		return raw ? this._toItem(connection, raw) : null;
+	}
+
+	/**
+	 * Plex answers `401` for a poster without `X-Plex-Token`, unlike Jellyfin.
+	 *
+	 * Fetching it unauthenticated would leave every Plex item with a broken image and
+	 * nothing anywhere saying why — it looks like a missing poster, not a missing
+	 * credential.
+	 */
+	public openArtwork(
+		connection: ServiceConnection,
+		item: MediaItemRef & { artworkUrl: string },
+	): Promise<MediaStream> {
+		return requestStream(connection.baseUrl, relativeTo(connection.baseUrl, item.artworkUrl), {
+			headers: this._headers(connection),
+			timeoutMs: connection.timeoutMs,
+		});
 	}
 
 	public async openStream(

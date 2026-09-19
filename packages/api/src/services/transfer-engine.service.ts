@@ -57,6 +57,31 @@ interface RuntimeSource {
 	windowStart: number;
 }
 
+/**
+ * What only the engine knows about a transfer in flight.
+ *
+ * Kept apart from the persisted row on purpose: every field here changes several
+ * times a second, and none of it is worth a write.
+ */
+export interface LiveProgress {
+	rate: number;
+	etaSeconds: number | null;
+	sources: TransferSource[];
+}
+
+/** The one place a runtime source becomes something the outside may see. */
+const toPublicSource = (source: RuntimeSource): TransferSource => ({
+	serviceId: source.ref.serviceId,
+	serviceName: source.ref.serviceName,
+	peerId: source.ref.peerId,
+	peerName: source.ref.peerName ?? null,
+	transport: source.ref.transport,
+	rate: source.rate,
+	bytesDone: source.bytesDone,
+	connections: source.connections,
+	healthy: source.healthy,
+});
+
 interface RunningTransfer {
 	transfer: Transfer;
 	plan: ChunkPlan;
@@ -250,6 +275,37 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		await rm(transfer.workPath, { force: true }).catch(() => undefined);
 
 		this._events.emit(EventName.TRANSFER_STATE, this._toPublic(transfer, []));
+	}
+
+	/**
+	 * The live figures for one transfer, or null when it is not running.
+	 *
+	 * The row in the database carries what survives a restart — which pieces are held,
+	 * where the file is going — and deliberately not the rate, the estimate or which
+	 * sources are feeding it, all of which are true for a second and would be a write
+	 * per chunk. They live here, and a listing asks for them.
+	 *
+	 * Without this, a queue read back from the database shows every running transfer at
+	 * zero bytes per second with no sources, and the only place the truth appears is the
+	 * progress stream — so a page opened mid-transfer looks stalled until the next frame.
+	 */
+	public progressOf(transferId: string): LiveProgress | null {
+		const running = this._running.get(transferId);
+
+		if (!running) {
+			return null;
+		}
+
+		const remaining = Math.max(0, running.plan.bytesTotal - running.plan.bytesDone);
+
+		return {
+			rate: running.rate,
+			// No rate means no estimate. Showing a number derived from a division by
+			// something close to zero is worse than showing nothing: it reads as
+			// certainty, and it is off by hours.
+			etaSeconds: running.rate > 0 ? Math.round(remaining / running.rate) : null,
+			sources: running.sources.map(toPublicSource),
+		};
 	}
 
 	public stats(): TransferQueueStats {
@@ -798,17 +854,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	}
 
 	private _toPublic(transfer: Transfer, sources: RuntimeSource[]) {
-		const publicSources: TransferSource[] = sources.map((source) => ({
-			serviceId: source.ref.serviceId,
-			serviceName: source.ref.serviceName,
-			peerId: source.ref.peerId,
-			peerName: source.ref.peerName ?? null,
-			transport: source.ref.transport,
-			rate: source.rate,
-			bytesDone: source.bytesDone,
-			connections: source.connections,
-			healthy: source.healthy,
-		}));
+		const publicSources: TransferSource[] = sources.map(toPublicSource);
 
 		return {
 			id: transfer.id,

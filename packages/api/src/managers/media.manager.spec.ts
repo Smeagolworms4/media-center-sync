@@ -11,7 +11,13 @@ import type {
 	MediaMatchRepository,
 	MediaServiceRepository,
 } from '@/repositories';
-import { MatchingService, QualityService, type CacheService, type SettingsService } from '@/services';
+import {
+	MatchingService,
+	QualityService,
+	type CacheService,
+	type HandlerRegistry,
+	type SettingsService,
+} from '@/services';
 import { MediaManager } from './media.manager';
 
 const file = (overrides: Partial<MediaFileInfo> = {}): MediaFileInfo => ({
@@ -125,6 +131,8 @@ const build = (world: { items?: MediaItem[] } = {}): { manager: MediaManager; fa
 		new MatchingService(new QualityService()),
 		{ getValue: jest.fn().mockResolvedValue(0.8) } as unknown as SettingsService,
 		{ get: jest.fn().mockResolvedValue(null), set: jest.fn() } as unknown as CacheService,
+		// Artwork is the only thing this manager fetches, and none of these tests do.
+		{ get: jest.fn() } as unknown as HandlerRegistry,
 	);
 
 	return { manager, fakes };

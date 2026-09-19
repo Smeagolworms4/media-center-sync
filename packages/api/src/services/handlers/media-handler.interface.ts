@@ -195,6 +195,20 @@ export interface MediaServiceHandler {
 		externalId: string,
 	): Promise<NormalisedMediaItem | null>;
 
+	/**
+	 * The artwork behind `NormalisedMediaItem.artworkUrl`.
+	 *
+	 * It is a method rather than a URL the caller fetches because only the handler
+	 * knows how that service wants to be asked. Jellyfin serves images to anyone;
+	 * Plex answers `401` without `X-Plex-Token`, and a poster that is simply missing
+	 * for one service and present for another looks like a broken image tag rather
+	 * than a missing credential.
+	 *
+	 * The gateway proxies and caches what comes back — a browser `<img>` carries no
+	 * `Authorization` header, so linking straight to the service cannot work either.
+	 */
+	openArtwork(connection: ServiceConnection, item: MediaItemRef & { artworkUrl: string }): Promise<MediaStream>;
+
 	/** The bytes a transfer pulls. A missing range means the whole file. */
 	openStream(
 		connection: ServiceConnection,

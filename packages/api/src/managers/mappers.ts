@@ -1,3 +1,4 @@
+import type { ServiceConnection } from '@/services';
 import type {
 	Library as LibraryModel,
 	MediaItem as MediaItemModel,
@@ -329,3 +330,20 @@ export const paginate = <T>(items: T[], total: number, page: number, limit: numb
 
 	return { items, pagination };
 };
+
+/**
+ * What a handler needs to reach a service.
+ *
+ * The secrets are `select: false` on the entity, so the caller has to have loaded the
+ * row through `findWithSecrets`. Passing a row read the ordinary way produces a
+ * connection with no token, which fails as an authentication error rather than as the
+ * programming mistake it is — worth checking first when a handler suddenly answers 401.
+ */
+export const toConnection = (service: MediaService): ServiceConnection => ({
+	id: service.id,
+	type: service.type,
+	baseUrl: service.baseUrl,
+	token: service.token,
+	username: service.username,
+	password: service.password,
+});

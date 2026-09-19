@@ -136,6 +136,6 @@ describe('UserManager', () => {
 
 		fakes.users.findOne.mockResolvedValue(null);
 
-		await expect(manager.read('ghost')).rejects.toThrow(ErrorKey.GENERAL);
+		await expect(manager.read('ghost')).rejects.toThrow(ErrorKey.USER_NOT_FOUND);
 	});
 });

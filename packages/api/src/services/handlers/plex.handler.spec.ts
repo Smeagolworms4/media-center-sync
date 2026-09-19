@@ -348,6 +348,34 @@ describe('PlexHandler', () => {
 		});
 	});
 
+	describe('openArtwork', () => {
+		it('signs the request, which Plex requires and Jellyfin does not', async () => {
+			// Fetched without the token, every Plex poster comes back 401 and the
+			// interface shows a broken image with nothing anywhere saying it was a
+			// credential rather than a missing file. That is the failure this asserts
+			// against, and it is invisible from any test that only checks the URL.
+			const fetched = jest.fn(
+				async () =>
+					new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+						status: 200,
+						headers: { 'content-type': 'image/jpeg' },
+					}),
+			);
+
+			global.fetch = fetched as unknown as typeof fetch;
+
+			await handler.openArtwork(connection, {
+				externalId: '45231',
+				artworkUrl: `${connection.baseUrl}/library/metadata/45231/thumb/1700000000`,
+			});
+
+			const [url, init] = fetched.mock.calls[0] as unknown as [string, RequestInit];
+
+			expect(String(url)).toContain('/library/metadata/45231/thumb/');
+			expect((init.headers as Record<string, string>)['X-Plex-Token']).toBe(connection.token);
+		});
+	});
+
 	describe('getItem', () => {
 		it('reads one item by rating key', async () => {
 			stubFetch(() => ({ MediaContainer: { Metadata: [EPISODE] } }));

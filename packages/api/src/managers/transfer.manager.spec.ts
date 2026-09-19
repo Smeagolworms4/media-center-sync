@@ -35,6 +35,7 @@ interface Fakes {
 		cancel: jest.Mock;
 		enqueue: jest.Mock;
 		stats: jest.Mock;
+		progressOf: jest.Mock;
 	};
 	verification: { verify: jest.Mock };
 	events: { emit: jest.Mock };
@@ -92,6 +93,10 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 			cancel: jest.fn().mockResolvedValue(undefined),
 			enqueue: jest.fn().mockResolvedValue(undefined),
 			stats: jest.fn(() => ({ active: 1, queued: 2, paused: 0, failed: 0, rate: 4_200, bytesRemaining: 600 })),
+			// Null is the engine's answer for a transfer it is not running, which is
+			// every transfer in these tests: they are about what the manager decides,
+			// not about bytes moving.
+			progressOf: jest.fn(() => null),
 		},
 		verification: {
 			verify: jest.fn().mockResolvedValue({

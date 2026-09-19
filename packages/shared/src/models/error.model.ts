@@ -41,6 +41,9 @@ export const ErrorKey = {
 	TRANSFER_NO_SPACE: 'error.transfer.no_space',
 	TRANSFER_CHECKSUM_MISMATCH: 'error.transfer.checksum_mismatch',
 
+	USER_NOT_FOUND: 'error.user.not_found',
+	USER_LAST_ADMIN: 'error.user.last_admin',
+
 	SETTINGS_INVALID: 'error.settings.invalid',
 	GENERAL: 'error.general',
 } as const;

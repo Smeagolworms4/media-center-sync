@@ -295,9 +295,14 @@ export class TransferManager {
 	 * The wire shape, with the numbers the row cannot carry.
 	 *
 	 * `kind` comes from the item, which already has it; `chunksDone` is counted per
-	 * transfer. The live rate and the source list are left empty on purpose — they are
-	 * pushed on the event stream, and a REST answer carrying a stale rate is worse than
-	 * one carrying none.
+	 * transfer, and the live figures from the engine for the ones it is running.
+	 *
+	 * Reading the rate and the source list from the engine rather than from the row is
+	 * what makes a page opened mid-transfer show something: the row carries only what
+	 * survives a restart, and a listing built from it alone shows every running
+	 * transfer at zero bytes per second with no sources until the next pushed frame.
+	 * A transfer the engine is not running has no live figures, which is the honest
+	 * answer for one that is queued, paused or finished.
 	 */
 	private async _present(transfers: TransferEntity[]): Promise<Transfer[]> {
 		if (transfers.length === 0) {
@@ -314,6 +319,7 @@ export class TransferManager {
 				toTransfer(transfer, {
 					kind: kinds.get(transfer.itemId),
 					chunksDone: (await this._chunks.countByState(transfer.id))[ChunkState.DONE],
+					...(this._engine.progressOf(transfer.id) ?? {}),
 				}),
 			),
 		);

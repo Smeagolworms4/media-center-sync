@@ -19,13 +19,20 @@ import {
 } from '@/repositories';
 import {
 	CacheService,
+	HandlerRegistry,
 	MatchingService,
 	SettingsService,
-	requestStream,
 	type MatchCandidate,
 	type MatchProposal,
 } from '@/services';
-import { pageBounds, paginate, toMediaItem, toMediaMatch, toMediaNode } from './mappers';
+import {
+	pageBounds,
+	paginate,
+	toConnection,
+	toMediaItem,
+	toMediaMatch,
+	toMediaNode,
+} from './mappers';
 
 /** Artwork, once fetched: bytes rather than a stream, because it is cached. */
 export interface Artwork {
@@ -67,6 +74,7 @@ export class MediaManager {
 		private readonly _matching: MatchingService,
 		private readonly _settings: SettingsService,
 		private readonly _cache: CacheService,
+		private readonly _handlers: HandlerRegistry,
 	) {}
 
 	/**
@@ -287,13 +295,19 @@ export class MediaManager {
 			throw new NotFoundException(ErrorKey.SERVICE_NOT_FOUND);
 		}
 
-		// The stored URL is absolute and already points at the service, so it is handed
-		// over as the base with nothing appended. It goes out unauthenticated: the
-		// handler contract has no artwork capability, so there is nowhere to ask for
-		// the header or the query parameter a given service wants. Jellyfin serves
-		// images without one; a service that does not will answer 401 here, and the
-		// fix is a method on the handler rather than a branch on the type in this file.
-		const response = await requestStream(item.artworkUrl as string, '');
+		// Through the handler, because only it knows how its service wants to be asked:
+		// Jellyfin serves images to anyone, Plex answers 401 without its token. Fetched
+		// unauthenticated, every Plex poster would be a broken image with nothing
+		// anywhere saying it was a credential rather than a missing file.
+		//
+		// The row has to come back with its secrets; read the ordinary way it would
+		// produce a connection with no token and fail as an authentication error.
+		const withSecrets = await this._services.findWithSecrets(service.id);
+		const handler = this._handlers.get(service.type);
+		const response = await handler.openArtwork(toConnection(withSecrets ?? service), {
+			externalId: item.externalId,
+			artworkUrl: item.artworkUrl as string,
+		});
 
 		return {
 			body: await this._collect(response.stream),

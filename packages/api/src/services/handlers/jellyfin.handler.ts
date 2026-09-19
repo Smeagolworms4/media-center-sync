@@ -9,7 +9,7 @@ import {
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { normalizeTitle, parseTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
-import { buildUrl, requestJson, requestStream } from './handler.http';
+import { buildUrl, relativeTo, requestJson, requestStream } from './handler.http';
 import type {
 	ByteRange,
 	ExternalIdentity,
@@ -328,6 +328,16 @@ export class JellyfinHandler implements MediaServiceHandler {
 		const first = asRecordArray(page.Items)[0];
 
 		return first ? this._toItem(connection, first) : null;
+	}
+
+	public openArtwork(
+		connection: ServiceConnection,
+		item: MediaItemRef & { artworkUrl: string },
+	): Promise<MediaStream> {
+		return requestStream(connection.baseUrl, relativeTo(connection.baseUrl, item.artworkUrl), {
+			headers: this._headers(connection),
+			timeoutMs: connection.timeoutMs,
+		});
 	}
 
 	public async openStream(
