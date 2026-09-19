@@ -117,6 +117,12 @@ fetching a poster through `fetch` to build an object URL would defeat the browse
 image cache on a page showing two hundred of them. Only the short-lived access token is
 accepted this way, never the refresh token, and these responses are marked private.
 
+`rootsOnly` on the grouped query asks for media at the top of their tree — a series, a
+film, a collection — which is what a poster wall wants rather than every episode laid
+beside its series. Deriving it from the library's kind works for films and shows and
+breaks on anything else: a library of concerts or audiobooks has no kind this model
+names, and would show its parents and its children together.
+
 **The grouped routes are what a library screen reads.** The index keeps one row per
 service — the same episode on three servers is three rows — because merging them would
 mean choosing whose title and whose file size survive. Browsing wants the opposite: one
@@ -139,9 +145,16 @@ Confirming or deleting a match is how a human overrules the scoring. Both are re
 | DELETE | `/sync/plans/:id` | — | `204` | `SYNC_MANAGE` |
 | POST | `/sync/preview` | `RunSyncDto` | `SyncPreview` | `SYNC_READ` |
 | POST | `/sync/run` | `RunSyncDto` | `SyncJob` | `SYNC_RUN` |
+| POST | `/sync/companions` | `PullCompanionsDto` | `CompanionPullResult[]` | `SYNC_RUN` |
 | GET | `/sync/jobs` | page, limit, state (query) | `ResultList<SyncJob>` | `SYNC_READ` |
 | GET | `/sync/jobs/:id` | — | `SyncJob` | `SYNC_READ` |
 | POST | `/sync/jobs/:id/cancel` | — | `SyncJob` | `SYNC_RUN` |
+
+`/sync/companions` fetches only what sits beside files already on the disk — the
+`.nfo`, the poster, the subtitles. A sync moves what is missing; this fills in what
+arrived bare, because it was pulled before the setting was on, or from a source that
+had none. Asking somebody to re-pull forty gigabytes to get a description file beside
+it is not an answer, and it was the only one they had.
 
 `/sync/preview` takes exactly the same body as `/sync/run` and changes nothing. That
 symmetry is the point: what you were shown is what will happen, because the same code

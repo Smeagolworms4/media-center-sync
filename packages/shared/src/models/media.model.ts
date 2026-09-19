@@ -281,12 +281,41 @@ export interface MediaGroupQuery {
 	kind?: MediaKind;
 	/** Children of this group, addressed by the parent's representative item. */
 	parentId?: string;
+	/**
+	 * Only media that sit at the top of their tree — a series, a film, a collection.
+	 *
+	 * A library screen wants posters, not every episode of every show laid out beside
+	 * its series. Deriving it from the library's kind works for films and shows and
+	 * breaks on anything else: a library of concerts or audiobooks has no kind this
+	 * model names, so it would show its parents and its children together. Asking for
+	 * roots says what is actually wanted and works whatever the library holds.
+	 */
+	rootsOnly?: boolean;
 	search?: string;
 	states?: SyncState[];
 	page?: number;
 	limit?: number;
 	sort?: 'title' | 'year' | 'addedAt';
 	direction?: 'asc' | 'desc';
+}
+
+/**
+ * What fetching the companions of one item did.
+ *
+ * Separate from a sync because the two answer different questions. A sync moves what
+ * we do not have; this fills in what arrived bare — an episode already on the disk
+ * whose `.nfo`, poster or subtitles never came with it. Asking somebody to re-pull a
+ * forty-gigabyte file to get a description file beside it is not an answer.
+ */
+export interface CompanionPullResult {
+	itemId: string;
+	title: string;
+	/** Files written beside the media. */
+	copied: string[];
+	/** Files already there and left alone, unless the settings say the source wins. */
+	kept: string[];
+	/** Error key when nothing could be fetched for this item. */
+	error: string | null;
 }
 
 export interface MediaSearchQuery {

@@ -256,6 +256,14 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			builder.andWhere('item.kind = :kind', { kind: query.kind });
 		}
 
+		if (query.rootsOnly === true) {
+			// The top of each tree, whatever the library holds. A library screen wants
+			// posters, not every episode of every show laid beside its series — and a
+			// library of concerts or audiobooks has no kind this model names, so a
+			// filter derived from the kind would show it parents and children together.
+			builder.andWhere('item.parentId IS NULL');
+		}
+
 		if (query.parentIds !== undefined) {
 			builder.andWhere('item.parentId IN (:...parentIds)', { parentIds: query.parentIds });
 		}

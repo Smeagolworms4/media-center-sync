@@ -264,7 +264,10 @@ const build = (
 		} as unknown as SyncPlanRepository,
 		fakes.jobs as unknown as SyncJobRepository,
 		itemRepository as unknown as MediaItemRepository,
-		{ find: jest.fn().mockResolvedValue(matches) } as unknown as MediaMatchRepository,
+		{
+			find: jest.fn().mockResolvedValue(matches),
+			findForLocalItem: jest.fn().mockResolvedValue(matches),
+		} as unknown as MediaMatchRepository,
 		{
 			find: jest.fn().mockResolvedValue(services),
 			findByPriority: jest.fn().mockResolvedValue([...services].sort((a, b) => a.priority - b.priority)),
@@ -607,4 +610,78 @@ describe('SyncManager', () => {
 			await expect(manager.readPlan('ghost')).rejects.toThrow(ErrorKey.SYNC_PLAN_NOT_FOUND);
 		});
 	});
+
+	describe('fetching only the companions', () => {
+		it('copies what sits beside a counterpart, without moving the video again', async () => {
+			// The case this exists for: an episode already on the disk that arrived bare,
+			// because it was pulled before the setting was on or from a source that had
+			// none. Re-pulling forty gigabytes to get a .nfo beside it is not an answer.
+			const { manager, fakes } = build({
+				items: [
+					{ id: 'item-local', title: 'Dulcinea', file: { path: '/media/local.mkv' }, externalIds: {} },
+					{ id: 'item-remote', title: 'Dulcinea', file: { path: '/remote/source.mkv' }, externalIds: { tvdb: '1' } },
+				],
+				matches: [{ localItemId: 'item-local', remoteItemId: 'item-remote' }],
+			});
+
+			fakes.metadata.discover.mockResolvedValue([{ role: 'nfo' }]);
+			fakes.metadata.apply.mockResolvedValue({ copied: ['local.nfo'], kept: [] });
+
+			const [result] = await manager.pullCompanions(['item-local']);
+
+			expect(fakes.metadata.discover).toHaveBeenCalledWith('/remote/source.mkv', '/media/local.mkv');
+			expect(result).toMatchObject({ itemId: 'item-local', copied: ['local.nfo'], error: null });
+		});
+
+		it('says so when nothing anywhere holds a counterpart', async () => {
+			const { manager } = build({
+				items: [{ id: 'item-local', title: 'Dulcinea', file: { path: '/media/local.mkv' }, externalIds: {} }],
+				matches: [],
+			});
+
+			const [result] = await manager.pullCompanions(['item-local']);
+
+			expect(result.error).toBe(ErrorKey.SYNC_NO_SOURCE);
+		});
+
+		it('refuses an item with no file of its own rather than reporting nothing found', async () => {
+			// A series or a season has nothing to put companions beside, and saying
+			// 'nothing copied' would read as a source having none.
+			const { manager } = build({
+				items: [{ id: 'item-series', title: 'The Expanse', file: null, externalIds: {} }],
+				matches: [],
+			});
+
+			const [result] = await manager.pullCompanions(['item-series']);
+
+			expect(result.error).toBe(ErrorKey.MEDIA_NOT_FOUND);
+		});
+
+		it('keeps going when one source cannot be read', async () => {
+			// A run over two hundred episodes that stops on the first sleeping NAS has
+			// helped nobody.
+			const { manager, fakes } = build({
+				items: [
+					{ id: 'item-local', title: 'Dulcinea', file: { path: '/media/local.mkv' }, externalIds: {} },
+					{ id: 'item-a', title: 'Dulcinea', file: { path: '/gone/a.mkv' }, externalIds: {} },
+					{ id: 'item-b', title: 'Dulcinea', file: { path: '/remote/b.mkv' }, externalIds: {} },
+				],
+				matches: [
+					{ localItemId: 'item-local', remoteItemId: 'item-a' },
+					{ localItemId: 'item-local', remoteItemId: 'item-b' },
+				],
+			});
+
+			fakes.metadata.discover
+				.mockRejectedValueOnce(new Error('ENOENT'))
+				.mockResolvedValueOnce([{ role: 'poster' }]);
+			fakes.metadata.apply.mockResolvedValue({ copied: ['poster.jpg'], kept: [] });
+
+			const [result] = await manager.pullCompanions(['item-local']);
+
+			expect(result.copied).toEqual(['poster.jpg']);
+			expect(result.error).toBeNull();
+		});
+	});
+
 });

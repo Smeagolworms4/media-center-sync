@@ -2,6 +2,7 @@ import {
 	Right,
 	SyncJobState,
 	type ResultList,
+	type CompanionPullResult,
 	type SyncJob,
 	type SyncPlan,
 	type SyncPreview,
@@ -33,7 +34,12 @@ import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 import { Granted } from '@/decorators';
 import { SyncManager } from '@/managers';
-import { CreateSyncPlanDto, RunSyncDto, UpdateSyncPlanDto } from '@/models';
+import {
+	CreateSyncPlanDto,
+	PullCompanionsDto,
+	RunSyncDto,
+	UpdateSyncPlanDto,
+} from '@/models';
 
 /**
  * Paging over the job history.
@@ -152,6 +158,20 @@ export class SyncController {
 	@ApiConflictResponse({ description: 'error.sync.already_running' })
 	public run(@Body() body: RunSyncDto): Promise<SyncJob> {
 		return this._sync.run(body);
+	}
+
+	@Post('companions')
+	@Granted(Right.SYNC_RUN)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Fetch only the companions of files already held',
+		description:
+			'The .nfo, the poster, the subtitles, beside media already on the disk. A sync moves ' +
+			'what is missing; this fills in what arrived bare, without moving the video again.',
+	})
+	@ApiOkResponse({ description: 'CompanionPullResult[]' })
+	public companions(@Body() body: PullCompanionsDto): Promise<CompanionPullResult[]> {
+		return this._sync.pullCompanions(body.itemIds);
 	}
 
 	@Get('jobs')

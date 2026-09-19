@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
 	IsArray,
+	IsBoolean,
 	IsEnum,
 	IsInt,
 	IsOptional,
@@ -131,6 +132,19 @@ export class MediaGroupQueryDto {
 	@IsOptional()
 	@IsUUID()
 	public parentId?: string;
+
+	/**
+	 * Only media at the top of their tree.
+	 *
+	 * Arrives as the string `true` from a query string, which `@IsBoolean` would
+	 * reject — so it is transformed before it is validated. The alternative is a
+	 * filter that works from code and silently fails from a browser.
+	 */
+	@ApiPropertyOptional()
+	@IsOptional()
+	@Transform(({ value }) => value === true || value === 'true' || value === '1')
+	@IsBoolean()
+	public rootsOnly?: boolean;
 
 	@ApiPropertyOptional()
 	@IsOptional()

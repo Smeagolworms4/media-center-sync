@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+	ArrayMaxSize,
+	ArrayNotEmpty,
 	IsArray,
 	IsBoolean,
 	IsEnum,
@@ -149,4 +151,19 @@ export class RunSyncDto {
 	@ValidateNested()
 	@Type(() => SyncFilterDto)
 	public filter?: SyncFilterDto;
+}
+
+/**
+ * Fetch only what sits beside files we already hold.
+ *
+ * Bounded like a plan is, and for the same reason: two hundred directory reads across
+ * a sleeping NAS is a request that times out rather than one that fails.
+ */
+export class PullCompanionsDto {
+	@ApiProperty({ type: [String] })
+	@IsArray()
+	@ArrayNotEmpty()
+	@ArrayMaxSize(500)
+	@IsUUID('4', { each: true })
+	public itemIds!: string[];
 }

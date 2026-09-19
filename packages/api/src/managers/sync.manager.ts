@@ -10,6 +10,7 @@ import {
 	SyncTrigger,
 	TransferState,
 	TransferTransport,
+	type CompanionPullResult,
 	type CreateSyncPlanRequest,
 	type ResultList,
 	type RunSyncRequest,
@@ -389,6 +390,100 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		} catch (error) {
 			this._logger.warn(`Could not pull metadata for ${planned.title}: ${String(error)}`);
 		}
+	}
+
+	/**
+	 * Fetch only what sits beside a file we already hold.
+	 *
+	 * A sync moves what we do not have; this fills in what arrived bare — an episode
+	 * already on the disk whose `.nfo`, poster or subtitles never came with it,
+	 * because it was pulled before the setting was on, or from a source that had none,
+	 * or copied in by hand years ago. Asking somebody to re-pull forty gigabytes to get
+	 * a description file beside it is not an answer, and it is the only one they had.
+	 *
+	 * Each item is tried against every counterpart a match points at, richest first.
+	 * One unreadable source must not stop the rest: the failure is recorded against
+	 * that item and the loop goes on, because a run over two hundred episodes that
+	 * stops on the first sleeping NAS has helped nobody.
+	 */
+	public async pullCompanions(itemIds: string[]): Promise<CompanionPullResult[]> {
+		const settings = await this._settings.get();
+		const items = await this._items.find({ where: { id: In(itemIds) } });
+		const results: CompanionPullResult[] = [];
+
+		for (const item of items) {
+			results.push(await this._pullCompanionsFor(item, settings));
+		}
+
+		return results;
+	}
+
+	private async _pullCompanionsFor(
+		item: MediaItem,
+		settings: Settings,
+	): Promise<CompanionPullResult> {
+		const result: CompanionPullResult = {
+			itemId: item.id,
+			title: item.title,
+			copied: [],
+			kept: [],
+			error: null,
+		};
+
+		const target = item.file?.path;
+
+		if (!target) {
+			// A series or a season has no file of its own to put anything beside. Saying
+			// so beats reporting nothing copied, which reads as a source having nothing.
+			result.error = ErrorKey.MEDIA_NOT_FOUND;
+
+			return result;
+		}
+
+		const matches = await this._matches.findForLocalItem(item.id);
+		const counterparts = await this._items.find({
+			where: { id: In(matches.map((match) => match.remoteItemId)) },
+		});
+
+		if (counterparts.length === 0) {
+			result.error = ErrorKey.SYNC_NO_SOURCE;
+
+			return result;
+		}
+
+		for (const counterpart of counterparts) {
+			const source = counterpart.file?.path;
+
+			if (!source) {
+				continue;
+			}
+
+			try {
+				const sidecars = await this._metadata.discover(source, target);
+				const applied = await this._metadata.apply(target, sidecars, settings);
+
+				result.copied.push(...applied.copied);
+				result.kept.push(...applied.kept);
+
+				item.externalIds = this._metadata.mergeExternalIds(
+					item.externalIds,
+					counterpart.externalIds,
+					settings.preferSourceMetadata,
+				);
+			} catch (error) {
+				this._logger.warn(`Companions for ${item.title}: ${String(error)}`);
+			}
+		}
+
+		await this._items.save(item);
+
+		if (result.copied.length === 0 && result.kept.length === 0) {
+			// Nothing anywhere had anything. That is an answer, not a failure, and the
+			// interface should say so rather than leave a spinner where a result goes.
+			result.error = null;
+		}
+
+		return result;
 	}
 
 	public async jobs(query: {
