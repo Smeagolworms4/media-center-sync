@@ -375,8 +375,7 @@ lab/up: lab/media
 ## Configure the lab servers: wizard, libraries, API key
 lab/setup:
 	@./docker/lab/setup-jellyfin.sh "http://localhost:$${LAB_JELLYFIN_PORT:-8096}"
-	@echo "  Plex      http://localhost:$${LAB_PLEX_PORT:-32400}/web  (add /media/shows and /media/movies)"
-	@echo ""
+	@./docker/lab/setup-plex.sh "http://localhost:$${LAB_PLEX_PORT:-32400}"
 
 ## Stop the lab, keeping its configuration
 lab/stop:

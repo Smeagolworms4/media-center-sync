@@ -61,15 +61,39 @@ The cost is that the script speaks to the startup endpoints of one Jellyfin
 generation, which is why the version is pinned in the compose file. If it breaks after
 a bump, the wizard changed — and the handler probably did too, which is worth knowing.
 
-**Plex still needs a hand**, at `http://localhost:32400/web`: the container runs
-unclaimed, which is what lets it answer on the local network without a Plex account,
-but an unclaimed server has no token to script against. Add two libraries pointing at
-`/media/shows` and `/media/movies`.
+**Plex is configured too.** The container runs unclaimed and `ALLOWED_NETWORKS` covers
+the Docker bridge, which is what lets a lab exist without a Plex account — and, as it
+turns out, lets its sections be created without a token. A claimed server would need
+one, and a fresh claim token on every run, since they expire in minutes.
+
+The one thing to know: Plex answers `/identity` while it is still starting its plugins
+and refuses to create a section until it is not. The script waits on `startState`
+rather than on the port, which is the difference between it working and failing with a
+`400` that explains nothing.
 
 Then register both in the gateway as **remote** services — the lab libraries are
 mounted read-only, deliberately, so that a media server reorganising the fixtures
 cannot make a failing run unreproducible. To exercise a real pull, add a third
 **local** library the gateway can write into.
+
+## What the lab has already caught
+
+Two ways for Plex to have a file and never show it, both found while building this,
+and neither visible from anything but a real server.
+
+**A name whose words run together.** `BigBuckBunny.S01E05.1080p.mp4` yields no show
+title to Plex's TV scanner, and the file simply never appears. The same file named
+`Bunny.Big.Buck.S01E05.1080p.mp4` is picked up at once.
+
+**A release group Plex reads as an extras suffix.** A file ending `-OTHER` is treated
+as a local extra, exactly like `-trailer` or `-featurette`. Plex finds it, opens it,
+analyses it, gives it an identifier — and attaches it to nothing. It is absent from the
+library, no error is logged anywhere, and the only trace is a single scanner-log line
+reading `found local extra`. `-OTHER` is a real release group name, so this is not a
+contrived case.
+
+Both are worth remembering before blaming a handler for a missing item: the first
+thing to check when something is absent is whether the media server ever saw it.
 
 ## What it will not tell you
 

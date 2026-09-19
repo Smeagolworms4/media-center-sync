@@ -76,12 +76,25 @@ encode "$B/movies/Elephants.Dream.2006.1080p.x264-LAB.mp4" 1920 1080 libx264 4 1
 
 # The same bytes under a different name.
 #
-# Nothing about the two names would let a title comparison call them the same episode
-# with any confidence: one says episode 5, the other says episode 5 of a differently
-# spelled show, and the release tags differ. Only the content answers, which is the
-# whole argument for computing an identity from the file rather than from what it is
-# called. It is also the case that catches a correlation quietly built on names.
-IDENTICAL_TARGET="$B/shows/BigBuckBunny.S01E05.INTERNAL.1080p.x265-OTHER.mp4"
+# Nothing about the two names would let a title comparison call them the same episode:
+# the words are in a different order, so they normalise differently, and the release
+# tags share nothing. Only the content answers — which is the whole argument for
+# deriving an identity from the file rather than from what it is called, and the case
+# that catches a correlation quietly built on names.
+#
+# Two things about this name are load-bearing, and both were paid for here.
+#
+# The words are reordered rather than run together: `BigBuckBunny.S01E05...` is the
+# obvious way to write a title a match cannot reconcile, and Plex's scanner derives no
+# show from it at all.
+#
+# And the release group is not `-OTHER`. Plex reads a trailing `-other` — like
+# `-trailer`, `-featurette`, `-behindthescenes` — as its convention for a local extra:
+# the file is found, opened, analysed, given an identifier, and then attached to
+# nothing. It never appears in the library, nothing is logged as an error, and the only
+# trace is one line in the scanner log saying `found local extra`. A release tag that
+# collides with that convention is not a hypothetical: `-OTHER` is a real group name.
+IDENTICAL_TARGET="$B/shows/Bunny.Big.Buck.S01E05.INTERNAL.1080p.x265-RELAB.mp4"
 if [ ! -f "$IDENTICAL_TARGET" ]; then
 	mkdir -p "$(dirname "$IDENTICAL_TARGET")"
 	cp "$A/shows/Big Buck Bunny (2008)/Season 01/Big Buck Bunny (2008) - S01E05 - The Flight.mp4" "$IDENTICAL_TARGET"
