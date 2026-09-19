@@ -6,7 +6,7 @@ import {
 	type MediaFileInfo,
 	type MediaServiceProbe,
 } from '@mcs/shared';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { CacheService } from '../cache.service';
 import { normalizeTitle, parseTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
@@ -281,10 +281,25 @@ export class PlexHandler implements MediaServiceHandler {
 		connection: ServiceConnection,
 		externalId: string,
 	): Promise<NormalisedMediaItem | null> {
+		/*
+		 * Only the not-found is swallowed, and that distinction is the whole point.
+		 *
+		 * A blanket `.catch(() => null)` reported a Plex that was merely rebooting as
+		 * a Plex that no longer holds the item, so revalidation concluded the source
+		 * was gone and abandoned it — dropping a perfectly good source because a
+		 * server took thirty seconds to come back. A transport failure has to reach
+		 * the caller as a failure.
+		 */
 		const container = await this._container(
 			connection,
 			`/library/metadata/${encodeURIComponent(externalId)}`,
-		).catch(() => null);
+		).catch((error: unknown) => {
+			if (error instanceof NotFoundException) {
+				return null;
+			}
+
+			throw error;
+		});
 
 		const raw = container ? asRecordArray(container.Metadata)[0] : undefined;
 

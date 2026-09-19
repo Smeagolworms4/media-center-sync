@@ -75,6 +75,27 @@ describe('handler.http', () => {
 			});
 		});
 
+		it('answers "not there" for a 404, not "server unusable"', async () => {
+			// The two are told apart one layer up, by revalidation, which decides
+			// whether to abandon a source or wait for it. Collapsing them here left it
+			// deciding on a coin toss.
+			stub({ ok: false, status: 404, headers: new Headers(), text: async () => '' });
+
+			await expect(requestJson('http://host', '/x')).rejects.toMatchObject({
+				status: 404,
+				response: { key: 'error.service.resource_not_found' },
+			});
+		});
+
+		it('keeps every other failure an unreachable service', async () => {
+			stub({ ok: false, status: 500, headers: new Headers(), text: async () => '' });
+
+			await expect(requestJson('http://host', '/x')).rejects.toMatchObject({
+				status: 503,
+				response: { key: 'error.service.unreachable' },
+			});
+		});
+
 		it.each([401, 403])('turns a %i into an unauthorized service', async (status) => {
 			stub({ ok: false, status, headers: new Headers(), text: async () => '' });
 
@@ -178,6 +199,17 @@ describe('handler.http', () => {
 			}
 
 			expect(Buffer.concat(chunks)).toEqual(Buffer.from([1, 2, 3]));
+		});
+
+		it('answers "not there" for a 404 the same way json does', async () => {
+			// This is what an item with no poster produces. Reported as unreachable, a
+			// perfectly healthy gateway served 503s from its own library screen.
+			stub({ ok: false, status: 404, headers: new Headers() } as unknown as Response);
+
+			await expect(requestStream('http://host', '/art')).rejects.toMatchObject({
+				status: 404,
+				response: { key: 'error.service.resource_not_found' },
+			});
 		});
 
 		it('maps a rejected token and an unreachable host the same way json does', async () => {

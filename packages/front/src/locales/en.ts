@@ -945,6 +945,7 @@ export default {
 		service: {
 			not_found: 'This media service no longer exists.',
 			unreachable: 'The media service did not answer.',
+			resource_not_found: 'The media service answered, and no longer holds this item.',
 			unauthorized: 'The gateway was refused by this media service. Check its token.',
 			duplicate: 'This media service is already registered.',
 			handler_unknown: 'This kind of media service is not supported.',

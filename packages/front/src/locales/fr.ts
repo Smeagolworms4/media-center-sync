@@ -943,6 +943,7 @@ const fr: typeof en = {
 		},
 		service: {
 			not_found: 'Ce service média n\'existe plus.',
+			resource_not_found: 'Le service a répondu, et ne détient plus cet élément.',
 			unreachable: 'Le service média n\'a pas répondu.',
 			unauthorized: 'Le service média a refusé la passerelle. Vérifiez son jeton.',
 			duplicate: 'Ce service média est déjà enregistré.',

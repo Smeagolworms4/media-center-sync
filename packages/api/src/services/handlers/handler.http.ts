@@ -1,6 +1,10 @@
 import { Readable } from 'node:stream';
 import { ErrorKey } from '@mcs/shared';
-import { ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import {
+	NotFoundException,
+	ServiceUnavailableException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import type { ByteRange, MediaStream } from './media-handler.interface';
 
 /**
@@ -102,6 +106,21 @@ export async function requestJson<T>(
 		throw new UnauthorizedException({ key: ErrorKey.SERVICE_UNAUTHORIZED });
 	}
 
+	/*
+	 * A 404 is an answer, not a failure to get one.
+	 *
+	 * Folded into `SERVICE_UNREACHABLE` it said "this server is unusable" about a
+	 * server that replied perfectly well to say it does not hold that item — and
+	 * revalidation, whose entire job is telling "the file is gone" from "I cannot
+	 * reach you", then kept a dead source alive waiting for it to come back.
+	 */
+	if (response.status === 404) {
+		throw new NotFoundException({
+			key: ErrorKey.SERVICE_RESOURCE_NOT_FOUND,
+			detail: path,
+		});
+	}
+
 	if (!response.ok) {
 		throw new ServiceUnavailableException({
 			key: ErrorKey.SERVICE_UNREACHABLE,
@@ -162,6 +181,21 @@ export async function requestStream(
 
 	if (response.status === 401 || response.status === 403) {
 		throw new UnauthorizedException({ key: ErrorKey.SERVICE_UNAUTHORIZED });
+	}
+
+	/*
+	 * A 404 is an answer, not a failure to get one.
+	 *
+	 * Folded into `SERVICE_UNREACHABLE` it said "this server is unusable" about a
+	 * server that replied perfectly well to say it does not hold that item — and
+	 * an item with no poster made the whole media server look like it had gone
+	 * down: the library screen showed a healthy gateway reporting 503s.
+	 */
+	if (response.status === 404) {
+		throw new NotFoundException({
+			key: ErrorKey.SERVICE_RESOURCE_NOT_FOUND,
+			detail: path,
+		});
 	}
 
 	if (!response.ok || !response.body) {

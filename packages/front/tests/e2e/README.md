@@ -39,7 +39,7 @@ component somebody actually wrote — so journeys use `field0(name)` rather than
 | `service-list`, `service-row`, `service-add`, `service-probe` | services page | the registered services |
 | `service-name`, `service-url`, `service-token` | service form | the fields of the add/edit dialog |
 | `media-list`, `media-row`, `sync-state`, `quality-chip` | library pages | the index, in either view |
-| `library-section`, `library-section-count`, `library-section-empty`, `library-section-all` | `Library.vue` | one band per merged category: its heading, its total, the note it shows when empty, and the button that opens it on its own |
+| `library-section`, `library-section-count`, `library-section-empty`, `library-section-open`, `library-section-all` | `Library.vue` | one band per merged category: its heading (which opens the category, and is the only door that is always there), its total, the note it shows when empty, and the button offered when the band shows less than it holds |
 | `library-section-latest`, `library-section-local` | `Library.vue` | that a band is capped to the newest of its category, and that some of the category is ours |
 | `media-breadcrumb`, `media-breadcrumb-step`, `media-breadcrumb-current` | `MediaBreadcrumb.vue` | where you are, from the category down, and the steps back out |
 | `media-card`, `media-poster`, `media-poster-placeholder` | poster wall | one tile, its artwork, and what stands in when there is none |

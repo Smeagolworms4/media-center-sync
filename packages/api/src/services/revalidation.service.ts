@@ -5,7 +5,7 @@ import {
 	type MediaFileInfo,
 	type Revalidation,
 } from '@mcs/shared';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { HandlerRegistry } from './handlers/handler.registry';
 import type { ServiceConnection } from './handlers/media-handler.interface';
 import { PeerLinkService } from './peer-link.service';
@@ -283,6 +283,24 @@ export class RevalidationService {
 
 			return item ? item.file : null;
 		} catch (error) {
+			/*
+			 * `null` is an answer; `undefined` is the absence of one.
+			 *
+			 * A far end that replies "I do not hold that" has told us something
+			 * decisive, and the decision table turns it into GONE. A far end we could
+			 * not reach has told us nothing, and the table waits. Returning `undefined`
+			 * for both — which is what a bare catch does — meant a source deleted at
+			 * the origin was retried forever, because the answer that would have
+			 * settled it arrived as an exception and was read as silence.
+			 */
+			if (error instanceof NotFoundException) {
+				this._logger.log(
+					`${target.sourceServiceName} says it no longer holds ${target.externalId}`,
+				);
+
+				return null;
+			}
+
 			this._logger.warn(
 				`No answer from ${target.sourceServiceName} about ${target.externalId}: ${String(error)}`,
 			);

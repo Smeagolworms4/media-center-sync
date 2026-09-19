@@ -388,5 +388,36 @@ describe('PlexHandler', () => {
 
 			expect(await handler.getItem(connection, 'gone')).toBeNull();
 		});
+
+		it('answers null when Plex 404s the rating key', async () => {
+			// Plex 404s a deleted item rather than answering an empty container, so
+			// both shapes have to mean the same thing.
+			global.fetch = jest.fn(async () => ({
+				ok: false,
+				status: 404,
+				headers: new Headers(),
+				text: async () => '',
+			}) as unknown as Response) as unknown as typeof fetch;
+
+			expect(await handler.getItem(connection, 'deleted')).toBeNull();
+		});
+
+		it('lets a server that cannot be reached stay a failure', async () => {
+			/*
+			 * The expensive half of the bug this replaced.
+			 *
+			 * `getItem` used to end in `.catch(() => null)`, so a Plex that was
+			 * rebooting answered "I no longer hold that item" — and revalidation, told
+			 * the source was gone, abandoned a transfer whose source was fine and came
+			 * back thirty seconds later.
+			 */
+			global.fetch = jest.fn(async () => {
+				throw new Error('ECONNREFUSED');
+			}) as unknown as typeof fetch;
+
+			await expect(handler.getItem(connection, '45231')).rejects.toMatchObject({
+				response: { key: 'error.service.unreachable' },
+			});
+		});
 	});
 });

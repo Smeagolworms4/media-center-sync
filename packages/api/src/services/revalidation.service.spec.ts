@@ -1,10 +1,12 @@
 import {
+	ErrorKey,
 	MediaServiceType,
 	RevalidationAction,
 	RevalidationOutcome,
 	TransferErrorKind,
 	type MediaFileInfo,
 } from '@mcs/shared';
+import { NotFoundException } from '@nestjs/common';
 import { HandlerRegistry } from './handlers/handler.registry';
 import { PeerLinkService } from './peer-link.service';
 import {
@@ -221,7 +223,15 @@ describe('RevalidationService.revalidate', () => {
 	};
 
 	function build(handlerItem: unknown, peerAnswer?: unknown) {
-		const getItem = jest.fn(async () => handlerItem);
+		// Symmetric with `request`: an Error is thrown rather than returned, so a test
+		// can express "the service refused to answer" as well as "it answered this".
+		const getItem = jest.fn(async () => {
+			if (handlerItem instanceof Error) {
+				throw handlerItem;
+			}
+
+			return handlerItem;
+		});
 		const request = jest.fn(async () => {
 			if (peerAnswer instanceof Error) {
 				throw peerAnswer;
@@ -292,6 +302,34 @@ describe('RevalidationService.revalidate', () => {
 		expect(
 			await service.revalidate(target({ peerId: 'peer-1' }), context()),
 		).toMatchObject({ outcome: RevalidationOutcome.GONE, action: RevalidationAction.ABANDON });
+	});
+
+	it('calls it gone when the service itself answers that it no longer holds the item', async () => {
+		/*
+		 * The distinction this whole class exists for, at the one place it is decided.
+		 *
+		 * A 404 from a media server is a decisive answer and has to end the transfer.
+		 * Before the HTTP layer told a 404 apart from a dead socket, it arrived here
+		 * as an exception, was read as silence, and a source deleted months ago was
+		 * still being retried.
+		 */
+		const { service } = build(new NotFoundException({ key: ErrorKey.SERVICE_RESOURCE_NOT_FOUND }));
+
+		expect(await service.revalidate(target(), context())).toMatchObject({
+			outcome: RevalidationOutcome.GONE,
+			action: RevalidationAction.ABANDON,
+		});
+	});
+
+	it('leaves a service that could not be reached undecided rather than gone', async () => {
+		// The expensive mistake in the other direction: abandoning a good source
+		// because its server was rebooting.
+		const { service } = build(new Error('ECONNREFUSED'));
+		const record = await service.revalidate(target(), context());
+
+		expect(record.outcome).toBe(RevalidationOutcome.UNREACHABLE);
+		expect(record.action).not.toBe(RevalidationAction.ABANDON);
+		expect(record.answeredAt).toBeNull();
 	});
 
 	it('calls a far end that will not answer unreachable, and leaves it undecided', async () => {

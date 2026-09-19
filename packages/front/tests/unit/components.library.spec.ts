@@ -397,6 +397,47 @@ describe('components/media/LibrarySection', () => {
 		expect(wrapper.emitted('see-all')).toHaveLength(1);
 	});
 
+	it('opens the band from its heading even when nothing is hidden', async () => {
+		/*
+		 * The regression this replaced: the only way into a category was the "see all"
+		 * button, which renders only when the band shows less than it holds. A
+		 * category of two films therefore could not be opened at all — the one thing
+		 * somebody looking at a band wants to do.
+		 */
+		const { wrapper } = mountWithApp(LibrarySection, {
+			props: { title: 'Animes', libraryKind: LibraryKind.SHOWS, groups: [group()], total: 1, openable: true },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="library-section-all"]').exists()).toBe(false);
+
+		await wrapper.find('[data-test="library-section-open"]').trigger('click');
+
+		expect(wrapper.emitted('see-all')).toHaveLength(1);
+	});
+
+	it('opens the band from the keyboard as well as the pointer', async () => {
+		const { wrapper } = mountWithApp(LibrarySection, {
+			props: { title: 'Animes', groups: [group()], total: 1, openable: true },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="library-section-open"]').trigger('keydown.enter');
+
+		expect(wrapper.emitted('see-all')).toHaveLength(1);
+	});
+
+	it('leaves the heading inert on the screen already showing that category', () => {
+		// A link to where you are is a broken link.
+		const { wrapper } = mountWithApp(LibrarySection, {
+			props: { title: 'Animes', groups: [group()], total: 1 },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="library-section-open"]').exists()).toBe(false);
+		expect(wrapper.find('.library-section_title').text()).toBe('Animes');
+	});
+
 	/** Structure, not taxonomy: a record sleeve is square and a film is a poster. */
 	it('squares the artwork of a music library and leaves the rest as posters', () => {
 		const music = mountWithApp(LibrarySection, {

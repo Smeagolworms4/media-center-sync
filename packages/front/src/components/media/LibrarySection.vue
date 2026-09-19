@@ -51,6 +51,13 @@
 		view?: ViewMode;
 		selecting?: boolean;
 		selection?: Set<string>;
+		/**
+		 * The band can be opened on its own, so its heading is a link.
+		 *
+		 * False on the screen that is already showing one category: a heading that
+		 * navigates to where you are reads as a broken link.
+		 */
+		openable?: boolean;
 		/** Offers the "open" affordance when the band shows less than it holds. */
 		truncated?: boolean;
 		loading?: boolean;
@@ -64,6 +71,7 @@
 		view: 'grid',
 		selecting: false,
 		selection: () => new Set<string>(),
+		openable: false,
 		truncated: false,
 		loading: false,
 	});
@@ -108,7 +116,30 @@
 		<header class="library-section_header">
 			<v-icon class="library-section_icon" :icon="icon" size="20" />
 
-			<h2 class="library-section_title text-subtitle-1">{{ title }}</h2>
+			<!--
+				The heading is the way into the category, and it is the way in whatever
+				the row holds.
+
+				The "see all" button below only appears when the row overflows, so a
+				category of two films had no way to be opened at all — the one thing
+				somebody looking at a category band wants to do. It stays, because it is
+				a useful hint that there is more than is shown, but it is no longer the
+				only door.
+			-->
+			<h2
+				v-if="openable"
+				class="library-section_title library-section_title--link text-subtitle-1"
+				data-test="library-section-open"
+				role="link"
+				tabindex="0"
+				@click="emit('see-all')"
+				@keydown.enter="emit('see-all')"
+				@keydown.space.prevent="emit('see-all')"
+			>
+				{{ title }}
+			</h2>
+
+			<h2 v-else class="library-section_title text-subtitle-1">{{ title }}</h2>
 
 			<span v-if="subtitle" class="library-section_owner text-caption text-medium-emphasis">
 				{{ subtitle }}
@@ -225,6 +256,25 @@
 
 		&_title {
 			font-weight: 600;
+
+			// A clickable heading that looks exactly like an unclickable one is a
+			// target nobody aims at. The underline waits for the pointer so the wall
+			// of bands does not read as a page of links, but the cursor and the focus
+			// ring are there from the start — including for whoever is on a keyboard.
+			&--link {
+				cursor: pointer;
+
+				&:hover,
+				&:focus-visible {
+					text-decoration: underline;
+				}
+
+				&:focus-visible {
+					outline: 2px solid rgb(var(--v-theme-primary));
+					outline-offset: 3px;
+					border-radius: 2px;
+				}
+			}
 		}
 
 		&_owner {

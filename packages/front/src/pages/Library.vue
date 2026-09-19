@@ -550,6 +550,7 @@
 				:library-kind="band.libraryKind"
 				:loading="mediaStore.groupsLoading"
 				:local="band.local"
+				:openable="!focused"
 				:selecting="selecting"
 				:selection="selection"
 				:subtitle="band.subtitle"

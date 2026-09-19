@@ -15,6 +15,15 @@ export const ErrorKey = {
 
 	SERVICE_NOT_FOUND: 'error.service.not_found',
 	SERVICE_UNREACHABLE: 'error.service.unreachable',
+	/**
+	 * The service answered, and does not have the thing we asked for.
+	 *
+	 * Deliberately distinct from `SERVICE_UNREACHABLE`: "the file is gone" and "I
+	 * cannot reach you" are the two answers revalidation exists to tell apart, and
+	 * collapsing them costs either a dead source kept alive forever or a healthy one
+	 * abandoned on a reboot.
+	 */
+	SERVICE_RESOURCE_NOT_FOUND: 'error.service.resource_not_found',
 	SERVICE_UNAUTHORIZED: 'error.service.unauthorized',
 	SERVICE_DUPLICATE: 'error.service.duplicate',
 	SERVICE_HANDLER_UNKNOWN: 'error.service.handler_unknown',

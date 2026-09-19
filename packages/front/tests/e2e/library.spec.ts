@@ -50,7 +50,15 @@ test.describe('library', () => {
 		const heading = (await section.locator('.library-section_title').textContent() ?? '').trim();
 		await expect(section.locator(test0('library-section-latest'))).toBeVisible();
 
-		await section.locator(test0('library-section-all')).click();
+		/*
+		 * Through the heading, not the "see all" button.
+		 *
+		 * That button only renders when the band shows less than it holds, so this
+		 * journey passed or failed on how many items the fixture happened to have —
+		 * and when it failed it was right to: a category of two films had no way to be
+		 * opened at all. The heading is the door that is always there.
+		 */
+		await section.locator(test0('library-section-open')).click();
 
 		await expect(page).toHaveURL(/category=/);
 		await expect(page.locator(test0('library-section'))).toHaveCount(1);
