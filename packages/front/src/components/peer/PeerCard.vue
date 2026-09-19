@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { Peer } from '@mcs/shared';
-	import { PeerLinkMode, PeerStatus, PeerTrust } from '@mcs/shared';
+	import { PeerDirection, PeerLinkMode, PeerStatus, PeerTrust } from '@mcs/shared';
 	import { computed } from 'vue';
 	import RelativeDate from '@/components/common/RelativeDate.vue';
 
@@ -15,6 +15,7 @@
 	const props = defineProps<{ peer: Peer }>();
 
 	const emit = defineEmits<{
+		approve: [peer: Peer];
 		connect: [peer: Peer];
 		rename: [peer: Peer];
 		block: [peer: Peer];
@@ -31,12 +32,31 @@
 
 	const statusColor = computed(() => STATUS_COLOR[props.peer.status] ?? 'state-unknown');
 	const blocked = computed(() => props.peer.status === PeerStatus.BLOCKED);
+
+	/**
+	 * A pending link is two different situations wearing one word.
+	 *
+	 * Incoming is a decision somebody is waiting on *here*, and it needs an accept
+	 * and a refusal within reach. Outgoing is a decision waiting on them, and needs
+	 * nothing but a line saying so. Showing both as "pending" is how a request sits
+	 * unanswered for a week with nobody realising it was theirs to answer.
+	 */
+	const pending = computed(() => props.peer.status === PeerStatus.PENDING);
+	const incoming = computed(() => pending.value && props.peer.direction === PeerDirection.INCOMING);
+	const outgoing = computed(() => pending.value && props.peer.direction === PeerDirection.OUTGOING);
 	const viaFriend = computed(() => props.peer.trust === PeerTrust.FRIEND_OF_FRIEND);
 	const relayed = computed(() => props.peer.linkMode === PeerLinkMode.RELAY);
 </script>
 
 <template>
-	<v-card class="peer-card" :data-status="peer.status" data-test="peer-row" variant="tonal">
+	<v-card
+		class="peer-card"
+		:class="{ 'peer-card--incoming': incoming }"
+		:data-direction="peer.direction ?? ''"
+		:data-status="peer.status"
+		data-test="peer-row"
+		variant="tonal"
+	>
 		<v-card-item>
 			<template #prepend>
 				<v-icon :color="statusColor" icon="mdi-server-network" size="28" />
@@ -57,13 +77,15 @@
 		<v-card-text class="peer-card_body">
 			<div class="peer-card_chips">
 				<v-chip
-					:color="statusColor"
+					:color="incoming ? 'primary' : statusColor"
 					data-test="peer-status"
 					label
 					size="small"
-					variant="tonal"
+					:variant="incoming ? 'flat' : 'tonal'"
 				>
-					{{ $t(`peer.status.${peer.status}`) }}
+					{{ incoming
+						? $t('peer.direction.incoming')
+						: (outgoing ? $t('peer.direction.outgoing') : $t(`peer.status.${peer.status}`)) }}
 				</v-chip>
 
 				<v-chip data-test="peer-trust" label size="small" variant="tonal">
@@ -84,6 +106,14 @@
 				</v-chip>
 			</div>
 
+			<p v-if="incoming" class="text-body-2 mt-2 mb-0" data-test="peer-incoming-hint">
+				{{ $t('peer.direction.incoming_hint') }}
+			</p>
+
+			<p v-else-if="outgoing" class="text-caption text-medium-emphasis mt-2 mb-0">
+				{{ $t('peer.direction.outgoing_hint') }}
+			</p>
+
 			<p v-if="relayed" class="text-caption text-medium-emphasis mt-2 mb-0">
 				{{ $t('peer.relay_hint') }}
 			</p>
@@ -99,6 +129,19 @@
 
 		<v-card-actions>
 			<v-btn
+				v-if="incoming"
+				color="primary"
+				data-test="peer-approve"
+				prepend-icon="mdi-check"
+				size="small"
+				variant="tonal"
+				@click="emit('approve', peer)"
+			>
+				{{ $t('peer.action.approve') }}
+			</v-btn>
+
+			<v-btn
+				v-if="!pending"
 				data-test="peer-connect"
 				:disabled="blocked"
 				prepend-icon="mdi-lan-connect"
@@ -110,6 +153,7 @@
 			</v-btn>
 
 			<v-btn
+				v-if="!incoming"
 				data-test="peer-rename"
 				prepend-icon="mdi-rename-outline"
 				size="small"
@@ -156,6 +200,12 @@
 <style lang="scss">
 	.peer-card {
 		height: 100%;
+
+		// A request waiting on somebody here is the one card on this page that has to
+		// catch the eye; the rest are a list to read at leisure.
+		&--incoming {
+			outline: 1px solid rgb(var(--v-theme-primary));
+		}
 
 		&_link {
 			color: inherit;

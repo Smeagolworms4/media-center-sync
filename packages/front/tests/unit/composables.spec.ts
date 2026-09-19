@@ -1,11 +1,15 @@
 import type { MediaItem, TransferChunk } from '@mcs/shared';
 import { ChunkState, MediaKind, SyncState, TransferErrorKind } from '@mcs/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 import { parseByteSize, toByteSizeInput } from '@/composables/useByteSize';
 import { toCatalogueEntry } from '@/composables/useCatalogue';
 import { buildChunkMap } from '@/composables/useChunkMap';
 import { describeCron } from '@/composables/useCron';
+import { posterInitials, posterPlaceholder } from '@/composables/useMediaPoster';
+import { bytesToRate, RATE_PRESETS, rateToBytes } from '@/composables/useRateLimit';
 import { describeTransferError, TransferAction } from '@/composables/useTransferError';
+import { useViewMode } from '@/composables/useViewMode';
 
 function chunk (index: number, state: ChunkState): TransferChunk {
 	return {
@@ -166,6 +170,7 @@ describe('useCatalogue', () => {
 		externalIds: { tvdb: '1234', provider: 'jf-9' },
 		overview: null,
 		artworkUrl: null,
+		companions: null,
 		file: {
 			path: '/data/shows/pilot.mkv',
 			size: 900,
@@ -219,5 +224,102 @@ describe('useCatalogue', () => {
 
 	it('answers no content identifier for an item shared as a catalogue only', () => {
 		expect(toCatalogueEntry({ ...item, file: null }).contentId).toBeNull();
+	});
+});
+
+describe('useRateLimit', () => {
+	/**
+	 * The conversion the whole control hangs on: people think in megabytes a
+	 * second, the API counts bytes, and a factor of 1024 dropped here is a gateway
+	 * throttled a thousand times too hard that looks like a broken network.
+	 */
+	it.each([
+		[10, 'mb' as const, 10 * 1024 ** 2],
+		[1, 'mb' as const, 1024 ** 2],
+		[512, 'kb' as const, 512 * 1024],
+		[1.5, 'mb' as const, Math.round(1.5 * 1024 ** 2)],
+	])('turns %s %s/s into a byte rate', (value, unit, expected) => {
+		expect(rateToBytes(value, unit)).toBe(expected);
+	});
+
+	it.each([null, undefined, '', 0, -5, 'nonsense'])('reads %s as no cap at all', value => {
+		expect(rateToBytes(value as never, 'mb')).toBe(0);
+	});
+
+	it('reads what somebody typed with a comma, as half of Europe does', () => {
+		expect(rateToBytes('1,5', 'mb')).toBe(Math.round(1.5 * 1024 ** 2));
+	});
+
+	it.each([
+		[10 * 1024 ** 2, 10, 'mb'],
+		[1024 ** 2, 1, 'mb'],
+		[512 * 1024, 512, 'kb'],
+		[Math.round(1.5 * 1024 ** 2), 1.5, 'mb'],
+	])('puts %s bytes back into the form as %s %s/s', (bytes, value, unit) => {
+		expect(bytesToRate(bytes)).toEqual({ value, unit });
+	});
+
+	it('shows no cap as an empty field rather than a zero', () => {
+		expect(bytesToRate(0)).toEqual({ value: null, unit: 'mb' });
+		expect(bytesToRate(null)).toEqual({ value: null, unit: 'mb' });
+	});
+
+	/** Both directions have to agree, or a form rewrites a cap it only displayed. */
+	it.each(RATE_PRESETS.filter(bytes => bytes > 0))('survives the round trip for %s bytes', bytes => {
+		const back = bytesToRate(bytes);
+		expect(rateToBytes(back.value, back.unit)).toBe(bytes);
+	});
+
+	it('offers taking the cap off first, because that is the hurried decision', () => {
+		expect(RATE_PRESETS[0]).toBe(0);
+	});
+});
+
+describe('useMediaPoster', () => {
+	it.each([
+		['The Expanse', 'EX'],
+		['Arrival', 'AR'],
+		['Big Buck Bunny', 'BB'],
+		['La Haine', 'HA'],
+		['', '?'],
+	])('reduces %s to the initials a placeholder can show', (title, expected) => {
+		expect(posterInitials(title)).toBe(expected);
+	});
+
+	/** The colour has to be a property of the title, not of when it was drawn. */
+	it('gives the same title the same placeholder every time', () => {
+		expect(posterPlaceholder('The Expanse')).toEqual(posterPlaceholder('The Expanse'));
+		expect(posterPlaceholder('The Expanse').background)
+			.not
+			.toBe(posterPlaceholder('Arrival').background);
+	});
+});
+
+describe('useViewMode', () => {
+	it('remembers the choice for this browser', async () => {
+		const mode = useViewMode('mcs.test.view');
+		expect(mode.value).toBe('grid');
+
+		mode.value = 'list';
+		await nextTick();
+
+		expect(useViewMode('mcs.test.view').value).toBe('list');
+	});
+
+	it('falls back rather than failing when storage refuses', async () => {
+		const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+			throw new Error('denied');
+		});
+		const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+			throw new Error('denied');
+		});
+
+		const mode = useViewMode('mcs.test.view');
+		expect(mode.value).toBe('grid');
+		mode.value = 'list';
+		await expect(nextTick()).resolves.toBeUndefined();
+
+		getItem.mockRestore();
+		setItem.mockRestore();
 	});
 });

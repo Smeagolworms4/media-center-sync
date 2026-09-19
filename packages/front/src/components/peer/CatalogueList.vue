@@ -88,16 +88,11 @@
 							@click="emit('pull', entry)"
 						/>
 
-						<v-tooltip v-else location="top" :text="$t('peer.catalogue.metadata_only')">
-							<template #activator="{ props: tooltipProps }">
-								<v-icon
-									v-bind="tooltipProps"
-									class="mr-2"
-									icon="mdi-eye-outline"
-									size="18"
-								/>
-							</template>
-						</v-tooltip>
+						<!--
+							Nothing when there is no content identifier: the far end has not
+							fingerprinted that file yet, so there is no pull to offer. It is
+							not a policy any more — a library is shared or it is not.
+						-->
 					</td>
 				</tr>
 			</tbody>

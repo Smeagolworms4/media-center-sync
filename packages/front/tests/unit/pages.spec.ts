@@ -5,6 +5,7 @@ import {
 	MediaServiceStatus,
 	MediaServiceType,
 	NamingScheme,
+	PeerDirection,
 	PeerStatus,
 	PeerTrust,
 	PlacementStrategy,
@@ -182,12 +183,61 @@ describe('pages/Dashboard', () => {
 	});
 });
 
+function mediaGroup (overrides: Record<string, unknown> = {}) {
+	return {
+		id: 'g1',
+		kind: 'series',
+		title: 'The Expanse',
+		normalizedTitle: 'expanse',
+		year: 2015,
+		seasonNumber: null,
+		episodeNumber: null,
+		externalIds: {},
+		overview: null,
+		artworkItemId: null,
+		sync: SyncState.MISSING,
+		quality: null,
+		sources: [],
+		childCount: 0,
+		missingCount: 0,
+		libraryId: 'l1',
+		parentId: null,
+		addedAt: null,
+		...overrides,
+	};
+}
+
+function mediaLibrary (overrides: Record<string, unknown> = {}) {
+	return {
+		id: 'l1',
+		serviceId: 's1',
+		externalId: 'x',
+		name: 'Animes',
+		kind: LibraryKind.SHOWS,
+		paths: [],
+		localPath: null,
+		writable: true,
+		isDefaultTarget: false,
+		itemCount: 3,
+		lastScanAt: null,
+		lastRefreshAt: null,
+		createdAt: '2026-01-01T00:00:00.000Z',
+		updatedAt: '2026-01-01T00:00:00.000Z',
+		...overrides,
+	};
+}
+
+const LIBRARIES = [
+	mediaLibrary({ id: 'l1', name: 'Animes', kind: LibraryKind.SHOWS }),
+	mediaLibrary({ id: 'l2', name: 'FilmsHD', kind: LibraryKind.MOVIES }),
+];
+
 describe('pages/Library', () => {
-	it('shows the empty state rather than an empty table', async () => {
+	it('shows the empty state rather than an empty wall', async () => {
 		stubFetchRoutes({
 			'/api/services': { body: [] },
-			'/api/libraries': { body: [] },
-			'/api/media': { body: { items: [], pagination: { page: 1, limit: 50, total: 0, pages: 0 } } },
+			'/api/libraries': { body: LIBRARIES },
+			'/api/media/groups': { body: { items: [], pagination: { page: 1, limit: 24, total: 0, pages: 0 } } },
 		});
 		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
 		await settle();
@@ -196,46 +246,140 @@ describe('pages/Library', () => {
 		expect(wrapper.find('[data-test="media-list"]').exists()).toBe(false);
 	});
 
-	it('offers to sync what has been selected, and only then', async () => {
+	it('says so rather than showing a wall when no library is registered', async () => {
 		stubFetchRoutes({
 			'/api/services': { body: [] },
 			'/api/libraries': { body: [] },
-			'/api/media': {
+		});
+		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="empty-state"]').text()).toContain('No library yet');
+		expect(wrapper.find('[data-test="library-section"]').exists()).toBe(false);
+	});
+
+	/**
+	 * The shape of the screen: one band per *registered library*, under the name
+	 * that library carries on the media server — never a category we invented.
+	 */
+	it('draws a band per registered library, under its own name', async () => {
+		const stub = stubFetchRoutes({
+			'/api/services': { body: [] },
+			'/api/libraries': { body: LIBRARIES },
+			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 42, pages: 2 } } },
+		});
+		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const sections = wrapper.findAll('[data-test="library-section"]');
+		expect(sections.map(one => one.attributes('data-library'))).toEqual(['l1', 'l2']);
+		expect(sections[0].text()).toContain('Animes');
+		expect(sections[1].text()).toContain('FilmsHD');
+		// Structural, for the icon and the shape of a cover; never rendered as a word.
+		expect(sections[0].attributes('data-kind')).toBe(LibraryKind.SHOWS);
+		expect(sections[0].text()).not.toContain('shows');
+		expect(sections[0].find('[data-test="library-section-count"]').text()).toContain('42');
+
+		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
+		expect(asked.some(url => url.includes('libraryId=l1'))).toBe(true);
+		expect(asked.some(url => url.includes('libraryId=l2'))).toBe(true);
+	});
+
+	/** A library that holds nothing still exists, and says so. */
+	it('keeps an empty library on screen instead of dropping it', async () => {
+		stubFetchRoutes({
+			'/api/services': { body: [] },
+			'/api/libraries': { body: LIBRARIES },
+			'groups?': { body: { items: [], pagination: { page: 1, limit: 24, total: 0, pages: 0 } } },
+			'libraryId=l1': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
+		});
+		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const sections = wrapper.findAll('[data-test="library-section"]');
+		expect(sections).toHaveLength(2);
+		expect(sections[1].find('[data-test="library-section-empty"]').exists()).toBe(true);
+	});
+
+	/** One title, and no guessing which of three series libraries it landed in. */
+	it('browses across every library on request, in one paginated band', async () => {
+		const stub = stubFetchRoutes({
+			'/api/services': { body: [] },
+			'/api/libraries': { body: LIBRARIES },
+			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 60, total: 1, pages: 1 } } },
+		});
+		const { wrapper, router } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		await wrapper.find('[data-test="library-everything"] input').setValue(true);
+		await settle();
+
+		expect(router.currentRoute.value.query.all).toBeDefined();
+		expect(wrapper.findAll('[data-test="library-section"]')).toHaveLength(1);
+		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
+		expect(asked.at(-1)).not.toContain('libraryId=');
+	});
+
+	it('renders one card per group, with its state and its sources', async () => {
+		stubFetchRoutes({
+			'/api/services': { body: [] },
+			'/api/libraries': { body: [LIBRARIES[0]] },
+			'/api/media/groups': {
 				body: {
-					items: [{
-						id: 'm1',
-						serviceId: 's1',
-						libraryId: 'l1',
-						parentId: null,
-						kind: 'episode',
-						title: 'Pilot',
-						normalizedTitle: 'pilot',
-						year: 2019,
-						seasonNumber: 1,
-						episodeNumber: 1,
-						externalIds: {},
-						overview: null,
-						artworkUrl: null,
-						file: null,
-						quality: null,
-						addedAt: null,
-						sync: SyncState.MISSING,
-						createdAt: '2026-01-01T00:00:00.000Z',
-						updatedAt: '2026-01-01T00:00:00.000Z',
-					}],
-					pagination: { page: 1, limit: 50, total: 1, pages: 1 },
+					items: [mediaGroup({ sync: SyncState.OUTDATED, sources: [{ itemId: 'i1', serviceId: 's1', serviceName: 'Living room', serviceType: 'jellyfin', scope: 'local', peerId: null, peerName: null, quality: null, companions: null, bytes: 10, local: true, sync: SyncState.IN_SYNC }] })],
+					pagination: { page: 1, limit: 24, total: 1, pages: 1 },
 				},
 			},
 		});
 		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
 		await settle();
 
-		expect(wrapper.find('[data-test="library-sync-selected"]').exists()).toBe(false);
+		const card = wrapper.find('[data-test="media-card"]');
+		expect(card.attributes('data-state')).toBe(SyncState.OUTDATED);
+		expect(card.find('[data-test="sync-state"]').attributes('data-state')).toBe(SyncState.OUTDATED);
+		expect(card.find('[data-test="source-mark-local"]').exists()).toBe(true);
+		expect(card.find('[data-test="media-poster-placeholder"]').exists()).toBe(true);
+	});
+
+	it('offers to sync what has been selected, and only then', async () => {
+		stubFetchRoutes({
+			'/api/services': { body: [] },
+			'/api/libraries': { body: [LIBRARIES[0]] },
+			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
+		});
+		const { wrapper } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="library-selection-bar"]').exists()).toBe(false);
 
 		await wrapper.find('[data-test="media-select"] input').setValue(true);
 		await settle(2);
 
+		expect(wrapper.find('[data-test="library-selection-bar"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="library-sync-selected"]').exists()).toBe(true);
+	});
+
+	/** A filtered wall has to be a link somebody can send. */
+	it('keeps the filters in the address', async () => {
+		stubFetchRoutes({
+			'/api/services': { body: [] },
+			'/api/libraries': { body: LIBRARIES },
+			'/api/media/groups': { body: { items: [mediaGroup()], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
+		});
+		const { wrapper, router } = mountWithApp(Library, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const filters = wrapper.findComponent({ name: 'MediaFilters' });
+		filters.vm.$emit('update:states', [SyncState.MISSING]);
+		filters.vm.$emit('update:kind', 'movie');
+		filters.vm.$emit('update:libraryId', 'l2');
+		await settle();
+
+		expect(router.currentRoute.value.query.states).toBe('missing');
+		expect(router.currentRoute.value.query.kind).toBe('movie');
+		expect(router.currentRoute.value.query.libraryId).toBe('l2');
+		// One library chosen is one band, and that band is paginated.
+		expect(wrapper.findAll('[data-test="library-section"]')).toHaveLength(1);
 	});
 });
 
@@ -446,6 +590,7 @@ describe('pages/Peers', () => {
 					name: 'Carol',
 					fingerprint: 'EF',
 					status: PeerStatus.LINKED,
+					direction: null,
 					trust: PeerTrust.FRIEND_OF_FRIEND,
 					linkMode: null,
 					address: null,
@@ -463,6 +608,71 @@ describe('pages/Peers', () => {
 		await settle();
 
 		expect(wrapper.find('[data-test="peer-trust"]').text()).toContain('Bob');
+	});
+
+	function pendingPeer (direction: PeerDirection, overrides: Record<string, unknown> = {}) {
+		return {
+			id: 'p1',
+			name: 'Dave',
+			fingerprint: 'EF',
+			status: PeerStatus.PENDING,
+			direction,
+			trust: PeerTrust.FRIEND,
+			linkMode: null,
+			address: null,
+			viaPeerId: null,
+			viaPeerName: null,
+			serviceCount: 0,
+			sharedItemCount: 0,
+			lastSeenAt: null,
+			createdAt: '2026-01-01T00:00:00.000Z',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			...overrides,
+		};
+	}
+
+	const identity = {
+		'/api/peers/identity': {
+			body: { fingerprint: 'AB', name: 'me', rendezvous: 'wss://r', directAddress: null, directReachable: true },
+		},
+	};
+
+	/**
+	 * A request waiting on somebody here and one waiting on somebody else are two
+	 * different situations wearing the word "pending"; only one of them needs an
+	 * answer, and it has to be obvious which.
+	 */
+	it('offers an answer to an incoming request and nothing but a note to an outgoing one', async () => {
+		const stub = stubFetchRoutes({
+			...identity,
+			'/api/peers/p1/approve': { body: { ...pendingPeer(PeerDirection.INCOMING), status: PeerStatus.LINKED, direction: null } },
+			'/api/peers': { body: [pendingPeer(PeerDirection.INCOMING)] },
+		});
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const row = wrapper.find('[data-test="peer-row"]');
+		expect(row.attributes('data-direction')).toBe(PeerDirection.INCOMING);
+		expect(row.find('[data-test="peer-incoming-hint"]').exists()).toBe(true);
+
+		await row.find('[data-test="peer-approve"]').trigger('click');
+		await settle();
+
+		expect(stub.mock.calls.some(call => String(call[0]).includes('/api/peers/p1/approve'))).toBe(true);
+	});
+
+	it('leaves an outgoing request with nothing to press', async () => {
+		stubFetchRoutes({
+			...identity,
+			'/api/peers': { body: [pendingPeer(PeerDirection.OUTGOING)] },
+		});
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const row = wrapper.find('[data-test="peer-row"]');
+		expect(row.attributes('data-direction')).toBe(PeerDirection.OUTGOING);
+		expect(row.find('[data-test="peer-approve"]').exists()).toBe(false);
+		expect(row.text()).toContain('Waiting for them');
 	});
 });
 

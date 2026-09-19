@@ -39,7 +39,6 @@
 		visibility: props.policy?.visibility ?? ShareVisibility.PRIVATE,
 		allowedPeerIds: [...(props.policy?.allowedPeerIds ?? [])],
 		deniedPeerIds: [...(props.policy?.deniedPeerIds ?? [])],
-		metadataOnly: props.policy?.metadataOnly ?? false,
 		rateLimit: toByteSizeInput(props.policy?.rateLimit ?? 0),
 	});
 
@@ -64,7 +63,6 @@
 				visibility: model.visibility,
 				allowedPeerIds: [...model.allowedPeerIds],
 				deniedPeerIds: [...model.deniedPeerIds],
-				metadataOnly: model.metadataOnly,
 				rateLimit: parseByteSize(model.rateLimit) ?? 0,
 			});
 			emit('saved', saved);
@@ -122,18 +120,6 @@
 				multiple
 				persistent-hint
 			/>
-
-			<v-switch
-				v-model="model.metadataOnly"
-				class="mt-2"
-				color="primary"
-				data-test="share-metadata-only"
-				density="compact"
-				hide-details
-				:label="$t('share.metadata_only')"
-			/>
-
-			<p class="text-caption text-medium-emphasis">{{ $t('share.metadata_only_hint') }}</p>
 
 			<v-text-field
 				v-model="model.rateLimit"

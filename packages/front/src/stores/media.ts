@@ -1,4 +1,6 @@
 import type {
+	MediaGroup,
+	MediaGroupQuery,
 	MediaItem,
 	MediaMatch,
 	MediaNode,
@@ -11,6 +13,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
 import { useEvents } from '@/hooks/useEvents';
+import { useTokenStore } from '@/stores/token';
 
 const EMPTY_PAGINATION: Pagination = { page: 1, limit: 50, total: 0, pages: 0 };
 
@@ -20,7 +23,7 @@ const EMPTY_PAGINATION: Pagination = { page: 1, limit: 50, total: 0, pages: 0 };
  * `states` repeats the key rather than joining on a comma, which is what a Nest
  * pipe reads back as an array without any custom transformer.
  */
-export function buildMediaQuery (query: MediaSearchQuery): string {
+export function buildMediaQuery (query: MediaSearchQuery | MediaGroupQuery): string {
 	const params = new URLSearchParams();
 	for (const [key, value] of Object.entries(query)) {
 		if (value === null || value === undefined) {
@@ -52,6 +55,7 @@ export function buildMediaQuery (query: MediaSearchQuery): string {
 export const useMediaStore = defineStore('media', () => {
 	const { caller } = useCaller();
 	const events = useEvents();
+	const tokenStore = useTokenStore();
 
 	const items = ref<MediaItem[]>([]);
 	const pagination = ref<Pagination>({ ...EMPTY_PAGINATION });
@@ -59,12 +63,36 @@ export const useMediaStore = defineStore('media', () => {
 	const loaded = ref(false);
 	const error = ref<unknown>(null);
 
+	/**
+	 * The grouped view, one entry per band the library screen draws.
+	 *
+	 * A poster wall asks for several bands at once — one per registered library —
+	 * and each is its own query with its own total, because a heading that counts
+	 * what happens to be on the current page is a count nobody can act on. Keying
+	 * them rather than holding one list is what lets several calls be in flight
+	 * together without the slower one overwriting the faster one's band.
+	 */
+	const groups = ref<Record<string, MediaGroup[]>>({});
+	const groupPagination = ref<Record<string, Pagination>>({});
+	const groupsLoading = ref(false);
+	/** Counted rather than a boolean: several bands load at once. */
+	const pendingGroupCalls = ref(0);
+
 	function patchState (itemId: string, state: SyncState): void {
 		// Mutated in place so a row that is already rendered keeps its identity:
 		// replacing the array would re-create every row for one changed icon.
 		const item = items.value.find(one => one.id === itemId);
 		if (item) {
 			item.sync = state;
+		}
+		// A group is addressed by its representative item, so a transfer for any of
+		// the rows underneath it may be the one the poster is showing.
+		for (const band of Object.values(groups.value)) {
+			for (const group of band) {
+				if (group.id === itemId || group.sources.some(source => source.itemId === itemId)) {
+					group.sync = state;
+				}
+			}
 		}
 	}
 
@@ -88,6 +116,59 @@ export const useMediaStore = defineStore('media', () => {
 		} finally {
 			loading.value = false;
 		}
+	}
+
+	/**
+	 * One band of the poster wall.
+	 *
+	 * `key` names the band — the library it shows — and is also what makes the
+	 * keep-last work per band: a viewer typing in the search box fires one call
+	 * per keystroke per band, and only the last answer of each is worth rendering.
+	 */
+	async function searchGroups (
+		key: string,
+		query: MediaGroupQuery = {},
+	): Promise<ResultList<MediaGroup>> {
+		pendingGroupCalls.value += 1;
+		groupsLoading.value = true;
+		error.value = null;
+		try {
+			const result = await caller('api').get<ResultList<MediaGroup>>(
+				`/media/groups${buildMediaQuery(query)}`,
+				{ keepLastKey: `media|groups|${key}` },
+			);
+			groups.value = { ...groups.value, [key]: result?.items ?? [] };
+			groupPagination.value = {
+				...groupPagination.value,
+				[key]: result?.pagination ?? { ...EMPTY_PAGINATION },
+			};
+			loaded.value = true;
+			return result;
+		} catch (searchError) {
+			error.value = searchError;
+			throw searchError;
+		} finally {
+			pendingGroupCalls.value -= 1;
+			groupsLoading.value = pendingGroupCalls.value > 0;
+		}
+	}
+
+	/** Forgets every band, so a filter change cannot leave a stale one on screen. */
+	function clearGroups (): void {
+		groups.value = {};
+		groupPagination.value = {};
+	}
+
+	function group (id: string): Promise<MediaGroup> {
+		return caller('api').get<MediaGroup>(`/media/groups/${id}`);
+	}
+
+	function groupChildren (
+		id: string,
+		query: MediaGroupQuery = {},
+	): Promise<ResultList<MediaGroup>> {
+		return caller('api').get<ResultList<MediaGroup>>(
+			`/media/groups/${id}/children${buildMediaQuery(query)}`);
 	}
 
 	function node (id: string): Promise<MediaNode> {
@@ -121,10 +202,23 @@ export const useMediaStore = defineStore('media', () => {
 	 * Artwork is proxied by the gateway because the remote service's own URL needs
 	 * that service's token, and an `<img>` tag carries no header. The URL is built
 	 * here rather than in a component, which is the rule everywhere else too.
+	 *
+	 * The access token travels as a query parameter for the same reason: an image
+	 * cannot send one any other way, and fetching each poster through `fetch` to
+	 * build an object URL would throw away the browser's own image cache on a page
+	 * showing two hundred of them. The token in hand is used as it is rather than
+	 * awaited through a refresh — a `src` has to be a string the moment the card
+	 * renders, and a poster that 401s once is a tile that falls back to its
+	 * placeholder, not a broken screen.
 	 */
-	function artworkUrl (id: string): string {
+	function artworkUrl (id: string | null): string | null {
+		if (!id) {
+			return null;
+		}
 		const base = import.meta.env.VITE_API_BASE_URL ?? '';
-		return `${base}/api/media/${id}/artwork`;
+		const token = tokenStore.accessToken;
+		const query = token ? `?token=${encodeURIComponent(token)}` : '';
+		return `${base}/api/media/${id}/artwork${query}`;
 	}
 
 	/**
@@ -153,10 +247,17 @@ export const useMediaStore = defineStore('media', () => {
 	return {
 		items,
 		pagination,
+		groups,
+		groupPagination,
+		groupsLoading,
 		loading,
 		loaded,
 		error,
 		search,
+		searchGroups,
+		clearGroups,
+		group,
+		groupChildren,
 		node,
 		children,
 		matches,

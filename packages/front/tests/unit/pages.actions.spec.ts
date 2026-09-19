@@ -87,6 +87,7 @@ const peer = {
 	name: 'Bob',
 	fingerprint: 'AB:CD',
 	status: PeerStatus.LINKED,
+	direction: null,
 	trust: PeerTrust.FRIEND,
 	linkMode: null,
 	address: null,
@@ -474,33 +475,32 @@ describe('pages/Settings saving', () => {
 });
 
 describe('pages/Library syncing a selection', () => {
-	const item = {
+	const group = {
 		id: 'm1',
-		serviceId: 's1',
-		libraryId: 'l1',
-		parentId: null,
-		kind: 'episode',
-		title: 'Pilot',
-		normalizedTitle: 'pilot',
+		kind: 'series',
+		title: 'The Expanse',
+		normalizedTitle: 'expanse',
 		year: 2019,
-		seasonNumber: 1,
-		episodeNumber: 1,
+		seasonNumber: null,
+		episodeNumber: null,
 		externalIds: {},
 		overview: null,
-		artworkUrl: null,
-		file: null,
-		quality: null,
-		addedAt: null,
+		artworkItemId: null,
 		sync: SyncState.MISSING,
-		createdAt: '2026-01-01T00:00:00.000Z',
-		updatedAt: '2026-01-01T00:00:00.000Z',
+		quality: null,
+		sources: [],
+		childCount: 0,
+		missingCount: 0,
+		libraryId: 'l1',
+		parentId: null,
+		addedAt: null,
 	};
 
 	it('sends the selected identifiers, and clears the selection afterwards', async () => {
 		const stub = stubFetchRoutes({
 			'/api/services': { body: [service] },
 			'/api/libraries': { body: [library] },
-			'/api/media': { body: { items: [item], pagination: { page: 1, limit: 50, total: 1, pages: 1 } } },
+			'/api/media/groups': { body: { items: [group], pagination: { page: 1, limit: 24, total: 1, pages: 1 } } },
 			'/api/sync/run': { body: { id: 'j1' } },
 		});
 		const { wrapper } = mountWithApp(Library, {
@@ -508,6 +508,10 @@ describe('pages/Library syncing a selection', () => {
 		});
 		await settle();
 
+		// Picking one tile is what opens the selection bar, and the bar is where
+		// "everything on this page" and the action live on a poster wall.
+		await wrapper.find('[data-test="media-select"] input').setValue(true);
+		await settle(2);
 		await wrapper.find('[data-test="media-select-all"] input').setValue(true);
 		await settle(2);
 		await wrapper.find('[data-test="library-sync-selected"]').trigger('click');
@@ -515,7 +519,7 @@ describe('pages/Library syncing a selection', () => {
 
 		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
 		expect(JSON.parse(String(run?.[1]?.body))).toEqual({ itemIds: ['m1'] });
-		expect(wrapper.find('[data-test="library-sync-selected"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="library-selection-bar"]').exists()).toBe(false);
 	});
 });
 

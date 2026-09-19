@@ -1,8 +1,33 @@
-import type { MediaItem } from '@mcs/shared';
-import { EventName, MediaKind, SyncState, TransferState } from '@mcs/shared';
+import type { MediaGroup, MediaItem } from '@mcs/shared';
+import { EventName, MediaKind, MediaServiceScope, MediaServiceType, SyncState, TransferState } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildMediaQuery, useMediaStore } from '@/stores/media';
+import { useTokenStore } from '@/stores/token';
 import { connectFakeSocket, createStoreContext, emitServerEvent, stubFetch } from './helpers';
+
+function group (overrides: Partial<MediaGroup> = {}): MediaGroup {
+	return {
+		id: 'g1',
+		kind: MediaKind.SERIES,
+		title: 'The Expanse',
+		normalizedTitle: 'expanse',
+		year: 2015,
+		seasonNumber: null,
+		episodeNumber: null,
+		externalIds: {},
+		overview: null,
+		artworkItemId: 'a1',
+		sync: SyncState.MISSING,
+		quality: null,
+		sources: [],
+		childCount: 0,
+		missingCount: 0,
+		libraryId: 'l1',
+		parentId: null,
+		addedAt: null,
+		...overrides,
+	};
+}
 
 function item (overrides: Partial<MediaItem> = {}): MediaItem {
 	return {
@@ -19,6 +44,7 @@ function item (overrides: Partial<MediaItem> = {}): MediaItem {
 		externalIds: {},
 		overview: null,
 		artworkUrl: null,
+		companions: null,
 		file: null,
 		quality: null,
 		addedAt: null,
@@ -80,6 +106,95 @@ describe('stores/media', () => {
 		const store = useMediaStore();
 
 		expect(store.artworkUrl('m1')).toBe('/api/media/m1/artwork');
+	});
+
+	/**
+	 * An `<img>` carries no header, so the poster route takes the access token as a
+	 * query parameter — and getting that wrong is a wall of broken images.
+	 */
+	it('carries the access token in the artwork URL, since an image cannot send a header', () => {
+		useTokenStore().store({
+			accessToken: 'tok en/1',
+			refreshToken: 'r',
+			expiresIn: 900,
+			user: null,
+			rights: [],
+		} as never);
+		const store = useMediaStore();
+
+		expect(store.artworkUrl('m1')).toBe('/api/media/m1/artwork?token=tok%20en%2F1');
+	});
+
+	it('has no artwork URL for a group whose sources carry no artwork at all', () => {
+		const store = useMediaStore();
+
+		expect(store.artworkUrl(null)).toBeNull();
+	});
+
+	it('reads one band of the grouped view per key, so two can be in flight at once', async () => {
+		const stub = stubFetch([
+			{ body: { items: [group({ id: 'series-1' })], pagination: { page: 1, limit: 24, total: 7, pages: 1 } } },
+			{ body: { items: [group({ id: 'movie-1', kind: MediaKind.MOVIE })], pagination: { page: 1, limit: 24, total: 3, pages: 1 } } },
+		]);
+		const store = useMediaStore();
+
+		await Promise.all([
+			store.searchGroups('series', { kind: MediaKind.SERIES, limit: 24 }),
+			store.searchGroups('movie', { kind: MediaKind.MOVIE, limit: 24 }),
+		]);
+
+		expect(String(stub.mock.calls[0][0])).toContain('/media/groups?kind=series');
+		expect(store.groups.series.map(one => one.id)).toEqual(['series-1']);
+		expect(store.groups.movie.map(one => one.id)).toEqual(['movie-1']);
+		expect(store.groupPagination.series.total).toBe(7);
+		expect(store.groupPagination.movie.total).toBe(3);
+		expect(store.groupsLoading).toBe(false);
+	});
+
+	it('reads one group and its children through the grouped routes', async () => {
+		const stub = stubFetch([{ body: group() }, { body: { items: [], pagination: null } }]);
+		const store = useMediaStore();
+
+		await store.group('g1');
+		await store.groupChildren('g1', { limit: 200 });
+
+		expect(String(stub.mock.calls[0][0])).toContain('/api/media/groups/g1');
+		expect(String(stub.mock.calls[1][0])).toContain('/api/media/groups/g1/children?limit=200');
+	});
+
+	/** A poster has to change state while somebody is looking at it. */
+	it('marks a poster as syncing when a transfer runs for any copy underneath it', async () => {
+		stubFetch([{
+			body: {
+				items: [group({
+					id: 'g1',
+					sources: [{
+						itemId: 'copy-1',
+						serviceId: 's1',
+						serviceName: 'Living room',
+						serviceType: MediaServiceType.JELLYFIN,
+						scope: MediaServiceScope.LOCAL,
+						peerId: null,
+						peerName: null,
+						quality: null,
+						companions: null,
+						bytes: null,
+						local: true,
+						sync: SyncState.IN_SYNC,
+					}],
+				})],
+				pagination: null,
+			},
+		}]);
+		const store = useMediaStore();
+		await store.searchGroups('series', {});
+		connectFakeSocket(pinia);
+
+		emitServerEvent(EventName.TRANSFER_STATE, {
+			id: 't1', itemId: 'copy-1', state: TransferState.DOWNLOADING,
+		});
+
+		expect(store.groups.series[0].sync).toBe(SyncState.SYNCING);
 	});
 
 	it('marks an item as syncing while a transfer for it is running', async () => {

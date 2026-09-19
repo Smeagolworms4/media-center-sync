@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 	import type { Peer } from '@mcs/shared';
+	import { PeerDirection, PeerStatus } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import CopyField from '@/components/common/CopyField.vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
@@ -52,9 +53,28 @@
 
 	const identity = computed(() => peersStore.identity);
 
+	/**
+	 * A request waiting on somebody here goes first.
+	 *
+	 * It is the only row on this page that is a question rather than a fact, and on a
+	 * gateway with a dozen peers it would otherwise sit wherever the API happened to
+	 * put it.
+	 */
+	const orderedPeers = computed(() => {
+		const incoming = peersStore.peers.filter(
+			one => one.status === PeerStatus.PENDING && one.direction === PeerDirection.INCOMING);
+		const rest = peersStore.peers.filter(one => !incoming.includes(one));
+		return [...incoming, ...rest];
+	});
+
 	const connect = tryCallback(async (peer: Peer) => {
 		await peersStore.connect(peer.id);
 		void notify('peer.connecting');
+	});
+
+	const approve = tryCallback(async (peer: Peer) => {
+		await peersStore.approve(peer.id);
+		void notify('peer.approved');
 	});
 
 	const block = tryCallback(async (peer: Peer) => {
@@ -174,13 +194,14 @@
 
 			<v-row v-else class="mt-2" data-test="peer-list" density="compact">
 				<v-col
-					v-for="peer of peersStore.peers"
+					v-for="peer of orderedPeers"
 					:key="peer.id"
 					cols="12"
 					md="6"
 				>
 					<PeerCard
 						:peer="peer"
+						@approve="approve"
 						@block="block"
 						@connect="connect"
 						@remove="removing = $event"

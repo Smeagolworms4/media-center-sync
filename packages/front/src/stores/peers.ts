@@ -1,11 +1,12 @@
 import type {
 	AcceptPeerInviteRequest,
+	AddPeerRequest,
 	MediaService,
 	Peer,
 	PeerIdentity,
 	PeerInvite,
 } from '@mcs/shared';
-import { EventName } from '@mcs/shared';
+import { EventName, PeerStatus } from '@mcs/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
@@ -74,6 +75,25 @@ export const usePeersStore = defineStore('peers', () => {
 		return peer;
 	}
 
+	/**
+	 * Linking by fingerprint, which is the honest shape of what a link is: each side
+	 * knows the other's public key and has said once that it trusts it. Nothing
+	 * secret travels, nothing expires, and the far end sees who is asking before
+	 * agreeing to anything. The invitation below does the same job in one code.
+	 */
+	async function add (request: AddPeerRequest): Promise<Peer> {
+		const peer = await caller('api').post<Peer>('/peers', request);
+		replace(peer);
+		return peer;
+	}
+
+	/** Saying yes to a request somebody else made of us. */
+	async function approve (id: string): Promise<Peer> {
+		const peer = await caller('api').post<Peer>(`/peers/${id}/approve`);
+		replace(peer);
+		return peer;
+	}
+
 	/** One-shot, and it expires: an invitation that never did would be a credential. */
 	function invite (): Promise<PeerInvite> {
 		return caller('api').post<PeerInvite>('/peers/invites', {});
@@ -122,6 +142,11 @@ export const usePeersStore = defineStore('peers', () => {
 		const peer = peers.value.find(one => one.id === payload.id);
 		if (peer) {
 			peer.status = payload.status;
+			// A settled link has no direction any more; leaving the old one on the row
+			// keeps an accepted request looking like one still waiting for an answer.
+			if (payload.status !== PeerStatus.PENDING) {
+				peer.direction = null;
+			}
 			peer.linkMode = payload.linkMode;
 			peer.lastSeenAt = payload.lastSeenAt;
 		}
@@ -137,6 +162,8 @@ export const usePeersStore = defineStore('peers', () => {
 		load,
 		loadIdentity,
 		get,
+		add,
+		approve,
 		invite,
 		accept,
 		rename,

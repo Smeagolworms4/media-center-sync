@@ -79,6 +79,7 @@ function mediaItem (overrides: Record<string, unknown> = {}) {
 		externalIds: {},
 		overview: 'Belters.',
 		artworkUrl: null,
+		companions: null,
 		file: null,
 		quality: null,
 		addedAt: null,
@@ -89,40 +90,63 @@ function mediaItem (overrides: Record<string, unknown> = {}) {
 	};
 }
 
+function mediaGroup (overrides: Record<string, unknown> = {}) {
+	return {
+		id: 'm1',
+		kind: MediaKind.SERIES,
+		title: 'The Expanse',
+		normalizedTitle: 'expanse',
+		year: 2015,
+		seasonNumber: null,
+		episodeNumber: null,
+		externalIds: {},
+		overview: 'Belters.',
+		artworkItemId: null,
+		sync: SyncState.OUTDATED,
+		quality: null,
+		sources: [{
+			itemId: 'm1',
+			serviceId: 's1',
+			serviceName: 'Bob\u2019s Jellyfin',
+			serviceType: MediaServiceType.JELLYFIN,
+			scope: MediaServiceScope.REMOTE,
+			peerId: 'p1',
+			peerName: 'Bob',
+			quality: null,
+			companions: null,
+			bytes: 1024,
+			local: false,
+			sync: SyncState.IN_SYNC,
+		}],
+		childCount: 2,
+		missingCount: 1,
+		libraryId: 'l1',
+		parentId: null,
+		addedAt: null,
+		...overrides,
+	};
+}
+
 describe('pages/LibraryItem', () => {
 	const routes = {
-		'/api/media/m1/children': {
+		'/api/media/groups/m1/children': {
 			body: {
 				items: [
-					mediaItem({ id: 'm2', kind: MediaKind.EPISODE, title: 'Dulcinea', seasonNumber: 1, episodeNumber: 1, sync: SyncState.IN_SYNC }),
-					mediaItem({ id: 'm3', kind: MediaKind.EPISODE, title: 'The Big Empty', seasonNumber: 1, episodeNumber: 2, sync: SyncState.MISSING }),
+					mediaGroup({ id: 'm2', kind: MediaKind.EPISODE, title: 'Dulcinea', seasonNumber: 1, episodeNumber: 1, sync: SyncState.IN_SYNC, missingCount: 0 }),
+					mediaGroup({ id: 'm3', kind: MediaKind.EPISODE, title: 'The Big Empty', seasonNumber: 1, episodeNumber: 2, sync: SyncState.MISSING, missingCount: 0 }),
 				],
-				pagination: null,
+				pagination: { page: 1, limit: 200, total: 2, pages: 1 },
 			},
 		},
-		'/api/media/m1/matches': {
-			body: [{
-				id: 'match-1',
-				localItemId: 'm1',
-				remoteItemId: 'r1',
-				remoteServiceId: 's1',
-				remotePeerId: 'p1',
-				strategy: 'external_id',
-				confidence: 0.95,
-				state: SyncState.OUTDATED,
-				reason: null,
-				confirmedAt: null,
-				createdAt: '2026-01-01T00:00:00.000Z',
-			}],
-		},
-		'/api/media/m1': { body: { ...mediaItem(), childCount: 2 } },
+		'/api/media/groups/m1': { body: mediaGroup() },
+		'/api/media/m1/matches': { body: [] },
 		'/api/services': { body: [service] },
 		'/api/peers': { body: [] },
 		'/api/sync/run': { body: { id: 'j1' } },
 	};
 
 	/** The whole point of the page: what is missing is listed, not hidden. */
-	it('lists the missing children beside the ones we hold, and names who has them', async () => {
+	it('lists the missing children beside the ones we hold, and marks them as missing', async () => {
 		stubFetchRoutes(routes);
 		const { wrapper } = mountWithApp(LibraryItem, {
 			props: { itemId: 'm1' },
@@ -134,7 +158,6 @@ describe('pages/LibraryItem', () => {
 		expect(rows).toHaveLength(2);
 		const missing = rows.find(row => row.attributes('data-state') === SyncState.MISSING);
 		expect(missing?.classes()).toContain('media-row--missing');
-		expect(missing?.text()).toContain('Bob’s Jellyfin');
 	});
 
 	it('offers to pull everything missing below the item', async () => {
@@ -157,7 +180,8 @@ describe('pages/LibraryItem', () => {
 		});
 	});
 
-	it('offers a source for this run when another service holds the item', async () => {
+	/** Every copy, ours marked, is the difference between this page and a list row. */
+	it('lists every server that holds the media, and lets one be chosen for the run', async () => {
 		stubFetchRoutes(routes);
 		const { wrapper } = mountWithApp(LibraryItem, {
 			props: { itemId: 'm1' },
@@ -166,7 +190,30 @@ describe('pages/LibraryItem', () => {
 		await settle();
 
 		expect(wrapper.find('[data-test="source-picker"]').exists()).toBe(true);
+		expect(wrapper.findAll('[data-test="group-source"]')).toHaveLength(1);
+		expect(wrapper.text()).toContain('Bob\u2019s Jellyfin');
 		expect(wrapper.text()).toContain('Follow the configured priority');
+	});
+
+	it('shows the seasons of a series as cards, each with what is missing under it', async () => {
+		stubFetchRoutes({
+			...routes,
+			'/api/media/groups/m1/children': {
+				body: {
+					items: [mediaGroup({ id: 'm2', kind: MediaKind.SEASON, title: 'Season 1', seasonNumber: 1, missingCount: 3 })],
+					pagination: { page: 1, limit: 200, total: 1, pages: 1 },
+				},
+			},
+		});
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const cards = wrapper.findAll('[data-test="media-card"]');
+		expect(cards).toHaveLength(1);
+		expect(cards[0].find('[data-test="media-missing-count"]').text()).toContain('3 missing');
 	});
 
 	it('offers a retry when the item cannot be read', async () => {
@@ -234,6 +281,7 @@ describe('pages/Peer', () => {
 		name: 'Bob',
 		fingerprint: 'AB:CD',
 		status: PeerStatus.LINKED,
+		direction: null,
 		trust: PeerTrust.FRIEND,
 		linkMode: null,
 		address: null,
@@ -358,7 +406,6 @@ describe('pages/SettingsShares', () => {
 					visibility: 'friends',
 					allowedPeerIds: [],
 					deniedPeerIds: [],
-					metadataOnly: false,
 					rateLimit: 0,
 					updatedAt: '2026-01-01T00:00:00.000Z',
 				}],

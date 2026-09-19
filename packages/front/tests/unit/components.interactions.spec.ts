@@ -313,7 +313,6 @@ describe('components/share/SharePolicyForm interactions', () => {
 					visibility: ShareVisibility.FRIENDS_OF_FRIENDS,
 					allowedPeerIds: ['p1'],
 					deniedPeerIds: [],
-					metadataOnly: false,
 					rateLimit: 0,
 					updatedAt: '2026-01-01T00:00:00.000Z',
 				},

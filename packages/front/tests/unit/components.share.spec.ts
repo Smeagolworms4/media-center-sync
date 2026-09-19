@@ -28,6 +28,7 @@ const peers: Peer[] = [{
 	name: 'Bob',
 	fingerprint: 'AB',
 	status: PeerStatus.LINKED,
+	direction: null,
 	trust: PeerTrust.FRIEND,
 	linkMode: null,
 	address: null,
@@ -49,7 +50,6 @@ function policy (overrides: Partial<SharePolicy> = {}): SharePolicy {
 		visibility: ShareVisibility.FRIENDS,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
-		metadataOnly: false,
 		rateLimit: 0,
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		...overrides,
@@ -120,20 +120,21 @@ describe('components/share/ShareAudit', () => {
 		expect(wrapper.text()).toContain('Pick a peer');
 	});
 
-	it('answers what that peer would see, catalogue-only included', async () => {
+	it('answers what that peer would see, library by library', async () => {
 		stubFetch([{
 			body: {
 				peerId: 'p1',
 				peerName: 'Bob',
 				trust: 'friend',
-				libraries: [{ libraryId: 'l1', name: 'Shows', itemCount: 400, metadataOnly: true }],
+				libraries: [{ libraryId: 'l1', name: 'Shows', itemCount: 400 }],
 			},
 		}]);
 		const { wrapper } = mountWithApp(ShareAudit, { props: { peers, peerId: 'p1' } });
 		await settle();
 
 		expect(wrapper.findAll('[data-test="audit-library"]')).toHaveLength(1);
-		expect(wrapper.text()).toContain('Catalogue only');
+		expect(wrapper.text()).toContain('Shows');
+		expect(wrapper.text()).toContain('400');
 		expect(wrapper.text()).toContain('Bob');
 	});
 

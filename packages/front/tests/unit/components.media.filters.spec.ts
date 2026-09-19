@@ -1,4 +1,4 @@
-import type { CatalogueEntry, Library, MediaItem, MediaService } from '@mcs/shared';
+import type { CatalogueEntry, Library, MediaGroup, MediaGroupSource, MediaService } from '@mcs/shared';
 import {
 	LibraryKind,
 	MediaKind,
@@ -8,9 +8,9 @@ import {
 	SyncState,
 } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
+import GroupSources from '@/components/media/GroupSources.vue';
 import MediaFilters from '@/components/media/MediaFilters.vue';
-import MediaRow from '@/components/media/MediaRow.vue';
-import SourcePicker from '@/components/media/SourcePicker.vue';
+import MediaGroupRow from '@/components/media/MediaGroupRow.vue';
 import CatalogueList from '@/components/peer/CatalogueList.vue';
 import { mountWithApp, tooltipStub } from './helpers';
 
@@ -56,12 +56,27 @@ function library (overrides: Partial<Library> = {}): Library {
 	};
 }
 
-function item (overrides: Partial<MediaItem> = {}): MediaItem {
+function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 	return {
-		id: 'm1',
+		itemId: 'i1',
 		serviceId: 's1',
-		libraryId: 'l1',
-		parentId: null,
+		serviceName: 'Living room',
+		serviceType: MediaServiceType.JELLYFIN,
+		scope: MediaServiceScope.LOCAL,
+		peerId: null,
+		peerName: null,
+		quality: null,
+		companions: null,
+		bytes: 1024,
+		local: true,
+		sync: SyncState.IN_SYNC,
+		...overrides,
+	};
+}
+
+function group (overrides: Partial<MediaGroup> = {}): MediaGroup {
+	return {
+		id: 'g1',
 		kind: MediaKind.EPISODE,
 		title: 'Pilot',
 		normalizedTitle: 'pilot',
@@ -70,13 +85,15 @@ function item (overrides: Partial<MediaItem> = {}): MediaItem {
 		episodeNumber: 1,
 		externalIds: {},
 		overview: null,
-		artworkUrl: null,
-		file: null,
-		quality: null,
-		addedAt: null,
+		artworkItemId: null,
 		sync: SyncState.IN_SYNC,
-		createdAt: '2026-01-01T00:00:00.000Z',
-		updatedAt: '2026-01-01T00:00:00.000Z',
+		quality: null,
+		sources: [source()],
+		childCount: 0,
+		missingCount: 0,
+		libraryId: 'l1',
+		parentId: null,
+		addedAt: null,
 		...overrides,
 	};
 }
@@ -131,24 +148,34 @@ describe('components/media/MediaFilters', () => {
 	});
 });
 
-describe('components/media/SourcePicker', () => {
-	it('lists the sources in the order the gateway would consult them', () => {
-		const { wrapper } = mountWithApp(SourcePicker, {
+describe('components/media/GroupSources', () => {
+	it('lists the copies in the order the gateway would consult them', () => {
+		const { wrapper } = mountWithApp(GroupSources, {
 			props: {
+				sources: [
+					source({ itemId: 'i-slow', serviceId: 'slow', serviceName: 'Slow' }),
+					source({ itemId: 'i-fast', serviceId: 'fast', serviceName: 'Fast' }),
+				],
 				services: [
 					service({ id: 'slow', name: 'Slow', priority: 50 }),
 					service({ id: 'fast', name: 'Fast', priority: 1 }),
 				],
 			},
+			global: { stubs: tooltipStub },
 		});
 
-		expect((wrapper.vm as any).ordered.map((one: MediaService) => one.id)).toEqual(['fast', 'slow']);
+		const rows = wrapper.findAll('[data-test="group-source"]');
+		expect(rows.map(row => row.find('.group-sources_name').text())).toEqual(['Fast', 'Slow']);
 	});
 
 	/** An empty choice is a decision — follow the configured priority — and says so. */
 	it('defaults to the configured priority and names what that means', () => {
-		const { wrapper } = mountWithApp(SourcePicker, {
-			props: { services: [service({ id: 'fast', name: 'Fast', priority: 1 })] },
+		const { wrapper } = mountWithApp(GroupSources, {
+			props: {
+				sources: [source({ serviceId: 'fast', serviceName: 'Fast' })],
+				services: [service({ id: 'fast', name: 'Fast', priority: 1 })],
+			},
+			global: { stubs: tooltipStub },
 		});
 
 		expect(wrapper.find('[data-test="source-default"]').exists()).toBe(true);
@@ -156,49 +183,60 @@ describe('components/media/SourcePicker', () => {
 		expect(wrapper.text()).toContain('Fast');
 	});
 
-	it('names the friend a source is reached through', () => {
-		const { wrapper } = mountWithApp(SourcePicker, {
+	it('marks our own copy, so it is not read as one more stranger', () => {
+		const { wrapper } = mountWithApp(GroupSources, {
 			props: {
-				services: [service({ id: 'remote', name: 'Bob’s Plex', peerId: 'p1' })],
+				sources: [
+					source({ itemId: 'i-mine', local: true }),
+					source({ itemId: 'i-bob', serviceId: 's2', serviceName: 'Bob’s Plex', local: false, peerId: 'p1' }),
+				],
 				peerNames: { p1: 'Bob' },
 			},
+			global: { stubs: tooltipStub },
 		});
 
+		const rows = wrapper.findAll('[data-test="group-source"]');
+		expect(rows.map(row => row.attributes('data-local'))).toEqual(['true', 'false']);
+		expect(wrapper.find('[data-test="group-source-ours"]').exists()).toBe(true);
 		expect(wrapper.text()).toContain('through Bob');
 	});
 
-	it('says nothing else holds the item rather than showing an empty list', () => {
-		const { wrapper } = mountWithApp(SourcePicker, { props: { services: [] } });
+	it('says nothing holds the item rather than showing an empty list', () => {
+		const { wrapper } = mountWithApp(GroupSources, {
+			props: { sources: [] },
+			global: { stubs: tooltipStub },
+		});
 
-		expect(wrapper.text()).toContain('No other service holds this item');
+		expect(wrapper.text()).toContain('No service holds this item');
 	});
 });
 
-describe('components/media/MediaRow', () => {
-	it('greys a missing row and names who holds it', () => {
-		const { wrapper } = mountWithApp(MediaRow, {
-			props: { item: item({ sync: SyncState.MISSING }), holders: ['Bob’s Jellyfin'] },
+describe('components/media/MediaGroupRow', () => {
+	it('dims a missing row and counts what is missing under it', () => {
+		const { wrapper } = mountWithApp(MediaGroupRow, {
+			props: { group: group({ sync: SyncState.MISSING, missingCount: 3 }) },
 			global: { stubs: tooltipStub },
 		});
 
 		expect(wrapper.find('[data-test="media-row"]').classes()).toContain('media-row--missing');
-		expect(wrapper.text()).toContain('held by Bob’s Jellyfin');
+		expect(wrapper.text()).toContain('3 missing');
 	});
 
-	it('carries the state and the quality the whole interface reads', () => {
-		const { wrapper } = mountWithApp(MediaRow, {
-			props: { item: item() },
+	it('carries the state, the quality and the sources the whole interface reads', () => {
+		const { wrapper } = mountWithApp(MediaGroupRow, {
+			props: { group: group() },
 			global: { stubs: tooltipStub },
 		});
 
 		expect(wrapper.find('[data-test="media-row"]').attributes('data-state')).toBe(SyncState.IN_SYNC);
 		expect(wrapper.find('[data-test="sync-state"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="quality-chip"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="source-marks"]').exists()).toBe(true);
 	});
 
 	it('reports a selection, so a page can offer to sync what was picked', async () => {
-		const { wrapper } = mountWithApp(MediaRow, {
-			props: { item: item(), selectable: true },
+		const { wrapper } = mountWithApp(MediaGroupRow, {
+			props: { group: group(), selectable: true },
 			global: { stubs: tooltipStub },
 		});
 

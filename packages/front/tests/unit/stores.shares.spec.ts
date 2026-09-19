@@ -13,7 +13,6 @@ function policy (overrides: Partial<SharePolicy> = {}): SharePolicy {
 		visibility: ShareVisibility.FRIENDS,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
-		metadataOnly: false,
 		rateLimit: 0,
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		...overrides,
@@ -48,16 +47,16 @@ describe('stores/shares', () => {
 	it('saves a policy with PUT and replaces the row in place', async () => {
 		const stub = stubFetch([
 			{ body: [policy()] },
-			{ body: policy({ visibility: ShareVisibility.FRIENDS_OF_FRIENDS, metadataOnly: true }) },
+			{ body: policy({ visibility: ShareVisibility.FRIENDS_OF_FRIENDS }) },
 		]);
 		const store = useSharesStore();
 		await store.load();
 
-		await store.save('l1', { visibility: ShareVisibility.FRIENDS_OF_FRIENDS, metadataOnly: true });
+		await store.save('l1', { visibility: ShareVisibility.FRIENDS_OF_FRIENDS });
 
 		expect(stub.mock.calls[1][1]?.method).toBe('PUT');
 		expect(store.policies).toHaveLength(1);
-		expect(store.byLibraryId.l1.metadataOnly).toBe(true);
+		expect(store.byLibraryId.l1.visibility).toBe(ShareVisibility.FRIENDS_OF_FRIENDS);
 	});
 
 	it('makes a library private again by deleting its policy', async () => {

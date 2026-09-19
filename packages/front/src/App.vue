@@ -1,9 +1,11 @@
 <script lang="ts" setup>
+	import { Right } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import { useRoute, useRouter } from 'vue-router';
 	import { useTheme } from 'vuetify';
 	import Notify from '@/components/Notify.vue';
+	import BandwidthControl from '@/components/transfer/BandwidthControl.vue';
 	import { useAppInit } from '@/hooks/useAppInit';
 	import { useRouteGranted } from '@/plugins/granted';
 	import { SUPPORTED_LOCALES, type SupportedLocale } from '@/plugins/i18n';
@@ -122,6 +124,13 @@
 			<v-app-bar data-test="app-shell" flat :height="56">
 				<v-app-bar-nav-icon @click="drawer = !drawer" />
 				<v-app-bar-title class="app_title">{{ $t('app.name') }}</v-app-bar-title>
+
+				<!--
+					The bandwidth caps live here rather than on the transfers page: they
+					are changed while looking at something else, and the app bar is the
+					only surface that is on every screen.
+				-->
+				<BandwidthControl v-if="$isGranted(Right.SETTINGS_MANAGE)" />
 
 				<v-tooltip location="bottom" :text="connectionLabel">
 					<template #activator="{ props: tooltipProps }">

@@ -405,6 +405,30 @@ describe('components/peer/InviteDialog', () => {
 
 		expect(wrapper.emitted('linked')?.[0]?.[0]).toMatchObject({ id: 'p9' });
 	});
+
+	/**
+	 * The code is the convenience, not the rule: somebody holding their friend's
+	 * fingerprint should not have to ask them for one.
+	 */
+	it('links by fingerprint alone, with no code and nothing secret in transit', async () => {
+		const stub = stubFetchRoutes({ '/api/peers': { body: { id: 'p8', name: 'Dave' } } });
+		const { wrapper } = mountWithApp(InviteDialog, {
+			props: { modelValue: true },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+
+		(wrapper.vm as any).tab = 'fingerprint';
+		await nextTick();
+		await wrapper.find('[data-test="peer-fingerprint"] input').setValue('AB:CD:EF');
+		await wrapper.find('[data-test="peer-address"] input').setValue('203.0.113.9:4210');
+		await wrapper.find('form').trigger('submit');
+		await settle();
+
+		const call = stub.mock.calls.find(one => String(one[1]?.method) === 'POST');
+		expect(JSON.parse(String(call?.[1]?.body)))
+			.toEqual({ fingerprint: 'AB:CD:EF', address: '203.0.113.9:4210' });
+		expect(wrapper.emitted('linked')?.[0]?.[0]).toMatchObject({ id: 'p8' });
+	});
 });
 
 describe('components/media/MatchesDialog', () => {

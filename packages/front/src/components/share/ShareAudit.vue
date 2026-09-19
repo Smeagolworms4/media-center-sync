@@ -86,9 +86,6 @@
 					v-for="library of audit.libraries"
 					:key="library.libraryId"
 					data-test="audit-library"
-					:subtitle="library.metadataOnly
-						? $t('share.audit.catalogue_only')
-						: $t('share.audit.files')"
 					:title="library.name"
 				>
 					<template #append>

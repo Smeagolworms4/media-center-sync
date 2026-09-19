@@ -10,6 +10,7 @@ function peer (overrides: Partial<Peer> = {}): Peer {
 		name: 'Bob',
 		fingerprint: 'AB:CD',
 		status: PeerStatus.LINKED,
+		direction: null,
 		trust: PeerTrust.FRIEND,
 		linkMode: PeerLinkMode.DIRECT,
 		address: '203.0.113.9:4210',
