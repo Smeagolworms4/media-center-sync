@@ -336,6 +336,54 @@ cache/redis:
 	$(COMPOSE) --profile redis up -d cache
 	@$(MAKE) --no-print-directory api/restart
 
+#######
+# Lab #
+#######
+
+# Two real media servers, one Jellyfin and one Plex, each holding a library that
+# disagrees with the other on purpose.
+#
+# It exists because correlation, quality comparison and transfers cannot be proven
+# against mocks. A handler that maps a recorded payload correctly still has to survive
+# a real server's pagination, its idea of what a season is, and the fields it leaves
+# out. The fixtures are generated — a megabyte of test pattern, nothing downloaded —
+# and `lab/media` prints what each file is meant to prove.
+#
+# It is not part of the development stack and never starts with it.
+
+export LAB_JELLYFIN_PORT      ## Lab Jellyfin (default: 8096)
+export LAB_PLEX_PORT          ## Lab Plex (default: 32400)
+
+LAB_COMPOSE=docker compose -f docker/lab/docker-compose.yml
+
+## Generate the two lab libraries (needs ffmpeg; about a megabyte)
+lab/media:
+	@./docker/lab/seed-media.sh "$(PROJECT_PATH)var/lab/media"
+
+## Start the lab: Jellyfin and Plex, with the generated libraries
+lab/up: lab/media
+	USER_ID=$$(id -u) USER_GID=$$(id -g) $(LAB_COMPOSE) up -d
+	@echo ""
+	@echo "  Jellyfin   http://localhost:$${LAB_JELLYFIN_PORT:-8096}   (run the setup wizard once)"
+	@echo "  Plex       http://localhost:$${LAB_PLEX_PORT:-32400}/web"
+	@echo ""
+	@echo "  Both take a minute to come up the first time. Then add each /media folder"
+	@echo "  as a library, and register the two servers in the gateway."
+	@echo ""
+
+## Stop the lab, keeping its configuration
+lab/stop:
+	$(LAB_COMPOSE) stop
+
+## Display lab logs
+lab/logs:
+	$(LAB_COMPOSE) logs -f
+
+## Remove the lab entirely, configuration and generated media included
+lab/down:
+	$(LAB_COMPOSE) down -v
+	rm -rf var/lab
+
 ##########
 # Images #
 ##########
