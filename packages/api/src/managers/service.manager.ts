@@ -34,6 +34,7 @@ import {
 	type NormalisedMediaItem,
 	type ServiceConnection,
 } from '@/services';
+import { LibraryManager } from './library.manager';
 import { toLibrary, toMediaService } from './mappers';
 import { MediaManager } from './media.manager';
 
@@ -84,6 +85,7 @@ export class ServiceManager {
 		private readonly _quality: QualityService,
 		private readonly _media: MediaManager,
 		private readonly _events: EventGatewayService,
+		private readonly _libraryManager: LibraryManager,
 	) {}
 
 	public async list(): Promise<MediaService[]> {
@@ -125,6 +127,8 @@ export class ServiceManager {
 				password: request.password ?? null,
 				authProvider: request.authProvider ?? false,
 				priority: request.priority ?? 100,
+				remoteRoot: this._normaliseRoot(request.remoteRoot),
+				localRoot: this._normaliseRoot(request.localRoot),
 				status: this._statusOf(probe),
 				version: probe.version,
 				lastProbeAt: new Date(),
@@ -165,7 +169,27 @@ export class ServiceManager {
 		service.authProvider = patch.authProvider ?? service.authProvider;
 		service.priority = patch.priority ?? service.priority;
 
+		const rootsMoved =
+			(patch.remoteRoot !== undefined && this._normaliseRoot(patch.remoteRoot) !== service.remoteRoot)
+			|| (patch.localRoot !== undefined && this._normaliseRoot(patch.localRoot) !== service.localRoot);
+
+		if (patch.remoteRoot !== undefined) {
+			service.remoteRoot = this._normaliseRoot(patch.remoteRoot);
+		}
+
+		if (patch.localRoot !== undefined) {
+			service.localRoot = this._normaliseRoot(patch.localRoot);
+		}
+
 		const saved = await this._services.save(service);
+
+		// A corrected mapping is worthless until something re-reads it, and the next
+		// thing that would have is a scan somebody may not run for a day. Correcting a
+		// path and seeing the libraries still pointing at the old one is how people
+		// conclude the field does nothing.
+		if (rootsMoved) {
+			await this._libraryManager.applyRootMapping(saved);
+		}
 
 		// Re-probed whenever anything that decides reachability moved, so the status on
 		// screen is about the registration as it stands and not as it was saved.
@@ -567,6 +591,11 @@ export class ServiceManager {
 
 			await this._libraries.save(existing);
 		}
+
+		// After the rows carry what the service just reported, never before: the
+		// mapping is applied to the reported paths, and applying it to the previous
+		// ones would derive a directory the service has stopped reading from.
+		await this._libraryManager.applyRootMapping(service);
 	}
 
 	private async _probe(request: ProbeRequest): Promise<MediaServiceProbe> {
@@ -652,6 +681,17 @@ export class ServiceManager {
 			itemsTotal: null,
 			done,
 		});
+	}
+
+	/**
+	 * An emptied root is no mapping, not an empty prefix.
+	 *
+	 * Stored as `''` it would match the start of every path in existence and derive
+	 * the whole filesystem into `localRoot`, which is the one outcome worse than
+	 * deriving nothing.
+	 */
+	private _normaliseRoot(root: string | null | undefined): string | null {
+		return root?.trim().replace(/\/+$/, '') || null;
 	}
 
 	/** A trailing slash is the same server, and the unique index does not know that. */

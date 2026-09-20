@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ErrorKey, LibraryKind, MediaServiceScope } from '@mcs/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
-import type { Library } from '@/entities';
+import type { Library, MediaService } from '@/entities';
 import type { LibraryRepository, MediaServiceRepository } from '@/repositories';
 import { LibraryManager } from './library.manager';
 
@@ -16,6 +16,7 @@ const library = (overrides: Partial<Library> = {}): Library =>
 		kind: LibraryKind.SHOWS,
 		paths: ['/media/shows'],
 		localPath: null,
+		localPathDerived: false,
 		writable: false,
 		isDefaultTarget: false,
 		scanCursor: null,
@@ -35,7 +36,7 @@ interface Fakes {
 		save: jest.Mock;
 		clearDefaultTarget: jest.Mock;
 	};
-	services: { find: jest.Mock };
+	services: { find: jest.Mock; findOne: jest.Mock };
 }
 
 const build = (
@@ -50,7 +51,12 @@ const build = (
 			save: jest.fn((value: Library) => Promise.resolve(value)),
 			clearDefaultTarget: jest.fn().mockResolvedValue(undefined),
 		},
-		services: { find: jest.fn().mockResolvedValue([{ id: 'jellyfin', scope: MediaServiceScope.LOCAL }]) },
+		services: {
+			find: jest.fn().mockResolvedValue([{ id: 'jellyfin', scope: MediaServiceScope.LOCAL }]),
+			// No mapping by default, so every test that does not talk about roots sees
+			// exactly the behaviour there was before there were any.
+			findOne: jest.fn().mockResolvedValue({ remoteRoot: null, localRoot: null }),
+		},
 	};
 
 	return {
@@ -171,6 +177,17 @@ describe('LibraryManager', () => {
 			expect(check.freeBytes).toBeGreaterThan(0);
 		});
 
+		it('says where the path came from, because the two are fixed in different places', async () => {
+			const { manager } = build([
+				library({ id: 'a', localPath: writable }),
+				library({ id: 'b', localPath: writable, localPathDerived: true }),
+			]);
+
+			const checks = await manager.check();
+
+			expect(checks.map((check) => check.derived)).toEqual([false, true]);
+		});
+
 		it('says a library with no local path is unreadable rather than pretending it is fine', async () => {
 			const { manager } = build();
 
@@ -181,6 +198,103 @@ describe('LibraryManager', () => {
 				writable: false,
 				error: ErrorKey.LIBRARY_PATH_UNREADABLE,
 			});
+		});
+	});
+
+	describe('deriving a path from the service mapping', () => {
+		const mapped = (localRoot: string): MediaService =>
+			({ id: 'service-1', remoteRoot: '/media', localRoot }) as MediaService;
+
+		it('gives a library with no path of its own the one the mapping implies', async () => {
+			const { manager, fakes } = build(library({ paths: ['/media'] }));
+
+			await manager.applyRootMapping(mapped(writable));
+
+			const [saved] = fakes.libraries.save.mock.calls[0] as [Library];
+			expect(saved.localPath).toBe(writable);
+			expect(saved.localPathDerived).toBe(true);
+			// Probed like any other path: a mapping that is one character off must not
+			// leave a library looking configured and writable.
+			expect(saved.writable).toBe(true);
+		});
+
+		it('never touches a path somebody typed for this library', async () => {
+			// The whole contract of `localPath`: it is for the exceptions the mapping
+			// cannot express, and overwriting one would undo the fix at the next scan.
+			const { manager, fakes } = build(
+				library({ paths: ['/media'], localPath: '/elsewhere', writable: true }),
+			);
+
+			await manager.applyRootMapping(mapped(writable));
+
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('moves a path it derived before when the mapping changes', async () => {
+			const { manager, fakes } = build(
+				library({ paths: ['/media'], localPath: '/old/media', localPathDerived: true }),
+			);
+
+			await manager.applyRootMapping(mapped(writable));
+
+			const [saved] = fakes.libraries.save.mock.calls[0] as [Library];
+			expect(saved.localPath).toBe(writable);
+		});
+
+		it('takes the path back when the mapping stops answering for the library', async () => {
+			// A library the service moved outside the mapped root: keeping the old
+			// directory would go on accepting transfers into a place nothing reads.
+			const { manager, fakes } = build(
+				library({ paths: ['/srv/other'], localPath: writable, localPathDerived: true, writable: true }),
+			);
+
+			await manager.applyRootMapping(mapped(writable));
+
+			const [saved] = fakes.libraries.save.mock.calls[0] as [Library];
+			expect(saved.localPath).toBeNull();
+			expect(saved.localPathDerived).toBe(false);
+			expect(saved.writable).toBe(false);
+		});
+
+		it('derives nothing for a service nobody gave roots', async () => {
+			const { manager, fakes } = build(library({ paths: ['/media'] }));
+
+			await manager.applyRootMapping({ id: 'service-1', remoteRoot: null, localRoot: null } as MediaService);
+
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('stores a derived path it cannot write to, so the check can name it', async () => {
+			// Refusing here would fail a scan because a NAS went to sleep, and would
+			// hide the one thing somebody debugging needs: the directory we looked at.
+			const { manager, fakes } = build(library({ paths: ['/media'] }));
+
+			await manager.applyRootMapping(mapped('/nowhere/at/all'));
+
+			const [saved] = fakes.libraries.save.mock.calls[0] as [Library];
+			expect(saved.localPath).toBe('/nowhere/at/all');
+			expect(saved.writable).toBe(false);
+		});
+
+		it('marks a path somebody types as no longer derived', async () => {
+			const { manager } = build(library({ localPath: '/old', localPathDerived: true }));
+
+			const saved = await manager.update('library-1', { localPath: writable });
+
+			expect(saved.localPath).toBe(writable);
+		});
+
+		it('falls back to the mapping when somebody empties the box', async () => {
+			// Emptying it withdraws the override rather than removing the library from
+			// every sync — which is what leaving it with no path at all would do.
+			const { manager, fakes } = build(library({ paths: ['/media'], localPath: '/elsewhere', writable: true }));
+
+			fakes.services.findOne.mockResolvedValue({ remoteRoot: '/media', localRoot: writable });
+
+			const saved = await manager.update('library-1', { localPath: null });
+
+			expect(saved.localPath).toBe(writable);
+			expect(saved.writable).toBe(true);
 		});
 	});
 

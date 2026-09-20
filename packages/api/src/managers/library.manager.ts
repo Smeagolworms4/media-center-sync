@@ -16,12 +16,13 @@ import {
 	Logger,
 	NotFoundException,
 } from '@nestjs/common';
-import type { Library as LibraryEntity } from '@/entities';
+import type { Library as LibraryEntity, MediaService as MediaServiceEntity } from '@/entities';
 import { LibraryRepository, MediaServiceRepository } from '@/repositories';
+import { derivedLocalPath, type ServiceRootMapping } from '@/services';
 import { toLibrary } from './mappers';
 
 /** What probing one declared path found. */
-export type PathProbe = Omit<LibraryCheck, 'libraryId' | 'name' | 'localPath'>;
+export type PathProbe = Omit<LibraryCheck, 'libraryId' | 'name' | 'localPath' | 'derived'>;
 
 /**
  * The libraries of the registered services, and where the gateway can write them.
@@ -69,6 +70,18 @@ export class LibraryManager {
 		if (patch.localPath !== undefined) {
 			library.localPath = await this._adoptPath(patch.localPath);
 			library.writable = library.localPath !== null;
+			library.localPathDerived = false;
+
+			if (library.localPath === null) {
+				// Clearing the exception falls back to the service's mapping rather than
+				// to nothing. That is what "explicit wins" means read backwards: somebody
+				// who empties the box is withdrawing their override, and leaving the
+				// library with no path at all would silently take it out of every sync
+				// until they noticed.
+				await this._deriveFor(library, await this._services.findOne({
+					where: { id: library.serviceId },
+				}));
+			}
 		}
 
 		if (patch.isDefaultTarget !== undefined) {
@@ -194,6 +207,7 @@ export class LibraryManager {
 				libraryId: library.id,
 				name: library.name,
 				localPath: library.localPath,
+				derived: library.localPathDerived,
 				...(await this.probe(library.localPath)),
 			})),
 		);
@@ -242,6 +256,61 @@ export class LibraryManager {
 			freeBytes,
 			error: writable ? null : ErrorKey.LIBRARY_PATH_NOT_WRITABLE,
 		};
+	}
+
+	/**
+	 * Re-apply a service's root mapping to every library under it.
+	 *
+	 * Called after a probe reports the libraries and after the roots themselves are
+	 * changed, because both are moments where the answer moves: a library the service
+	 * has just renamed reports a new path, and a corrected mapping is worthless until
+	 * something re-reads it.
+	 *
+	 * A library whose path somebody typed is never touched. That is the whole contract
+	 * of `localPath`: it exists for the exceptions the mapping cannot express — a
+	 * library bind-mounted somewhere of its own, a symlink the service resolves and we
+	 * do not — and a mapping that overwrote them would undo the fix at the next scan,
+	 * hours after anybody connected the two events.
+	 */
+	public async applyRootMapping(service: MediaServiceEntity): Promise<void> {
+		for (const library of await this._libraries.findByService(service.id)) {
+			await this._deriveFor(library, service);
+		}
+	}
+
+	/**
+	 * Give one library the path the mapping implies, and probe it.
+	 *
+	 * Unlike a typed path, a derived one that cannot be written is stored rather than
+	 * refused. Refusing would mean a probe of an offline NAS failing a whole scan, and
+	 * the point of storing it is that `check()` can then name the directory the
+	 * gateway looked at — a mapping that is one character off is invisible otherwise.
+	 */
+	private async _deriveFor(
+		library: LibraryEntity,
+		service: ServiceRootMapping | null,
+	): Promise<void> {
+		if (service === null || (library.localPath !== null && !library.localPathDerived)) {
+			return;
+		}
+
+		const derived = derivedLocalPath(library.paths, service);
+
+		if (derived === library.localPath) {
+			return;
+		}
+
+		library.localPath = derived;
+		library.localPathDerived = derived !== null;
+		library.writable = derived === null ? false : (await this.probe(derived)).writable;
+
+		if (derived !== null && !library.writable) {
+			this._logger.warn(
+				`Derived ${derived} for library ${library.name}, which is not writable from here`,
+			);
+		}
+
+		await this._libraries.save(library);
 	}
 
 	/** Null clears the path, which makes the library read-only to us again. */

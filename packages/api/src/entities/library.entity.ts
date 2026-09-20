@@ -71,6 +71,19 @@ export class Library extends Timestampable {
 	@Column({ type: 'varchar', nullable: true })
 	public localPath!: string | null;
 
+	/**
+	 * Whether `localPath` was worked out from the service's root mapping rather than
+	 * typed for this library.
+	 *
+	 * The flag is what makes "an explicit path always wins" enforceable. Without it
+	 * the mapping cannot tell a path it wrote last time from one somebody chose, so
+	 * re-applying it would either overwrite deliberate exceptions or never refresh
+	 * anything — and both of those are silent.
+	 */
+	@ApiProperty()
+	@Column({ default: false })
+	public localPathDerived!: boolean;
+
 	/** Probed, never assumed: see the note on `localPath`. */
 	@ApiProperty()
 	@Column({ default: false })

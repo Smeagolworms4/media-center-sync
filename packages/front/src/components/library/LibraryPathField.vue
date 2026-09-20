@@ -32,6 +32,16 @@
 	const writable = computed(() => props.check?.writable ?? props.library.writable);
 	const declared = computed(() => (props.library.localPath ?? '').length > 0);
 
+	/**
+	 * Whether this path was worked out from the service's root rather than typed here.
+	 *
+	 * Said out loud because the two are corrected in different places: a typed path is
+	 * wrong on its own, a derived one is wrong for every library of the service at
+	 * once, and somebody who cannot tell them apart fixes the library six times
+	 * instead of the service once.
+	 */
+	const derived = computed(() => declared.value && (props.check?.derived ?? false));
+
 	/** Why the library cannot receive transfers, in the order the checks fail. */
 	const problem = computed(() => {
 		if (!declared.value) {
@@ -110,9 +120,10 @@
 			<v-text-field
 				v-model="localPath"
 				v-bind="form.field('localPath')"
+				:data-derived="derived"
 				data-test="library-path"
 				density="compact"
-				:hint="$t('library.local_path_hint')"
+				:hint="derived ? $t('library.derived_hint') : $t('library.local_path_hint')"
 				:label="$t('library.local_path')"
 				persistent-hint
 			/>

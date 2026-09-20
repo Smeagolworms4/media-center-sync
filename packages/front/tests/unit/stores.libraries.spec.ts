@@ -31,6 +31,7 @@ function check (overrides: Partial<LibraryCheck> = {}): LibraryCheck {
 		libraryId: 'l1',
 		name: 'Shows',
 		localPath: '/media/shows',
+		derived: false,
 		exists: true,
 		readable: true,
 		writable: true,

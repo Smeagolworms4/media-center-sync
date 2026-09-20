@@ -44,6 +44,8 @@
 		token: '',
 		authProvider: props.service?.authProvider ?? false,
 		priority: props.service?.priority ?? 10,
+		remoteRoot: props.service?.remoteRoot ?? '',
+		localRoot: props.service?.localRoot ?? '',
 	});
 
 	/**
@@ -79,6 +81,11 @@
 			...(model.token ? { token: model.token } : {}),
 			authProvider: model.authProvider,
 			priority: model.priority,
+			// Both or neither: either half on its own derives nothing, and the API
+			// refuses it by name rather than storing a mapping that does nothing. An
+			// emptied pair is a mapping being withdrawn, which the API spells null.
+			remoteRoot: model.remoteRoot || null,
+			localRoot: model.localRoot || null,
 		};
 	}
 
@@ -117,6 +124,12 @@
 			baseUrl: { rules: [validators.required(), validators.urlWithPort()] },
 			token: { rules: [] },
 			priority: { rules: [validators.onlyInteger(), validators.range({ min: 0, max: 999 })] },
+			remoteRoot: {
+				rules: [validators.absolutePath(), validators.maxlength({ max: 1024 })],
+			},
+			localRoot: {
+				rules: [validators.absolutePath(), validators.maxlength({ max: 1024 })],
+			},
 		},
 		handle: async () => {
 			// Saving a service that cannot be reached registers a row that will never
@@ -246,6 +259,38 @@
 				</p>
 			</v-col>
 		</v-row>
+
+		<div class="service-form_roots mt-4">
+			<p class="text-subtitle-2 mb-0">{{ $t('service.field.roots') }}</p>
+
+			<p class="text-caption text-medium-emphasis mb-2">
+				{{ $t('service.field.roots_hint') }}
+			</p>
+
+			<v-row density="compact">
+				<v-col cols="12" sm="6">
+					<v-text-field
+						v-model="model.remoteRoot"
+						v-bind="form.field('remoteRoot')"
+						data-test="service-remote-root"
+						:hint="$t('service.field.remote_root_hint')"
+						:label="$t('service.field.remote_root')"
+						persistent-hint
+					/>
+				</v-col>
+
+				<v-col cols="12" sm="6">
+					<v-text-field
+						v-model="model.localRoot"
+						v-bind="form.field('localRoot')"
+						data-test="service-local-root"
+						:hint="$t('service.field.local_root_hint')"
+						:label="$t('service.field.local_root')"
+						persistent-hint
+					/>
+				</v-col>
+			</v-row>
+		</div>
 
 		<v-alert
 			v-if="probe"

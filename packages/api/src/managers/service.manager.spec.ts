@@ -28,6 +28,7 @@ import type {
 	NormalisedMediaItem,
 	QualityService,
 } from '@/services';
+import type { LibraryManager } from './library.manager';
 import type { MediaManager } from './media.manager';
 import { ServiceManager } from './service.manager';
 
@@ -56,6 +57,8 @@ const service = (overrides: Partial<MediaService> = {}): MediaService =>
 		version: '10.9.0',
 		authProvider: false,
 		priority: 100,
+		remoteRoot: null,
+		localRoot: null,
 		peerId: null,
 		lastProbeAt: null,
 		lastScanAt: null,
@@ -308,6 +311,7 @@ interface Fakes {
 	media: { correlateService: jest.Mock };
 	probe: jest.Mock;
 	events: { emit: jest.Mock };
+	libraryManager: { applyRootMapping: jest.Mock };
 }
 
 const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes } => {
@@ -354,6 +358,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		media: { correlateService: jest.fn().mockResolvedValue(0) },
 		probe: probeFake,
 		events: { emit: jest.fn() },
+		libraryManager: { applyRootMapping: jest.fn().mockResolvedValue(undefined) },
 	};
 
 	const manager = new ServiceManager(
@@ -369,6 +374,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		fakes.quality as unknown as QualityService,
 		fakes.media as unknown as MediaManager,
 		fakes.events as unknown as EventGatewayService,
+		fakes.libraryManager as unknown as LibraryManager,
 	);
 
 	return { manager, fakes };
@@ -675,6 +681,85 @@ describe('ServiceManager', () => {
 			await expect(
 				manager.update('service-1', { baseUrl: 'http://jellyfin:8096/' }),
 			).resolves.toMatchObject({ id: 'service-1' });
+		});
+	});
+
+	describe('the root mapping', () => {
+		it('stores both roots when a service is registered with them', async () => {
+			const { manager, fakes } = build();
+
+			await manager.create({
+				name: 'Living room',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: 'http://jellyfin:8096',
+				remoteRoot: '/media/',
+				localRoot: '/mnt/nas',
+			});
+
+			const saved = fakes.services.save.mock.calls[0][0] as MediaService;
+
+			// The trailing slash goes: it says nothing about the directory and would
+			// stop every prefix test from matching.
+			expect(saved.remoteRoot).toBe('/media');
+			expect(saved.localRoot).toBe('/mnt/nas');
+		});
+
+		it('reads an emptied root as no mapping rather than as an empty prefix', async () => {
+			// Stored as an empty string it would match the start of every path there is
+			// and derive the whole filesystem into `localRoot`.
+			const { manager, fakes } = build();
+
+			await manager.create({
+				name: 'Living room',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: 'http://jellyfin:8096',
+				remoteRoot: '   ',
+				localRoot: '',
+			});
+
+			const saved = fakes.services.save.mock.calls[0][0] as MediaService;
+
+			expect(saved.remoteRoot).toBeNull();
+			expect(saved.localRoot).toBeNull();
+		});
+
+		it('applies the mapping to the libraries a probe just reported', async () => {
+			const { manager, fakes } = build();
+
+			await manager.create({
+				name: 'Living room',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: 'http://jellyfin:8096',
+				remoteRoot: '/media',
+				localRoot: '/mnt/nas',
+			});
+
+			expect(fakes.libraryManager.applyRootMapping).toHaveBeenCalledWith(
+				expect.objectContaining({ remoteRoot: '/media', localRoot: '/mnt/nas' }),
+			);
+		});
+
+		it('re-derives every library when a root is corrected', async () => {
+			// A corrected mapping is worthless until something re-reads it, and the next
+			// thing that would is a scan nobody may run for a day.
+			const { manager, fakes } = build();
+
+			await manager.update('service-1', { remoteRoot: '/media', localRoot: '/mnt/nas' });
+
+			expect(fakes.libraryManager.applyRootMapping).toHaveBeenCalledWith(
+				expect.objectContaining({ remoteRoot: '/media', localRoot: '/mnt/nas' }),
+			);
+		});
+
+		it('leaves the libraries alone when the edit was about something else', async () => {
+			const { manager, fakes } = build();
+
+			await manager.update('service-1', { name: 'Renamed' });
+
+			expect(fakes.libraryManager.applyRootMapping).not.toHaveBeenCalled();
 		});
 	});
 

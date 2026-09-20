@@ -36,6 +36,8 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: null,
+		remoteRoot: null,
+		localRoot: null,
 		authProvider: false,
 		priority: 10,
 		peerId: null,
@@ -166,6 +168,85 @@ describe('components/service/ServiceForm', () => {
 		await settle();
 
 		expect(wrapper.emitted('saved')?.[0]?.[0]).toMatchObject({ id: 'new' });
+	});
+
+	it('sends both roots, so a service states once where its files are for us', async () => {
+		const stub = stubFetchRoutes({
+			'/api/services/probe': { body: probeOk },
+			'/api/services': { body: service({ id: 'new' }) },
+		});
+		const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+		await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+		await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+		await wrapper.find('[data-test="service-remote-root"] input').setValue('/media');
+		await wrapper.find('[data-test="service-local-root"] input').setValue('/mnt/nas');
+		await wrapper.find('form').trigger('submit');
+		await settle();
+
+		const post = stub.mock.calls.find(
+			call => call[1]?.method === 'POST' && String(call[0]).endsWith('/api/services'),
+		);
+
+		expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+			remoteRoot: '/media',
+			localRoot: '/mnt/nas',
+		});
+	});
+
+	it('spells an empty mapping as null, which is a mapping being withdrawn', async () => {
+		const stub = stubFetchRoutes({
+			'/api/services/probe': { body: probeOk },
+			'/api/services': { body: service({ id: 'new' }) },
+		});
+		const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+		await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+		await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+		await wrapper.find('form').trigger('submit');
+		await settle();
+
+		const post = stub.mock.calls.find(
+			call => call[1]?.method === 'POST' && String(call[0]).endsWith('/api/services'),
+		);
+
+		expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+			remoteRoot: null,
+			localRoot: null,
+		});
+	});
+
+	it('shows the roots a registered service already carries', () => {
+		const { wrapper } = mountWithApp(ServiceForm, {
+			props: { service: service({ remoteRoot: '/media', localRoot: '/mnt/nas' }) },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(
+			(wrapper.find('[data-test="service-remote-root"] input').element as HTMLInputElement).value,
+		).toBe('/media');
+		expect(
+			(wrapper.find('[data-test="service-local-root"] input').element as HTMLInputElement).value,
+		).toBe('/mnt/nas');
+	});
+
+	it('refuses a relative root before the gateway has to', async () => {
+		// A relative root resolves against whatever directory a process started in,
+		// which is a different one in the container and in a development shell.
+		const stub = stubFetchRoutes({
+			'/api/services/probe': { body: probeOk },
+			'/api/services': { body: service({ id: 'new' }) },
+		});
+		const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+		await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+		await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+		await wrapper.find('[data-test="service-remote-root"] input').setValue('media');
+		await wrapper.find('form').trigger('submit');
+		await settle();
+
+		expect(stub.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false);
+		expect(wrapper.text()).toContain('absolute path');
 	});
 
 	it('keeps the registered token when an edit leaves the field empty', async () => {
@@ -353,6 +434,31 @@ describe('components/library/LibraryPathField', () => {
 		expect(stub.mock.calls.some(call => call[1]?.method === 'PATCH')).toBe(true);
 		expect(stub.mock.calls.some(call => String(call[0]).includes('/libraries/check'))).toBe(true);
 		expect(wrapper.emitted('saved')).toBeDefined();
+	});
+
+	it('says a path was worked out from the service rather than typed here', () => {
+		// The two are corrected in different places: a typed path is wrong on its own,
+		// a derived one is wrong for every library of the service at once.
+		const { wrapper } = mountWithApp(LibraryPathField, {
+			props: {
+				library,
+				check: {
+					libraryId: 'l1',
+					name: 'Shows',
+					localPath: '/media/shows',
+					derived: true,
+					exists: true,
+					readable: true,
+					writable: true,
+					freeBytes: 1000,
+					error: null,
+				},
+			},
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="library-path"]').attributes('data-derived')).toBe('true');
+		expect(wrapper.text()).toContain('Worked out from the root stated on the service');
 	});
 
 	it('refuses a relative path before the gateway has to', async () => {

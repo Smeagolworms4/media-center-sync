@@ -19,6 +19,8 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: '10.9',
+		remoteRoot: null,
+		localRoot: null,
 		authProvider: true,
 		priority: 10,
 		peerId: null,

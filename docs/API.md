@@ -95,6 +95,15 @@ Secrets are write-only. A token sent in a create or update is never returned by 
 route — a token that leaks through a list opens somebody's whole library, and nothing
 in the response would say so.
 
+`remoteRoot` and `localRoot` are one statement in two halves: the prefix the service
+reports about itself, and the same directory as this gateway reaches it. Stated once,
+every library under the service derives its own local path from them, which is what a
+server with six libraries used to spell out six times. They are refused one at a time —
+either half on its own derives nothing while leaving a service that looks configured —
+and both must be absolute, for the reason any path stored here must be: a relative one
+designates a different directory in the container, in a development shell and in a
+command. Sending both as null withdraws the mapping.
+
 ## Libraries
 
 | Method | Path | Body | Answers | Right |
@@ -121,7 +130,17 @@ names exactly one library, which is a different question and worth keeping.
 `/libraries/check` probes each declared `localPath`: does it exist, can it be read,
 can it be written, how much room is left. This is the answer to the failure that
 reports nothing — a library where the gateway's path and the media server's path do
-not designate the same directory accepts transfers the server will never see.
+not designate the same directory accepts transfers the server will never see. Each
+entry also says whether that path was `derived`, because the two are corrected in
+different places: a typed path is wrong on its own, a derived one is wrong for every
+library of the service at once.
+
+**Most libraries never need a `localPath` of their own.** A service carries
+`remoteRoot` and `localRoot` — the prefix it reports, and the same directory as the
+gateway reaches it — and every library under it derives its own path by replacing the
+one with the other. A library's explicit `localPath` always wins: that field is for
+the exceptions the mapping cannot express, and clearing it hands the library back to
+the mapping rather than leaving it with no path at all.
 
 ## Media
 

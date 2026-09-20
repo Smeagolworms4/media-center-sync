@@ -88,6 +88,25 @@ export interface MediaService {
 	 * whatever its scope says, because we cannot write into somebody else's disk.
 	 */
 	mode: MediaServiceMode;
+	/**
+	 * The service's own root, and where that same directory is for us.
+	 *
+	 * Jellyfin says `/media/Shows/…` and this gateway sees `/mnt/nas/Shows/…`. Until
+	 * now that had to be spelled out per library, so a server with six libraries was
+	 * six paths to type and six chances to get one wrong — and a library whose two
+	 * paths do not designate the same directory accepts transfers the media server
+	 * will never see, with nothing anywhere reporting an error.
+	 *
+	 * Stated once here, every library under it derives its own. `remoteRoot` is the
+	 * prefix as the service reports it, `localRoot` the same directory as we reach it;
+	 * both are null when nobody has said, and a library's explicit `localPath` always
+	 * wins over anything derived, because the exception is why that field exists.
+	 *
+	 * Only meaningful for a service whose files we can actually reach: a remote
+	 * Jellyfin we merely have an account on has no directory of ours behind it.
+	 */
+	remoteRoot: string | null;
+	localRoot: string | null;
 	/** Set when this service also authenticates users of the gateway. */
 	authProvider: boolean;
 	/**
@@ -116,6 +135,10 @@ export interface CreateMediaServiceRequest {
 	password?: string;
 	authProvider?: boolean;
 	priority?: number;
+
+	/** The service's own root, and the same directory as this gateway reaches it. */
+	remoteRoot?: string | null;
+	localRoot?: string | null;
 }
 
 export type UpdateMediaServiceRequest = Partial<CreateMediaServiceRequest>;

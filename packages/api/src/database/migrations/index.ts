@@ -7,6 +7,8 @@ import { RelayConsent1758370000000 } from './1758370000000-RelayConsent';
 import { PeerProtocol1758380000000 } from './1758380000000-PeerProtocol';
 import { IgnoredItems1758390000000 } from './1758390000000-IgnoredItems';
 import { SyncScopeAndSpace1758400000000 } from './1758400000000-SyncScopeAndSpace';
+import { ServiceRootMapping1758410000000 } from './1758410000000-ServiceRootMapping';
+import { PeerDepthAndBans1758420000000 } from './1758420000000-PeerDepthAndBans';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -44,6 +46,8 @@ export const MIGRATIONS = [
 	PeerProtocol1758380000000,
 	IgnoredItems1758390000000,
 	SyncScopeAndSpace1758400000000,
+	ServiceRootMapping1758410000000,
+	PeerDepthAndBans1758420000000,
 ];
 
 export * from './1758240000000-InitialSchema';
@@ -55,3 +59,5 @@ export * from './1758370000000-RelayConsent';
 export * from './1758380000000-PeerProtocol';
 export * from './1758390000000-IgnoredItems';
 export * from './1758400000000-SyncScopeAndSpace';
+export * from './1758410000000-ServiceRootMapping';
+export * from './1758420000000-PeerDepthAndBans';

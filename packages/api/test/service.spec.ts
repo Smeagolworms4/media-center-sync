@@ -1,6 +1,16 @@
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import request from 'supertest';
-import { MediaServiceScope, MediaServiceType, type MediaService } from '@mcs/shared';
-import { MediaServiceRepository } from '@/repositories';
+import {
+	LibraryKind,
+	MediaServiceScope,
+	MediaServiceType,
+	type Library,
+	type LibraryCheck,
+	type MediaService,
+} from '@mcs/shared';
+import { LibraryRepository, MediaServiceRepository } from '@/repositories';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
 
 /**
@@ -148,6 +158,159 @@ describe('Media services', () => {
 			.expect(200);
 
 		expect(response.body).toMatchObject({ reachable: false, authenticated: false });
+	});
+
+	describe('the root mapping', () => {
+		let localRoot: string;
+		let serviceId: string;
+		let derivedId: string;
+		let exceptionId: string;
+
+		const patchService = (body: Record<string, unknown>): request.Test =>
+			request(context.app.getHttpServer())
+				.patch(`/api/services/${serviceId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send(body);
+
+		const readLibrary = async (id: string): Promise<Library> => {
+			const response = await request(context.app.getHttpServer())
+				.get(`/api/libraries/${id}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+
+			return response.body as Library;
+		};
+
+		beforeAll(async () => {
+			// Directories that really exist, because the derived path is probed like any
+			// other: a made-up one would come back unwritable for the right reason and
+			// prove nothing about the derivation.
+			localRoot = mkdtempSync(join(tmpdir(), 'mcs-roots-'));
+			mkdirSync(join(localRoot, 'Shows'));
+
+			const created = await authorised()
+				.send({
+					name: 'Mapped',
+					type: MediaServiceType.JELLYFIN,
+					scope: MediaServiceScope.LOCAL,
+					baseUrl: 'http://127.0.0.1:14',
+				})
+				.expect(201);
+
+			serviceId = (created.body as MediaService).id;
+
+			// Written straight to the repository: the probe above could not reach
+			// anything, so the service has no libraries of its own to adopt.
+			const libraries = context.app.get(LibraryRepository);
+
+			derivedId = (
+				await libraries.save(
+					libraries.create({
+						serviceId,
+						externalId: 'lib-shows',
+						name: 'Shows',
+						kind: LibraryKind.SHOWS,
+						paths: ['/media/Shows'],
+					}),
+				)
+			).id;
+
+			exceptionId = (
+				await libraries.save(
+					libraries.create({
+						serviceId,
+						externalId: 'lib-films',
+						name: 'Films',
+						kind: LibraryKind.MOVIES,
+						paths: ['/media/Films'],
+						localPath: localRoot,
+						writable: true,
+					}),
+				)
+			).id;
+		});
+
+		it('stores both roots and reads them back', async () => {
+			const response = await patchService({ remoteRoot: '/media', localRoot }).expect(200);
+
+			expect(response.body as MediaService).toMatchObject({ remoteRoot: '/media', localRoot });
+		});
+
+		it('gives a library with no path of its own the one the mapping implies', async () => {
+			const library = await readLibrary(derivedId);
+
+			expect(library.localPath).toBe(join(localRoot, 'Shows'));
+			// Probed, not assumed: the directory exists, so this library really can
+			// receive transfers.
+			expect(library.writable).toBe(true);
+		});
+
+		it('leaves a path somebody typed for one library alone', async () => {
+			// That field is for the exceptions the mapping cannot express, and the
+			// mapping overwriting it would undo the fix at the next scan.
+			expect((await readLibrary(exceptionId)).localPath).toBe(localRoot);
+		});
+
+		it('says which paths it worked out and which somebody typed', async () => {
+			const response = await request(context.app.getHttpServer())
+				.get('/api/libraries/check')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+			const checks = response.body as LibraryCheck[];
+
+			expect(checks.find((check) => check.libraryId === derivedId)?.derived).toBe(true);
+			expect(checks.find((check) => check.libraryId === exceptionId)?.derived).toBe(false);
+		});
+
+		it('moves the derived paths when a root is corrected', async () => {
+			const moved = mkdtempSync(join(tmpdir(), 'mcs-roots-moved-'));
+
+			await patchService({ remoteRoot: '/media', localRoot: moved }).expect(200);
+
+			expect((await readLibrary(derivedId)).localPath).toBe(join(moved, 'Shows'));
+			// And the exception is still the exception.
+			expect((await readLibrary(exceptionId)).localPath).toBe(localRoot);
+		});
+
+		it('refuses half a mapping, which would derive nothing while looking configured', async () => {
+			const response = await authorised()
+				.send({
+					name: 'Half',
+					type: MediaServiceType.JELLYFIN,
+					scope: MediaServiceScope.LOCAL,
+					baseUrl: 'http://127.0.0.1:15',
+					remoteRoot: '/media',
+				})
+				.expect(400);
+
+			expect((response.body as { message: string[] }).message.join(' ')).toContain('localRoot');
+		});
+
+		it('refuses a relative root, which means a different directory in every process', async () => {
+			const response = await authorised()
+				.send({
+					name: 'Relative',
+					type: MediaServiceType.JELLYFIN,
+					scope: MediaServiceScope.LOCAL,
+					baseUrl: 'http://127.0.0.1:16',
+					remoteRoot: 'media',
+					localRoot: 'mnt/nas',
+				})
+				.expect(400);
+
+			expect((response.body as { message: string[] }).message.join(' ')).toContain('remoteRoot');
+		});
+
+		it('registers a service with no mapping at all, which is the ordinary case', async () => {
+			await authorised()
+				.send({
+					name: 'Unmapped',
+					type: MediaServiceType.JELLYFIN,
+					scope: MediaServiceScope.LOCAL,
+					baseUrl: 'http://127.0.0.1:17',
+				})
+				.expect(201);
+		});
 	});
 
 	it('answers 202 for a scan, because a full one takes minutes', async () => {

@@ -5,7 +5,9 @@ import type { LibraryCheck } from '@mcs/shared';
 import { LibraryRepository } from '@/repositories';
 import { runCommand } from './context';
 
-const checkPath = async (localPath: string | null): Promise<Omit<LibraryCheck, 'libraryId' | 'name' | 'localPath'>> => {
+const checkPath = async (
+	localPath: string | null,
+): Promise<Omit<LibraryCheck, 'libraryId' | 'name' | 'localPath' | 'derived'>> => {
 	if (localPath === null || localPath === '') {
 		return { exists: false, readable: false, writable: false, freeBytes: null, error: 'no local path' };
 	}
@@ -57,7 +59,13 @@ runCommand(async (app) => {
 		const result = await checkPath(library.localPath);
 		const state = result.error ?? `${result.readable ? 'r' : '-'}${result.writable ? 'w' : '-'}`;
 		const free = result.freeBytes === null ? '' : ` ${Math.round(result.freeBytes / 1024 ** 3)} GiB free`;
+		// Where the path came from, because the two are fixed in different places: a
+		// typed path is wrong on its own, a derived one is wrong for every library of
+		// the service at once and the mapping is what to correct.
+		const origin = library.localPathDerived ? ' (derived)' : '';
 
-		process.stdout.write(`${library.name}\t${library.localPath ?? '-'}\t${state}${free}\n`);
+		process.stdout.write(
+			`${library.name}\t${library.localPath ?? '-'}${origin}\t${state}${free}\n`,
+		);
 	}
 });

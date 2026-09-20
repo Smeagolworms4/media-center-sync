@@ -61,6 +61,16 @@ export interface LibraryCheck {
 	libraryId: string;
 	name: string;
 	localPath: string | null;
+	/**
+	 * Whether that path was typed for this library or worked out from the service's
+	 * root mapping.
+	 *
+	 * Stated because the two fail differently and are fixed in different places. A
+	 * typed path is wrong on its own; a derived one is wrong for every library of the
+	 * service at once, and somebody who cannot see which they are looking at will
+	 * correct the library six times instead of the mapping once.
+	 */
+	derived: boolean;
 	exists: boolean;
 	readable: boolean;
 	writable: boolean;

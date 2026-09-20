@@ -59,6 +59,22 @@ export class MediaService extends Timestampable {
 	@Column({ type: 'varchar', nullable: true })
 	public version!: string | null;
 
+	/**
+	 * The service's own root, and the same directory as this gateway reaches it.
+	 *
+	 * Stated once here so that every library under it derives its own local path,
+	 * instead of six libraries being six paths to type and six chances to get one
+	 * wrong. A library's explicit `localPath` still wins: that field exists for the
+	 * exceptions this mapping cannot express.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', length: 1024, nullable: true })
+	public remoteRoot!: string | null;
+
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', length: 1024, nullable: true })
+	public localRoot!: string | null;
+
 	/** Set when this service also authenticates users of the gateway. */
 	@ApiProperty()
 	@Column({ default: false })
