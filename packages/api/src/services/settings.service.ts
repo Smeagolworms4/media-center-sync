@@ -30,6 +30,9 @@ export const DEFAULT_SETTINGS: Settings = {
 	fixedPath: null,
 	naming: NamingScheme.SOURCE,
 	pullMetadata: true,
+	// Off: writing into somebody's library is not something to start doing unasked,
+	// and a household that curates its own documents would find them replaced by ours.
+	writeNfo: false,
 	preferSourceMetadata: false,
 	maxParallelTransfers: 3,
 	// Five gigabytes, which is roughly one film and comfortably more than the

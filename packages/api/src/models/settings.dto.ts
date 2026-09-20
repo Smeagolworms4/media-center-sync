@@ -32,6 +32,13 @@ export class UpdateSettingsDto {
 	@IsBoolean()
 	public pullMetadata?: boolean;
 
+	@ApiPropertyOptional({
+		description: 'Write an .nfo from what we know when the source sent none.',
+	})
+	@IsOptional()
+	@IsBoolean()
+	public writeNfo?: boolean;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsBoolean()

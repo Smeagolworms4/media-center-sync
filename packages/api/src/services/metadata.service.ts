@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { access, mkdir, readdir, stat } from 'node:fs/promises';
+import { access, mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -7,6 +7,7 @@ import { createReadStream } from 'node:fs';
 import type { Readable } from 'node:stream';
 import type { ExternalIds, Settings } from '@mcs/shared';
 import { Injectable, Logger } from '@nestjs/common';
+import { nfoNameFor, renderNfo, type NfoFacts } from './nfo';
 import { basename, stripExtension } from './title-normalizer';
 
 /** What the media servers read from beside a file. */
@@ -179,6 +180,72 @@ export class MetadataService {
 		}
 
 		return result;
+	}
+
+
+	/**
+	 * Write an `.nfo` of our own beside the placed file.
+	 *
+	 * Separate from `apply`, which only copies companions that exist. The case this
+	 * answers is the common one: a source holds rich metadata in its own database and
+	 * nothing on disk, so copying gives us the file and none of the facts, and the
+	 * local media server re-identifies the episode from its filename. That is how a
+	 * correctly named episode is filed under a different series of the same name.
+	 *
+	 * Never overwrites an existing document unless the settings say the source knows
+	 * better. Somebody's own corrected `.nfo` is work they did, and a sync that
+	 * silently replaces it is a sync they turn off. A source that copied its own
+	 * `.nfo` through `apply` has therefore already won, which is the right order: a
+	 * real document beats one we assembled.
+	 *
+	 * Returns the name written, or null when nothing was.
+	 */
+	public async writeNfo(
+		targetPath: string,
+		facts: NfoFacts,
+		settings: Settings,
+	): Promise<string | null> {
+		if (!settings.writeNfo) {
+			return null;
+		}
+
+		const name = nfoNameFor(facts.kind, basename(targetPath));
+		const document = name === null ? null : renderNfo(facts);
+
+		if (name === null || document === null) {
+			return null;
+		}
+
+		const destination = join(dirname(targetPath), name);
+
+		try {
+			const exists = await access(destination, constants.F_OK).then(
+				() => true,
+				() => false,
+			);
+
+			if (exists && !settings.preferSourceMetadata) {
+				return null;
+			}
+
+			await mkdir(dirname(destination), { recursive: true });
+
+			// Through a temporary name, like every other companion: an interrupted write
+			// must not leave a truncated document where a readable one used to be. A
+			// media server reads a half-written `.nfo` as authoritative and wrong.
+			const temporary = `${destination}.mcs-part`;
+
+			await writeFile(temporary, document, 'utf8');
+			await this._replace(temporary, destination);
+
+			return name;
+		} catch (error) {
+			// Logged and swallowed, like the companions: a transfer must not be lost
+			// over a metadata file.
+			this._logger.warn(`Could not write "${name}": ${String(error)}`);
+
+			return null;
+		}
 	}
 
 	/**

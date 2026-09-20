@@ -28,6 +28,21 @@ export interface Settings {
 	naming: NamingScheme;
 	/** Also copy artwork, subtitles and `.nfo` files alongside the media. */
 	pullMetadata: boolean;
+	/**
+	 * Write an `.nfo` ourselves from what we know, when the source did not send one.
+	 *
+	 * Distinct from `pullMetadata`, which only copies the companions that exist. A
+	 * source often has rich metadata in its own database and no `.nfo` on disk at all —
+	 * Plex keeps everything in its library, Jellyfin can be configured either way — so
+	 * copying gives us the file and none of the facts. The local media server then
+	 * re-identifies the episode from its filename, which is how a pull of a correctly
+	 * named episode ends up filed under the wrong series.
+	 *
+	 * Off by default: writing into somebody's library is not something to start doing
+	 * unasked, and a household that curates its own `.nfo` files would find them
+	 * replaced by ours.
+	 */
+	writeNfo: boolean;
 	/** Overwrite local metadata with the source's when it is richer. */
 	preferSourceMetadata: boolean;
 	/** How many transfers run at once. */

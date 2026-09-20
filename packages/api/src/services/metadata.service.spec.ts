@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import type { Settings } from '@mcs/shared';
+import { MediaKind, type Settings } from '@mcs/shared';
 import { MetadataService, type SidecarFile } from './metadata.service';
 import { DEFAULT_SETTINGS } from './settings.service';
 
@@ -196,4 +196,95 @@ describe('MetadataService', () => {
 			expect(service.mergeExternalIds(null, null, false)).toEqual({});
 		});
 	});
+
+	describe('writing a document of our own', () => {
+		const facts = {
+			kind: MediaKind.EPISODE,
+			title: 'Dulcinea',
+			year: 2015,
+			seasonNumber: 1,
+			episodeNumber: 1,
+			overview: null,
+			showTitle: 'The Expanse',
+			externalIds: { tvdb: '280619' },
+		};
+
+		it('writes nothing unless asked', async () => {
+			const media = join(target, 'Show - S01E01.mkv');
+
+			await writeFile(media, 'x');
+
+			expect(await service.writeNfo(media, facts, settings({ writeNfo: false }))).toBeNull();
+			await expect(readFile(join(target, 'Show - S01E01.nfo'), 'utf8')).rejects.toBeDefined();
+		});
+
+		it('names the document after the file, and carries the identifiers', async () => {
+			const media = join(target, 'Show - S01E01.mkv');
+
+			await writeFile(media, 'x');
+
+			expect(await service.writeNfo(media, facts, settings({ writeNfo: true })))
+				.toBe('Show - S01E01.nfo');
+
+			const document = await readFile(join(target, 'Show - S01E01.nfo'), 'utf8');
+
+			expect(document).toContain('<uniqueid type="tvdb" default="true">280619</uniqueid>');
+			expect(document).toContain('<showtitle>The Expanse</showtitle>');
+		});
+
+		it('keeps a document somebody already has', async () => {
+			// Their own corrected document is work they did, and a sync that replaces it
+			// silently is a sync they turn off.
+			const media = join(target, 'Show - S01E01.mkv');
+			const existing = join(target, 'Show - S01E01.nfo');
+
+			await writeFile(media, 'x');
+			await writeFile(existing, '<episodedetails><title>Mine</title></episodedetails>');
+
+			expect(await service.writeNfo(media, facts, settings({ writeNfo: true }))).toBeNull();
+			expect(await readFile(existing, 'utf8')).toContain('Mine');
+		});
+
+		it('replaces it when the source is declared to know better', async () => {
+			const media = join(target, 'Show - S01E01.mkv');
+			const existing = join(target, 'Show - S01E01.nfo');
+
+			await writeFile(media, 'x');
+			await writeFile(existing, '<episodedetails><title>Mine</title></episodedetails>');
+
+			expect(await service.writeNfo(
+				media,
+				facts,
+				settings({ writeNfo: true, preferSourceMetadata: true }),
+			)).toBe('Show - S01E01.nfo');
+			expect(await readFile(existing, 'utf8')).toContain('Dulcinea');
+		});
+
+		it('leaves no half-written document behind on a failure', async () => {
+			// A media server reads a truncated document as authoritative and wrong, so
+			// the write goes through a temporary name like every other companion.
+			const media = join(root, 'missing', 'Show - S01E01.mkv');
+
+			await expect(
+				service.writeNfo(media, facts, settings({ writeNfo: true })),
+			).resolves.toBe('Show - S01E01.nfo');
+
+			const listed = await readFile(join(root, 'missing', 'Show - S01E01.nfo'), 'utf8');
+
+			expect(listed).toContain('<episodedetails>');
+		});
+
+		it('writes nothing for a kind that has no document', async () => {
+			const media = join(target, 'Collection.mkv');
+
+			await writeFile(media, 'x');
+
+			expect(await service.writeNfo(
+				media,
+				{ ...facts, kind: MediaKind.COLLECTION },
+				settings({ writeNfo: true }),
+			)).toBeNull();
+		});
+	});
+
 });

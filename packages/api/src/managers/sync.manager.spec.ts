@@ -48,6 +48,7 @@ const SETTINGS: Settings = {
 	fixedPath: null,
 	naming: NamingScheme.SOURCE,
 	pullMetadata: false,
+	writeNfo: false,
 	preferSourceMetadata: false,
 	maxParallelTransfers: 3,
 	diskReserveBytes: 1_000_000,

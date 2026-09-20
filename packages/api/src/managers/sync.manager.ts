@@ -611,6 +611,37 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 * subtitle file, and the source directory is simply unreadable whenever the source
 	 * is a remote service — which is the normal case, not an error.
 	 */
+	/**
+	 * The series an episode belongs to, for the document written beside it.
+	 *
+	 * Walked from the parents rather than taken from the episode, which only knows its
+	 * own title. Without it the document names the episode twice and says nothing
+	 * about the show — and the show is exactly what a media server gets wrong when two
+	 * series share an episode title.
+	 *
+	 * Null for anything that is not an episode, and for an episode whose parents are
+	 * not recorded: a missing element is better than a wrong one.
+	 */
+	private async _seriesTitleOf(item: MediaItem): Promise<string | null> {
+		if (item.kind !== MediaKind.EPISODE) {
+			return null;
+		}
+
+		let current: MediaItem | null = item;
+
+		// Two hops at most — episode, season, series — and bounded anyway so a cycle in
+		// the parent chain cannot hang a transfer.
+		for (let hop = 0; hop < 4 && current?.parentId; hop += 1) {
+			current = await this._items.findOne({ where: { id: current.parentId } });
+
+			if (current?.kind === MediaKind.SERIES) {
+				return current.title;
+			}
+		}
+
+		return null;
+	}
+
 	private async _pullMetadata(planned: PlannedItem, settings: Settings): Promise<void> {
 		if (!settings.pullMetadata) {
 			return;
@@ -632,6 +663,29 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 						`${planned.title}: ${result.copied.length} companions copied, ${result.kept.length} kept`,
 					);
 				}
+			}
+
+			// After the companions, deliberately. A document the source actually had
+			// beats one we assembled from what we know, and `apply` has just had its
+			// chance to place it — writing first would mean ours was overwritten by
+			// theirs, or worse, kept in preference to a better one.
+			const written = await this._metadata.writeNfo(
+				planned.targetPath,
+				{
+					kind: source.kind,
+					title: source.title,
+					year: source.year,
+					seasonNumber: source.seasonNumber,
+					episodeNumber: source.episodeNumber,
+					overview: source.overview,
+					showTitle: await this._seriesTitleOf(source),
+					externalIds: (source.externalIds ?? {}) as Record<string, string>,
+				},
+				settings,
+			);
+
+			if (written !== null) {
+				this._logger.log(`${planned.title}: wrote ${written}`);
 			}
 
 			// Identifiers are additive: one library knows the TVDB number and the other
