@@ -1,4 +1,5 @@
 export * from './auth.manager';
+export * from './filesystem.manager';
 export * from './library.manager';
 export * from './mappers';
 export * from './media.manager';

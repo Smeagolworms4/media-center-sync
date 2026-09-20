@@ -44,6 +44,26 @@ export const ErrorKey = {
 
 	MEDIA_NOT_FOUND: 'error.media.not_found',
 
+	/**
+	 * The path asked for is outside every root this gateway allows browsing.
+	 *
+	 * A refusal, not an absence: the directory may very well exist, and saying so
+	 * would turn a read-only browser into a way of mapping the host's filesystem one
+	 * guess at a time. The containment is decided on the resolved path, so `..` and a
+	 * symlink land here exactly as a plainly foreign path does.
+	 */
+	FILESYSTEM_PATH_OUTSIDE_ROOT: 'error.filesystem.path_outside_root',
+	/** Inside the roots, and there is nothing there — a stale field, usually. */
+	FILESYSTEM_PATH_NOT_FOUND: 'error.filesystem.path_not_found',
+	/**
+	 * It is there, it is inside the roots, and this gateway cannot read it.
+	 *
+	 * Its own key because the fix is neither a typo nor a boundary: it is a permission
+	 * or a mount, and telling somebody their path is wrong when the directory is
+	 * perfectly right sends them to correct the one thing that was not broken.
+	 */
+	FILESYSTEM_PATH_UNREADABLE: 'error.filesystem.path_unreadable',
+
 	PEER_NOT_FOUND: 'error.peer.not_found',
 	PEER_INVITE_INVALID: 'error.peer.invite_invalid',
 	PEER_INVITE_EXPIRED: 'error.peer.invite_expired',

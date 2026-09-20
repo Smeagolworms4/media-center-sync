@@ -1,3 +1,4 @@
+import { ShareVisibility } from '@mcs/shared';
 import { serviceMode } from '@/services';
 import type { ServiceConnection } from '@/services';
 import type {
@@ -338,9 +339,22 @@ export const toPeer = (
 	updatedAt: peer.updatedAt.toISOString(),
 });
 
+/**
+ * A library's sharing, as a REST caller sees it.
+ *
+ * Built from the library rather than from the policy, because a library with no row
+ * is not absent from this answer — it is a library following the gateway default, and
+ * a screen that never receives it cannot show it, let alone change it.
+ *
+ * `visibility` is passed in already resolved (see `effectiveVisibility`) rather than
+ * read off the row: the row may not exist, and every caller that resolves it itself is
+ * a caller that can resolve it differently.
+ */
 export const toSharePolicy = (
-	policy: SharePolicy,
-	library: { name: string; serviceId: string } | null,
+	library: { id: string; name: string; serviceId: string },
+	/** The stored row, or null when nothing was ever written for this library. */
+	policy: SharePolicy | null,
+	visibility: ShareVisibility,
 	/**
 	 * Whether this library sits on a service of ours.
 	 *
@@ -350,19 +364,25 @@ export const toSharePolicy = (
 	 */
 	local = false,
 ): SharePolicyModel => ({
-	id: policy.id,
-	libraryId: policy.libraryId,
-	libraryName: library?.name ?? '',
-	serviceId: library?.serviceId ?? '',
-	visibility: policy.visibility,
-	allowedPeerIds: policy.allowedPeerIds,
-	deniedPeerIds: policy.deniedPeerIds,
-	rateLimit: bytes(policy.rateLimit),
+	// Empty when no row exists. Minting an identifier for something unwritten would
+	// hand a caller a handle to a row it cannot fetch and cannot delete, and the one
+	// honest thing to say about a policy nobody wrote is that it has no identity.
+	id: policy?.id ?? '',
+	libraryId: library.id,
+	libraryName: library.name,
+	serviceId: library.serviceId,
+	visibility,
+	overridden: policy !== null,
+	allowedPeerIds: policy?.allowedPeerIds ?? [],
+	deniedPeerIds: policy?.deniedPeerIds ?? [],
+	rateLimit: bytes(policy?.rateLimit),
 	relays: !local,
 	// Coalesced rather than passed through: a flag that is missing must never read as
 	// consent to pass somebody else's server on to our friends.
-	relay: policy.relay === true,
-	updatedAt: policy.updatedAt.toISOString(),
+	relay: policy?.relay === true,
+	// Empty for a library nobody has written a policy for, for the same reason as the
+	// identifier: a date would claim somebody decided this at a moment in time.
+	updatedAt: policy?.updatedAt.toISOString() ?? '',
 });
 
 /** The largest page the API will hand out, whatever a caller asks for. */

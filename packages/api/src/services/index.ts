@@ -3,6 +3,7 @@ export * from './cache.service';
 export * from './chunk-planner';
 export * from './companions';
 export * from './event-gateway.service';
+export * from './filesystem.service';
 export * from './fingerprint.service';
 export * from './handlers';
 export * from './library-path';
@@ -10,6 +11,7 @@ export * from './matching.service';
 export * from './media-override';
 export * from './metadata.service';
 export * from './naming.service';
+export * from './path-containment';
 export * from './peer-catalogue.service';
 export * from './peer-gateway.service';
 export * from './peer-link.service';
@@ -21,6 +23,7 @@ export * from './run-ceiling';
 export * from './scheduler.service';
 export * from './service-mode';
 export * from './settings.service';
+export * from './share-visibility';
 export * from './space';
 export * from './title-normalizer';
 export * from './transfer-engine.service';
@@ -30,6 +33,7 @@ export * from './version';
 
 import { CacheService } from './cache.service';
 import { EventGatewayService } from './event-gateway.service';
+import { FilesystemService } from './filesystem.service';
 import { FingerprintService } from './fingerprint.service';
 import { MEDIA_HANDLER_PROVIDERS } from './handlers';
 import { MatchingService } from './matching.service';
@@ -63,6 +67,7 @@ export const SERVICE_PROVIDERS = [
 	EventGatewayService,
 	SchedulerService,
 	FingerprintService,
+	FilesystemService,
 	QualityService,
 	MatchingService,
 	NamingService,

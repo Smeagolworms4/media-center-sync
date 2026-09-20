@@ -7,8 +7,14 @@ import { Timestampable } from './timestampable.entity';
  * What one library exposes to peers.
  *
  * Per library rather than per service: somebody may want their series visible and
- * their home videos not, and both live on the same Jellyfin. The absence of a row
- * means private — a library is never shared by having been forgotten.
+ * their home videos not, and both live on the same Jellyfin.
+ *
+ * A row here is an **override**, and only libraries somebody has decided about have
+ * one. What a library with no row exposes is resolved at read time by
+ * `effectiveVisibility` — the gateway default on one of our own services, private on
+ * anything else. Nothing backfills these rows when a scan finds a library, on purpose:
+ * a row written by the software would freeze today's default into the library for good
+ * and be indistinguishable from a decision somebody made.
  */
 @Entity('share_policies')
 export class SharePolicy extends Timestampable {

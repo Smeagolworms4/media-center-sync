@@ -1,33 +1,62 @@
 import {
 	ErrorKey,
-	MediaServiceScope,
+	MediaServiceMode,
 	ShareVisibility,
 	type ShareAudit,
 	type SharePolicy,
 	type UpdateSharePolicyRequest,
 } from '@mcs/shared';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { In } from 'typeorm';
-import type { Library as LibraryEntity, Peer as PeerEntity } from '@/entities';
+import type {
+	Library as LibraryEntity,
+	Peer as PeerEntity,
+	SharePolicy as SharePolicyEntity,
+} from '@/entities';
 import {
 	LibraryRepository,
 	MediaServiceRepository,
 	PeerRepository,
 	SharePolicyRepository,
 } from '@/repositories';
-import { PeerCatalogueService, type CataloguePolicy } from '@/services';
+import {
+	PeerCatalogueService,
+	SettingsService,
+	effectiveVisibility,
+	serviceMode,
+	type CataloguePolicy,
+} from '@/services';
 import { toSharePolicy } from './mappers';
+
+/** One library, its stored policy if it has one, and what the two resolve to. */
+interface ResolvedShare {
+	library: LibraryEntity;
+	stored: SharePolicyEntity | null;
+	/** Whether the service this library sits on is one of ours to give. */
+	local: boolean;
+	policy: CataloguePolicy;
+}
 
 /**
  * Who sees what.
  *
  * One rule runs through every method and is the reason this manager exists as
- * something other than a wrapper around a table: **the absence of a policy means
- * private**. Not "unconfigured", not "inherits from the service" — private. A library
- * is never shared by having been forgotten, which is the only safe default for a
- * mechanism that exposes somebody's files to another household. Every read here
- * therefore starts from the policies that exist and never from the libraries, so a
- * library with no row cannot appear in an answer at all.
+ * something other than a wrapper around a table: **the absence of a policy is not a
+ * state, it is a question, and `effectiveVisibility` answers it**. A library of ours
+ * with no row follows the gateway's `defaultShareVisibility`; a library on anything
+ * else — a Jellyfin we merely have an account on, a peer's gateway — stays private
+ * whatever that setting says, because sharing it would make us the conduit for
+ * somebody else's disk and a default is not the consent that takes.
+ *
+ * Every read here therefore starts from the **libraries** and never from the policy
+ * rows. Starting from the rows is what the previous version did, and it is precisely
+ * why a fresh gateway shared nothing at all while its setting said
+ * `friends_of_friends`: nothing writes a policy when a scan discovers a library, so
+ * there were no rows to start from and every library was read as private.
+ *
+ * Nothing backfills those rows, deliberately. Writing the default into every library
+ * would freeze the answer at install time — changing the setting afterwards would move
+ * nothing — and would switch sharing on for data somebody already has. Resolved late,
+ * the default moves everything nobody has overridden, and an explicit row always wins.
  */
 @Injectable()
 export class ShareManager {
@@ -37,26 +66,23 @@ export class ShareManager {
 		private readonly _peers: PeerRepository,
 		private readonly _catalogue: PeerCatalogueService,
 		private readonly _services: MediaServiceRepository,
+		private readonly _settings: SettingsService,
 	) {}
 
+	/**
+	 * Every library and what it exposes, whether or not anybody has said so.
+	 *
+	 * A library with no row is in this answer, marked as following the default. Leaving
+	 * it out is what left the shares screen empty on a gateway that was in fact sharing
+	 * its libraries — and a screen that cannot list a library cannot be used to change
+	 * it either.
+	 */
 	public async list(): Promise<SharePolicy[]> {
-		const policies = await this._policies.find();
-		const libraries = await this._librariesOf(policies.map((policy) => policy.libraryId));
-		// Read once for the whole page rather than per row, and passed through: the
-		// mapper treats an unstated scope as remote, so a list that left it out reported
-		// every policy as making us a relay — including our own libraries, which makes
-		// the flag say nothing on the one screen that shows them side by side.
-		const localServices = await this._localServiceIds();
+		const resolved = await this._resolve();
 
-		return policies.map((policy) => {
-			const library = libraries.get(policy.libraryId) ?? null;
-
-			return toSharePolicy(
-				policy,
-				library,
-				library !== null && localServices.has(library.serviceId),
-			);
-		});
+		return resolved.map((share) =>
+			toSharePolicy(share.library, share.stored, share.policy.visibility, share.local),
+		);
 	}
 
 	/**
@@ -74,13 +100,23 @@ export class ShareManager {
 		}
 
 		const existing = await this._policies.findByLibrary(libraryId);
+		const local = await this._isLocal(library.serviceId);
+		const settings = await this._settings.get();
 		const policy =
 			existing ??
 			this._policies.create({
 				libraryId,
-				// A policy created by a request that said nothing about visibility is
-				// still private. The row's existence is not consent.
-				visibility: ShareVisibility.PRIVATE,
+				/*
+				 * A row created by a request that said nothing about visibility takes the
+				 * answer the library had a moment ago, rather than private.
+				 *
+				 * Writing private here would make setting a rate limit on a library that
+				 * was following the default silently stop sharing it: the row now exists,
+				 * so the default no longer reaches it, and nothing on the screen said
+				 * that was the trade. Seeding it with what was already in force makes a
+				 * partial write change exactly the fields it names.
+				 */
+				visibility: effectiveVisibility({ library, policy: null, local, settings }),
 				allowedPeerIds: [],
 				deniedPeerIds: [],
 				rateLimit: 0,
@@ -92,8 +128,6 @@ export class ShareManager {
 		policy.deniedPeerIds = patch.deniedPeerIds ?? policy.deniedPeerIds;
 		policy.rateLimit = patch.rateLimit ?? policy.rateLimit;
 		policy.relay = patch.relay ?? policy.relay ?? false;
-
-		const local = await this._isLocal(library.serviceId);
 
 		/*
 		 * A library that is not ours stays private until somebody says otherwise.
@@ -111,16 +145,23 @@ export class ShareManager {
 
 		const saved = await this._policies.save(policy);
 
-		return toSharePolicy(saved, { name: library.name, serviceId: library.serviceId }, local);
+		return toSharePolicy(library, saved, saved.visibility, local);
 	}
 
-	/** The services whose libraries are ours to give rather than ours to pass on. */
+	/**
+	 * The services whose libraries are ours to give rather than ours to pass on.
+	 *
+	 * Read through `serviceMode` rather than off the scope column, because a service
+	 * reached through a peer carries whatever scope it was registered with while still
+	 * being somebody else's machine. Reading the column alone would let a peer's library
+	 * inherit our default and re-share a friend's disk to their friends.
+	 */
 	private async _localServiceIds(): Promise<Set<string>> {
 		const services = await this._services.find();
 
 		return new Set(
 			services
-				.filter((service) => service.scope === MediaServiceScope.LOCAL)
+				.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
 				.map((service) => service.id),
 		);
 	}
@@ -130,10 +171,13 @@ export class ShareManager {
 	}
 
 	/**
-	 * Delete the policy, which makes the library private again.
+	 * Delete the policy, which hands the library back to the gateway default.
 	 *
-	 * The same thing as never having shared it, which is why deleting is a complete
-	 * answer and no "private" row has to be left behind.
+	 * Not the same thing as making it private any more: on one of our own services the
+	 * default takes over, which is usually a level of sharing rather than none. Somebody
+	 * who means private for this library alone writes `private` on it — that is an
+	 * override, it survives a change of the default, and it is a different intention
+	 * from "stop deciding about this one".
 	 */
 	public async remove(libraryId: string): Promise<void> {
 		await this._policies.deleteForLibrary(libraryId);
@@ -144,16 +188,16 @@ export class ShareManager {
 	 *
 	 * The question people actually ask before saving, and the only way to answer it
 	 * honestly is to run the same visibility test the peer-facing routes run — not a
-	 * summary of the settings, which is where the two would drift apart.
+	 * summary of the settings, which is where the two would drift apart. That includes
+	 * the libraries nobody has configured: they are most of a fresh gateway, and an
+	 * audit that skipped them would answer "nothing" about a gateway that is sharing.
 	 */
 	public async audit(peerId: string): Promise<ShareAudit> {
 		const peer = await this._requirePeer(peerId);
-		const policies = await this._policies.find();
-		const libraries = await this._librariesOf(policies.map((policy) => policy.libraryId));
-		const localServices = await this._localServiceIds();
+		const resolved = await this._resolve();
 
-		const visible = policies.filter((policy) =>
-			this._catalogue.isVisible(this._asCataloguePolicy(policy), {
+		const visible = resolved.filter((share) =>
+			this._catalogue.isVisible(share.policy, {
 				id: peer.id,
 				name: peer.name,
 				trust: peer.trust,
@@ -165,23 +209,23 @@ export class ShareManager {
 			peerId: peer.id,
 			peerName: peer.name,
 			trust: peer.trust,
-			libraries: visible.map((policy) => ({
-				libraryId: policy.libraryId,
-				name: libraries.get(policy.libraryId)?.name ?? '',
-				itemCount: libraries.get(policy.libraryId)?.itemCount ?? 0,
+			libraries: visible.map((share) => ({
+				libraryId: share.library.id,
+				name: share.library.name,
+				itemCount: share.library.itemCount,
 				// Worth saying plainly in an audit: this one costs us, and hands on an
 				// access somebody gave to us rather than to them.
-				throughUs: !localServices.has(libraries.get(policy.libraryId)?.serviceId ?? ''),
+				throughUs: !share.local,
 			})),
 		};
 	}
 
 	/** The policies a peer may see, already filtered. Used by the peer-facing routes. */
 	public async visiblePolicies(peer: PeerEntity): Promise<CataloguePolicy[]> {
-		const policies = await this._policies.find();
+		const resolved = await this._resolve();
 
-		return policies
-			.map((policy) => this._asCataloguePolicy(policy))
+		return resolved
+			.map((share) => share.policy)
 			.filter((policy) =>
 				this._catalogue.isVisible(policy, {
 					id: peer.id,
@@ -192,40 +236,63 @@ export class ShareManager {
 			);
 	}
 
-	private _asCataloguePolicy(policy: {
-		libraryId: string;
-		visibility: ShareVisibility;
-		allowedPeerIds: string[];
-		deniedPeerIds: string[];
-		rateLimit?: number | string | null;
-	}): CataloguePolicy {
+	/**
+	 * Every library, with the gateway default already applied to the ones nobody set.
+	 *
+	 * The single place the rule is read, so a caller cannot accidentally decide it a
+	 * second way. Everything else in this manager — the list, the audit, what the peer
+	 * routes are handed — starts here.
+	 */
+	private async _resolve(): Promise<ResolvedShare[]> {
+		const libraries = await this._libraries.find();
+
+		if (libraries.length === 0) {
+			return [];
+		}
+
+		const rows = await this._policies.find();
+		const stored = new Map(rows.map((row) => [row.libraryId, row]));
+		const localServices = await this._localServiceIds();
+		const settings = await this._settings.get();
+
+		return libraries.map((library) => {
+			const policy = stored.get(library.id) ?? null;
+			const local = localServices.has(library.serviceId);
+
+			return {
+				library,
+				stored: policy,
+				local,
+				policy: this._asCataloguePolicy(
+					library.id,
+					policy,
+					effectiveVisibility({ library, policy, local, settings }),
+				),
+			};
+		});
+	}
+
+	private _asCataloguePolicy(
+		libraryId: string,
+		policy: {
+			allowedPeerIds: string[];
+			deniedPeerIds: string[];
+			rateLimit?: number | string | null;
+		} | null,
+		visibility: ShareVisibility,
+	): CataloguePolicy {
 		return {
-			libraryId: policy.libraryId,
-			visibility: policy.visibility,
-			allowedPeerIds: policy.allowedPeerIds,
-			deniedPeerIds: policy.deniedPeerIds,
+			libraryId,
+			visibility,
+			// A library nobody configured allows and denies nobody in particular: the
+			// lists are exceptions to the rule above, and there is no row to hold them.
+			allowedPeerIds: policy?.allowedPeerIds ?? [],
+			deniedPeerIds: policy?.deniedPeerIds ?? [],
 			// Stored as a bigint, which the driver hands back as a string on one engine
 			// and a number on the other. Zero is the honest fallback for both, and it
 			// means no cap of this library's own.
-			rateLimit: Number(policy.rateLimit ?? 0) || 0,
+			rateLimit: Number(policy?.rateLimit ?? 0) || 0,
 		};
-	}
-
-	private async _librariesOf(
-		ids: string[],
-	): Promise<Map<string, { name: string; serviceId: string; itemCount: number }>> {
-		if (ids.length === 0) {
-			return new Map();
-		}
-
-		const libraries = await this._libraries.find({ where: { id: In(ids) } });
-
-		return new Map(
-			libraries.map((library: LibraryEntity) => [
-				library.id,
-				{ name: library.name, serviceId: library.serviceId, itemCount: library.itemCount },
-			]),
-		);
 	}
 
 	private async _requirePeer(id: string): Promise<PeerEntity> {

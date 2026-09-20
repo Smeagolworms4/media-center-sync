@@ -6,7 +6,7 @@ import type {
 	PeerRepository,
 	SharePolicyRepository,
 } from '@/repositories';
-import { PeerCatalogueService } from '@/services';
+import { PeerCatalogueService, type SettingsService } from '@/services';
 import { ShareManager } from './share.manager';
 
 interface Fakes {
@@ -20,6 +20,7 @@ interface Fakes {
 	libraries: { find: jest.Mock; findOne: jest.Mock };
 	peers: { findOne: jest.Mock };
 	services: { find: jest.Mock };
+	settings: { get: jest.Mock };
 }
 
 const library = (overrides: Partial<Library> = {}): Library =>
@@ -68,7 +69,14 @@ const build = (): { manager: ShareManager; fakes: Fakes } => {
 		},
 		peers: { findOne: jest.fn().mockResolvedValue(peer()) },
 		services: {
-			find: jest.fn().mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.LOCAL }]),
+			find: jest.fn().mockResolvedValue([
+				{ id: 'service-1', scope: MediaServiceScope.LOCAL, peerId: null },
+			]),
+		},
+		settings: {
+			get: jest.fn().mockResolvedValue({
+				defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
+			}),
 		},
 	};
 
@@ -81,6 +89,7 @@ const build = (): { manager: ShareManager; fakes: Fakes } => {
 		fakes.peers as unknown as PeerRepository,
 		new PeerCatalogueService({} as never),
 		fakes.services as unknown as MediaServiceRepository,
+		fakes.settings as unknown as SettingsService,
 	);
 
 	return { manager, fakes };

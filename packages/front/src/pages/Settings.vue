@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import { DEFAULT_PEER_MAX_DEPTH, MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy } from '@mcs/shared';
-	import { computed, onMounted, reactive, ref } from 'vue';
+	import { computed, onMounted, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import CronHint from '@/components/common/CronHint.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -232,6 +232,57 @@
 		title: t(`settings.naming_value.${value}`),
 	})));
 	const namingHelp = computed(() => t(`settings.naming_help.${model.naming}`));
+	/**
+	 * The page in tabs, and which fields each one holds.
+	 *
+	 * The map is not decoration. One form saves every setting at once, so a field the
+	 * API refuses can sit on a tab nobody is looking at: the screen would report
+	 * "these settings were refused", show no error anywhere visible, and leave the
+	 * person clicking save again. The tab carrying a refused field is marked, and the
+	 * first one is opened.
+	 */
+	const TABS = [
+		{ key: 'placement', fields: ['placement', 'fixedPath', 'naming', 'defaultTargetPath'] },
+		{ key: 'gateway', fields: ['instanceName', 'publicUrl', 'peerAddress', 'rendezvousUrl'] },
+		{
+			key: 'transfers',
+			fields: [
+				'maxParallelTransfers',
+				'maxConnectionsPerSource',
+				'chunkSize',
+				'downloadRateLimit',
+				'uploadRateLimit',
+				'diskReserveBytes',
+				'transferHistoryDays',
+			],
+		},
+		{ key: 'categories', fields: [] },
+		{ key: 'peers', fields: ['peerMaxDepth', 'allowSwarm', 'defaultShareVisibility'] },
+		{ key: 'index', fields: ['refreshIntervalMinutes', 'cacheTtlSeconds', 'fullScanCron', 'matchThreshold'] },
+	] as const;
+
+	type TabKey = (typeof TABS)[number]['key'];
+
+	const tab = ref<TabKey>(TABS[0].key);
+
+	const tabsInError = computed(() => {
+		const refused = new Set(Object.keys(form.fieldErrors ?? {}));
+
+		return new Set(
+			TABS.filter(one => one.fields.some(field => refused.has(field))).map(one => one.key),
+		);
+	});
+
+	// Opened on the first tab that carries a refusal, because the person pressed save
+	// and is owed the reason rather than a red dot to go hunting for.
+	watch(tabsInError, refused => {
+		const first = TABS.find(one => refused.has(one.key));
+
+		if (first && !refused.has(tab.value)) {
+			tab.value = first.key;
+		}
+	});
+
 </script>
 
 <template>
@@ -246,340 +297,391 @@
 		<ErrorState v-if="failed" @retry="load" />
 
 		<v-form v-else v-form="form" data-test="settings-form">
-			<v-card class="settings_card">
-				<v-card-title class="text-subtitle-1">{{ $t('settings.group.placement') }}</v-card-title>
-
-				<v-card-text>
-					<v-select
-						v-model="model.placement"
-						data-test="settings-placement"
-						:hint="placementHelp"
-						item-title="title"
-						item-value="value"
-						:items="placementItems"
-						:label="$t('settings.placement')"
-						persistent-hint
-					/>
-
-					<v-text-field
-						v-if="fixedPathNeeded"
-						v-model="model.fixedPath"
-						v-bind="form.field('fixedPath')"
-						data-test="settings-fixed-path"
-						:hint="$t('settings.fixed_path_help')"
-						:label="$t('settings.fixed_path')"
-						persistent-hint
-					/>
-
-					<v-select
-						v-model="model.naming"
-						class="mt-4"
-						data-test="settings-naming"
-						:hint="namingHelp"
-						item-title="title"
-						item-value="value"
-						:items="namingItems"
-						:label="$t('settings.naming')"
-						persistent-hint
-					/>
-
-					<v-switch
-						v-model="model.pullMetadata"
-						color="primary"
-						density="compact"
-						hide-details
-						:label="$t('settings.pull_metadata')"
-					/>
-
-					<p class="text-caption text-medium-emphasis">{{ $t('settings.pull_metadata_help') }}</p>
-
-					<v-switch
-						v-model="model.preferSourceMetadata"
-						color="primary"
-						density="compact"
-						hide-details
-						:label="$t('settings.prefer_source_metadata')"
-					/>
-
-					<p class="text-caption text-medium-emphasis mb-0">
-						{{ $t('settings.prefer_source_metadata_help') }}
-					</p>
-				</v-card-text>
-			</v-card>
-
-			<v-card class="settings_card mt-4">
-				<v-card-title class="text-subtitle-1">{{ $t('settings.group.gateway') }}</v-card-title>
-
-				<v-card-text>
-					<v-text-field
-						v-model="model.instanceName"
-						v-bind="form.field('instanceName')"
-						data-test="settings-instance-name"
-						:hint="$t('settings.instance_name_help')"
-						:label="$t('settings.instance_name')"
-						persistent-hint
-						:placeholder="$t('settings.instance_name_placeholder')"
-					/>
-
-					<v-text-field
-						v-model="model.publicUrl"
-						class="mt-4"
-						v-bind="form.field('publicUrl')"
-						data-test="settings-public-url"
-						:hint="$t('settings.public_url_help')"
-						:label="$t('settings.public_url')"
-						persistent-hint
-						placeholder="https://mcs.example.org"
-					/>
+			<v-tabs v-model="tab" class="settings_tabs" data-test="settings-tabs">
+				<v-tab
+					v-for="one of TABS"
+					:key="one.key"
+					:data-test="`settings-tab-${one.key}`"
+					:value="one.key"
+				>
+					{{ $t(`settings.group.${one.key}`) }}
 
 					<!--
+						One form saves every setting at once, so a refused field can sit on a
+						tab nobody is looking at. Without this the screen says the settings
+						were refused, shows nothing anywhere visible, and the person presses
+						save again.
+					-->
+					<v-icon
+						v-if="tabsInError.has(one.key)"
+						class="ml-1"
+						color="error"
+						data-test="settings-tab-error"
+						icon="mdi-alert-circle"
+						size="x-small"
+					/>
+				</v-tab>
+			</v-tabs>
+
+			<!--
+				`eager` on every pane, deliberately. An unmounted field is a field the form
+				does not validate and does not submit: switching tabs would silently drop
+				whatever had been typed on the ones not visited.
+			-->
+			<v-window v-model="tab" class="settings_window">
+				<v-window-item eager value="placement">
+					<v-card class="settings_card">
+						<v-card-title class="text-subtitle-1">{{ $t('settings.group.placement') }}</v-card-title>
+
+						<v-card-text>
+							<v-select
+								v-model="model.placement"
+								data-test="settings-placement"
+								:hint="placementHelp"
+								item-title="title"
+								item-value="value"
+								:items="placementItems"
+								:label="$t('settings.placement')"
+								persistent-hint
+							/>
+
+							<v-text-field
+								v-if="fixedPathNeeded"
+								v-model="model.fixedPath"
+								v-bind="form.field('fixedPath')"
+								data-test="settings-fixed-path"
+								:hint="$t('settings.fixed_path_help')"
+								:label="$t('settings.fixed_path')"
+								persistent-hint
+							/>
+
+							<v-select
+								v-model="model.naming"
+								class="mt-4"
+								data-test="settings-naming"
+								:hint="namingHelp"
+								item-title="title"
+								item-value="value"
+								:items="namingItems"
+								:label="$t('settings.naming')"
+								persistent-hint
+							/>
+
+							<v-switch
+								v-model="model.pullMetadata"
+								color="primary"
+								density="compact"
+								hide-details
+								:label="$t('settings.pull_metadata')"
+							/>
+
+							<p class="text-caption text-medium-emphasis">{{ $t('settings.pull_metadata_help') }}</p>
+
+							<v-switch
+								v-model="model.preferSourceMetadata"
+								color="primary"
+								density="compact"
+								hide-details
+								:label="$t('settings.prefer_source_metadata')"
+							/>
+
+							<p class="text-caption text-medium-emphasis mb-0">
+								{{ $t('settings.prefer_source_metadata_help') }}
+							</p>
+						</v-card-text>
+					</v-card>
+
+				</v-window-item>
+
+				<v-window-item eager value="gateway">
+					<v-card class="settings_card">
+						<v-card-title class="text-subtitle-1">{{ $t('settings.group.gateway') }}</v-card-title>
+
+						<v-card-text>
+							<v-text-field
+								v-model="model.instanceName"
+								v-bind="form.field('instanceName')"
+								data-test="settings-instance-name"
+								:hint="$t('settings.instance_name_help')"
+								:label="$t('settings.instance_name')"
+								persistent-hint
+								:placeholder="$t('settings.instance_name_placeholder')"
+							/>
+
+							<v-text-field
+								v-model="model.publicUrl"
+								class="mt-4"
+								v-bind="form.field('publicUrl')"
+								data-test="settings-public-url"
+								:hint="$t('settings.public_url_help')"
+								:label="$t('settings.public_url')"
+								persistent-hint
+								placeholder="https://mcs.example.org"
+							/>
+
+							<!--
 						Where the value in the box came from, said out loud. Without it the
 						suggestion reads as something the gateway already knew about itself,
 						and nobody checks a fact they were never told was a guess.
 					-->
-					<p
-						v-if="publicUrlSuggested"
-						class="text-caption text-medium-emphasis mt-1 mb-0"
-						data-test="settings-public-url-suggested"
-					>
-						{{ $t('settings.public_url_suggested', { origin: browserOrigin }) }}
-					</p>
+							<p
+								v-if="publicUrlSuggested"
+								class="text-caption text-medium-emphasis mt-1 mb-0"
+								data-test="settings-public-url-suggested"
+							>
+								{{ $t('settings.public_url_suggested', { origin: browserOrigin }) }}
+							</p>
 
-					<v-text-field
-						v-model="model.peerAddress"
-						v-bind="form.field('peerAddress')"
-						class="mt-4"
-						data-test="settings-peer-address"
-						:hint="$t('settings.peer_address_help')"
-						:label="$t('settings.peer_address')"
-						persistent-hint
-						placeholder="mcs.example.org:4210"
-					/>
-
-					<v-text-field
-						v-model="model.defaultTargetPath"
-						v-bind="form.field('defaultTargetPath')"
-						class="mt-4"
-						data-test="settings-default-target"
-						:hint="$t('settings.default_target_help')"
-						:label="$t('settings.default_target')"
-						persistent-hint
-						placeholder="/media/incoming"
-					/>
-				</v-card-text>
-			</v-card>
-
-			<v-card class="settings_card mt-4">
-				<v-card-title class="text-subtitle-1">{{ $t('settings.group.transfers') }}</v-card-title>
-
-				<v-card-text>
-					<v-row density="compact">
-						<v-col cols="12" sm="6">
 							<v-text-field
-								v-model.number="model.maxParallelTransfers"
-								v-bind="form.field('maxParallelTransfers')"
-								data-test="settings-parallel"
-								:hint="$t('settings.max_parallel_help')"
-								:label="$t('settings.max_parallel')"
+								v-model="model.peerAddress"
+								v-bind="form.field('peerAddress')"
+								class="mt-4"
+								data-test="settings-peer-address"
+								:hint="$t('settings.peer_address_help')"
+								:label="$t('settings.peer_address')"
 								persistent-hint
-								type="number"
+								placeholder="mcs.example.org:4210"
 							/>
-						</v-col>
 
-						<v-col cols="12" sm="6">
 							<v-text-field
-								v-model.number="model.maxConnectionsPerSource"
-								v-bind="form.field('maxConnectionsPerSource')"
-								:hint="$t('settings.max_connections_help')"
-								:label="$t('settings.max_connections')"
+								v-model="model.defaultTargetPath"
+								v-bind="form.field('defaultTargetPath')"
+								class="mt-4"
+								data-test="settings-default-target"
+								:hint="$t('settings.default_target_help')"
+								:label="$t('settings.default_target')"
 								persistent-hint
-								type="number"
+								placeholder="/media/incoming"
 							/>
-						</v-col>
+						</v-card-text>
+					</v-card>
 
-						<v-col cols="12" sm="4">
-							<v-text-field
-								v-model="model.chunkSize"
-								v-bind="form.field('chunkSize')"
-								:hint="$t('settings.chunk_size_help')"
-								:label="$t('settings.chunk_size')"
-								persistent-hint
-							/>
-						</v-col>
+				</v-window-item>
 
-						<v-col cols="12" sm="4">
-							<v-text-field
-								v-model="model.downloadRateLimit"
-								v-bind="form.field('downloadRateLimit')"
-								data-test="settings-download-rate"
-								:hint="$t('settings.rate_limit_help')"
-								:label="$t('settings.download_rate_limit')"
-								persistent-hint
-							/>
-						</v-col>
+				<v-window-item eager value="transfers">
+					<v-card class="settings_card">
+						<v-card-title class="text-subtitle-1">{{ $t('settings.group.transfers') }}</v-card-title>
 
-						<v-col cols="12" sm="4">
-							<v-text-field
-								v-model="model.uploadRateLimit"
-								v-bind="form.field('uploadRateLimit')"
-								data-test="settings-upload-rate"
-								:hint="$t('settings.upload_rate_limit_help')"
-								:label="$t('settings.upload_rate_limit')"
-								persistent-hint
-							/>
-						</v-col>
+						<v-card-text>
+							<v-row density="compact">
+								<v-col cols="12" sm="6">
+									<v-text-field
+										v-model.number="model.maxParallelTransfers"
+										v-bind="form.field('maxParallelTransfers')"
+										data-test="settings-parallel"
+										:hint="$t('settings.max_parallel_help')"
+										:label="$t('settings.max_parallel')"
+										persistent-hint
+										type="number"
+									/>
+								</v-col>
 
-						<v-col cols="12">
-							<!--
+								<v-col cols="12" sm="6">
+									<v-text-field
+										v-model.number="model.maxConnectionsPerSource"
+										v-bind="form.field('maxConnectionsPerSource')"
+										:hint="$t('settings.max_connections_help')"
+										:label="$t('settings.max_connections')"
+										persistent-hint
+										type="number"
+									/>
+								</v-col>
+
+								<v-col cols="12" sm="4">
+									<v-text-field
+										v-model="model.chunkSize"
+										v-bind="form.field('chunkSize')"
+										:hint="$t('settings.chunk_size_help')"
+										:label="$t('settings.chunk_size')"
+										persistent-hint
+									/>
+								</v-col>
+
+								<v-col cols="12" sm="4">
+									<v-text-field
+										v-model="model.downloadRateLimit"
+										v-bind="form.field('downloadRateLimit')"
+										data-test="settings-download-rate"
+										:hint="$t('settings.rate_limit_help')"
+										:label="$t('settings.download_rate_limit')"
+										persistent-hint
+									/>
+								</v-col>
+
+								<v-col cols="12" sm="4">
+									<v-text-field
+										v-model="model.uploadRateLimit"
+										v-bind="form.field('uploadRateLimit')"
+										data-test="settings-upload-rate"
+										:hint="$t('settings.upload_rate_limit_help')"
+										:label="$t('settings.upload_rate_limit')"
+										persistent-hint
+									/>
+								</v-col>
+
+								<v-col cols="12">
+									<!--
 								What is in force, not what is in the box above: the caps that
 								throttle this gateway are set on two screens, and the one
 								somebody is not looking at is the one that surprises them.
 							-->
-							<ShareRateSummary
-								class="settings_rates"
-								:policies="sharesStore.policies"
-								:upload-rate-limit="settingsStore.settings?.uploadRateLimit ?? 0"
-							/>
-						</v-col>
+									<ShareRateSummary
+										class="settings_rates"
+										:policies="sharesStore.policies"
+										:upload-rate-limit="settingsStore.settings?.uploadRateLimit ?? 0"
+									/>
+								</v-col>
 
-						<v-col cols="12" sm="6">
+								<v-col cols="12" sm="6">
+									<v-text-field
+										v-model.number="model.transferHistoryDays"
+										v-bind="form.field('transferHistoryDays')"
+										:hint="$t('settings.history_days_help')"
+										:label="$t('settings.history_days')"
+										persistent-hint
+										type="number"
+									/>
+								</v-col>
+							</v-row>
+						</v-card-text>
+					</v-card>
+
+				</v-window-item>
+
+				<v-window-item eager value="categories">
+					<v-card class="settings_card">
+						<v-card-title class="text-subtitle-1">{{ $t('settings.group.categories') }}</v-card-title>
+
+						<v-card-text>
+							<p class="text-body-2 text-medium-emphasis">{{ $t('settings.categories_help') }}</p>
+
+							<CategoryList
+								:categories="librariesStore.orderedCategories"
+								:loading="loading"
+							/>
+
+							<v-btn
+								class="mt-2"
+								data-test="settings-categories-services"
+								prepend-icon="mdi-server-network"
+								size="small"
+								:to="{ name: 'services' }"
+								variant="text"
+							>
+								{{ $t('settings.categories_edit') }}
+							</v-btn>
+						</v-card-text>
+					</v-card>
+
+				</v-window-item>
+
+				<v-window-item eager value="peers">
+					<v-card class="settings_card">
+						<v-card-title class="text-subtitle-1">{{ $t('settings.group.peers') }}</v-card-title>
+
+						<v-card-text>
 							<v-text-field
-								v-model.number="model.transferHistoryDays"
-								v-bind="form.field('transferHistoryDays')"
-								:hint="$t('settings.history_days_help')"
-								:label="$t('settings.history_days')"
+								v-model.number="model.peerMaxDepth"
+								v-bind="form.field('peerMaxDepth')"
+								data-test="settings-peer-depth"
+								:disabled="peerDepthPinned"
+								:hint="peerDepthPinned
+									? $t('settings.peer_max_depth_pinned')
+									: $t('settings.peer_max_depth_help')"
+								:label="$t('settings.peer_max_depth')"
+								:max="MAX_PEER_MAX_DEPTH"
+								min="1"
 								persistent-hint
 								type="number"
 							/>
-						</v-col>
-					</v-row>
-				</v-card-text>
-			</v-card>
 
-			<v-card class="settings_card mt-4">
-				<v-card-title class="text-subtitle-1">{{ $t('settings.group.categories') }}</v-card-title>
+							<p class="text-caption text-medium-emphasis mt-2">
+								{{ $t('settings.peer_max_depth_per_peer') }}
+							</p>
 
-				<v-card-text>
-					<p class="text-body-2 text-medium-emphasis">{{ $t('settings.categories_help') }}</p>
-
-					<CategoryList
-						:categories="librariesStore.orderedCategories"
-						:loading="loading"
-					/>
-
-					<v-btn
-						class="mt-2"
-						data-test="settings-categories-services"
-						prepend-icon="mdi-server-network"
-						size="small"
-						:to="{ name: 'services' }"
-						variant="text"
-					>
-						{{ $t('settings.categories_edit') }}
-					</v-btn>
-				</v-card-text>
-			</v-card>
-
-			<v-card class="settings_card mt-4">
-				<v-card-title class="text-subtitle-1">{{ $t('settings.group.peers') }}</v-card-title>
-
-				<v-card-text>
-					<v-text-field
-						v-model.number="model.peerMaxDepth"
-						v-bind="form.field('peerMaxDepth')"
-						data-test="settings-peer-depth"
-						:disabled="peerDepthPinned"
-						:hint="peerDepthPinned
-							? $t('settings.peer_max_depth_pinned')
-							: $t('settings.peer_max_depth_help')"
-						:label="$t('settings.peer_max_depth')"
-						:max="MAX_PEER_MAX_DEPTH"
-						min="1"
-						persistent-hint
-						type="number"
-					/>
-
-					<p class="text-caption text-medium-emphasis mt-2">
-						{{ $t('settings.peer_max_depth_per_peer') }}
-					</p>
-
-					<v-switch
-						v-model="model.allowSwarm"
-						color="primary"
-						density="compact"
-						hide-details
-						:label="$t('settings.swarm')"
-					/>
-
-					<p class="text-caption text-medium-emphasis">{{ $t('settings.swarm_help') }}</p>
-
-					<v-text-field
-						v-model="model.rendezvousUrl"
-						v-bind="form.field('rendezvousUrl')"
-						:hint="$t('settings.rendezvous_help')"
-						:label="$t('settings.rendezvous')"
-						persistent-hint
-					/>
-				</v-card-text>
-			</v-card>
-
-			<v-card class="settings_card mt-4">
-				<v-card-title class="text-subtitle-1">{{ $t('settings.group.index') }}</v-card-title>
-
-				<v-card-text>
-					<p class="text-body-2 mb-1">
-						{{ $t('settings.match_threshold') }}: {{ model.matchThreshold }}
-					</p>
-
-					<v-slider
-						v-model="model.matchThreshold"
-						data-test="settings-threshold"
-						hide-details
-						:max="1"
-						:min="0"
-						:step="0.05"
-					/>
-
-					<p class="text-caption text-medium-emphasis">{{ $t('settings.match_threshold_help') }}</p>
-
-					<v-row density="compact">
-						<v-col cols="12" sm="6">
-							<v-text-field
-								v-model.number="model.refreshIntervalMinutes"
-								v-bind="form.field('refreshIntervalMinutes')"
-								:hint="$t('settings.refresh_interval_help')"
-								:label="$t('settings.refresh_interval')"
-								persistent-hint
-								type="number"
+							<v-switch
+								v-model="model.allowSwarm"
+								color="primary"
+								density="compact"
+								hide-details
+								:label="$t('settings.swarm')"
 							/>
-						</v-col>
 
-						<v-col cols="12" sm="6">
+							<p class="text-caption text-medium-emphasis">{{ $t('settings.swarm_help') }}</p>
+
 							<v-text-field
-								v-model.number="model.cacheTtlSeconds"
-								v-bind="form.field('cacheTtlSeconds')"
-								:hint="$t('settings.cache_ttl_help')"
-								:label="$t('settings.cache_ttl')"
+								v-model="model.rendezvousUrl"
+								v-bind="form.field('rendezvousUrl')"
+								:hint="$t('settings.rendezvous_help')"
+								:label="$t('settings.rendezvous')"
 								persistent-hint
-								type="number"
 							/>
-						</v-col>
-					</v-row>
+						</v-card-text>
+					</v-card>
 
-					<v-text-field
-						v-model="model.fullScanCron"
-						v-bind="form.field('fullScanCron')"
-						class="mt-2"
-						data-test="settings-full-scan"
-						:hint="$t('settings.full_scan_help')"
-						:label="$t('settings.full_scan')"
-						persistent-hint
-						placeholder="0 4 * * *"
-					/>
+				</v-window-item>
 
-					<CronHint class="mt-2" :expression="model.fullScanCron" />
-				</v-card-text>
-			</v-card>
+				<v-window-item eager value="index">
+					<v-card class="settings_card">
+						<v-card-title class="text-subtitle-1">{{ $t('settings.group.index') }}</v-card-title>
+
+						<v-card-text>
+							<p class="text-body-2 mb-1">
+								{{ $t('settings.match_threshold') }}: {{ model.matchThreshold }}
+							</p>
+
+							<v-slider
+								v-model="model.matchThreshold"
+								data-test="settings-threshold"
+								hide-details
+								:max="1"
+								:min="0"
+								:step="0.05"
+							/>
+
+							<p class="text-caption text-medium-emphasis">{{ $t('settings.match_threshold_help') }}</p>
+
+							<v-row density="compact">
+								<v-col cols="12" sm="6">
+									<v-text-field
+										v-model.number="model.refreshIntervalMinutes"
+										v-bind="form.field('refreshIntervalMinutes')"
+										:hint="$t('settings.refresh_interval_help')"
+										:label="$t('settings.refresh_interval')"
+										persistent-hint
+										type="number"
+									/>
+								</v-col>
+
+								<v-col cols="12" sm="6">
+									<v-text-field
+										v-model.number="model.cacheTtlSeconds"
+										v-bind="form.field('cacheTtlSeconds')"
+										:hint="$t('settings.cache_ttl_help')"
+										:label="$t('settings.cache_ttl')"
+										persistent-hint
+										type="number"
+									/>
+								</v-col>
+							</v-row>
+
+							<v-text-field
+								v-model="model.fullScanCron"
+								v-bind="form.field('fullScanCron')"
+								class="mt-2"
+								data-test="settings-full-scan"
+								:hint="$t('settings.full_scan_help')"
+								:label="$t('settings.full_scan')"
+								persistent-hint
+								placeholder="0 4 * * *"
+							/>
+
+							<CronHint class="mt-2" :expression="model.fullScanCron" />
+						</v-card-text>
+					</v-card>
+
+				</v-window-item>
+			</v-window>
 
 			<FormMainError :form="form" />
 

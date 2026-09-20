@@ -26,8 +26,9 @@ import { UpdateSharePolicyDto } from '@/models';
  *
  * `PUT` rather than `POST`: a library has at most one policy, the identifier in the
  * path is the library's, and saving twice has to be the same as saving once. Deleting
- * a policy makes the library private again, which is the same thing as never having
- * shared it — the absence of a row is the private state, not a missing configuration.
+ * a policy is not "make it private": it hands the library back to the gateway default,
+ * which on one of our own services is usually a level of sharing. Private for one
+ * library alone is a policy saying `private`, and it survives a change of the default.
  */
 @ApiTags('shares')
 @ApiBearerAuth()
@@ -37,7 +38,12 @@ export class ShareController {
 
 	@Get()
 	@Granted(Right.SHARE_MANAGE)
-	@ApiOperation({ summary: 'Every library that has a policy. Libraries without one are private.' })
+	@ApiOperation({
+		summary: 'Every library, with what it exposes today',
+		description:
+			'Includes libraries nobody has configured: `overridden` is false on those and '
+			+ '`visibility` is the gateway default resolved for them.',
+	})
 	@ApiOkResponse({ description: 'SharePolicy[]' })
 	public list(): Promise<SharePolicy[]> {
 		return this._shares.list();
@@ -70,7 +76,7 @@ export class ShareController {
 	@Delete(':libraryId')
 	@Granted(Right.SHARE_MANAGE)
 	@HttpCode(HttpStatus.NO_CONTENT)
-	@ApiOperation({ summary: 'Make a library private again' })
+	@ApiOperation({ summary: 'Drop the override, so the library follows the gateway default again' })
 	@ApiNoContentResponse()
 	public remove(@Param('libraryId', ParseUUIDPipe) libraryId: string): Promise<void> {
 		return this._shares.remove(libraryId);

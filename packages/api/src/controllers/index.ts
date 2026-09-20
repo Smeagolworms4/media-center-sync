@@ -1,4 +1,5 @@
 export * from './auth.controller';
+export * from './filesystem.controller';
 export * from './health.controller';
 export * from './library.controller';
 export * from './media.controller';

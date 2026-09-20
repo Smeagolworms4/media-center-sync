@@ -27,6 +27,16 @@ export interface FieldBindings {
 export interface IForm {
 	loading: boolean;
 	mainError: string | null;
+	/**
+	 * The backend refusals, by field name.
+	 *
+	 * Exposed because `field()` alone only helps a control that is on screen. A form
+	 * split across tabs, steps or collapsed sections can have a refused field the
+	 * person cannot see: the screen reports that something was refused, shows no
+	 * error anywhere visible, and leaves them pressing save again. Knowing which
+	 * fields were refused is what lets a page point at the section holding them.
+	 */
+	fieldErrors: Record<string, string[]>;
 	component: VForm | null;
 	handle: () => Promise<void>;
 	field: (name: string) => FieldBindings;
@@ -110,6 +120,7 @@ export function useForm (options: UseFormOptions): IForm {
 	const form = reactive({
 		loading: readonly(loading),
 		mainError: readonly(mainError),
+		fieldErrors: readonly(fieldErrors),
 		handle,
 		field,
 		setFieldErrors,

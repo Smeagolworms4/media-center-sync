@@ -19,9 +19,17 @@ import { PeerLinkService } from './peer-link.service';
  */
 const MAX_CATALOGUE_PAGES = 500;
 
-/** The subset of a share policy this service decides on. */
+/**
+ * The subset of a share policy this service decides on.
+ *
+ * Already resolved when it gets here: `visibility` is what `effectiveVisibility` made
+ * of the stored row and the gateway default together, never a column read raw. A
+ * library nobody configured has no row to read one off, and this service must not be
+ * the second place that rule is decided.
+ */
 export interface CataloguePolicy {
 	libraryId: string;
+	/** Resolved, not stored. See `effectiveVisibility`. */
 	visibility: ShareVisibility;
 	allowedPeerIds: string[];
 	deniedPeerIds: string[];
@@ -121,6 +129,11 @@ export class PeerCatalogueService {
 	 * the titles, refuse the files — and it was dropped: seeing something you cannot
 	 * have is not a feature, and anybody who does not want to serve a library simply
 	 * does not share it.
+	 *
+	 * `policies` carries one entry per library the caller resolved, and a library
+	 * missing from it is a library that resolved to nothing this peer may see — not a
+	 * library nobody has configured, which resolves to the gateway default long before
+	 * this point.
 	 */
 	public filterForPeer(
 		entries: CatalogueEntry[],
@@ -131,12 +144,13 @@ export class PeerCatalogueService {
 
 		return entries.flatMap((entry) => {
 			// A row that names no library cannot be matched against a policy, and the
-			// rule below decides the rest: no policy means nothing was shared.
+			// rule below decides the rest.
 			const policy = entry.libraryId ? byLibrary.get(entry.libraryId) : undefined;
 
-			// No policy at all means nothing was shared. Defaulting to visible would
-			// expose a library the moment somebody links, which is the wrong default
-			// exactly once.
+			// Nothing resolved for this library, so nothing about it may cross. The
+			// gateway default has already been applied by whoever built this list:
+			// applying one here as well would put the rule in two places, and the one
+			// that is wrong would be the one nobody is looking at.
 			if (!policy || !this.isVisible(policy, peer)) {
 				return [];
 			}

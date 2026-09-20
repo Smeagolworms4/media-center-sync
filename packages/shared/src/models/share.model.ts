@@ -20,6 +20,21 @@ export interface SharePolicy {
 	libraryName: string;
 	serviceId: string;
 	visibility: ShareVisibility;
+	/**
+	 * Whether somebody chose this visibility, or it is the gateway's default applying.
+	 *
+	 * False means no policy was ever written for this library and `visibility` above is
+	 * `Settings.defaultShareVisibility` resolved for it — so changing that setting moves
+	 * this library, and every other one nobody has touched.
+	 *
+	 * A screen that cannot tell the two apart cannot answer the only question people
+	 * ask of it: a library reading "nobody" because somebody deliberately made it
+	 * private looks exactly like one reading "nobody" because it sits on a service that
+	 * is not ours and no default may reach it. They are opposite states — one is a
+	 * decision to leave alone, the other is a library waiting to be decided about — and
+	 * without this flag the interface has to guess which it is showing.
+	 */
+	overridden: boolean;
 	/** Peers explicitly allowed, on top of the visibility rule. */
 	allowedPeerIds: string[];
 	/** Peers explicitly denied, whatever the visibility rule says. */

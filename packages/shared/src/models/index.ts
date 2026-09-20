@@ -1,6 +1,7 @@
 export * from './auth.model';
 export * from './error.model';
 export * from './event.model';
+export * from './filesystem.model';
 export * from './health.model';
 export * from './library.model';
 export * from './media.model';
