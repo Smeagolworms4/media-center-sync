@@ -1064,6 +1064,11 @@
 		},
 		"share": {
 			"relay_not_agreed": "A library held on another gateway can only be shared by relaying it. Allow relaying on this share first."
+		},
+		"filesystem": {
+			"path_outside_root": "That folder is outside the directories this gateway may browse.",
+			"path_not_found": "No such folder.",
+			"path_unreadable": "The gateway cannot read that folder."
 		}
 	},
 	"indications": {

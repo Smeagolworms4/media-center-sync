@@ -1064,6 +1064,11 @@
 		},
 		"share": {
 			"relay_not_agreed": "Eine Bibliothek, die auf einem anderen Gateway liegt, kann nur über ein Relay geteilt werden. Erlauben Sie zuerst das Relay für diese Freigabe."
+		},
+		"filesystem": {
+			"path_outside_root": "Dieser Ordner liegt außerhalb der Verzeichnisse, die dieses Gateway durchsuchen darf.",
+			"path_not_found": "Ordner nicht gefunden.",
+			"path_unreadable": "Das Gateway kann diesen Ordner nicht lesen."
 		}
 	},
 	"indications": {

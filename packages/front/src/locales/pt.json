@@ -1064,6 +1064,11 @@
 		},
 		"share": {
 			"relay_not_agreed": "Uma biblioteca alojada noutro gateway só pode ser partilhada retransmitindo-a. Autorize primeiro a retransmissão nesta partilha."
+		},
+		"filesystem": {
+			"path_outside_root": "Essa pasta está fora dos diretórios que esta gateway pode percorrer.",
+			"path_not_found": "Pasta inexistente.",
+			"path_unreadable": "A gateway não consegue ler essa pasta."
 		}
 	},
 	"indications": {

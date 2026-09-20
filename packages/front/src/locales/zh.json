@@ -1064,6 +1064,11 @@
 		},
 		"share": {
 			"relay_not_agreed": "存放在另一个网关上的媒体库只能通过中继共享。请先在此共享上允许中继。"
+		},
+		"filesystem": {
+			"path_outside_root": "该文件夹不在此网关可浏览的目录范围内。",
+			"path_not_found": "找不到该文件夹。",
+			"path_unreadable": "网关无法读取该文件夹。"
 		}
 	},
 	"indications": {

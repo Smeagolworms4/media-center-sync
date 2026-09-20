@@ -1064,6 +1064,11 @@
 		},
 		"share": {
 			"relay_not_agreed": "Una libreria che si trova su un altro gateway può essere condivisa solo tramite relay. Consenti prima il relay su questa condivisione."
+		},
+		"filesystem": {
+			"path_outside_root": "Quella cartella è fuori dalle directory che questo gateway può esplorare.",
+			"path_not_found": "Cartella inesistente.",
+			"path_unreadable": "Il gateway non può leggere quella cartella."
 		}
 	},
 	"indications": {

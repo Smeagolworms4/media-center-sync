@@ -1064,6 +1064,11 @@
 		},
 		"share": {
 			"relay_not_agreed": "Una biblioteca que está en otra pasarela solo se puede compartir retransmitiéndola. Permite antes la retransmisión en este recurso compartido."
+		},
+		"filesystem": {
+			"path_outside_root": "Esa carpeta está fuera de los directorios que esta pasarela puede explorar.",
+			"path_not_found": "No existe esa carpeta.",
+			"path_unreadable": "La pasarela no puede leer esa carpeta."
 		}
 	},
 	"indications": {
