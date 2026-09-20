@@ -8,6 +8,10 @@
 **/node_modules
 **/dist
 **/build
+# `**/build` is about build output, but it also swallows `docker/build/`, whose
+# entrypoint the runtime stage has to copy. Excluded, the image builds right up to
+# that `COPY` and then fails on a file that is plainly there on disk.
+!docker/build/entrypoint.sh
 **/coverage
 **/test-results
 **/playwright-report

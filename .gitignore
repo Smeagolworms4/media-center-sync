@@ -38,3 +38,9 @@ var/
 packages/api/data/
 *.pem
 *.key
+
+# The root manifest has no dependencies of its own — each package installs its own,
+# because the containers are Alpine and a native binding built on the host does not
+# load there. An `npm install` run at the root leaves an empty lockfile that means
+# nothing and that a later `npm ci` would try to honour.
+/package-lock.json

@@ -92,17 +92,32 @@ relais est partagée entre tous ceux qui l'utilisent. Voir
 | `DB_TYPE` | `sqlite` | `sqlite` ou `postgres`. |
 | `DB_FILE` | `/data/media-center-sync.db` | Fichier SQLite. |
 | `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | — | Lues uniquement quand `DB_TYPE=postgres`. |
-| `REDIS_HOST` `REDIS_PORT` | *(vide)* | Vide signifie un cache en mémoire du processus. Utile seulement avec plusieurs passerelles. |
+| `REDIS_HOST` `REDIS_PORT` | *(vide)* | Un Redis ou un Valkey que vous faites déjà tourner. Renseignée, l'image n'en démarre aucun. |
+| `REDIS_SOCKET` | *(posée par l'image)* | Socket unix du cache. Le point d'entrée l'exporte pour le cache embarqué ; elle l'emporte sur `REDIS_HOST`. |
+| `MCS_EMBEDDED_CACHE` | `1` | `0` ne démarre aucun processus de cache : la passerelle garde l'état vivant des transferts en mémoire. |
+| `MCS_CACHE_MAXMEMORY` | `128mb` | Plafond du cache embarqué. Au-delà, les clés les moins récemment utilisées partent. |
+| `MCS_CACHE_SOCKET` | `/data/cache.sock` | Où écoute le cache embarqué. À déplacer seulement si `/data` est un système de fichiers sans sockets. |
 | `MCS_TRANSFER_ROOT` | `/data/transfer` | Où les pièces s'accumulent avant qu'un fichier ne soit placé. |
 | `MCS_CORS_ORIGINS` | *(vide)* | Séparées par des virgules. Inutile quand l'interface est servie par l'API. |
 | `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | `admin` / `admin` | Le premier compte, créé au premier démarrage. |
 
-SQLite et un cache en mémoire du processus sont les valeurs par défaut à dessein :
+SQLite et un cache embarqué dans l'image sont les valeurs par défaut à dessein :
 c'est une passerelle qu'on auto-héberge à côté de son serveur multimédia, pas un
-service multi-tenant. Ni un PostgreSQL ni un Redis ne devraient avoir besoin d'être
-maintenus en vie pour rapatrier quelques épisodes. Les deux restent à une variable
-d'environnement de distance, et les migrations sont les mêmes dans un cas comme dans
-l'autre.
+service multi-tenant. Ni un PostgreSQL ni un conteneur Redis ne devraient avoir besoin
+d'être maintenus en vie pour rapatrier quelques épisodes : l'image embarque donc un
+Valkey de trois mégaoctets et le démarre sur une socket unix sous `/data` — rien à
+ajouter à un `docker run`, et rien qui écoute sur le réseau de l'hôte.
+
+Le cache n'est pas la vérité : les points de reprise et l'index de la bibliothèque
+sont en base, et ce qui vit ici est l'état vivant des transferts. `MCS_EMBEDDED_CACHE=0`
+fonctionne donc toujours et garde cet état dans le processus — correct sur un nœud
+unique, et le plus petit dispositif qui tourne. Ce qu'on y perd, c'est la comptabilité
+des débits partagée entre les workers d'un même transfert, celle qui fait qu'un
+transfert à plusieurs connexions se stabilise au lieu de se combattre lui-même.
+`REDIS_HOST` va dans l'autre sens et confie le cache à un serveur que vous administrez
+déjà, ce dont plusieurs passerelles partageant une file ont besoin. Les trois restent
+à une variable d'environnement de distance, et les migrations sont les mêmes dans un
+cas comme dans l'autre.
 
 ### Derrière un reverse proxy
 

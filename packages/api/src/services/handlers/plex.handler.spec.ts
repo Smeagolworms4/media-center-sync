@@ -82,6 +82,7 @@ describe('PlexHandler', () => {
 
 	beforeEach(() => {
 		delete process.env.REDIS_HOST;
+		delete process.env.REDIS_SOCKET;
 		cache = new CacheService();
 		handler = new PlexHandler(cache);
 	});

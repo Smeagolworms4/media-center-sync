@@ -7,6 +7,7 @@ describe('CacheService (in-memory)', () => {
 		// The in-memory path has to be the default and has to work alone, so the tests
 		// make sure nothing points at a Redis.
 		delete process.env.REDIS_HOST;
+		delete process.env.REDIS_SOCKET;
 		cache = new CacheService();
 	});
 
@@ -480,5 +481,113 @@ describe('CacheService (Redis)', () => {
 		await cache.onModuleDestroy();
 
 		expect(commands).toContain('quit');
+	});
+});
+
+/**
+ * Which cache a deployment ends up on, and nothing else.
+ *
+ * The production image starts a Valkey of its own and exports `REDIS_SOCKET`, an
+ * external server is still reached over `REDIS_HOST`, and neither set leaves the
+ * gateway on its own memory. These pin the precedence and the shape of the
+ * connection, because ioredis reads `path` *or* `host`: a client handed both dials
+ * TCP and never touches the socket, which fails as a cache that is permanently down
+ * rather than as anything that names the mistake.
+ */
+describe('CacheService (choosing a backend)', () => {
+	let options: Record<string, unknown>[];
+	let cache: CacheService | undefined;
+
+	const build = (): CacheService => {
+		jest.resetModules();
+		jest.doMock('ioredis', () => ({
+			__esModule: true,
+			default: class RecordingRedis {
+				public constructor(given: Record<string, unknown>) {
+					options.push(given);
+				}
+
+				public async get(): Promise<string | null> {
+					return null;
+				}
+
+				public async set(): Promise<void> {}
+
+				public async del(): Promise<void> {}
+
+				public async scan(): Promise<[string, string[]]> {
+					return ['0', []];
+				}
+
+				public async quit(): Promise<void> {}
+
+				public on(): unknown {
+					return this;
+				}
+			},
+		}));
+
+		const { CacheService: Reloaded } = jest.requireActual<typeof import('./cache.service')>(
+			'./cache.service',
+		);
+
+		return new Reloaded();
+	};
+
+	beforeEach(() => {
+		options = [];
+		cache = undefined;
+		delete process.env.REDIS_HOST;
+		delete process.env.REDIS_PORT;
+		delete process.env.REDIS_SOCKET;
+	});
+
+	afterEach(async () => {
+		await cache?.onModuleDestroy();
+		delete process.env.REDIS_HOST;
+		delete process.env.REDIS_PORT;
+		delete process.env.REDIS_SOCKET;
+		jest.dontMock('ioredis');
+	});
+
+	it('goes through the unix socket the image gives it', async () => {
+		process.env.REDIS_SOCKET = '/data/cache.sock';
+
+		cache = build();
+
+		expect(options).toHaveLength(1);
+		expect(options[0]).toMatchObject({ path: '/data/cache.sock' });
+		expect(options[0]).not.toHaveProperty('host');
+	});
+
+	it('reaches an external server over host and port when there is no socket', async () => {
+		process.env.REDIS_HOST = 'cache.lan';
+		process.env.REDIS_PORT = '6380';
+
+		cache = build();
+
+		expect(options[0]).toMatchObject({ host: 'cache.lan', port: 6380 });
+		expect(options[0]).not.toHaveProperty('path');
+	});
+
+	it('prefers the socket over a host left behind by an earlier deployment', async () => {
+		process.env.REDIS_SOCKET = '/data/cache.sock';
+		process.env.REDIS_HOST = 'cache.lan';
+
+		cache = build();
+
+		expect(options[0]).toMatchObject({ path: '/data/cache.sock' });
+		expect(options[0]).not.toHaveProperty('host');
+	});
+
+	it('keeps its state in memory when neither is configured', async () => {
+		cache = build();
+
+		await cache.set('key', 'value');
+
+		// No client was built at all, and the value still comes back: this is the case
+		// `MCS_EMBEDDED_CACHE=0` produces, where the container runs nothing but the app.
+		expect(options).toHaveLength(0);
+		expect(await cache.get('key')).toBe('value');
 	});
 });

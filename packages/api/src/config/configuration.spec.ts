@@ -43,6 +43,28 @@ describe('configuration', () => {
 		expect(configuration().database.type).toBe('sqlite');
 	});
 
+	it('leaves the cache unconfigured, which is the in-process one', () => {
+		delete process.env.REDIS_HOST;
+		delete process.env.REDIS_SOCKET;
+
+		expect(configuration().cache).toMatchObject({ redisSocket: '', redisHost: '', redisPort: 6379 });
+	});
+
+	it('reads an external cache', () => {
+		process.env.REDIS_HOST = 'cache.lan';
+		process.env.REDIS_PORT = '6380';
+
+		expect(configuration().cache).toMatchObject({ redisHost: 'cache.lan', redisPort: 6380 });
+	});
+
+	it('reads the unix socket the production image exports', () => {
+		// The image starts its own Valkey on a socket under `/data` rather than asking
+		// for a second container, so this is the path most deployments actually take.
+		process.env.REDIS_SOCKET = '/data/cache.sock';
+
+		expect(configuration().cache.redisSocket).toBe('/data/cache.sock');
+	});
+
 	it('refuses to start in production without a signing secret', () => {
 		process.env.NODE_ENV = 'production';
 		delete process.env.MCS_JWT_SECRET;

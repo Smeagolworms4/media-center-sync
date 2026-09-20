@@ -134,9 +134,11 @@ The cursor is opaque — a timestamp for one handler, a watermark for another. O
 handler that wrote it knows how to read it, which is what keeps the scan scheduler
 from growing a branch per service type.
 
-On top of that sits a short-lived cache with a TTL, in-process by default and Redis
-when `REDIS_HOST` is set, behind one interface. Its job is to collapse the same
-question asked by several tabs in the same second, not to be a second index.
+On top of that sits a short-lived cache with a TTL behind one interface: the Valkey
+the production image starts on a unix socket and announces through `REDIS_SOCKET`, a
+Redis or Valkey of your own when `REDIS_HOST` is set, or the process's own memory when
+`MCS_EMBEDDED_CACHE=0` leaves neither. Its job is to collapse the same question asked
+by several tabs in the same second, not to be a second index.
 
 ## Correlation
 

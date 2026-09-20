@@ -151,9 +151,11 @@ class RedisBackend implements CacheBackend {
  * A small typed cache with a lifetime, in memory or in Redis.
  *
  * In-process is the default and works alone, because the gateway is one container
- * on somebody's machine far more often than it is a cluster. Redis is picked up
- * when `REDIS_HOST` is set, which is the only difference between the two
- * deployments — nothing above this class knows which one it is talking to.
+ * on somebody's machine far more often than it is a cluster. A Redis or Valkey is
+ * picked up when `REDIS_SOCKET` or `REDIS_HOST` is set — the production image starts
+ * one on a socket under `/data` and exports the path — and that is the only
+ * difference between the two deployments: nothing above this class knows which one
+ * it is talking to.
  */
 @Injectable()
 export class CacheService implements OnModuleDestroy {
@@ -277,9 +279,14 @@ export class CacheService implements OnModuleDestroy {
 	}
 
 	private _createBackend(): CacheBackend {
+		// The socket wins over the host: the production image starts a Valkey of its
+		// own and exports `REDIS_SOCKET`, and a deployment that also carries a
+		// `REDIS_HOST` left over from an earlier compose file must reach the cache that
+		// is actually running rather than the one that used to be.
+		const socket = process.env.REDIS_SOCKET;
 		const host = process.env.REDIS_HOST;
 
-		if (!host) {
+		if (!socket && !host) {
 			return new MemoryBackend();
 		}
 
@@ -295,8 +302,10 @@ export class CacheService implements OnModuleDestroy {
 			};
 
 			const redis = new Redis({
-				host,
-				port: Number(process.env.REDIS_PORT ?? 6379),
+				// ioredis takes `path` and ignores `host`/`port` when both are given. The
+				// two shapes stay mutually exclusive here anyway, so the options read the
+				// way the connection behaves instead of relying on that precedence.
+				...(socket ? { path: socket } : { host, port: Number(process.env.REDIS_PORT ?? 6379) }),
 				password: process.env.REDIS_PASSWORD || undefined,
 				db: Number(process.env.REDIS_DB ?? 0),
 				lazyConnect: false,
@@ -310,7 +319,7 @@ export class CacheService implements OnModuleDestroy {
 				this._logger.warn(`Redis cache unavailable: ${String(error)}`);
 			});
 
-			this._logger.log(`Cache backed by Redis at ${host}`);
+			this._logger.log(`Cache backed by Redis at ${socket || host}`);
 
 			return new RedisBackend(redis, 'mcs:');
 		} catch (error) {

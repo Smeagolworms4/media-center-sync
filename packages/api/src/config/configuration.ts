@@ -28,6 +28,16 @@ export interface DatabaseConfig {
 }
 
 export interface CacheConfig {
+	/**
+	 * A unix socket to reach the cache on, which wins over the host.
+	 *
+	 * This is what the production image uses: it starts a Valkey of its own on a
+	 * socket under `/data` and exports the path. A socket rather than a port because
+	 * nothing outside the container has any business reaching that cache, and a
+	 * socket cannot be reached by accident from the host network the way a bound
+	 * port can. Set by hand only when the cache lives on the same machine.
+	 */
+	redisSocket: string;
 	/** Empty means the in-process cache: a single gateway needs nothing more. */
 	redisHost: string;
 	redisPort: number;
@@ -51,6 +61,21 @@ export interface DocsConfig {
 	enabled: boolean;
 }
 
+export interface PeersConfig {
+	/**
+	 * A ceiling on how far introductions may travel, pinned by the environment.
+	 *
+	 * Null means nobody pinned it, and the stored setting decides. A number wins over
+	 * the stored setting, the API refuses to change it, and the interface shows the
+	 * control disabled — because the alternative is a screen that offers a slider,
+	 * accepts a new value, reports success, and changes nothing.
+	 *
+	 * It exists for whoever runs a gateway on behalf of other people: a limit set in
+	 * the container's environment is one the account holders cannot quietly lift.
+	 */
+	maxDepth: number | null;
+}
+
 export interface AppConfig {
 	env: string;
 	port: number;
@@ -59,6 +84,7 @@ export interface AppConfig {
 	cache: CacheConfig;
 	security: SecurityConfig;
 	media: MediaConfig;
+	peers: PeersConfig;
 	/** Directory of the built interface. Empty serves nothing but the API. */
 	staticRoot: string;
 	docs: DocsConfig;
@@ -94,6 +120,34 @@ const readNumber = (name: string, fallback: number): number => {
 	return Number.isFinite(value) && process.env[name] !== undefined && process.env[name] !== ''
 		? value
 		: fallback;
+};
+
+/**
+ * A number the environment may or may not have an opinion about.
+ *
+ * Distinct from `readNumber` with a sentinel default, because the absence *is* the
+ * meaning here: these values pin a setting, and "not pinned" has to be tellable from
+ * "pinned to whatever the default happened to be". A value that does not parse is
+ * treated as absent and reported, rather than silently becoming `NaN` and pinning a
+ * setting to a comparison that is false against everything.
+ */
+const readOptionalNumber = (name: string): number | null => {
+	const raw = process.env[name];
+
+	if (raw === undefined || raw.trim() === '') {
+		return null;
+	}
+
+	const value = Number(raw);
+
+	if (!Number.isFinite(value)) {
+		// eslint-disable-next-line no-console
+		console.warn(`${name} is not a number, ignoring it`);
+
+		return null;
+	}
+
+	return value;
 };
 
 /**
@@ -143,6 +197,10 @@ export const configuration = (): AppConfig => {
 			migrateOnStart: readBoolean('DB_MIGRATE_ON_START', true),
 		}),
 		cache: Object.freeze({
+			// Socket first: the image's own Valkey exports `REDIS_SOCKET`, and a
+			// deployment that also carries a stale `REDIS_HOST` from an earlier compose
+			// file must reach the cache that is actually running, not the one that was.
+			redisSocket: readString('REDIS_SOCKET', ''),
 			redisHost: readString('REDIS_HOST', ''),
 			redisPort: readNumber('REDIS_PORT', 6379),
 		}),
@@ -155,6 +213,9 @@ export const configuration = (): AppConfig => {
 		media: Object.freeze({
 			root: readString('MCS_MEDIA_ROOT', '/media'),
 			transferRoot: readString('MCS_TRANSFER_ROOT', 'var/transfer'),
+		}),
+		peers: Object.freeze({
+			maxDepth: readOptionalNumber('MCS_PEER_MAX_DEPTH'),
 		}),
 		staticRoot: readString('MCS_STATIC_ROOT', ''),
 		docs: Object.freeze({

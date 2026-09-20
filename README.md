@@ -96,15 +96,29 @@ rendezvous: it works, but that relay's bandwidth is shared by everyone using it.
 | `DB_TYPE` | `sqlite` | `sqlite` or `postgres`. |
 | `DB_FILE` | `/data/media-center-sync.db` | SQLite file. |
 | `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` | — | Read only when `DB_TYPE=postgres`. |
-| `REDIS_HOST` `REDIS_PORT` | *(empty)* | Empty means an in-process cache. Only worth setting with several gateways. |
+| `REDIS_HOST` `REDIS_PORT` | *(empty)* | A Redis or Valkey you already run. Set, the image starts none of its own. |
+| `REDIS_SOCKET` | *(set by the image)* | Unix socket of the cache. The entrypoint exports it for the embedded one; it wins over `REDIS_HOST`. |
+| `MCS_EMBEDDED_CACHE` | `1` | `0` starts no cache process at all and the gateway keeps its live transfer state in memory. |
+| `MCS_CACHE_MAXMEMORY` | `128mb` | Ceiling of the embedded cache. Past it, the least recently used keys go. |
+| `MCS_CACHE_SOCKET` | `/data/cache.sock` | Where the embedded cache listens. Worth moving only if `/data` is a filesystem that has no sockets. |
 | `MCS_TRANSFER_ROOT` | `/data/transfer` | Where pieces accumulate before a file is placed. |
 | `MCS_CORS_ORIGINS` | *(empty)* | Comma-separated. Not needed when the interface is served by the API. |
 | `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | *(none)* | An unattended first account. Unset, the interface asks for one. |
 | `DB_MIGRATE_ON_START` | `true` | Bring the schema up to date at startup. Turn it off where a deployment applies migrations itself. |
 
-SQLite and an in-process cache are the defaults on purpose: this is a gateway somebody
-self-hosts next to their media server, not a multi-tenant service. Neither a PostgreSQL
-nor a Redis should have to be kept alive to pull a few episodes. Both remain one
+SQLite and a cache inside the image are the defaults on purpose: this is a gateway
+somebody self-hosts next to their media server, not a multi-tenant service. Neither a
+PostgreSQL nor a Redis container should have to be kept alive to pull a few episodes,
+so the image carries a three-megabyte Valkey and starts it on a unix socket under
+`/data` — nothing to add to a `docker run`, and nothing listening on the host network.
+
+The cache is not the truth: resume points and the library index are in the database,
+and what lives here is the live state of transfers. `MCS_EMBEDDED_CACHE=0` therefore
+still works and keeps that state in the process — correct on a single node, and the
+smallest thing that runs. What it costs is the rate accounting shared between the
+workers of one transfer, which is what makes a multi-connection transfer settle rather
+than fight itself. `REDIS_HOST` goes the other way and hands the cache to a server you
+already run, which is what several gateways sharing a queue need. All three remain one
 environment variable away, and the migrations are the same either way.
 
 ### Behind a reverse proxy

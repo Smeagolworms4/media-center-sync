@@ -3,14 +3,25 @@
 # ---------------------------------------------------------------------------
 # Media Center Sync — production image.
 #
-# One image, one process, one container. The API serves both `/api` and the built
-# interface, the database is a SQLite file under `/data`, and the cache is
-# in-memory. Somebody self-hosting this next to their media server should not have
-# to run a PostgreSQL, a Redis and a reverse proxy to pull a few episodes.
+# One image, one container. The API serves both `/api` and the built interface, the
+# database is a SQLite file under `/data`, and the cache is a Valkey started inside
+# the image on a unix socket. Somebody self-hosting this next to their media server
+# should not have to run a PostgreSQL, a Redis and a reverse proxy to pull a few
+# episodes.
+#
+# The cache is embedded rather than required as a second container because both
+# alternatives were worse. Asking for a Redis container turns a one-container install
+# into a compose file somebody has to maintain, and the live transfer state — the
+# per-worker rate accounting that makes multi-connection transfers behave, the
+# chunk locks, the resume hints — is what would be lost by defaulting to in-process
+# memory, silently and only under load. Valkey costs three megabytes here, so the
+# default carries the cost nobody notices instead of the one that shows up as a
+# transfer that will not go faster than one stream.
 #
 # Everything stays swappable through the environment: `DB_TYPE=postgres` points at
-# a real server, `REDIS_HOST` moves the live transfer state out of the process.
-# Neither is needed on a single node, and neither is started by default.
+# a real server, `REDIS_HOST` hands the cache to one you already run, and
+# `MCS_EMBEDDED_CACHE=0` starts nothing at all and keeps that state in the process.
+# See `entrypoint.sh`, which decides between the three.
 #
 # Built in two stages: one with the full toolchain, one that keeps only the result
 # and the runtime dependencies. The shipped image carries no TypeScript, no tests
@@ -79,6 +90,11 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
+# The cache that `entrypoint.sh` starts unless the deployment points at another one.
+# Valkey rather than Redis because it is the package Alpine carries, under a licence
+# that lets it be shipped inside an image like this one.
+RUN apk add --no-cache valkey
+
 # We keep the base image's `node` user, at uid 1000.
 #
 # Libraries are mounted from the host, where they belong to the NAS user — uid 1000
@@ -98,9 +114,14 @@ COPY --from=deps /app/packages/api/node_modules packages/api/node_modules
 COPY --from=builder /app/packages/front/dist public
 ENV MCS_STATIC_ROOT=/app/public
 
-# `/data` holds the SQLite file and the transfer scratch space. Declared as a volume
-# so that `docker run` without `-v` does not silently lose the library index on the
-# next image pull.
+# `/data` holds the SQLite file, the transfer scratch space and the cache socket.
+# Declared as a volume so that `docker run` without `-v` does not silently lose the
+# library index on the next image pull.
+#
+# `node` owns it because the container runs as `node` and the embedded cache creates
+# its socket there at startup. A `/data` only root could write to would kill the
+# container in its first second, on an error about a socket rather than about a
+# permission.
 RUN mkdir -p /data/transfer /media && chown -R node:node /data
 VOLUME ["/data"]
 
@@ -119,4 +140,10 @@ EXPOSE 4200
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 	CMD node -e "fetch('http://127.0.0.1:'+(process.env.API_PORT||4200)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+# The entrypoint starts the cache and then runs the command, so `docker run … <image>
+# node -e …` still works: whatever is passed replaces the `CMD` and is what the
+# entrypoint runs, with the cache already up.
+COPY --chmod=0755 docker/build/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["node", "packages/api/dist/main.js"]
