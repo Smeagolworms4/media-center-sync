@@ -397,6 +397,46 @@ it lives and not something a caller may assert.
 `/shares/audit/:peerId` answers the question people actually ask before saving: what
 would *this* peer see of me?
 
+## Notifications
+
+| Method | Path | Body | Answers | Right |
+|---|---|---|---|---|
+| GET | `/notifications/channels` | — | `NotificationChannel[]` | `SETTINGS_MANAGE` |
+| POST | `/notifications/channels` | `CreateNotificationChannelDto` | `NotificationChannel` | `SETTINGS_MANAGE` |
+| GET | `/notifications/channels/:id` | — | `NotificationChannel` | `SETTINGS_MANAGE` |
+| PATCH | `/notifications/channels/:id` | `UpdateNotificationChannelDto` | `NotificationChannel` | `SETTINGS_MANAGE` |
+| DELETE | `/notifications/channels/:id` | — | `204` | `SETTINGS_MANAGE` |
+| POST | `/notifications/channels/:id/test` | — | `NotificationTestResult` | `SETTINGS_MANAGE` |
+
+A channel is how the gateway says something happened while nobody was looking — a sync
+that finishes at four in the morning must not need a browser tab open to be useful. Two
+kinds exist, `ntfy` and `smtp`, and adding a third is a class in `services/notifications/`
+and nothing else: `config` is an opaque object here precisely so that no route, DTO or
+screen grows a case per kind.
+
+`config` is therefore validated by the handler for the chosen type, not by the DTO, and
+a refusal answers `400 { key: 'error.notification.config_invalid', field }` — the field
+being the only part somebody looking at a form can act on.
+
+**Credentials never come back.** The handler strips its own — an ntfy token, a mailbox
+password — before the channel is serialised, so what a list returns is the address, the
+port and the topic. The consequence is on writes: a `config` that leaves a credential out
+keeps the stored one, because the interface fills its form from a response that never had
+it. Sending a credential as an empty string is what clears it.
+
+`events` empty means *every* event, which is also what keeps an event added in a later
+version reaching the channels that already exist.
+
+`POST …/test` answers `200` with `{ delivered, error, sentAt }` whatever happens, the way
+a media service probe does: a refused password and an unreachable host are results a
+settings screen renders, and the far end's own words are the diagnosis. The attempt is
+recorded on the row — `lastError`, `lastSentAt` — because a channel that fails silently is
+a channel nobody can trust.
+
+Nothing else in the API ever fails because a notification did: dispatch resolves whatever
+a channel does, and the failure ends in `lastError`. A notification that breaks a transfer
+is worse than no notification.
+
 ## Settings and accounts
 
 | Method | Path | Body | Answers | Right |
