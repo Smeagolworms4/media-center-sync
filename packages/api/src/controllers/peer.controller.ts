@@ -1,5 +1,6 @@
 import {
 	Right,
+	type BannedPeer,
 	type MediaService,
 	type Peer,
 	type PeerIdentity,
@@ -33,7 +34,11 @@ import { PeerManager } from '@/managers';
 import {
 	AcceptPeerInviteDto,
 	AddPeerDto,
+	BanFingerprintDto,
+	BanPeerDto,
 	CreatePeerInviteDto,
+	PeerMaxDepthDto,
+	RemovePeerDto,
 	RenamePeerDto,
 } from '@/models';
 
@@ -134,6 +139,43 @@ export class PeerController {
 		return this._peers.read(id);
 	}
 
+	@Get('bans')
+	@Granted(Right.PEER_READ)
+	@ApiOperation({
+		summary: 'Fingerprints this gateway refuses',
+		description:
+			'Outlives the peer row: a removed peer can ask again, a banned key cannot — ' +
+			'not by request, not by invitation, and not through an introduction.',
+	})
+	@ApiOkResponse({ description: 'BannedPeer[]' })
+	public bans(): Promise<BannedPeer[]> {
+		return this._peers.bans();
+	}
+
+	@Post('bans')
+	@Granted(Right.PEER_MANAGE)
+	@HttpCode(HttpStatus.CREATED)
+	@ApiOperation({ summary: 'Refuse a fingerprint that was never linked here' })
+	@ApiCreatedResponse({ description: 'BannedPeer' })
+	public banFingerprint(@Body() body: BanFingerprintDto): Promise<BannedPeer> {
+		return this._peers.banFingerprint(body.fingerprint, {
+			name: body.name,
+			reason: body.reason,
+		});
+	}
+
+	@Delete('bans/:fingerprint')
+	@Granted(Right.PEER_MANAGE)
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({
+		summary: 'Lift a ban',
+		description: 'It re-links nobody. The key is merely allowed to ask again.',
+	})
+	@ApiNoContentResponse()
+	public unban(@Param('fingerprint') fingerprint: string): Promise<void> {
+		return this._peers.unban(fingerprint);
+	}
+
 	@Patch(':id')
 	@Granted(Right.PEER_MANAGE)
 	@ApiOperation({ summary: 'Rename a peer locally' })
@@ -150,8 +192,44 @@ export class PeerController {
 	@HttpCode(HttpStatus.NO_CONTENT)
 	@ApiOperation({ summary: 'Unlink a peer and forget the services it exposed' })
 	@ApiNoContentResponse()
-	public remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
-		return this._peers.remove(id);
+	public remove(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: RemovePeerDto,
+	): Promise<void> {
+		return this._peers.remove(id, { ban: body.ban, reason: body.reason });
+	}
+
+	@Post(':id/ban')
+	@Granted(Right.PEER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Refuse a peer for good, and unlink them',
+		description:
+			'Unlike a block, which is a status on a row that stays: a ban survives the row, ' +
+			'so the same key cannot return through a request, an invitation or a friend.',
+	})
+	@ApiOkResponse({ description: 'BannedPeer' })
+	public ban(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: BanPeerDto,
+	): Promise<BannedPeer> {
+		return this._peers.ban(id, body.reason);
+	}
+
+	@Patch(':id/max-depth')
+	@Granted(Right.PEER_MANAGE)
+	@ApiOperation({
+		summary: 'How far introductions through this peer may travel',
+		description:
+			'Null follows the gateway ceiling. Per peer because two friends run different ' +
+			'sized circles, and widening one should not widen the other.',
+	})
+	@ApiOkResponse({ description: 'Peer' })
+	public setMaxDepth(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: PeerMaxDepthDto,
+	): Promise<Peer> {
+		return this._peers.setMaxDepth(id, body.maxDepth);
 	}
 
 	@Post(':id/block')

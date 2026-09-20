@@ -79,6 +79,32 @@ export class Peer extends Timestampable {
 	@Column({ type: 'varchar', default: PeerTrust.FRIEND })
 	public trust!: PeerTrust;
 
+	/**
+	 * How many introductions away they are. 1 is somebody we linked to ourselves.
+	 *
+	 * Stored rather than walked from `viaPeerId` on demand, because the chain can be
+	 * cut: removing a middle friend leaves the peers they introduced, and a walk would
+	 * then report them as unreachable or as direct friends depending on which way the
+	 * code happened to fail. The distance was true when they arrived and stays the
+	 * record of how they arrived.
+	 */
+	@ApiProperty()
+	@Column({ type: 'int', default: 1 })
+	public depth!: number;
+
+	/**
+	 * How far introductions coming through this peer may travel, or null to follow
+	 * the gateway's own ceiling.
+	 *
+	 * Per peer because the circles behind two friends are not comparable: one runs a
+	 * gateway for a household, the other for a club of forty. Raising the reach for
+	 * the first is harmless, and doing it for the second by raising one global number
+	 * is how a friends-and-family index quietly becomes a public one.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'int', nullable: true })
+	public maxDepth!: number | null;
+
 	@ApiProperty({ enum: PeerLinkMode, nullable: true })
 	@Column({ type: 'varchar', nullable: true })
 	public linkMode!: PeerLinkMode | null;

@@ -1,5 +1,16 @@
+import { MAX_PEER_MAX_DEPTH } from '@mcs/shared';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+	IsBoolean,
+	IsInt,
+	IsNotEmpty,
+	IsOptional,
+	IsString,
+	Max,
+	MaxLength,
+	Min,
+	ValidateIf,
+} from 'class-validator';
 
 /**
  * Accept an invitation.
@@ -63,4 +74,80 @@ export class RenamePeerDto {
 	@IsNotEmpty()
 	@MaxLength(120)
 	public name!: string;
+}
+
+/**
+ * Unlink, with the option of refusing the key for good.
+ *
+ * The ban rides on the removal rather than being a separate call, because that is
+ * where the decision is made: somebody ejecting a peer is deciding whether they may
+ * come back, and asking them again on another screen is asking them to remember.
+ */
+export class RemovePeerDto {
+	@ApiPropertyOptional({
+		description: 'Also refuse this fingerprint for good. Default false.',
+	})
+	@IsOptional()
+	@IsBoolean()
+	public ban?: boolean;
+
+	@ApiPropertyOptional({ description: 'Why, for whoever reads the ban list later.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public reason?: string;
+}
+
+export class BanPeerDto {
+	@ApiPropertyOptional({ description: 'Why, for whoever reads the ban list later.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public reason?: string;
+}
+
+/**
+ * Ban a fingerprint that was never linked here.
+ *
+ * The case is being told about a key to refuse before it has asked, which is exactly
+ * when refusing it is worth anything.
+ */
+export class BanFingerprintDto {
+	@ApiProperty()
+	@IsString()
+	@IsNotEmpty()
+	@MaxLength(200)
+	public fingerprint!: string;
+
+	@ApiPropertyOptional({ description: 'A label for the list. They are hex strings otherwise.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(120)
+	public name?: string;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public reason?: string;
+}
+
+/**
+ * How far introductions through this peer may travel.
+ *
+ * Nullable on purpose, and that is the whole shape of it: null means "follow the
+ * gateway's ceiling", which is what clearing the box means — not a limit of zero, and
+ * not whatever number happened to be the default that day.
+ */
+export class PeerMaxDepthDto {
+	@ApiPropertyOptional({
+		nullable: true,
+		description: 'Hops allowed through this peer, or null to follow the gateway setting.',
+	})
+	@IsOptional()
+	@ValidateIf((_, value) => value !== null)
+	@IsInt()
+	@Min(1)
+	@Max(MAX_PEER_MAX_DEPTH)
+	public maxDepth!: number | null;
 }

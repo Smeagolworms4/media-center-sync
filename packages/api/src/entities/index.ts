@@ -1,3 +1,4 @@
+export * from './banned-peer.entity';
 export * from './library.entity';
 export * from './media-item.entity';
 export * from './media-match.entity';

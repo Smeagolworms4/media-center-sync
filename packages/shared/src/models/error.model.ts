@@ -50,6 +50,18 @@ export const ErrorKey = {
 	PEER_UNREACHABLE: 'error.peer.unreachable',
 	PEER_REJECTED: 'error.peer.rejected',
 	/**
+	 * The fingerprint is on this gateway's ban list.
+	 *
+	 * Reported when *we* try to add or accept a banned key, which is somebody having
+	 * forgotten — the list is the answer, and the message points at it. An incoming
+	 * request from a banned key is never told this: answering differently would let
+	 * somebody learn they are banned by watching what happens, which is more than a
+	 * refused peer should be able to find out.
+	 */
+	PEER_BANNED: 'error.peer.banned',
+	/** Nothing on the ban list matches that fingerprint. */
+	PEER_BAN_NOT_FOUND: 'error.peer.ban_not_found',
+	/**
 	 * We asked them; they have not answered. There is nothing here to approve.
 	 *
 	 * Distinct from `PEER_REJECTED`, which says the far end refused us — the opposite
@@ -120,6 +132,13 @@ export const ErrorKey = {
 	PEER_METHOD_UNSUPPORTED: 'error.peer.method_unsupported',
 
 	SETTINGS_INVALID: 'error.settings.invalid',
+	/**
+	 * The field is pinned by the deployment's environment and cannot be changed here.
+	 *
+	 * Its own key so the interface can say which control is disabled and why, rather
+	 * than reporting a generic refusal for a box the person cannot see is locked.
+	 */
+	SETTINGS_PINNED: 'error.settings.pinned',
 	/**
 	 * The public URL is not a URL, or not one anything can dial.
 	 *

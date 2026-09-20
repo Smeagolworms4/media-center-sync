@@ -1,3 +1,4 @@
+export * from './banned-peer.repository';
 export * from './library.repository';
 export * from './media-item.repository';
 export * from './media-match.repository';

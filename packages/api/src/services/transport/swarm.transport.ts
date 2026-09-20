@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream';
-import { ErrorKey, PeerCapability, PeerTrust, TransferTransport as TransportKind } from '@mcs/shared';
+import { ErrorKey, PeerCapability, TransferTransport as TransportKind } from '@mcs/shared';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import type { ByteRange } from '../handlers/media-handler.interface';
 import { PeerLinkService } from '../peer-link.service';
@@ -388,10 +388,11 @@ export class SwarmTransport implements ByteTransport {
 				return right.rate - left.rate;
 			}
 
-			const leftFriend = left.holder.trust === PeerTrust.FRIEND ? 0 : 1;
-			const rightFriend = right.holder.trust === PeerTrust.FRIEND ? 0 : 1;
-
-			return leftFriend - rightFriend;
+			// Nearer wins when nothing measured separates them. It is a better
+			// tie-break than the friend/not-friend pair it replaced, which read every
+			// hop past the first as the same distance: with three hops allowed, a
+			// machine two circles out was ranked level with one that was four.
+			return left.holder.depth - right.holder.depth;
 		})[0];
 	}
 

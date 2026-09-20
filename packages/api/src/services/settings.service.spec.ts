@@ -1,4 +1,5 @@
-import { NamingScheme, PlacementStrategy } from '@mcs/shared';
+import { MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy } from '@mcs/shared';
+import type { ConfigService } from '@nestjs/config';
 import type { SettingRepository } from '@/repositories';
 import { CacheService } from './cache.service';
 import {
@@ -27,7 +28,13 @@ describe('SettingsService', () => {
 			}),
 		};
 		cache = new CacheService();
-		service = new SettingsService(repository as unknown as SettingRepository, cache);
+		service = new SettingsService(
+			repository as unknown as SettingRepository,
+			cache,
+			// No pin: these tests are about the stored values, and a pinned field is one
+			// the stored value no longer decides.
+			{ get: () => ({ maxDepth: null }) } as unknown as ConfigService,
+		);
 	});
 
 	afterEach(async () => {
@@ -208,6 +215,52 @@ describe('SettingsService', () => {
 		stored.set('publicUrl', '"not a url at all"');
 
 		await expect(service.update({ maxParallelTransfers: 5 })).resolves.toBeDefined();
+	});
+
+	describe('what the environment pins', () => {
+		const pinned = (maxDepth: number | null): SettingsService =>
+			new SettingsService(
+				repository as unknown as SettingRepository,
+				cache,
+				{ get: () => ({ maxDepth }) } as unknown as ConfigService,
+			);
+
+		it('overrides the stored value, so the pin is what actually applies', async () => {
+			stored.set('peerMaxDepth', JSON.stringify(5));
+
+			await expect(pinned(2).get()).resolves.toMatchObject({ peerMaxDepth: 2 });
+		});
+
+		it('names the pinned field, so a form can disable the control', async () => {
+			await expect(pinned(2).view()).resolves.toMatchObject({ pinned: ['peerMaxDepth'] });
+		});
+
+		it('names nothing when nothing is pinned', async () => {
+			await expect(pinned(null).view()).resolves.toMatchObject({ pinned: [] });
+		});
+
+		it('refuses a write to a pinned field rather than ignoring it', async () => {
+			// Dropping it silently would have the screen report a successful save for a
+			// value that did not move — the one outcome nobody can debug, because the
+			// form redisplays the stored value and somebody concludes they mistyped.
+			await expect(pinned(2).update({ peerMaxDepth: 4 })).rejects.toThrow();
+		});
+
+		it('accepts a write that agrees with the pin', async () => {
+			// The whole form is saved at once, so the pinned field is sent back unchanged
+			// on every save. Refusing that would make every other setting unsaveable.
+			await expect(pinned(2).update({ peerMaxDepth: 2, maxParallelTransfers: 6 })).resolves
+				.toMatchObject({ peerMaxDepth: 2, maxParallelTransfers: 6 });
+		});
+
+		it('brings a pin that is out of range back inside it', async () => {
+			// An environment variable holds nonsense as readily as a form does, and a
+			// pinned nonsense value cannot be corrected from the interface — which is
+			// the whole point of having pinned it.
+			await expect(pinned(99).get()).resolves.toMatchObject({
+				peerMaxDepth: MAX_PEER_MAX_DEPTH,
+			});
+		});
 	});
 });
 

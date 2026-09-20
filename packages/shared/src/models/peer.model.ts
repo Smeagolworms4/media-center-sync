@@ -20,11 +20,43 @@ export enum PeerStatus {
  * A friend of a friend is reachable, and useful — they may hold the same episode
  * and widen the swarm — but they are not someone we invited. The interface says so,
  * and the sharing rules can exclude them.
+ *
+ * Kept as a two-value distinction because that is what sharing decisions actually
+ * turn on: a library is offered to people we chose, or to the wider circle. The
+ * precise distance is `Peer.depth`, and beyond the second hop there is no third word
+ * anybody would recognise — "friend of a friend of a friend" is a number pretending
+ * to be a name.
  */
 export enum PeerTrust {
 	FRIEND = 'friend',
 	FRIEND_OF_FRIEND = 'friend_of_friend',
 }
+
+/**
+ * How far introductions may travel, counted in hops.
+ *
+ * 1 is people we linked to ourselves, 2 their friends, 3 one step further. The
+ * default is 3: far enough that a popular release usually has several holders —
+ * which is the whole point of letting the circle widen at all — and close enough
+ * that every gateway in it is two introductions from somebody we chose.
+ *
+ * It is a ceiling, never a target. The effective distance of any peer is the
+ * smallest budget any hop along the chain allowed, so raising this here cannot pull
+ * in a gateway whose own owner set a shorter reach. A limit that only the receiving
+ * side enforced would protect nobody: it would stop us *listing* distant peers while
+ * our own announcements kept travelling.
+ */
+export const DEFAULT_PEER_MAX_DEPTH = 3;
+
+/**
+ * The hard ceiling, whatever anybody sets.
+ *
+ * Each hop multiplies the gateways that may hear an announcement, and none of them
+ * were chosen by us. Past this the set stops resembling a circle of friends and
+ * starts resembling a public index — which is a different product, with different
+ * consequences for whoever runs it.
+ */
+export const MAX_PEER_MAX_DEPTH = 6;
 
 /**
  * Which side asked.
@@ -62,6 +94,26 @@ export interface Peer {
 	/** Who asked, while the link is pending. Null once it is settled. */
 	direction: PeerDirection | null;
 	trust: PeerTrust;
+	/**
+	 * How many introductions away they are. 1 is somebody we linked to ourselves.
+	 *
+	 * This is the number the source order and the swarm reason about — nearer peers
+	 * first, all else equal — and the one a screen can state plainly. `trust` collapses
+	 * everything past the first hop into one word, which is enough to decide sharing
+	 * and not enough to decide anything else.
+	 */
+	depth: number;
+	/**
+	 * How far introductions coming through *this* peer may travel, overriding the
+	 * gateway's own ceiling. Null follows the default.
+	 *
+	 * Per peer rather than global because the circles behind two friends are not
+	 * comparable: one runs a gateway for a household, the other for a club of forty.
+	 * Widening the reach for the first is harmless; doing it for the second, by
+	 * raising one number that applies to both, is how a friends-and-family index
+	 * quietly becomes a public one.
+	 */
+	maxDepth: number | null;
 	linkMode: PeerLinkMode | null;
 	/** Last address a link was established on. Informational only. */
 	address: string | null;
@@ -203,4 +255,48 @@ export interface PeerIdentity {
 	directAddress: string | null;
 	/** False when only relayed links are possible. */
 	directReachable: boolean;
+}
+
+
+/**
+ * A fingerprint this gateway refuses, whether or not a peer row exists for it.
+ *
+ * Blocking sets a status on a peer we still keep; banning outlives the row. The
+ * distinction exists because removing a peer used to be the *weaker* of the two
+ * actions: it deleted the row, and with it the only thing that had been refusing
+ * them, so the next request from the same key arrived as a fresh introduction to
+ * accept. Somebody ejecting a peer means to be rid of them, not to reset the
+ * relationship.
+ *
+ * Keyed by fingerprint rather than by peer, because that is the part that survives:
+ * a name is a label we chose, an address changes, and a node identifier is
+ * self-declared. The key is the identity.
+ */
+export interface BannedPeer {
+	/** The public key fingerprint being refused. */
+	fingerprint: string;
+	/** What they were called here when the ban was recorded, for a readable list. */
+	name: string | null;
+	/** Why, for whoever reads this list a year from now. */
+	reason: string | null;
+	bannedAt: string;
+}
+
+export interface BanPeerRequest {
+	fingerprint: string;
+	name?: string;
+	reason?: string;
+}
+
+/**
+ * Unlinking, with or without a ban.
+ *
+ * Defaulting `ban` to false keeps the ordinary case ordinary — a peer removed
+ * because a friend rebuilt their gateway should be able to come back by asking. The
+ * interface offers the ban as a checkbox on the removal, where the decision belongs,
+ * rather than as a second action somebody has to know to take afterwards.
+ */
+export interface RemovePeerRequest {
+	ban?: boolean;
+	reason?: string;
 }

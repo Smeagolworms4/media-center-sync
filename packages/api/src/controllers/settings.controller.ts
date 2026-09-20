@@ -1,4 +1,4 @@
-import { Right, type Settings } from '@mcs/shared';
+import { Right, type Settings, type SettingsView } from '@mcs/shared';
 import { Body, Controller, Get, Patch } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Granted } from '@/decorators';
@@ -18,8 +18,8 @@ export class SettingsController {
 		description:
 			'The table is sparse: a key nobody changed has no row, and comes back on its default.',
 	})
-	@ApiOkResponse({ description: 'Settings' })
-	public read(): Promise<Settings> {
+	@ApiOkResponse({ description: 'SettingsView' })
+	public read(): Promise<SettingsView> {
 		return this._settings.read();
 	}
 

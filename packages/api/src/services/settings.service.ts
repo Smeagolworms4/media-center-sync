@@ -1,13 +1,19 @@
 import { isAbsolute } from 'node:path';
 import {
+	DEFAULT_PEER_MAX_DEPTH,
 	ErrorKey,
+	MAX_PEER_MAX_DEPTH,
 	NamingScheme,
 	PlacementStrategy,
 	type ErrorKeyValue,
 	type Settings,
+	type SettingsView,
 	type UpdateSettingsRequest,
+	ShareVisibility,
 } from '@mcs/shared';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { PeersConfig } from '@/config/configuration';
 import { SettingRepository } from '@/repositories';
 import { CacheService } from './cache.service';
 
@@ -38,13 +44,14 @@ export const DEFAULT_SETTINGS: Settings = {
 	downloadRateLimit: 0,
 	uploadRateLimit: 0,
 	matchThreshold: 0.8,
-	allowFriendsOfFriends: false,
+	peerMaxDepth: DEFAULT_PEER_MAX_DEPTH,
 	allowSwarm: true,
 	rendezvousUrl: null,
 	// Null, and deliberately not guessed from the first request that arrives: behind a
 	// reverse proxy `Host` is whatever the proxy chose to forward, so a guess would be
 	// wrong exactly on the installations that need this set. The interface offers its
 	// own origin instead, where somebody can see it before accepting it.
+	defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
 	instanceName: null,
 	publicUrl: null,
 	peerAddress: null,
@@ -71,6 +78,12 @@ const NUMERIC_BOUNDS: Partial<Record<keyof Settings, { min: number; max: number 
 	transferHistoryDays: { min: 0, max: 3650 },
 	refreshIntervalMinutes: { min: 1, max: 1440 },
 	cacheTtlSeconds: { min: 1, max: 3600 },
+	// One is direct friends only, which has to stay reachable: it is the setting
+	// somebody picks the day they stop wanting a wider circle. The ceiling is not a
+	// round number chosen for looks — past it the set of gateways that may hear an
+	// announcement stops resembling a circle of friends and starts resembling a
+	// public index, which is a different thing to be running.
+	peerMaxDepth: { min: 1, max: MAX_PEER_MAX_DEPTH },
 };
 
 /**
@@ -215,10 +228,23 @@ export class SettingsService {
 	 */
 	private _cached: Settings | null = null;
 
+	/**
+	 * Settings the environment has taken out of the interface's hands.
+	 *
+	 * Resolved once at construction rather than read per request, for the reason
+	 * nothing else reads `process.env` either: a pin that could change under a running
+	 * process would let two requests in the same second disagree about whether a field
+	 * is editable.
+	 */
+	private readonly _pinned: Partial<Settings>;
+
 	public constructor(
 		private readonly _settings: SettingRepository,
 		private readonly _cache: CacheService,
-	) {}
+		config: ConfigService,
+	) {
+		this._pinned = this._resolvePins(config.get<PeersConfig>('peers') ?? { maxDepth: null });
+	}
 
 	public async get(): Promise<Settings> {
 		if (this._cached) {
@@ -252,6 +278,19 @@ export class SettingsService {
 
 	public async update(patch: UpdateSettingsRequest): Promise<Settings> {
 		const current = await this.get();
+
+		// Refused rather than ignored. Dropping a pinned field silently would let the
+		// screen report a successful save for a value that did not move, which is the
+		// one outcome nobody can debug: the form redisplays the stored value, somebody
+		// concludes they mistyped it, and tries again.
+		for (const field of this.pinnedFields) {
+			const submitted = patch[field];
+
+			if (submitted !== undefined && submitted !== current[field]) {
+				throw new BadRequestException({ key: ErrorKey.SETTINGS_PINNED, field });
+			}
+		}
+
 		const next = this._validate({ ...current, ...patch });
 		const rows: Record<string, string> = {};
 
@@ -269,10 +308,12 @@ export class SettingsService {
 
 		await this._settings.putMany(rows);
 
-		this._cached = next;
-		this._cache.setDefaultTtl(next.cacheTtlSeconds);
+		const pinned = this._applyPins(next);
 
-		return next;
+		this._cached = pinned;
+		this._cache.setDefaultTtl(pinned.cacheTtlSeconds);
+
+		return pinned;
 	}
 
 	/** Drops the cached copy. For the tests, and for a restore from a backup. */
@@ -298,7 +339,56 @@ export class SettingsService {
 			}
 		}
 
-		return this._clamp(merged);
+		// Pins are applied last, over the clamped value. A pinned field that is also out
+		// of bounds is a contradiction the deployment created, and the bound wins: a
+		// gateway that refused to start over its own environment would be unfixable
+		// from the only screen that could fix it.
+		return this._applyPins(this._clamp(merged));
+	}
+
+	/**
+	 * Which settings the environment decided, and to what.
+	 *
+	 * Each pin is bounded here rather than trusted, because an environment variable is
+	 * as capable of holding nonsense as a form is, and a pinned nonsense value cannot
+	 * be corrected from the interface — which is the whole point of pinning it.
+	 */
+	private _resolvePins(peers: PeersConfig): Partial<Settings> {
+		const pinned: Partial<Settings> = {};
+
+		if (peers.maxDepth !== null) {
+			const bounds = NUMERIC_BOUNDS.peerMaxDepth!;
+
+			pinned.peerMaxDepth = Math.min(Math.max(Math.trunc(peers.maxDepth), bounds.min), bounds.max);
+
+			if (pinned.peerMaxDepth !== peers.maxDepth) {
+				this._logger.warn(
+					`MCS_PEER_MAX_DEPTH=${peers.maxDepth} is out of range, using ${pinned.peerMaxDepth}`,
+				);
+			}
+		}
+
+		return pinned;
+	}
+
+	private _applyPins(settings: Settings): Settings {
+		return { ...settings, ...this._pinned };
+	}
+
+	/** The field names the interface must show as read-only. */
+	public get pinnedFields(): (keyof Settings)[] {
+		return Object.keys(this._pinned) as (keyof Settings)[];
+	}
+
+	/**
+	 * The settings as a screen needs them: values, plus what it may not offer to change.
+	 *
+	 * A separate method rather than widening `get()`, because everything else in the
+	 * application wants the values and would have to remember to ignore a field that
+	 * only means something to a form.
+	 */
+	public async view(): Promise<SettingsView> {
+		return { ...(await this.get()), pinned: this.pinnedFields as string[] };
 	}
 
 	private _validate(candidate: Settings): Settings {

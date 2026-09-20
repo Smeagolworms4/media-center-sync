@@ -153,7 +153,13 @@ export class PeerExchangeManager implements PeerMethodHandler {
 				return { libraries: await this.libraries(peerId) };
 
 			case 'catalogue.holders':
-				return { holders: await this.holders(peerId, this._string(params.contentId) ?? '') };
+				return {
+					holders: await this.holders(
+						peerId,
+						this._string(params.contentId) ?? '',
+						this._number(params.depth) ?? 0,
+					),
+				};
 
 			case 'media.describe': {
 				const entry = await this.describe(peerId, this._itemId(params));
@@ -207,18 +213,22 @@ export class PeerExchangeManager implements PeerMethodHandler {
 	 * ourselves with our own identifier would have them file it under a peer they do
 	 * not have.
 	 */
-	public async holders(peerId: string, contentId: string): Promise<ContentHolder[]> {
+	public async holders(peerId: string, contentId: string, budget = 0): Promise<ContentHolder[]> {
 		if (contentId === '') {
 			return [];
 		}
 
 		const peer = await this._requirePeer(peerId);
 		const policies = await this._shares.visiblePolicies(peer);
-		const answer = await this.announce(peerId, contentId);
+		const answer = await this.announce(peerId, contentId, budget);
 		const mine = await this._items.find({
 			where: { libraryId: In(policies.map((policy) => policy.libraryId)) },
 		});
 
+		// Distance zero, because these are measured from us and the caller adds their
+		// own hop. Reporting one here is the mistake that makes every chain read one
+		// circle longer than it is, and it compounds: a three-hop limit would stop
+		// admitting the third hop, and nobody would be able to say why.
 		const self: ContentHolder[] = mine
 			.filter((item) => item.file?.contentId === contentId)
 			.map((item) => ({
@@ -228,6 +238,7 @@ export class PeerExchangeManager implements PeerMethodHandler {
 				externalId: item.id,
 				size: item.file?.size ?? null,
 				trust: PeerTrust.FRIEND,
+				depth: 0,
 				viaPeerId: null,
 			}));
 
@@ -424,7 +435,11 @@ export class PeerExchangeManager implements PeerMethodHandler {
 	 * The peer who asked is never among the answers — telling them about themselves
 	 * would put one machine in the source list twice.
 	 */
-	public async announce(peerId: string, contentId: string): Promise<AnnouncementAnswer> {
+	public async announce(
+		peerId: string,
+		contentId: string,
+		budget = 0,
+	): Promise<AnnouncementAnswer> {
 		const peer = await this._requirePeer(peerId);
 		const policies = await this._shares.visiblePolicies(peer);
 		const settings = await this._settings.get();
@@ -444,11 +459,18 @@ export class PeerExchangeManager implements PeerMethodHandler {
 				name: candidate.name,
 				trust: candidate.trust,
 				viaPeerId: candidate.viaPeerId,
+				maxDepth: candidate.maxDepth,
 			}));
 
-		const holders = settings.allowFriendsOfFriends
-			? await this._catalogue.findHolders(contentId, friends, { allowFriendsOfFriends: true })
-			: [];
+		// The caller's budget, never more than our own ceiling allows. A peer asking
+		// for ten hops is asking us to spend our friends' connections walking a network
+		// we decided not to walk — our limit is a limit on what we relay, not only on
+		// what we accept, or it protects nothing.
+		const reach = Math.min(Math.max(0, Math.trunc(budget)), settings.peerMaxDepth - 1);
+		const holders =
+			reach > 0
+				? await this._catalogue.findHolders(contentId, friends, { maxDepth: reach })
+				: [];
 
 		return { contentId, held, holders };
 	}

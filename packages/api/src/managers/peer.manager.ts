@@ -7,11 +7,13 @@ import {
 	MediaServiceStatus,
 	MediaServiceType,
 	PeerDirection,
+	MAX_PEER_MAX_DEPTH,
 	PeerStatus,
 	PeerTrust,
 	negotiateProtocol,
 	type MediaService,
 	type AddPeerRequest,
+	type BannedPeer,
 	type Peer,
 	type PeerHandshake,
 	type PeerHello,
@@ -26,8 +28,13 @@ import {
 	ServiceUnavailableException,
 	UnauthorizedException,
 } from '@nestjs/common';
-import type { MediaService as MediaServiceEntity, Peer as PeerEntity } from '@/entities';
+import type {
+	BannedPeer as BannedPeerEntity,
+	MediaService as MediaServiceEntity,
+	Peer as PeerEntity,
+} from '@/entities';
 import {
+	BannedPeerRepository,
 	LibraryRepository,
 	MediaItemRepository,
 	MediaMatchRepository,
@@ -85,6 +92,7 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 
 	public constructor(
 		private readonly _peers: PeerRepository,
+		private readonly _bans: BannedPeerRepository,
 		private readonly _invites: PeerInviteRepository,
 		private readonly _services: MediaServiceRepository,
 		private readonly _items: MediaItemRepository,
@@ -203,6 +211,15 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		}
 
 		const fingerprint = parsed.fingerprint ?? known?.code ?? parsed.code;
+
+		// A valid invitation is not a way around the list. Redeeming one from a banned
+		// key would link them outright — no pending row, nothing to approve — which
+		// makes this the one path where the ban has to be checked before anything is
+		// written rather than merely before a link is granted.
+		if (await this._bans.isBanned(fingerprint)) {
+			throw new ConflictException(ErrorKey.PEER_BANNED);
+		}
+
 		const existing = await this._peers.findByFingerprint(fingerprint);
 		const peer = await this._peers.save(
 			existing === null
@@ -258,6 +275,14 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 
 		if (fingerprint === '') {
 			throw new UnauthorizedException(ErrorKey.PEER_INVITE_INVALID);
+		}
+
+		// Told plainly, because this direction is us adding them: somebody has
+		// forgotten that this key is on the list, and the answer they need is that it
+		// is. The opposite direction — a banned key asking us — is never told, so that
+		// nobody can discover they are banned by watching what happens.
+		if (await this._bans.isBanned(fingerprint)) {
+			throw new ConflictException(ErrorKey.PEER_BANNED);
 		}
 
 		const existing = await this._peers.findByFingerprint(fingerprint);
@@ -333,6 +358,11 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		peer.status = PeerStatus.LINKED;
 		peer.direction = null;
 		peer.trust = PeerTrust.FRIEND;
+		// Settling a link is the one moment a peer becomes somebody we chose, whatever
+		// they were before: a friend of a friend we then invite directly is at one hop
+		// from now on, and leaving the old distance would keep ranking them behind
+		// peers who are further away.
+		peer.depth = 1;
 
 		const saved = await this._peers.save(peer);
 
@@ -350,6 +380,14 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	 * anything else becomes possible.
 	 */
 	public async requested(fingerprint: string, name: string, address: string | null): Promise<void> {
+		// The ban outlives the row, which is the whole reason it exists: removing a peer
+		// used to delete the only thing refusing them, so the next request from the same
+		// key arrived as a fresh introduction to accept. Checked before the row is even
+		// looked for, and answered with silence for the same reason a block is.
+		if (await this._bans.isBanned(fingerprint)) {
+			return;
+		}
+
 		const existing = await this._peers.findByFingerprint(fingerprint);
 
 		if (existing !== null && existing.status === PeerStatus.BLOCKED) {
@@ -444,8 +482,18 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	 * at media that no longer exists. Doing it here also means it happens identically
 	 * on both engines rather than depending on whether foreign keys are enforced.
 	 */
-	public async remove(id: string): Promise<void> {
+	public async remove(id: string, options: { ban?: boolean; reason?: string } = {}): Promise<void> {
 		const peer = await this._require(id);
+
+		// Recorded before anything is deleted, because after the row is gone there is
+		// nothing left to take the fingerprint and the name from — and a ban recorded
+		// from a half-deleted peer is a ban on whatever survived the failure.
+		if (options.ban === true) {
+			await this._bans.ban(peer.fingerprint, {
+				name: peer.name,
+				reason: options.reason?.trim() || null,
+			});
+		}
 
 		this._links.disconnect(peer.id);
 
@@ -871,5 +919,114 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		}
 
 		return peer;
+	}
+
+	/**
+	 * Refuse a fingerprint for good, and take the peer with it.
+	 *
+	 * Distinct from `block`, which sets a status on a row we keep: a block is
+	 * reversible from the peers list and leaves their services and their history in
+	 * place, while a ban is the durable half — it survives the row, so the same key
+	 * cannot come back through a new request, an invitation, or an introduction by a
+	 * friend.
+	 *
+	 * Removing the peer is part of it rather than a separate step somebody has to
+	 * remember: a banned peer still listed among the others is a row that can be
+	 * approved by whoever does not know why it is there.
+	 */
+	public async ban(id: string, reason?: string): Promise<BannedPeer> {
+		const peer = await this._require(id);
+
+		await this.remove(peer.id, { ban: true, reason });
+
+		return this._presentBan(
+			(await this._bans.findByFingerprint(peer.fingerprint)) ??
+				(await this._bans.ban(peer.fingerprint, { name: peer.name })),
+		);
+	}
+
+	/**
+	 * Ban a fingerprint nobody ever linked to.
+	 *
+	 * The case is somebody being told about a key to refuse before it has asked —
+	 * which is exactly when refusing it is worth anything. It is also how a ban
+	 * survives a peer row that was deleted the ordinary way before this list existed.
+	 */
+	public async banFingerprint(
+		fingerprint: string,
+		{ name, reason }: { name?: string; reason?: string } = {},
+	): Promise<BannedPeer> {
+		const trimmed = fingerprint.trim();
+
+		if (trimmed === '') {
+			throw new UnauthorizedException(ErrorKey.PEER_INVITE_INVALID);
+		}
+
+		const existing = await this._peers.findByFingerprint(trimmed);
+
+		if (existing !== null) {
+			return this.ban(existing.id, reason);
+		}
+
+		return this._presentBan(
+			await this._bans.ban(trimmed, { name: name?.trim() || null, reason: reason?.trim() || null }),
+		);
+	}
+
+	/** The ban list, most recent first — that is the one somebody is looking for. */
+	public async bans(): Promise<BannedPeer[]> {
+		return (await this._bans.findAll()).map((ban) => this._presentBan(ban));
+	}
+
+	/**
+	 * Lift a ban. It does not re-link anybody: the key is merely allowed to ask again.
+	 *
+	 * Reported as not found rather than silently succeeding, because this is called
+	 * from a list somebody is looking at, and a row that disappears from one screen
+	 * while still refusing requests on another is the kind of disagreement nobody
+	 * thinks to check.
+	 */
+	public async unban(fingerprint: string): Promise<void> {
+		if (!(await this._bans.unban(fingerprint.trim()))) {
+			throw new NotFoundException(ErrorKey.PEER_BAN_NOT_FOUND);
+		}
+	}
+
+	/**
+	 * How far introductions through one peer may travel.
+	 *
+	 * Null puts them back on the gateway's own ceiling, which is what somebody means
+	 * when they clear the box — not a limit of zero, and not the number that happened
+	 * to be the default the day they set it.
+	 */
+	public async setMaxDepth(id: string, maxDepth: number | null): Promise<Peer> {
+		const peer = await this._require(id);
+
+		if (maxDepth !== null) {
+			const value = Math.trunc(maxDepth);
+
+			if (!Number.isFinite(value) || value < 1 || value > MAX_PEER_MAX_DEPTH) {
+				throw new ConflictException(ErrorKey.SETTINGS_INVALID);
+			}
+
+			peer.maxDepth = value;
+		} else {
+			peer.maxDepth = null;
+		}
+
+		const saved = await this._peers.save(peer);
+
+		this._emit(saved);
+
+		return this._present(saved);
+	}
+
+	private _presentBan(ban: BannedPeerEntity): BannedPeer {
+		return {
+			fingerprint: ban.fingerprint,
+			name: ban.name,
+			reason: ban.reason,
+			bannedAt: ban.createdAt.toISOString(),
+		};
 	}
 }

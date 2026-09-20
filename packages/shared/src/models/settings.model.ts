@@ -1,3 +1,4 @@
+import { ShareVisibility } from './share.model';
 /** Where pulled media goes when nothing more specific says otherwise. */
 export enum PlacementStrategy {
 	/**
@@ -49,8 +50,21 @@ export interface Settings {
 	uploadRateLimit: number;
 	/** Below this score a correlation is proposed but not applied. */
 	matchThreshold: number;
-	/** Let friends of friends reach us at all. */
-	allowFriendsOfFriends: boolean;
+	/**
+	 * How far introductions may travel, in hops. 1 is direct friends only.
+	 *
+	 * Replaces the earlier yes/no on friends of friends, which could only say "one
+	 * hop" or "unlimited" and meant the second in practice: there was no number to
+	 * stop at, so an announcement propagated as far as the network happened to reach.
+	 *
+	 * This is a ceiling over the whole gateway. Each peer carries its own
+	 * `maxDepth` for the circle behind them, and the effective distance is the
+	 * smallest budget any hop allowed — so lowering this is always safe and raising
+	 * it never overrules somebody else's choice.
+	 *
+	 * See `DEFAULT_PEER_MAX_DEPTH` and `MAX_PEER_MAX_DEPTH`.
+	 */
+	peerMaxDepth: number;
 	/** Use the encapsulated swarm when several peers hold the same file. */
 	allowSwarm: boolean;
 	rendezvousUrl: string | null;
@@ -83,6 +97,22 @@ export interface Settings {
 	 * defaulted to a pretty string at install time: a gateway called "Media Center
 	 * Sync" on both ends of a link is worse than two hostnames.
 	 */
+	/**
+	 * What a library of ours is visible to before anybody configures it.
+	 *
+	 * A gateway whose libraries are all invisible until somebody visits a screen is a
+	 * gateway that appears broken to the friend who linked to it — they see an empty
+	 * shelf and conclude the link failed. The default is therefore a real level, not
+	 * silence.
+	 *
+	 * **It applies only to libraries on our own services.** A library on a remote
+	 * Jellyfin or Plex stays private whatever this says, because sharing one of those
+	 * makes us the conduit for it — our bandwidth, and an access granted to us rather
+	 * than to the people we would be handing it to. That is consent
+	 * (`SharePolicy.relay`), and a default is not consent.
+	 */
+	defaultShareVisibility: ShareVisibility;
+
 	instanceName: string | null;
 
 	publicUrl: string | null;
@@ -141,3 +171,20 @@ export interface Settings {
 }
 
 export type UpdateSettingsRequest = Partial<Settings>;
+
+/**
+ * Settings, plus what the deployment has taken out of the interface's hands.
+ *
+ * A field named here is pinned by the environment: the stored value is ignored, the
+ * API refuses to change it, and the interface shows it disabled with a word about
+ * why. Without this the screen would offer a control that silently did nothing —
+ * somebody raises a limit, saves, sees a success notice, and the limit has not
+ * moved, which is the worst of the three possible behaviours.
+ *
+ * It exists for whoever runs a gateway for other people: a ceiling set in the
+ * container's environment is one the account holders cannot quietly lift.
+ */
+export interface SettingsView extends Settings {
+	/** Field names pinned by the environment, and therefore read-only. */
+	pinned: string[];
+}

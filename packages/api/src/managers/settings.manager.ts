@@ -1,4 +1,9 @@
-import { ErrorKey, type Settings, type UpdateSettingsRequest } from '@mcs/shared';
+import {
+	ErrorKey,
+	type Settings,
+	type SettingsView,
+	type UpdateSettingsRequest,
+} from '@mcs/shared';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import {
 	BandwidthService,
@@ -38,8 +43,16 @@ export class SettingsManager {
 		private readonly _libraries: LibraryManager,
 	) {}
 
-	public read(): Promise<Settings> {
-		return this._settings.get();
+	/**
+	 * The settings a screen needs: the values, and which of them the deployment has
+	 * taken out of its hands.
+	 *
+	 * The pinned list travels with the values rather than being a second request,
+	 * because a form that renders before it arrives would offer an editable control
+	 * for a locked field and then take it away — and somebody will have typed in it.
+	 */
+	public read(): Promise<SettingsView> {
+		return this._settings.view();
 	}
 
 	/**

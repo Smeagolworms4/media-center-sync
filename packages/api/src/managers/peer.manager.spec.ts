@@ -1,5 +1,6 @@
 import {
 	ErrorKey,
+	MAX_PEER_MAX_DEPTH,
 	PROTOCOL_VERSION,
 	PeerCapability,
 	PeerDirection,
@@ -8,6 +9,7 @@ import {
 } from '@mcs/shared';
 import type { Peer, PeerInvite } from '@/entities';
 import type {
+	BannedPeerRepository,
 	LibraryRepository,
 	MediaItemRepository,
 	MediaMatchRepository,
@@ -34,6 +36,13 @@ interface Fakes {
 		setStatus: jest.Mock;
 		recordHandshake: jest.Mock;
 		delete: jest.Mock;
+	};
+	bans: {
+		isBanned: jest.Mock;
+		findByFingerprint: jest.Mock;
+		findAll: jest.Mock;
+		ban: jest.Mock;
+		unban: jest.Mock;
 	};
 	invites: {
 		findByCode: jest.Mock;
@@ -73,6 +82,8 @@ const peerRow = (overrides: Partial<Peer> = {}): Peer =>
 		publicKey: null,
 		status: PeerStatus.LINKED,
 		trust: PeerTrust.FRIEND,
+		depth: 1,
+		maxDepth: null,
 		linkMode: null,
 		address: null,
 		viaPeerId: null,
@@ -150,10 +161,28 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 			scan: jest.fn().mockResolvedValue(undefined),
 			refresh: jest.fn().mockResolvedValue(undefined),
 		},
+		bans: {
+			isBanned: jest.fn().mockResolvedValue(false),
+			findByFingerprint: jest.fn().mockResolvedValue(null),
+			findAll: jest.fn().mockResolvedValue([]),
+			ban: jest.fn((fingerprint: string, extra: Record<string, unknown> = {}) =>
+				Promise.resolve({
+					id: 'ban-1',
+					fingerprint,
+					name: null,
+					reason: null,
+					...extra,
+					createdAt: new Date('2026-01-01T00:00:00.000Z'),
+					updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+				}),
+			),
+			unban: jest.fn().mockResolvedValue(true),
+		},
 	};
 
 	const manager = new PeerManager(
 		fakes.peers as unknown as PeerRepository,
+		fakes.bans as unknown as BannedPeerRepository,
 		fakes.invites as unknown as PeerInviteRepository,
 		fakes.services as unknown as MediaServiceRepository,
 		fakes.items as unknown as MediaItemRepository,
@@ -651,4 +680,160 @@ describe('PeerManager', () => {
 			);
 		});
 	});
+
+	describe('banning, which outlives the row', () => {
+		it('records the fingerprint when a peer is removed with a ban', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow());
+
+			await manager.remove('peer-1', { ban: true, reason: 'flooded us' });
+
+			expect(fakes.bans.ban).toHaveBeenCalledWith(THEIR_FINGERPRINT, {
+				name: 'Alice',
+				reason: 'flooded us',
+			});
+			expect(fakes.peers.delete).toHaveBeenCalledWith({ id: 'peer-1' });
+		});
+
+		it('records nothing when a peer is simply removed', async () => {
+			// The ordinary case has to stay ordinary: a friend who rebuilt their gateway
+			// should be able to come back by asking.
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow());
+
+			await manager.remove('peer-1');
+
+			expect(fakes.bans.ban).not.toHaveBeenCalled();
+		});
+
+		it('records the ban before deleting anything', async () => {
+			// After the row is gone there is nothing left to take the fingerprint and
+			// the name from, so a failure between the two must not leave a ban on
+			// whatever survived it.
+			const { manager, fakes } = build();
+			const order: string[] = [];
+
+			fakes.peers.findOne.mockResolvedValue(peerRow());
+			fakes.bans.ban.mockImplementation(() => {
+				order.push('ban');
+
+				return Promise.resolve({ fingerprint: THEIR_FINGERPRINT });
+			});
+			fakes.peers.delete.mockImplementation(() => {
+				order.push('delete');
+
+				return Promise.resolve(undefined);
+			});
+
+			await manager.remove('peer-1', { ban: true });
+
+			expect(order).toEqual(['ban', 'delete']);
+		});
+
+		it('refuses to add a banned fingerprint, and says so', async () => {
+			const { manager, fakes } = build();
+
+			fakes.bans.isBanned.mockResolvedValue(true);
+
+			await expect(manager.add({ fingerprint: THEIR_FINGERPRINT })).rejects.toThrow(
+				ErrorKey.PEER_BANNED,
+			);
+			expect(fakes.peers.save).not.toHaveBeenCalled();
+		});
+
+		it('refuses an invitation redeemed with a banned fingerprint', async () => {
+			// A valid invitation is not a way around the list: redeeming one links the
+			// peer outright, with no pending row and nothing to approve.
+			const { manager, fakes } = build();
+
+			fakes.bans.isBanned.mockResolvedValue(true);
+
+			await expect(
+				manager.accept(foreignInvite(new Date(Date.now() + 60_000))),
+			).rejects.toThrow(ErrorKey.PEER_BANNED);
+			expect(fakes.peers.save).not.toHaveBeenCalled();
+		});
+
+		it('says nothing at all to a banned gateway that asks', async () => {
+			// Answering differently would let somebody learn they are banned by watching
+			// what happens, which is more than a refused peer should find out.
+			const { manager, fakes } = build();
+
+			fakes.bans.isBanned.mockResolvedValue(true);
+
+			await expect(
+				manager.requested(THEIR_FINGERPRINT, 'Alice', null),
+			).resolves.toBeUndefined();
+			expect(fakes.peers.findByFingerprint).not.toHaveBeenCalled();
+			expect(fakes.peers.save).not.toHaveBeenCalled();
+		});
+
+		it('reports a lift of a ban nobody had', async () => {
+			const { manager, fakes } = build();
+
+			fakes.bans.unban.mockResolvedValue(false);
+
+			await expect(manager.unban('nobody')).rejects.toThrow(ErrorKey.PEER_BAN_NOT_FOUND);
+		});
+
+		it('bans a fingerprint that was never linked here', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findByFingerprint.mockResolvedValue(null);
+
+			const ban = await manager.banFingerprint('  ab:cd  ', { name: 'Someone' });
+
+			expect(fakes.bans.ban).toHaveBeenCalledWith('ab:cd', {
+				name: 'Someone',
+				reason: null,
+			});
+			expect(ban.fingerprint).toBe('ab:cd');
+		});
+	});
+
+	describe('how far a peer may introduce', () => {
+		it('puts a settled peer at one hop, whatever it was before', async () => {
+			// A friend of a friend we then invite directly is somebody we chose from now
+			// on, and leaving the old distance would keep ranking them behind peers who
+			// are further away.
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(
+				peerRow({
+					status: PeerStatus.PENDING,
+					direction: PeerDirection.INCOMING,
+					depth: 3,
+					trust: PeerTrust.FRIEND_OF_FRIEND,
+				}),
+			);
+
+			await manager.approve('peer-1');
+
+			expect(fakes.peers.save).toHaveBeenCalledWith(expect.objectContaining({ depth: 1 }));
+		});
+
+		it('clearing the limit puts the peer back on the gateway ceiling', async () => {
+			// Null means "follow the default", not a limit of zero and not whatever
+			// number happened to be the default the day it was set.
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow({ maxDepth: 5 }));
+
+			await manager.setMaxDepth('peer-1', null);
+
+			expect(fakes.peers.save).toHaveBeenCalledWith(expect.objectContaining({ maxDepth: null }));
+		});
+
+		it('refuses a limit past the hard ceiling', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow());
+
+			await expect(manager.setMaxDepth('peer-1', MAX_PEER_MAX_DEPTH + 1)).rejects.toBeDefined();
+			expect(fakes.peers.save).not.toHaveBeenCalled();
+		});
+	});
+
 });

@@ -41,6 +41,11 @@ export interface CataloguePeer {
 	trust: PeerTrust;
 	/** The friend who introduced them, for a friend of a friend. */
 	viaPeerId: string | null;
+	/**
+	 * How far introductions through this peer may travel, or null for the gateway's
+	 * own ceiling. See `Peer.maxDepth`.
+	 */
+	maxDepth?: number | null;
 }
 
 /** Somebody who says they hold a given file. */
@@ -51,6 +56,15 @@ export interface ContentHolder {
 	externalId: string;
 	size: number | null;
 	trust: PeerTrust;
+	/**
+	 * How many hops away they are, counted from us. 1 is a friend we linked to.
+	 *
+	 * Computed here from who relayed the answer, never taken from the answer itself:
+	 * a peer that could state its own distance could state 1 and promote an arbitrary
+	 * machine to a direct friend. What the far end says is how far a holder is *from
+	 * them*, and our hop is added to it.
+	 */
+	depth: number;
 	/** The friend who vouched for them, when they are a friend of a friend. */
 	viaPeerId: string | null;
 }
@@ -200,22 +214,33 @@ export class PeerCatalogueService {
 	}
 
 	/**
-	 * Everybody who holds a given file, including one hop further out.
+	 * Everybody who holds a given file, out to the configured number of hops.
 	 *
-	 * The second hop is what makes the swarm worth having: a friend's friend may hold
-	 * the same episode, and their bandwidth is as good as anybody's. They are asked
-	 * through the friend who knows them rather than directly — we have no link to
-	 * them and no business opening one — and the answer is tagged with who vouched,
-	 * so the interface can say where a source came from and the settings can refuse
-	 * the whole idea.
+	 * The hops past the first are what make the swarm worth having: a friend's friend
+	 * may hold the same episode, and their bandwidth is as good as anybody's. They are
+	 * asked through the friend who knows them rather than directly — we have no link
+	 * to them and no business opening one — and the answer is tagged with who vouched
+	 * and how far away they are.
+	 *
+	 * Each friend is asked for a budget of their own, `maxDepth` on their row falling
+	 * back to the gateway ceiling. That is the point of the per-peer override: one
+	 * friend runs a gateway for a household and another for a club of forty, and
+	 * widening the reach for the first should not widen it for the second.
+	 *
+	 * The budget sent is one less than the limit, because the friend being asked is
+	 * already the first hop. Sending the limit itself is the obvious off-by-one here,
+	 * and it is invisible in testing — it simply reaches one circle further than
+	 * anybody asked for.
 	 */
 	public async findHolders(
 		contentId: string,
 		peers: CataloguePeer[],
-		options: { allowFriendsOfFriends: boolean },
+		options: { maxDepth: number },
 	): Promise<ContentHolder[]> {
 		const holders = new Map<string, ContentHolder>();
 		const friends = peers.filter((peer) => peer.trust === PeerTrust.FRIEND);
+		const limitFor = (peer: CataloguePeer): number =>
+			Math.max(1, peer.maxDepth ?? options.maxDepth);
 
 		const answers = await Promise.all(
 			friends.map(async (peer) => {
@@ -226,9 +251,11 @@ export class PeerCatalogueService {
 				return this._links
 					.request<{ holders?: ContentHolder[] }>(peer.id, 'catalogue.holders', {
 						contentId,
-						// The depth is asked for rather than assumed, so a peer that has
-						// turned friend-of-friend sharing off simply answers with itself.
-						depth: options.allowFriendsOfFriends ? 1 : 0,
+						// Asked for rather than assumed, so a peer whose own limit is
+						// shorter than ours simply answers with fewer holders. A budget
+						// enforced only on our side would stop us listing distant
+						// holders while our own announcements kept travelling.
+						depth: limitFor(peer) - 1,
 					})
 					.then((answer) => this._attribute(answer.holders ?? [], peer))
 					.catch(() => [] as ContentHolder[]);
@@ -236,44 +263,55 @@ export class PeerCatalogueService {
 		);
 
 		for (const holder of answers.flat()) {
-			if (!options.allowFriendsOfFriends && holder.trust === PeerTrust.FRIEND_OF_FRIEND) {
+			// Checked again on the way in. The budget was a request, and a peer that
+			// ignores it — through a bug or on purpose — must not be able to widen our
+			// circle by answering with more than was asked for.
+			if (holder.depth > options.maxDepth) {
 				continue;
 			}
 
 			// The same file behind two friends is one source, not two: keeping both
 			// would open two connections to the same machine and count its bandwidth
-			// twice when picking sources.
+			// twice when picking sources. The nearer attribution wins, because that is
+			// the shorter path to the same bytes.
 			const key = `${holder.peerId}:${holder.serviceId}:${holder.externalId}`;
+			const known = holders.get(key);
 
-			if (!holders.has(key)) {
+			if (known === undefined || holder.depth < known.depth) {
 				holders.set(key, holder);
 			}
 		}
 
-		// Friends first: a direct link is faster, already authenticated, and does not
+		// Nearest first: a direct link is faster, already authenticated, and does not
 		// spend somebody else's connection relaying for us.
-		return [...holders.values()].sort((left, right) =>
-			left.trust === right.trust ? 0 : left.trust === PeerTrust.FRIEND ? -1 : 1,
-		);
+		return [...holders.values()].sort((left, right) => left.depth - right.depth);
 	}
 
 	/**
-	 * Stamp an answer with who it came through.
+	 * Stamp an answer with who it came through, and how far away that puts it.
 	 *
-	 * A peer reporting its own holdings is a friend; anything else it reports is one
-	 * hop further out, whatever the answer claims about itself. Taking the far end's
-	 * word for the trust level would let one peer promote an arbitrary machine to
-	 * friend.
+	 * A peer reporting its own holdings is one hop; anything else it reports is at
+	 * least two, whatever the answer claims about itself. What the far end sends is a
+	 * distance measured from *them*, so our own hop is added to it — and a missing or
+	 * nonsensical distance is read as their nearest possible, which is the reading
+	 * that cannot be used to claim a shorter path than actually exists.
+	 *
+	 * Taking the far end's word for any of this would let one peer promote an
+	 * arbitrary machine to a direct friend, which is the whole reason it is recomputed
+	 * here rather than trusted.
 	 */
 	private _attribute(holders: ContentHolder[], via: CataloguePeer): ContentHolder[] {
 		return holders.map((holder) => {
 			const isSelf = holder.peerId === via.id || holder.peerId === '';
+			const reported = Number.isFinite(holder.depth) ? Math.trunc(holder.depth) : 1;
+			const depth = isSelf ? 1 : 1 + Math.max(1, reported);
 
 			return {
 				...holder,
 				peerId: isSelf ? via.id : holder.peerId,
 				peerName: isSelf ? via.name : (holder.peerName ?? 'unknown'),
-				trust: isSelf ? PeerTrust.FRIEND : PeerTrust.FRIEND_OF_FRIEND,
+				depth,
+				trust: depth === 1 ? PeerTrust.FRIEND : PeerTrust.FRIEND_OF_FRIEND,
 				viaPeerId: isSelf ? null : via.id,
 			};
 		});

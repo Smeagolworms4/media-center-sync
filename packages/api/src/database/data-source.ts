@@ -4,6 +4,7 @@ import { DataSource, type DataSourceOptions } from 'typeorm';
 import { configuration } from '@/config';
 import { MIGRATIONS } from './migrations';
 import {
+	BannedPeer,
 	Library,
 	MediaItem,
 	MediaMatch,
@@ -30,6 +31,7 @@ import { applyPostgresCompatibility } from './postgres-compat';
  * `Timestampable`, which is a base class and not a table.
  */
 export const ENTITIES = [
+	BannedPeer,
 	Library,
 	MediaItem,
 	MediaMatch,

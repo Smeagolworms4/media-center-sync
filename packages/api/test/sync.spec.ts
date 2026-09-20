@@ -394,11 +394,17 @@ describe('Syncing', () => {
 			const preview = response.body as SyncPreview;
 
 			expect(preview.targets).toHaveLength(1);
-			expect(preview.targets[0]).toMatchObject({
-				verdict: SpaceVerdict.INSUFFICIENT,
-				freeBytes,
-			});
+			expect(preview.targets[0].verdict).toBe(SpaceVerdict.INSUFFICIENT);
 			expect(preview.targets[0].requiredBytes).toBe(preview.bytesPlanned);
+
+			// Close to what this suite measured, not equal to it. The two readings are
+			// taken seconds apart from a live filesystem that the machine is also using,
+			// and asserting equality made this test fail perhaps one run in three — for
+			// a few hundred kilobytes written by something else entirely, which says
+			// nothing about the verdict the test is here to pin.
+			expect(Math.abs((preview.targets[0].freeBytes ?? 0) - freeBytes)).toBeLessThan(
+				freeBytes * 0.01,
+			);
 		});
 
 		it('refuses the run outright, and starts nothing', async () => {

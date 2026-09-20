@@ -10,7 +10,7 @@ import type { LibraryManager } from './library.manager';
 import { SettingsManager } from './settings.manager';
 
 interface Fakes {
-	settings: { get: jest.Mock; update: jest.Mock };
+	settings: { get: jest.Mock; view: jest.Mock; update: jest.Mock };
 	scheduler: { reload: jest.Mock };
 	engine: { applyRateLimits: jest.Mock };
 	bandwidth: { apply: jest.Mock };
@@ -21,6 +21,7 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 	const fakes: Fakes = {
 		settings: {
 			get: jest.fn().mockResolvedValue(DEFAULT_SETTINGS),
+			view: jest.fn().mockResolvedValue({ ...DEFAULT_SETTINGS, pinned: [] }),
 			update: jest.fn((patch: Record<string, unknown>) =>
 				Promise.resolve({ ...DEFAULT_SETTINGS, ...patch }),
 			),
@@ -162,6 +163,16 @@ describe('SettingsManager', () => {
 	it('reads through to the service that owns the defaults', async () => {
 		const { manager } = build();
 
-		await expect(manager.read()).resolves.toEqual(DEFAULT_SETTINGS);
+		await expect(manager.read()).resolves.toEqual({ ...DEFAULT_SETTINGS, pinned: [] });
+	});
+
+	it('carries which fields the deployment pinned, so a form can lock them', async () => {
+		// A screen that rendered before this arrived would offer an editable control
+		// for a locked field and then take it away — and somebody will have typed in it.
+		const { manager, fakes } = build();
+
+		fakes.settings.view.mockResolvedValue({ ...DEFAULT_SETTINGS, pinned: ['peerMaxDepth'] });
+
+		await expect(manager.read()).resolves.toMatchObject({ pinned: ['peerMaxDepth'] });
 	});
 });
