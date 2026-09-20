@@ -82,9 +82,9 @@ interface is served from, so a reverse proxy and its TLS certificate already cov
 peer traffic, and there is nothing extra to forward on a router beyond what you opened
 to reach the interface from outside.
 
-If neither end is reachable from outside, links fall back to a relay through the
-rendezvous: it works, but that relay's bandwidth is shared by everyone using it. See
-[what one port does not solve](#what-one-port-does-not-solve).
+If neither end is reachable from outside, a link depends on a friend both gateways
+already have: that friend introduces them, and carries the bytes only if they offer
+to. See [what one port does not solve](#what-one-port-does-not-solve).
 
 ### Environment
 
@@ -179,7 +179,10 @@ location / {
   have episodes 1 to 6, that 7 and 8 exist on a friend's server, and that your copy
   of episode 3 is the 720p one when a 1080p exists elsewhere.
 - **Shows the state of every item** with one icon and one vocabulary, everywhere:
-  in sync, missing, outdated, conflicting, syncing, local only, unknown.
+  in sync, missing, outdated, conflicting, syncing, local only, unknown — plus the two
+  that cover a file the gateway has just put on the disk, *downloaded — resyncing*
+  while the media server has not indexed it yet, and *never indexed* once it is clear
+  that it never will.
 - **Summarises quality** per series or season — `x265 · 1080p`, or `mixed` with every
   variant listed in the tooltip, because a library is rarely uniform and a single
   arbitrary codec would be a summary that lies.
@@ -188,9 +191,10 @@ location / {
 - **Transfers properly**: chunked, resumable, several connections per source, several
   sources per file, pause and resume, live progress, per-piece verification and
   targeted repair.
-- **Links gateways peer to peer**, directly when the network allows it and through a
-  rendezvous relay when it does not, with friend-of-a-friend discovery so several
-  people holding the same file can feed one transfer.
+- **Links gateways peer to peer**, directly when the network allows it and through an
+  introduction from a friend they already have when it does not, with
+  friend-of-a-friend discovery so several people holding the same file can feed one
+  transfer.
 - **Lets you decide what you share**, per library, with whom, and at what bandwidth.
 
 ## How it works
@@ -323,20 +327,41 @@ only thing that still knows what it was supposed to contain.
 A peer is another gateway, identified by its public key fingerprint — never by its
 address, so a friend behind a dynamic IP is still the same friend tomorrow.
 
-You link by handing someone an invitation: a code carrying the fingerprint, a
-rendezvous to meet at, and a one-shot secret. It expires, and it burns on use. An
-invitation that never expired would be a credential left in a chat log, and whoever
-found it would be a friend as far as the gateway is concerned.
+**Peers are introduced by the intermediaries they already have.** There is no server
+in the middle, no address to look up and nothing to configure: a gateway dials the
+address it last knew, and failing that asks a friend both ends have to introduce it.
+The friend that told you this peer existed is asked first — it is how you know they
+exist at all — and if that one is offline a couple of your other linked friends are
+tried, and then the attempt stops rather than working through your whole list while a
+screen waits.
 
-The **rendezvous** is a middle server whose only job is to introduce two ends so they
-can open a direct, encrypted connection. It is not trusted with the content: when a
-direct path cannot be opened it can relay, and that is the degraded mode, not the
-normal one.
+The one case with nobody in the middle is the very first peer, and the invitation is
+what covers it: a code carrying the fingerprint, **the issuing gateway's own address**,
+and a one-shot secret, handed over out of band. It expires, and it burns on use. An
+invitation that never expired would be a credential left in a chat log, and whoever
+found it would be a friend as far as the gateway is concerned. The address in it is the
+sender's own — it names nobody else, and there is nothing there for anybody to run.
 
 A linked friend can tell you that *one of their* peers also holds a file you are
 pulling. That friend of a friend is reachable and useful — more bandwidth, another
 source — but they are not someone you invited, the interface says so, and the sharing
 rules can exclude them entirely.
+
+**The friend in the middle never carries the bytes.** They sign a short-lived
+introduction — two minutes, naming who may present it and which gateway it opens, and
+never naming a media — you hand it to the holder as a header on the upgrade, and the
+holder checks it against the key it already has for its own peer. From then on the two
+of you talk directly and the introducer can go offline. Relaying stays real for a
+remote Jellyfin or Plex somebody shares, which is a different arrangement: that server
+does not speak this protocol and has never heard of you, so standing in front of it is
+the whole point rather than a fallback.
+
+Nobody is asked to approve an introduction, and that is deliberate: **how far
+introductions travel is the agreement**. The gateway's reach and each peer's own limit
+decide how far away somebody may be and still open a link to you, so shortening either
+one narrows who can reach you rather than tuning a search. Whether a peer met this way
+stays in your list afterwards is one switch — off by default, so a link opened for a
+transfer closes with it.
 
 ### What one port does not solve
 
@@ -346,14 +371,20 @@ with a name. Whichever end is reachable is dialled, the other dials it, and the 
 is the same either way.
 
 It does nothing for the case where **both** gateways are behind NAT with nothing
-forwarded. A WebSocket needs somebody to connect *to*, and there is nobody: the link
-falls back to the rendezvous relay, which works and is slower, because a third party
-is carrying every byte and sharing its line with everyone else doing the same.
+forwarded. A WebSocket needs somebody to connect *to*, and there is nobody. A friend
+both ends already have can introduce them, which gets past "they have never heard of
+you" but not past "there is no socket to open"; that friend can also carry the bytes,
+and this gateway deliberately never offers to do that for anyone — passing a friend of
+a friend's film through your machine is the thing introductions exist to avoid.
 
-The answer to that case is **WebRTC** — ICE, STUN to discover each end's public
-address, TURN when it cannot be discovered, signalled through the rendezvous that
-already exists for introductions. It is **not implemented**. Until it is, two
-double-NATed households talk through the relay, and that is the honest state of it.
+**So two gateways behind two routers with no friend in common cannot be connected.**
+That is a stated limit rather than a setting somebody forgot to fill in, and the peers
+screen says so on the row: forwarding the interface's port on one of the two routers
+is what opens the link. There is no second port to open.
+
+The answer to the general case is **WebRTC** — ICE, STUN to discover each end's public
+address, TURN when it cannot be discovered, signalled over the peer link that already
+carries introductions. It is **not implemented**, and that is the honest state of it.
 
 ### Sharing
 

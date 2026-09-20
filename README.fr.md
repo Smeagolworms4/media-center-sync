@@ -77,9 +77,9 @@ sur le port qui sert déjà l'interface : un reverse proxy et son certificat TLS
 couvrent donc le trafic entre pairs sans rien de plus, et il n'y a rien à rediriger
 sur le routeur au-delà de ce que vous avez ouvert pour joindre l'interface.
 
-Si aucune des deux extrémités n'est joignable depuis l'extérieur, les liaisons
-retombent sur un relais via le rendez-vous : ça fonctionne, mais la bande passante du
-relais est partagée entre tous ceux qui l'utilisent. Voir
+Si aucune des deux extrémités n'est joignable depuis l'extérieur, la liaison dépend
+d'un ami que les deux passerelles ont déjà : cet ami les présente, et ne transporte
+les octets que s'il le propose. Voir
 [ce qu'un seul port ne résout pas](#ce-quun-seul-port-ne-résout-pas).
 
 ### Environnement
@@ -180,7 +180,10 @@ location / {
   1080p existe ailleurs.
 - **Affiche l'état de chaque élément** avec une seule icône et un seul vocabulaire,
   partout : synchronisé, manquant, obsolète, en conflit, en cours de synchronisation,
-  local uniquement, inconnu.
+  local uniquement, inconnu — plus les deux qui décrivent un fichier que la passerelle
+  vient de poser sur le disque : *téléchargé — resynchronisation* tant que le serveur
+  multimédia ne l'a pas indexé, et *jamais indexé* lorsqu'il est acquis qu'il ne le
+  fera pas.
 - **Résume la qualité** par série ou par saison — `x265 · 1080p`, ou `mixte` avec
   chaque variante listée dans l'infobulle, parce qu'une bibliothèque est rarement
   uniforme et qu'un codec unique choisi arbitrairement donnerait un résumé mensonger.
@@ -190,9 +193,9 @@ location / {
   par source, plusieurs sources par fichier, pause et reprise, progression en direct,
   vérification par morceau et réparation ciblée.
 - **Relie les passerelles de pair à pair**, directement quand le réseau le permet et
-  via un relais de rendez-vous quand ce n'est pas le cas, avec une découverte d'amis
-  d'amis permettant à plusieurs personnes détenant le même fichier d'alimenter un même
-  transfert.
+  par la présentation d'un ami qu'elles ont déjà quand ce n'est pas le cas, avec une
+  découverte d'amis d'amis permettant à plusieurs personnes détenant le même fichier
+  d'alimenter un même transfert.
 - **Vous laisse décider ce que vous partagez**, par bibliothèque, avec qui, et si les
   destinataires reçoivent les fichiers ou seulement le catalogue.
 
@@ -349,21 +352,43 @@ Un pair est une autre passerelle, identifiée par l'empreinte de sa clé publiqu
 jamais par son adresse, de sorte qu'un ami derrière une IP dynamique reste le même ami
 demain.
 
-On se lie en remettant à quelqu'un une invitation : un code portant l'empreinte, un
-rendez-vous où se retrouver, et un secret à usage unique. Elle expire, et elle se
-consume à l'usage. Une invitation qui n'expirerait jamais serait un identifiant qui
-traîne dans un historique de discussion, et quiconque le trouverait deviendrait un ami
-aux yeux de la passerelle.
+**Les pairs sont présentés par les intermédiaires qu'ils ont déjà.** Il n'y a aucun
+serveur au milieu, aucune adresse à interroger et rien à configurer : une passerelle
+appelle la dernière adresse connue, et à défaut demande à un ami que les deux
+extrémités ont en commun de les présenter. L'ami qui vous a parlé de ce pair est
+sollicité en premier — c'est par lui que vous savez qu'il existe — et s'il est hors
+ligne, deux ou trois autres amis liés sont essayés, puis la tentative s'arrête plutôt
+que de parcourir toute votre liste pendant qu'un écran attend.
 
-Le **rendez-vous** est un serveur intermédiaire dont le seul rôle est de présenter
-deux extrémités l'une à l'autre pour qu'elles ouvrent une connexion directe et
-chiffrée. Il n'a jamais accès au contenu : quand une voie directe ne peut pas
-s'ouvrir, il peut relayer, et c'est le mode dégradé, pas le mode normal.
+Le seul cas sans personne au milieu est le tout premier pair, et l'invitation est là
+pour lui : un code portant l'empreinte, **l'adresse publique de la passerelle qui
+l'émet**, et un secret à usage unique, remis de la main à la main. Elle expire, et elle
+se consume à l'usage. Une invitation qui n'expirerait jamais serait un identifiant qui
+traîne dans un historique de discussion, et quiconque le trouverait deviendrait un ami
+aux yeux de la passerelle. L'adresse qu'elle porte est celle de l'expéditeur — elle ne
+désigne personne d'autre, et il n'y a là rien à héberger pour qui que ce soit.
 
 Un ami lié peut vous signaler que *l'un de ses* pairs détient lui aussi un fichier que
 vous rapatriez. Cet ami d'ami est joignable et utile — plus de bande passante, une
 source supplémentaire — mais ce n'est pas quelqu'un que vous avez invité, l'interface
 le précise, et les règles de partage peuvent l'exclure entièrement.
+
+**L'ami au milieu ne transporte jamais les octets.** Il signe une présentation de
+courte durée — deux minutes, qui nomme qui peut s'en servir et quelle passerelle elle
+ouvre, et ne nomme jamais un média —, vous la remettez au détenteur dans un en-tête de
+la connexion, et celui-ci la vérifie avec la clé qu'il a déjà pour son propre pair.
+Ensuite vous vous parlez directement et l'ami qui vous a présentés peut s'éteindre. Le
+relais reste réel pour un Jellyfin ou un Plex distant que quelqu'un partage, ce qui est
+un tout autre arrangement : ce serveur ne parle pas ce protocole et n'a jamais entendu
+parler de vous, donc se tenir devant lui est tout le principe et non un repli.
+
+Personne n'a à approuver une présentation, et c'est délibéré : **la distance que
+parcourent les présentations est l'accord lui-même**. La portée de la passerelle et la
+limite propre à chaque pair décident à quelle distance quelqu'un peut se trouver et
+ouvrir tout de même une liaison vers vous ; raccourcir l'une ou l'autre restreint donc
+qui peut vous joindre, et ne règle pas une recherche. Qu'un pair rencontré ainsi reste
+ou non dans votre liste tient à un seul interrupteur — désactivé par défaut, de sorte
+qu'une liaison ouverte pour un transfert se ferme avec lui.
 
 ### Ce qu'un seul port ne résout pas
 
@@ -373,16 +398,23 @@ tunnel, un reverse proxy avec un nom. Celle qui est joignable est appelée, l'au
 appelle, et la liaison est la même dans les deux sens.
 
 Cela ne règle rien lorsque **les deux** passerelles sont derrière un NAT sans rien de
-redirigé. Un WebSocket a besoin de quelqu'un à appeler, et il n'y a personne : la
-liaison retombe sur le relais du rendez-vous, qui fonctionne et qui est plus lent,
-puisqu'un tiers transporte chaque octet et partage sa ligne avec tous ceux qui font de
-même.
+redirigé. Un WebSocket a besoin de quelqu'un à appeler, et il n'y a personne. Un ami
+que les deux extrémités ont déjà peut les présenter, ce qui lève le « il n'a jamais
+entendu parler de vous » mais pas le « il n'y a aucune socket à ouvrir » ; cet ami peut
+aussi transporter les octets, et cette passerelle ne le propose délibérément à
+personne — faire passer le film d'un ami d'ami par votre machine est précisément ce que
+les présentations évitent.
 
-La réponse à ce cas, c'est **WebRTC** — ICE, STUN pour découvrir l'adresse publique de
-chaque extrémité, TURN quand elle ne peut pas l'être, signalés à travers le
-rendez-vous qui existe déjà pour les présentations. Ce n'est **pas implémenté**. D'ici
-là, deux foyers doublement NATés se parlent à travers le relais, et c'est l'état
-honnête de la chose.
+**Deux passerelles derrière deux routeurs, sans aucun ami commun, ne peuvent donc pas
+être reliées.** C'est une limite annoncée et non un réglage que quelqu'un aurait oublié
+de remplir : l'écran des pairs le dit sur la ligne concernée, et rediriger le port de
+l'interface sur l'un des deux routeurs est ce qui ouvre la liaison. Il n'y a pas de
+second port à ouvrir.
+
+La réponse au cas général, c'est **WebRTC** — ICE, STUN pour découvrir l'adresse
+publique de chaque extrémité, TURN quand elle ne peut pas l'être, signalés sur la
+liaison entre pairs qui transporte déjà les présentations. Ce n'est **pas implémenté**,
+et c'est l'état honnête de la chose.
 
 ### Partage
 

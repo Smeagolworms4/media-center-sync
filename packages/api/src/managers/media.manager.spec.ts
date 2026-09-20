@@ -3,6 +3,7 @@ import {
 	ErrorKey,
 	MatchStrategy,
 	MediaKind,
+	MediaLandingState,
 	MediaServiceType,
 	SyncState,
 	type MediaFileInfo,
@@ -10,6 +11,7 @@ import {
 import type { MediaItem, MediaMatch, MediaService as MediaServiceEntity } from '@/entities';
 import type {
 	MediaItemRepository,
+	MediaLandingRepository,
 	MediaMatchRepository,
 	MediaServiceRepository,
 } from '@/repositories';
@@ -114,6 +116,7 @@ interface Fakes {
 		delete: jest.Mock;
 	};
 	services: { find: jest.Mock; findOne: jest.Mock; findWithSecrets: jest.Mock };
+	landings: { findOpen: jest.Mock };
 	cache: { get: jest.Mock; set: jest.Mock };
 	openArtwork: jest.Mock;
 }
@@ -146,6 +149,10 @@ const build = (world: { items?: MediaItem[] } = {}): { manager: MediaManager; fa
 			findWithSecrets: jest.fn().mockResolvedValue(mediaService({ token: 'plex-token' })),
 		},
 		cache: { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined) },
+		// Nothing landed unless a test says so: an empty table is the ordinary state of
+		// a gateway that is not mid-download, and every correlation rule here is about
+		// what the services said rather than about what we downloaded.
+		landings: { findOpen: jest.fn().mockResolvedValue([]) },
 		openArtwork: jest.fn(async () => ({
 			stream: Readable.from([Buffer.from('poster bytes')]),
 			contentType: 'image/jpeg',
@@ -156,6 +163,7 @@ const build = (world: { items?: MediaItem[] } = {}): { manager: MediaManager; fa
 		fakes.items as unknown as MediaItemRepository,
 		fakes.matches as unknown as MediaMatchRepository,
 		fakes.services as unknown as MediaServiceRepository,
+		fakes.landings as unknown as MediaLandingRepository,
 		// The real scoring service: the rule under test is what the manager does with a
 		// proposal, and a fake that produced one would prove nothing about the pair the
 		// lab fixture is built around.
@@ -300,6 +308,72 @@ describe('MediaManager', () => {
 				['item-theirs'],
 				SyncState.MISSING,
 			);
+		});
+
+		it('keeps a media the gateway has just downloaded out of missing', async () => {
+			/*
+			 * Correlation recomputes every state from scratch, so it is the one place
+			 * that can undo a landing — and it did, on the first scan after a download,
+			 * putting the file back on the list of things to fetch while it sat in the
+			 * library folder.
+			 */
+			const theirs = item({ id: 'item-theirs', serviceId: 'service-b' });
+			const { manager, fakes } = build({ items: [theirs] });
+
+			fakes.services.find.mockResolvedValue([
+				mediaService({ id: 'service-b', filesMounted: false, peerId: 'peer-1' }),
+			]);
+			fakes.landings.findOpen.mockResolvedValue([
+				{ itemId: 'item-theirs', state: MediaLandingState.WAITING },
+			]);
+
+			await manager.correlateService('service-b');
+
+			expect(fakes.items.setSyncState).toHaveBeenCalledWith(
+				['item-theirs'],
+				SyncState.AWAITING_INDEX,
+			);
+		});
+
+		it('says a landed file was never indexed once its landing has gone stale', async () => {
+			const theirs = item({ id: 'item-theirs', serviceId: 'service-b' });
+			const { manager, fakes } = build({ items: [theirs] });
+
+			fakes.services.find.mockResolvedValue([
+				mediaService({ id: 'service-b', filesMounted: false, peerId: 'peer-1' }),
+			]);
+			fakes.landings.findOpen.mockResolvedValue([
+				{ itemId: 'item-theirs', state: MediaLandingState.STALE },
+			]);
+
+			await manager.correlateService('service-b');
+
+			expect(fakes.items.setSyncState).toHaveBeenCalledWith(
+				['item-theirs'],
+				SyncState.NOT_INDEXED,
+			);
+		});
+
+		it('never lets a landing overrule what comparing two real copies decided', async () => {
+			// A landing knows one thing: bytes are on the disk. `conflict` was reached by
+			// comparing files, and replacing it with a note about a download would hide
+			// the disagreement somebody has to settle.
+			const here = item();
+			const there = item({
+				id: 'item-b',
+				serviceId: 'service-b',
+				externalId: 'b-3',
+				episodeNumber: 3,
+			});
+			const { manager, fakes } = build({ items: [here, there] });
+
+			fakes.landings.findOpen.mockResolvedValue([
+				{ itemId: 'item-a', state: MediaLandingState.WAITING },
+			]);
+
+			await manager.correlateService('service-a');
+
+			expect(fakes.items.setSyncState).toHaveBeenCalledWith(['item-a'], SyncState.CONFLICT);
 		});
 
 		it('never correlates an item with another row of its own service', async () => {

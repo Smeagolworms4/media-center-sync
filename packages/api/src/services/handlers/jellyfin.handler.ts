@@ -10,17 +10,18 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { normalizeTitle, parseTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
 import { buildUrl, relativeTo, requestJson, requestStream } from './handler.http';
-import type {
-	ByteRange,
-	ExternalIdentity,
-	LibraryRefresh,
-	LibraryScanOptions,
-	MediaItemRef,
-	MediaServiceHandler,
-	MediaStream,
-	NormalisedLibrary,
-	NormalisedMediaItem,
-	ServiceConnection,
+import {
+	RescanOutcome,
+	type ByteRange,
+	type ExternalIdentity,
+	type LibraryRefresh,
+	type LibraryScanOptions,
+	type MediaItemRef,
+	type MediaServiceHandler,
+	type MediaStream,
+	type NormalisedLibrary,
+	type NormalisedMediaItem,
+	type ServiceConnection,
 } from './media-handler.interface';
 import { asNumber, asRecord, asRecordArray, asString, firstOf, pick, type Payload } from './payload';
 
@@ -310,6 +311,55 @@ export class JellyfinHandler implements MediaServiceHandler {
 		// With no cursor and nothing returned, the cursor has to start somewhere or
 		// every refresh re-reads the whole library forever.
 		return { items, cursor: newest ?? new Date().toISOString() };
+	}
+
+	/**
+	 * Tell Jellyfin to re-read a folder we have just written into.
+	 *
+	 * `POST /Items/{id}/Refresh` against the library's own item is the narrow form and
+	 * the one worth reaching for: it walks one shelf instead of the whole server, which
+	 * on a household library is the difference between seconds and several minutes of
+	 * a Raspberry Pi doing nothing else.
+	 *
+	 * `Recursive` is not optional here. Without it Jellyfin re-reads the metadata of
+	 * the library node itself and never descends, so the episode that has just landed
+	 * three directories down is not seen and the refresh looks like it did nothing.
+	 * `ImageRefreshMode=None` keeps it from re-fetching artwork for the entire shelf,
+	 * which is a fan-out to the metadata providers nobody asked for over one new file.
+	 *
+	 * `/Library/Refresh` is the fallback rather than the first choice: it is the whole
+	 * server, and it is what remains when we hold no handle for the library — which is
+	 * the ordinary case for a landing in the fallback folder that belongs to no library
+	 * at all.
+	 */
+	public async requestRescan(
+		connection: ServiceConnection,
+		library: NormalisedLibrary | null,
+	): Promise<RescanOutcome> {
+		if (library !== null && library.externalId !== '') {
+			await requestJson<Payload>(connection.baseUrl, `/Items/${library.externalId}/Refresh`, {
+				method: 'POST',
+				headers: this._headers(connection),
+				query: {
+					Recursive: true,
+					ImageRefreshMode: 'None',
+					MetadataRefreshMode: 'Default',
+					ReplaceAllImages: false,
+					ReplaceAllMetadata: false,
+				},
+				timeoutMs: connection.timeoutMs,
+			});
+
+			return RescanOutcome.LIBRARY;
+		}
+
+		await requestJson<Payload>(connection.baseUrl, '/Library/Refresh', {
+			method: 'POST',
+			headers: this._headers(connection),
+			timeoutMs: connection.timeoutMs,
+		});
+
+		return RescanOutcome.SERVER;
 	}
 
 	public async getItem(

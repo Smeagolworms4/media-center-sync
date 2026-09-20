@@ -56,8 +56,8 @@ describe('PeerTransport', () => {
 		});
 
 		it('opens fewer connections through a relay', async () => {
-			// The rendezvous is doing us a favour, and four transfers each opening four
-			// relayed sockets is how that favour stops being offered.
+			// The friend in the middle is doing us a favour, and four transfers each
+			// opening four relayed sockets is how that favour stops being offered.
 			state.mockReturnValue({ mode: PeerLinkMode.RELAY, connected: true });
 
 			expect((await transport.prepare(source())).maxConnections).toBe(2);

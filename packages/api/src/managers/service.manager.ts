@@ -11,7 +11,13 @@ import {
 	type MediaServiceType,
 	type UpdateMediaServiceRequest,
 } from '@mcs/shared';
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+	ConflictException,
+	Injectable,
+	Logger,
+	NotFoundException,
+	OnApplicationBootstrap,
+} from '@nestjs/common';
 import type { Library as LibraryEntity, MediaItem, MediaService as MediaServiceEntity } from '@/entities';
 import {
 	LibraryRepository,
@@ -35,6 +41,7 @@ import {
 	type NormalisedMediaItem,
 	type ServiceConnection,
 } from '@/services';
+import { LandingManager } from './landing.manager';
 import { LibraryManager } from './library.manager';
 import { toLibrary, toMediaService } from './mappers';
 import { MediaManager } from './media.manager';
@@ -74,7 +81,7 @@ export interface ProbeRequest {
  * somewhere in the middle, leaving the scan running and the caller with nothing.
  */
 @Injectable()
-export class ServiceManager {
+export class ServiceManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(ServiceManager.name);
 
 	/**
@@ -97,7 +104,35 @@ export class ServiceManager {
 		private readonly _media: MediaManager,
 		private readonly _events: EventGatewayService,
 		private readonly _libraryManager: LibraryManager,
+		/**
+		 * What the gateway has put on a disk and no media server has indexed yet.
+		 *
+		 * Two directions, and both are needed. This manager settles the landings at the
+		 * end of every pass, because a scan is the only thing that can answer whether a
+		 * file has been indexed. And it answers the landings' own request for a pass —
+		 * through a callback rather than by being injected there, which would be a cycle.
+		 */
+		private readonly _landings: LandingManager,
 	) {}
+
+	/**
+	 * Re-read a service because a file has just landed in one of its libraries.
+	 *
+	 * Until this existed nothing in the application ever re-scanned after a transfer:
+	 * `scan` and `refresh` were reached from the buttons on the services screen and
+	 * from adopting a peer, and from nowhere else. So a finished download waited for
+	 * whatever the periodic refresh happened to do next, and the media went on reading
+	 * `missing` in the meantime — which is the second half of the same bug.
+	 *
+	 * A refresh and not a full scan: the file is new, and asking a service for its own
+	 * short list of recent changes is what that path is for. A full scan of a large
+	 * library per finished episode would make a season arriving unbearable.
+	 */
+	public onApplicationBootstrap(): void {
+		this._landings.onRescan((serviceId) => {
+			this._start(serviceId, false);
+		});
+	}
 
 	public async list(): Promise<MediaService[]> {
 		const services = await this._services.findByPriority();
@@ -399,6 +434,18 @@ export class ServiceManager {
 		}
 
 		await this._services.update({ id: service.id }, { lastScanAt: new Date() });
+
+		/*
+		 * Landings settled before correlation, and the order is load-bearing.
+		 *
+		 * Correlation recomputes every item's state from scratch and reads the open
+		 * landings while doing it. A landing this pass has just resolved has to be gone
+		 * by then, or the media it belongs to would be painted `awaiting_index` all over
+		 * again and stay that way until the next refresh — a scan that found the file
+		 * and still reported it as not found.
+		 */
+		await this._landings.reconcile();
+
 		// Correlation belongs to the media manager: it owns the index and the match
 		// rows, and the decision about what two rows are the same media is the same
 		// decision whether a scan or a person triggered it.

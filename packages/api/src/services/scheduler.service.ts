@@ -14,6 +14,27 @@ const CLEANUP_CRON = '0 3 * * *';
 
 export type ScheduledTask = () => Promise<void> | void;
 
+/**
+ * Every task this service will ever call, by name.
+ *
+ * It exists so that "does anybody actually listen to this?" is a question code can
+ * ask. Three of these fired into `null` for the whole life of the product: the
+ * periodic refresh, the scheduled full rescan and the daily retention cleanup were
+ * configurable in the interface, scheduled faithfully at boot, and did nothing,
+ * because no one had ever called `onRefresh`, `onFullScan` or `onCleanup`. Nothing
+ * failed and nothing logged, which is why it lasted.
+ *
+ * `unsubscribedHooks()` turns that into a test. Adding a value here and forgetting
+ * the subscriber now breaks the suite instead of shipping a feature that is only a
+ * screen.
+ */
+export enum SchedulerHook {
+	REFRESH = 'refresh',
+	FULL_SCAN = 'fullScan',
+	CLEANUP = 'cleanup',
+	PLAN = 'plan',
+}
+
 /** A plan as the scheduler needs it: an identifier, an expression, enabled or not. */
 export interface SchedulablePlan {
 	id: string;
@@ -40,10 +61,14 @@ export interface SchedulablePlan {
 export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy {
 	private readonly _logger = new Logger(SchedulerService.name);
 
-	private _onRefresh: ScheduledTask | null = null;
-	private _onFullScan: ScheduledTask | null = null;
-	private _onCleanup: ((olderThanDays: number) => Promise<void> | void) | null = null;
-	private _onPlan: ((planId: string) => Promise<void> | void) | null = null;
+	/**
+	 * The subscribers, in one map rather than in four fields.
+	 *
+	 * Four fields cannot be counted, and counting them is the point: `unsubscribedHooks`
+	 * reads this against `SchedulerHook` and is what keeps a task from being scheduled
+	 * with nobody on the other end.
+	 */
+	private readonly _tasks = new Map<SchedulerHook, (...args: never[]) => Promise<void> | void>();
 
 	public constructor(
 		private readonly _scheduler: SchedulerRegistry,
@@ -51,19 +76,33 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 	) {}
 
 	public onRefresh(task: ScheduledTask): void {
-		this._onRefresh = task;
+		this._subscribe(SchedulerHook.REFRESH, task);
 	}
 
 	public onFullScan(task: ScheduledTask): void {
-		this._onFullScan = task;
+		this._subscribe(SchedulerHook.FULL_SCAN, task);
 	}
 
-	public onCleanup(task: (olderThanDays: number) => Promise<void> | void): void {
-		this._onCleanup = task;
+	/**
+	 * Takes no argument, and that is the fix rather than an omission.
+	 *
+	 * It used to be handed `transferHistoryDays`, read once when the job was
+	 * registered. That put a business decision — which setting governs retention — in
+	 * the clock, and froze the value: changing the retention only took effect on the
+	 * next `reload()`, which nothing triggers for that field. The manager reads the
+	 * settings when the tick arrives, so a number saved at noon is in force that night.
+	 */
+	public onCleanup(task: ScheduledTask): void {
+		this._subscribe(SchedulerHook.CLEANUP, task);
 	}
 
 	public onPlan(task: (planId: string) => Promise<void> | void): void {
-		this._onPlan = task;
+		this._subscribe(SchedulerHook.PLAN, task);
+	}
+
+	/** The hooks this service will call and nobody has claimed. Empty, or it is a bug. */
+	public unsubscribedHooks(): SchedulerHook[] {
+		return Object.values(SchedulerHook).filter((hook) => !this._tasks.has(hook));
 	}
 
 	public async onApplicationBootstrap(): Promise<void> {
@@ -80,12 +119,12 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 		const settings = await this._settings.get();
 
 		this._replaceInterval(REFRESH_JOB, settings.refreshIntervalMinutes * 60 * 1000, async () => {
-			await this._safely(REFRESH_JOB, this._onRefresh);
+			await this._safely(REFRESH_JOB, this._task(SchedulerHook.REFRESH));
 		});
 
 		if (settings.fullScanCron) {
 			this._replaceCron(FULL_SCAN_JOB, settings.fullScanCron, async () => {
-				await this._safely(FULL_SCAN_JOB, this._onFullScan);
+				await this._safely(FULL_SCAN_JOB, this._task(SchedulerHook.FULL_SCAN));
 			});
 		} else {
 			// An empty expression disables the full scan on purpose: the button in the
@@ -95,7 +134,7 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 		}
 
 		this._replaceCron(CLEANUP_JOB, CLEANUP_CRON, async () => {
-			await this._safely(CLEANUP_JOB, () => this._onCleanup?.(settings.transferHistoryDays));
+			await this._safely(CLEANUP_JOB, this._task(SchedulerHook.CLEANUP));
 		});
 	}
 
@@ -128,7 +167,9 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 			}
 
 			this._replaceCron(name, plan.schedule, async () => {
-				await this._safely(name, () => this._onPlan?.(plan.id));
+				const onPlan = this._task<(planId: string) => Promise<void> | void>(SchedulerHook.PLAN);
+
+				await this._safely(name, () => onPlan?.(plan.id));
 			});
 		}
 	}
@@ -153,6 +194,21 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 		for (const name of [REFRESH_JOB, FULL_SCAN_JOB, CLEANUP_JOB, ...this._planJobNames()]) {
 			this._remove(name);
 		}
+	}
+
+	private _subscribe(hook: SchedulerHook, task: (...args: never[]) => Promise<void> | void): void {
+		this._tasks.set(hook, task);
+	}
+
+	/**
+	 * The map holds four signatures, so reading one back needs a cast.
+	 *
+	 * Confined to this one line rather than spread over four call sites: what a hook's
+	 * task takes is stated by the `onX` method that accepts it, and no other code here
+	 * is in a position to get it wrong.
+	 */
+	private _task<T = ScheduledTask>(hook: SchedulerHook): T | undefined {
+		return this._tasks.get(hook) as T | undefined;
 	}
 
 	private _planJobNames(): string[] {

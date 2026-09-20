@@ -3,6 +3,7 @@ import type { Duplex, Readable } from 'node:stream';
 import {
 	ErrorKey,
 	PEER_HELLO_METHOD,
+	PEER_INTRODUCTION_HEADER,
 	type PeerHandshake,
 	type PeerHello,
 } from '@mcs/shared';
@@ -42,6 +43,15 @@ export interface PeerCredential {
 	/** `<their fingerprint>:<epoch millis>`, which they signed. */
 	challenge: string;
 	signature: string;
+	/**
+	 * A token from a gateway we are linked to, saying who this is and how far away.
+	 *
+	 * Absent for an ordinary link, which is every link between two friends. It is
+	 * present when the far end has never met us and was sent here by a peer of ours —
+	 * and it is the only way a socket from a stranger gets past the authority, so it is
+	 * read here and judged nowhere near here.
+	 */
+	introduction: string | null;
 	/** Where the socket came from, for a peer we have never seen. */
 	address: string | null;
 }
@@ -72,6 +82,21 @@ export interface PeerLinkAuthority {
 	 * unrelated, with an error about a missing field.
 	 */
 	greet(peerId: string, hello: PeerHello, challenge: string): Promise<PeerHandshake | null>;
+
+	/**
+	 * An inbound link ended. Whether that means anything is the authority's business.
+	 *
+	 * It exists because one kind of peer is not meant to outlive its link: somebody
+	 * introduced by a friend, pulling one file, whom this gateway was not asked to
+	 * keep. Reported through the port rather than through a listener the manager
+	 * registers, because the manager is already what this service asks for admission —
+	 * injecting the service back into it would be a cycle, and a second wire for one
+	 * callback.
+	 *
+	 * Optional so that an authority with no opinion about closed links — every test
+	 * double, and any future one — does not have to write an empty method.
+	 */
+	released?(peerId: string): void;
 }
 
 export const PEER_LINK_AUTHORITY = 'mcs:peer-link-authority';
@@ -420,6 +445,16 @@ export class PeerGatewayService implements OnModuleDestroy {
 	private readonly _server: WebSocketServer;
 	private readonly _sessions = new Set<PeerSession>();
 
+	/**
+	 * Whether the process is going away rather than a peer.
+	 *
+	 * Without it, a shutdown closes every session and each one is reported to the
+	 * authority as a peer that has finished with us — which, for a peer met through an
+	 * introduction and not kept, means deleting its row while the database connection
+	 * is being torn down.
+	 */
+	private _stopping = false;
+
 	public constructor(
 		@Optional()
 		@Inject(PEER_LINK_AUTHORITY)
@@ -456,7 +491,10 @@ export class PeerGatewayService implements OnModuleDestroy {
 		return [...this._sessions].map((session) => session.peerId);
 	}
 
+	/** Set `_stopping` first: a shutdown is not every peer finishing with us at once. */
 	public onModuleDestroy(): void {
+		this._stopping = true;
+
 		for (const session of this._sessions) {
 			session.close();
 		}
@@ -514,7 +552,13 @@ export class PeerGatewayService implements OnModuleDestroy {
 				authority,
 				this._methods,
 				this._logger,
-				(closed) => this._sessions.delete(closed),
+				(closed) => {
+					this._sessions.delete(closed);
+
+					if (!this._stopping) {
+						authority.released?.(closed.peerId);
+					}
+				},
 			);
 
 			this._sessions.add(session);
@@ -545,6 +589,10 @@ export class PeerGatewayService implements OnModuleDestroy {
 			publicKey: Buffer.from(publicKey, 'base64').toString('utf8'),
 			challenge,
 			signature,
+			// Optional, and deliberately not part of the "all four or nothing" rule
+			// above: a link between two friends carries no introduction, and requiring
+			// one would refuse every ordinary peer.
+			introduction: this._header(request, PEER_INTRODUCTION_HEADER) || null,
 			address: request.socket.remoteAddress ?? null,
 		};
 	}

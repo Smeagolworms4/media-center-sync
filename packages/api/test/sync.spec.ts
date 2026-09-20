@@ -615,8 +615,14 @@ describe('Syncing', () => {
 				categoryTargets: { 'their-shows': configuredLibraryId },
 			}).expect(200);
 
+			// And the entry has moved, because saving it renamed the category it was
+			// saved against: the mapping aliases the libraries of `their-shows` to
+			// `Animés`, and a key is folded from the name people read. Left under the old
+			// key it named a category that no longer existed — placement found nothing,
+			// fell back to the default library, and the file landed in a folder nobody
+			// chose with no error anywhere. That is the bug this line pins.
 			expect((saved.body as Settings).categoryTargets).toEqual({
-				'their-shows': configuredLibraryId,
+				animes: configuredLibraryId,
 			});
 
 			const preview = await previewTheEpisode();
@@ -637,7 +643,7 @@ describe('Syncing', () => {
 				.expect(200);
 
 			expect((settings.body as Settings).categoryTargets).toEqual({
-				'their-shows': configuredLibraryId,
+				animes: configuredLibraryId,
 			});
 		});
 
@@ -647,6 +653,25 @@ describe('Syncing', () => {
 			const preview = await previewTheEpisode();
 
 			expect(preview.items[0].targetPath.startsWith(destination)).toBe(true);
+		});
+
+		it('falls back to the default library when a stored key names no category', async () => {
+			// The stale entry, written directly so the table really holds a key nothing
+			// reads as — which is what a rename on the libraries screen produces after a
+			// mapping, and what the re-keying above prevents when the mapping itself
+			// causes it. The file is not lost and the transfer does not fail; it lands in
+			// the default library. That it lands there *recorded as a step nobody chose*
+			// is pinned in `placed-by.spec.ts`, which is where the step is decided — the
+			// preview does not carry `placedBy`, a run's lines do.
+			await patchSettings({
+				categoryTargets: { 'a-category-nothing-reads-as': configuredLibraryId },
+			}).expect(200);
+
+			const preview = await previewTheEpisode();
+
+			expect(preview.items[0].targetPath.startsWith(destination)).toBe(true);
+
+			await patchSettings({ categoryTargets: {} }).expect(200);
 		});
 
 		it('refuses a destination that is not a library identifier, naming the field', async () => {

@@ -55,15 +55,16 @@ export function storeTheme (theme: ThemeName): void {
 /**
  * One theme colour per `SyncState`.
  *
- * The seven states are the vocabulary of the whole interface — a list row, a
- * season header and a transfer card all show the same seven. Declaring their
- * colours here, as theme tokens rather than as literals inside a component, is
- * what guarantees that "amber" never comes to mean two different things on two
- * different screens.
+ * The states are the vocabulary of the whole interface — a list row, a season
+ * header and a transfer card all show the same set. Declaring their colours here,
+ * as theme tokens rather than as literals inside a component, is what guarantees
+ * that "amber" never comes to mean two different things on two different screens.
  */
 export const SYNC_STATE_COLOR: Record<SyncState, string> = {
 	[SyncState.LOCAL_ONLY]: 'state-local-only',
 	[SyncState.MISSING]: 'state-missing',
+	[SyncState.AWAITING_INDEX]: 'state-awaiting-index',
+	[SyncState.NOT_INDEXED]: 'state-not-indexed',
 	[SyncState.IN_SYNC]: 'state-in-sync',
 	[SyncState.OUTDATED]: 'state-outdated',
 	[SyncState.CONFLICT]: 'state-conflict',
@@ -93,6 +94,10 @@ const dark: ThemeDefinition = {
 		'on-info': '#06121F',
 		'state-local-only': '#3FB8AF',
 		'state-missing': '#5AA9F5',
+		// A hue of its own, far from the blue of missing and the green of in sync: it
+		// is neither, and a shade of either would be read as one of them at a glance.
+		'state-awaiting-index': '#B5D334',
+		'state-not-indexed': '#E07ABF',
 		'state-in-sync': '#4FB07C',
 		'state-outdated': '#DCA34A',
 		'state-conflict': '#E0574E',
@@ -125,6 +130,8 @@ const light: ThemeDefinition = {
 		// background and the same hex on white fails contrast for small text.
 		'state-local-only': '#1F8B84',
 		'state-missing': '#1C6FC4',
+		'state-awaiting-index': '#5F7A0E',
+		'state-not-indexed': '#A03A7E',
 		'state-in-sync': '#2E8B57',
 		'state-outdated': '#B07414',
 		'state-conflict': '#C0392B',

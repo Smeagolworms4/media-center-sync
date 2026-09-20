@@ -27,6 +27,7 @@ import type {
 	NormalisedMediaItem,
 	QualityService,
 } from '@/services';
+import type { LandingManager } from './landing.manager';
 import type { LibraryManager } from './library.manager';
 import type { MediaManager } from './media.manager';
 import { ServiceManager } from './service.manager';
@@ -370,13 +371,20 @@ interface Fakes {
 	};
 	matches: { deleteForService: jest.Mock; deleteForItems: jest.Mock };
 	items: ItemFakes;
-	handler: { probe: jest.Mock; scanLibrary: jest.Mock; refreshLibrary: jest.Mock; getItem: jest.Mock };
+	handler: {
+		probe: jest.Mock;
+		scanLibrary: jest.Mock;
+		refreshLibrary: jest.Mock;
+		getItem: jest.Mock;
+		requestRescan: jest.Mock;
+	};
 	fingerprints: { fingerprint: jest.Mock; contentId: jest.Mock };
 	quality: { summarise: jest.Mock };
 	media: { correlateService: jest.Mock };
 	probe: jest.Mock;
 	events: { emit: jest.Mock };
 	libraryManager: { applyRootMapping: jest.Mock };
+	landings: { reconcile: jest.Mock; onRescan: jest.Mock };
 }
 
 const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes } => {
@@ -418,6 +426,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 			// default here: a test about anything else must not have parents appear
 			// out of nowhere.
 			getItem: jest.fn().mockResolvedValue(null),
+			requestRescan: jest.fn().mockResolvedValue('library'),
 		},
 		fingerprints: {
 			fingerprint: jest.fn().mockResolvedValue({ quickHash: 'hash', size: 1_000 }),
@@ -428,6 +437,9 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		probe: probeFake,
 		events: { emit: jest.fn() },
 		libraryManager: { applyRootMapping: jest.fn().mockResolvedValue(undefined) },
+		// A scan settles the landings on its way out, so every test in this file walks
+		// through it. The fake records the call, which is what one of them asserts on.
+		landings: { reconcile: jest.fn().mockResolvedValue(undefined), onRescan: jest.fn() },
 	};
 
 	const manager = new ServiceManager(
@@ -444,6 +456,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		fakes.media as unknown as MediaManager,
 		fakes.events as unknown as EventGatewayService,
 		fakes.libraryManager as unknown as LibraryManager,
+		fakes.landings as unknown as LandingManager,
 	);
 
 	return { manager, fakes };
@@ -971,6 +984,54 @@ describe('ServiceManager', () => {
 			await settle(manager);
 
 			expect(fakes.libraries.findByService).toHaveBeenCalled();
+		});
+
+		it('settles the landings before correlation re-derives every state', async () => {
+			/*
+			 * The order is the feature. Correlation recomputes each item's state and
+			 * reads the open landings while doing it, so a landing this pass resolved
+			 * has to be gone by then — otherwise a scan that found the file would still
+			 * report it as waiting, for a whole refresh interval.
+			 */
+			const { manager, fakes } = build();
+			const order: string[] = [];
+
+			fakes.landings.reconcile.mockImplementation(() => {
+				order.push('reconcile');
+
+				return Promise.resolve();
+			});
+			fakes.media.correlateService.mockImplementation(() => {
+				order.push('correlate');
+
+				return Promise.resolve(0);
+			});
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(order).toEqual(['reconcile', 'correlate']);
+		});
+
+		it('re-reads a service when a file has just landed in one of its libraries', async () => {
+			// Nothing in the application re-scanned after a transfer before this: `scan`
+			// and `refresh` were reached from the buttons and from adopting a peer, and
+			// from nowhere else, so a finished download waited out the periodic refresh.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			manager.onApplicationBootstrap();
+
+			const [listener] = fakes.landings.onRescan.mock.calls[0] as [(id: string) => void];
+
+			listener('service-1');
+			await settle(manager);
+
+			expect(fakes.services.findWithSecrets).toHaveBeenCalledWith('service-1');
+			// A refresh and not a full scan: a season arriving would otherwise be one
+			// full walk of a large library per episode.
+			expect(fakes.handler.refreshLibrary).toHaveBeenCalled();
+			expect(fakes.handler.scanLibrary).not.toHaveBeenCalled();
 		});
 
 		it('refuses to scan a service nobody registered', async () => {

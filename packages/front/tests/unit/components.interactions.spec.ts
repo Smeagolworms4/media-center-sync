@@ -159,7 +159,7 @@ describe('components/sync/PlanForm interactions', () => {
 		trigger: SyncTrigger.SCHEDULE,
 		schedule: '0 4 * * *',
 		sourceServiceIds: ['s1', 's2'],
-		targetLibraryId: null,
+		preferredLibraryId: null,
 		scope: {},
 		maxItemsPerRun: null,
 		maxBytesPerRun: null,

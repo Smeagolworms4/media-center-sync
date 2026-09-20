@@ -1,10 +1,14 @@
 import { mkdtemp, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ErrorKey, LibraryKind } from '@mcs/shared';
-import { BadRequestException, ConflictException } from '@nestjs/common';
-import type { Library, MediaService } from '@/entities';
-import type { LibraryRepository, MediaServiceRepository } from '@/repositories';
+import { categoryKeyOf, ErrorKey, LibraryKind } from '@mcs/shared';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import type { CategoryKeyword, Library, MediaService } from '@/entities';
+import type {
+	CategoryKeywordRepository,
+	LibraryRepository,
+	MediaServiceRepository,
+} from '@/repositories';
 import { LibraryManager } from './library.manager';
 
 const library = (overrides: Partial<Library> = {}): Library =>
@@ -38,6 +42,15 @@ interface Fakes {
 		clearDefaultTarget: jest.Mock;
 	};
 	services: { find: jest.Mock; findOne: jest.Mock; update: jest.Mock };
+	keywords: {
+		rows: CategoryKeyword[];
+		findAllOrdered: jest.Mock;
+		findByNormalized: jest.Mock;
+		findOne: jest.Mock;
+		create: jest.Mock;
+		save: jest.Mock;
+		delete: jest.Mock;
+	};
 }
 
 const build = (
@@ -73,6 +86,41 @@ const build = (
 			}),
 			update: jest.fn().mockResolvedValue(undefined),
 		},
+		// A tiny in-memory table rather than a mock per call: the manager reads the rows
+		// back after writing them — a keyword is always answered through `keywords()` —
+		// so a `save` that returned a value nobody stored would test nothing.
+		keywords: {
+			rows: [],
+			findAllOrdered: jest.fn(() => Promise.resolve([...fakes.keywords.rows])),
+			findByNormalized: jest.fn((normalized: string) =>
+				Promise.resolve(
+					fakes.keywords.rows.find((one) => one.normalized === normalized) ?? null,
+				),
+			),
+			findOne: jest.fn((options: { where: { id: string } }) =>
+				Promise.resolve(
+					fakes.keywords.rows.find((one) => one.id === options.where.id) ?? null,
+				),
+			),
+			create: jest.fn((value: Partial<CategoryKeyword>) => ({ ...value }) as CategoryKeyword),
+			save: jest.fn((value: CategoryKeyword) => {
+				const row = { ...value, id: value.id ?? `keyword-${fakes.keywords.rows.length + 1}` };
+				const index = fakes.keywords.rows.findIndex((one) => one.id === row.id);
+
+				if (index === -1) {
+					fakes.keywords.rows.push(row);
+				} else {
+					fakes.keywords.rows[index] = row;
+				}
+
+				return Promise.resolve(row);
+			}),
+			delete: jest.fn((criteria: { id: string }) => {
+				fakes.keywords.rows = fakes.keywords.rows.filter((one) => one.id !== criteria.id);
+
+				return Promise.resolve({ affected: 1 });
+			}),
+		},
 	};
 
 	return {
@@ -81,6 +129,7 @@ const build = (
 			// Categories are the only thing that asks about services, and the tests that
 			// care declare their own.
 			fakes.services as unknown as MediaServiceRepository,
+			fakes.keywords as unknown as CategoryKeywordRepository,
 		),
 		fakes,
 	};
@@ -506,6 +555,295 @@ describe('LibraryManager', () => {
 		});
 	});
 
+	describe('folding a name', () => {
+		/*
+		 * One function answers both "which category is this" and "does this keyword
+		 * match". They have to agree: a keyword stored under one folding and looked up
+		 * under another matches nothing, reports nothing, and looks exactly like a
+		 * keyword that was never saved.
+		 */
+		it.each([
+			['Series TV', 'series-tv'],
+			['Séries TV', 'series-tv'],
+			['series-tv', 'series-tv'],
+			['  SERIES   tv  ', 'series-tv'],
+			['Émissions TV', 'emissions-tv'],
+			['Animés', 'animes'],
+			['Films d’animation', 'films-d-animation'],
+		])('folds %s to %s', (name, expected) => {
+			expect(categoryKeyOf(name)).toBe(expected);
+		});
+
+		it('keeps names that are merely similar apart', () => {
+			// Where the folding deliberately stops. No stemming, no distance, no score:
+			// a near-match that fires wrongly buries media under a name nobody chose and
+			// nothing on screen says why, whereas a keyword that does not fire is visible
+			// the moment somebody looks at the pool.
+			expect(categoryKeyOf('Animes - Films')).not.toBe(categoryKeyOf('Films'));
+			expect(categoryKeyOf('Series')).not.toBe(categoryKeyOf('Series TV'));
+		});
+	});
+
+	describe('the keywords plugged into a category', () => {
+		/*
+		 * What this replaces: eleven categories, every one of them a peer's shelf
+		 * stranded on its own, folded together by typing the same alias once per
+		 * library and again for every friend who ever appears. A keyword says it once.
+		 *
+		 * Nothing is written on a library when a keyword catches it. That is what makes
+		 * the undo exact — deleting the row puts the shelf back under its own name in
+		 * the same request — and it is why every assertion here reads `categories()`
+		 * rather than looking at what was saved.
+		 */
+		const ours = [
+			{ id: 'plex', filesMounted: true, peerId: null },
+			{ id: 'friend', filesMounted: false, peerId: null },
+			{ id: 'lab', filesMounted: true, peerId: 'peer-1' },
+		];
+
+		const withShows = (extra: Library[] = []): ReturnType<typeof build> => {
+			const built = build([
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows', itemCount: 24 }),
+				...extra,
+			]);
+
+			built.fakes.services.find.mockResolvedValue(ours);
+
+			return built;
+		};
+
+		it('folds a shelf whose name differs only by case, accents or punctuation', async () => {
+			// `Series TV`, `Séries TV` and `series-tv` are the same shelf to a person,
+			// and a mapping that only caught one spelling would leave the other two in
+			// the pool looking like a mapping that did not save.
+			const { manager } = withShows([
+				library({ id: 'a', serviceId: 'friend', name: 'Séries TV', itemCount: 3 }),
+				library({ id: 'b', serviceId: 'lab', name: 'series-tv', itemCount: 2 }),
+				library({ id: 'c', serviceId: 'friend', name: 'SERIES   TV', itemCount: 1 }),
+			]);
+
+			await manager.addKeyword('shows', 'Series TV');
+
+			const categories = await manager.categories();
+
+			expect(categories).toHaveLength(1);
+			expect(categories[0].name).toBe('Shows');
+			expect(categories[0].libraryIds.sort()).toEqual(['a', 'b', 'c', 'shows']);
+			expect(categories[0].itemCount).toBe(30);
+		});
+
+		it('leaves a shelf that merely looks similar exactly where it was', async () => {
+			// The line the folding stops at. `Animes - Films` is not `Films`, and a
+			// near-match that fires wrongly buries somebody's media under a name they
+			// never chose with nothing on screen saying why.
+			const { manager } = withShows([
+				library({ id: 'a', serviceId: 'friend', name: 'Animes - Films' }),
+			]);
+
+			await manager.addKeyword('shows', 'Films');
+
+			const names = (await manager.categories()).map((category) => category.name).sort();
+
+			expect(names).toEqual(['Animes - Films', 'Shows']);
+		});
+
+		it('reaches a peer’s library, which is the whole reason it exists', async () => {
+			// A friend's gateway brings twenty shelves. The alias is local, renames
+			// nothing on their server, and says only what this household calls the
+			// thing — where a new file lands is the mount's answer, decided elsewhere.
+			const { manager } = withShows([
+				library({ id: 'theirs', serviceId: 'lab', name: 'TV', itemCount: 6 }),
+			]);
+
+			await manager.addKeyword('shows', 'TV');
+
+			const [category] = await manager.categories();
+
+			expect(category.libraryIds.sort()).toEqual(['shows', 'theirs']);
+			// Still ours to write into, because one of the merged libraries is.
+			expect(category.local).toBe(true);
+		});
+
+		it('reaches a library on a service whose files this gateway does not hold', async () => {
+			const { manager } = withShows([
+				library({ id: 'attic', serviceId: 'friend', name: 'Émissions TV' }),
+			]);
+
+			await manager.addKeyword('shows', 'Emissions TV');
+
+			expect((await manager.categories())[0].libraryIds.sort()).toEqual(['attic', 'shows']);
+		});
+
+		it('never lets a folded shelf rename the category it joined', async () => {
+			// A friend's `TV` sits at the same position as our `Shows`, so without the
+			// anchor deciding the name the category would be called whichever of the two
+			// the database handed back first — an answer that changes between two
+			// identical requests.
+			const { manager } = withShows([
+				library({ id: 'theirs', serviceId: 'lab', name: 'TV', kind: LibraryKind.OTHER }),
+			]);
+
+			await manager.addKeyword('shows', 'TV');
+
+			const [category] = await manager.categories();
+
+			expect(category.name).toBe('Shows');
+			expect(category.key).toBe('shows');
+			expect(category.kind).toBe(LibraryKind.SHOWS);
+		});
+
+		it('lets an alias somebody typed win over a keyword', async () => {
+			// The rename is the repair for a mapping that filed something wrongly, so a
+			// keyword able to override it would make that repair last one request.
+			const { manager } = withShows([
+				library({ id: 'theirs', serviceId: 'lab', name: 'TV', alias: 'Direct' }),
+			]);
+
+			await manager.addKeyword('shows', 'TV');
+
+			expect((await manager.categories()).map((one) => one.name).sort())
+				.toEqual(['Direct', 'Shows']);
+		});
+
+		it('catches a library that arrives after the keyword was written', async () => {
+			// The point of the whole feature: nobody touches anything when a new peer
+			// turns up with a shelf the household already has a name for.
+			const { manager, fakes } = withShows();
+
+			await manager.addKeyword('shows', 'Séries');
+
+			fakes.libraries.find.mockResolvedValue([
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows' }),
+				library({ id: 'new', serviceId: 'lab', name: 'SERIES' }),
+			]);
+
+			expect((await manager.categories())[0].libraryIds.sort()).toEqual(['new', 'shows']);
+		});
+
+		it('answers which category a keyword files into, and what it is catching', async () => {
+			const { manager } = withShows([
+				library({ id: 'theirs', serviceId: 'lab', name: 'Séries' }),
+			]);
+
+			const added = await manager.addKeyword('shows', 'Séries');
+
+			expect(added).toMatchObject({
+				categoryKey: 'shows',
+				categoryName: 'Shows',
+				keyword: 'Séries',
+				normalized: 'series',
+				libraryIds: ['theirs'],
+			});
+		});
+
+		it('keeps a keyword through the rename that changes its category’s key', async () => {
+			// The reason a keyword hangs off a library and not off `MediaCategory.key`.
+			// The key is derived from the name, so renaming `Shows` to `Séries` would
+			// orphan a list stored under `shows` — silently, and precisely when somebody
+			// was tidying up.
+			const { manager, fakes } = withShows([
+				library({ id: 'theirs', serviceId: 'lab', name: 'TV' }),
+			]);
+
+			await manager.addKeyword('shows', 'TV');
+
+			fakes.libraries.find.mockResolvedValue([
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows', alias: 'Séries' }),
+				library({ id: 'theirs', serviceId: 'lab', name: 'TV' }),
+			]);
+
+			const [keyword] = await manager.keywords();
+
+			expect(keyword.categoryKey).toBe('series');
+			expect((await manager.categories())[0].libraryIds.sort()).toEqual(['shows', 'theirs']);
+		});
+
+		it('moves a keyword from one category to another', async () => {
+			const { manager } = withShows([
+				library({ id: 'films', serviceId: 'plex', name: 'Films' }),
+				library({ id: 'theirs', serviceId: 'lab', name: 'Cinéma' }),
+			]);
+
+			const added = await manager.addKeyword('shows', 'Cinema');
+
+			expect((await manager.categories()).find((one) => one.key === 'shows')?.libraryIds)
+				.toContain('theirs');
+
+			await manager.moveKeyword(added.id, 'films');
+
+			const categories = await manager.categories();
+
+			expect(categories.find((one) => one.key === 'shows')?.libraryIds).toEqual(['shows']);
+			expect(categories.find((one) => one.key === 'films')?.libraryIds.sort())
+				.toEqual(['films', 'theirs']);
+		});
+
+		it('puts a shelf back under its own name when the keyword is removed', async () => {
+			// The undo. Nothing was written when the keyword was added, so there is no
+			// previous alias to guess at and nothing to type back by hand.
+			const { manager } = withShows([
+				library({ id: 'theirs', serviceId: 'lab', name: 'TV' }),
+			]);
+
+			const added = await manager.addKeyword('shows', 'TV');
+
+			await manager.removeKeyword(added.id);
+
+			expect((await manager.categories()).map((one) => one.name).sort()).toEqual(['Shows', 'TV']);
+			await expect(manager.keywords()).resolves.toEqual([]);
+		});
+
+		it('refuses a keyword another category already holds', async () => {
+			const { manager } = withShows([library({ id: 'films', serviceId: 'plex', name: 'Films' })]);
+
+			await manager.addKeyword('shows', 'TV');
+
+			await expect(manager.addKeyword('films', 'tv')).rejects.toThrow(ConflictException);
+		});
+
+		it('answers the keyword it already has rather than failing on a second drop', async () => {
+			const { manager } = withShows();
+
+			const first = await manager.addKeyword('shows', 'TV');
+
+			await expect(manager.addKeyword('shows', 'tv')).resolves.toMatchObject({ id: first.id });
+			await expect(manager.keywords()).resolves.toHaveLength(1);
+		});
+
+		it('refuses a keyword that folds to nothing at all', async () => {
+			// An empty folded form would match every library whose name is punctuation —
+			// none today, and whichever one somebody adds tomorrow.
+			const { manager } = withShows();
+
+			await expect(manager.addKeyword('shows', '   ')).rejects.toThrow(BadRequestException);
+			await expect(manager.addKeyword('shows', '- —')).rejects.toThrow(BadRequestException);
+		});
+
+		it('answers a key for a category no library reads as any more', async () => {
+			const { manager } = withShows();
+
+			await expect(manager.addKeyword('nothing-here', 'TV')).rejects.toThrow(NotFoundException);
+		});
+
+		it('answers a key for a keyword nobody wrote', async () => {
+			const { manager } = withShows();
+
+			await expect(manager.removeKeyword('keyword-9')).rejects.toThrow(NotFoundException);
+		});
+
+		it('hangs the keyword off one of our own libraries, not off a friend’s', async () => {
+			// A peer's library is reachable while the link is. Anchoring the household's
+			// whole mapping on a friend's row would take the list away with the friend.
+			const { manager, fakes } = withShows([
+				library({ id: 'theirs', serviceId: 'lab', name: 'Shows', position: 1 }),
+			]);
+
+			await manager.addKeyword('shows', 'TV');
+
+			expect(fakes.keywords.rows[0].libraryId).toBe('shows');
+		});
+	});
+
 	describe('following a destination onto the names', () => {
 		/*
 		 * The bug this whole block is about: mapping `Séries` onto the `Shows` library
@@ -556,10 +894,10 @@ describe('LibraryManager', () => {
 			]);
 		});
 
-		it('leaves a library on somebody else’s server alone', async () => {
-			// The alias is local, but folding a friend's shelf into one of ours claims
-			// their media as filed in our library — and counts their items in a category
-			// whose destination they can never be.
+		it('folds a library on somebody else’s server into the category too', async () => {
+			// Renaming it on their server is not ours to do, which is the reason the alias
+			// is local — and the reason it has to reach their shelf. One category of 31,
+			// not two of 7 and 24 holding the same series under two names.
 			const { manager, fakes } = build([
 				library({ id: 'theirs', serviceId: 'friend', name: 'Séries', itemCount: 7 }),
 				library({ id: 'shows', serviceId: 'plex', name: 'Shows', itemCount: 24 }),
@@ -570,14 +908,17 @@ describe('LibraryManager', () => {
 				{ id: 'friend', filesMounted: false, peerId: null },
 			]);
 
-			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBeNull();
-			expect(fakes.libraries.save).not.toHaveBeenCalled();
-			await expect(manager.categories()).resolves.toHaveLength(2);
+			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBe('Shows');
+			expect(fakes.libraries.save).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'theirs', alias: 'Shows' }),
+			);
+			await expect(manager.categories()).resolves.toHaveLength(1);
 		});
 
-		it('leaves a library reached through a peer alone, whatever its scope says', async () => {
-			// A peer's service can carry any scope at all; it is still somebody else's
-			// machine, which is why `serviceMode` puts the peer test first.
+		it('folds a library reached through a peer into the category as well', async () => {
+			// A peer's shelf is the friend's `Video2` the alias was written for. Nothing
+			// is claimed by renaming it here: the name is ours, the files stay theirs, and
+			// where a new episode lands is the destination's answer, not this one's.
 			const { manager, fakes } = build([
 				library({ id: 'theirs', serviceId: 'lab', name: 'Séries' }),
 				library({ id: 'shows', serviceId: 'plex', name: 'Shows' }),
@@ -588,11 +929,16 @@ describe('LibraryManager', () => {
 				{ id: 'lab', filesMounted: true, peerId: 'peer-1' },
 			]);
 
-			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBeNull();
-			expect(fakes.libraries.save).not.toHaveBeenCalled();
+			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBe('Shows');
+			expect(fakes.libraries.save).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'theirs', alias: 'Shows' }),
+			);
 		});
 
-		it('renames ours and skips theirs when the category holds both', async () => {
+		it('renames every library of the category, ours and theirs alike', async () => {
+			// The case this exists for. A friend's shelf under another name is precisely
+			// what an alias joins to ours; refusing it left the same media sitting in two
+			// categories with no control anywhere that could bring them together.
 			const { manager, fakes } = build([
 				library({ id: 'mine', serviceId: 'jellyfin', name: 'Séries' }),
 				library({ id: 'theirs', serviceId: 'friend', name: 'séries' }),
@@ -606,12 +952,14 @@ describe('LibraryManager', () => {
 
 			await manager.mergeCategoryInto('series', 'shows');
 
-			expect(fakes.libraries.save.mock.calls.map(([one]: [Library]) => one.id)).toEqual(['mine']);
+			expect(fakes.libraries.save.mock.calls.map(([one]: [Library]) => one.id).sort())
+				.toEqual(['mine', 'theirs']);
 		});
 
-		it('does nothing when the destination is on somebody else’s server', async () => {
-			// The mirror image: aliasing our libraries to their shelf's name would fold
-			// ours into theirs, which is the same claim made backwards.
+		it('does nothing when the destination is one the gateway cannot write into', async () => {
+			// A category target says where a new pull lands. A library whose files this
+			// gateway does not hold can never receive one, so there is no mapping here to
+			// act on — and renaming our shelf to its name would say otherwise.
 			const { manager, fakes } = build([
 				library({ id: 'mine', serviceId: 'jellyfin', name: 'Séries' }),
 				library({ id: 'theirs', serviceId: 'friend', name: 'Shows' }),

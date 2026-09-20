@@ -148,6 +148,63 @@ describe('components/transfer/TransferActions', () => {
 
 		expect(actions(wrapper)).toContain('transfer-verify');
 	});
+
+	/**
+	 * Saying where a pull goes, at both ends of it.
+	 *
+	 * The question is worth answering while a season is still downloading — it costs
+	 * one row write then — and after it has landed, where the gateway moves the bytes.
+	 * Offering it only on a failure, which is where it used to live, meant the one
+	 * moment somebody actually notices the wrong library was the one moment they could
+	 * do nothing about it.
+	 */
+	it.each([
+		TransferState.QUEUED,
+		TransferState.DOWNLOADING,
+		TransferState.PAUSED,
+		TransferState.DONE,
+	])('offers to send a %s transfer to another library', state => {
+		const { wrapper } = mountWithApp(TransferActions, {
+			props: { transfer: transfer({ state }) },
+		});
+
+		expect(actions(wrapper)).toContain('transfer-retarget');
+	});
+
+	/**
+	 * The two states where the control cannot apply, and is therefore not drawn.
+	 *
+	 * `placing` is the second in which the file is being copied into the library, and
+	 * the gateway refuses to re-point it then rather than leave half a film in each of
+	 * two places — a button whose only possible answer is "not now" is worse than none.
+	 * `cancelled` threw its partial away: there are no bytes to send anywhere.
+	 */
+	it.each([TransferState.PLACING, TransferState.CANCELLED])(
+		'does not offer it on a %s transfer, where it could not apply',
+		state => {
+			const { wrapper } = mountWithApp(TransferActions, {
+				props: { transfer: transfer({ state }) },
+			});
+
+			expect(actions(wrapper)).not.toContain('transfer-retarget');
+		},
+	);
+
+	it('does not offer it twice on a failure that already suggests it', () => {
+		// A full disk lists "another library" among the actions that fit it. Drawing the
+		// general control as well would put two identical buttons side by side.
+		const { wrapper } = mountWithApp(TransferActions, {
+			props: {
+				transfer: transfer({
+					state: TransferState.FAILED,
+					errorKind: TransferErrorKind.DISK_FULL,
+				}),
+			},
+		});
+
+		expect(actions(wrapper)).toContain('transfer-another_target');
+		expect(actions(wrapper)).not.toContain('transfer-retarget');
+	});
 });
 
 describe('components/transfer/TransferSources', () => {

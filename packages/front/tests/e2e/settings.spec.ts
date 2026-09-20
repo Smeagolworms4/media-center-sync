@@ -109,15 +109,22 @@ test.describe('settings', () => {
 
 		await expect(page.locator(test0('settings-default-target-library'))).toBeVisible();
 
-		const rows = page.locator(test0('category-target-row'));
+		// The destination lives on the category now, beside its keywords, rather than in
+		// a table of its own further up the same pane — one category in two places is
+		// the same sentence said twice.
+		const rows = page.locator(test0('category-mapping-row'));
 		// The stack this runs against carries several categories; one row is the claim
-		// worth making, because a table that renders none is the failure being watched.
+		// worth making, because a pane that renders none is the failure being watched.
 		await expect(rows.first()).toBeVisible();
 		expect(await rows.count()).toBeGreaterThan(0);
 
-		// A row nobody has configured says where its media goes rather than sitting
-		// empty, which is what a blank cell in a table of destinations reads as.
+		// A category nobody has configured says where its media goes rather than sitting
+		// empty, which is what a blank select with nothing under it reads as.
 		await expect(page.locator(test0('category-target-fallback')).first()).toBeVisible();
+
+		// And the consequence of choosing one is stated once for the screen. It used to
+		// be printed under every select: three identical paragraphs in one viewport.
+		await expect(page.locator(test0('category-target-merges'))).toHaveCount(1);
 
 		expect(failures, failures.join('\n')).toEqual([]);
 	});

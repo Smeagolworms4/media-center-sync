@@ -454,4 +454,14 @@ describe('PeerHandler', () => {
 			await expect(handler.getItem(connection(), 'their-item-1')).rejects.toThrow('link closed');
 		});
 	});
+
+	describe('requestRescan', () => {
+		it('answers that it cannot, rather than ordering a friend to scan', async () => {
+			// An answer and not an exception: a thrown error would be indistinguishable
+			// from the link being down, and the caller treats those two differently.
+			const { handler } = build();
+
+			await expect(handler.requestRescan()).resolves.toBe('unsupported');
+		});
+	});
 });

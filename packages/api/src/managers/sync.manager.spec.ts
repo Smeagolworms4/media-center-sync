@@ -63,12 +63,13 @@ const SETTINGS: Settings = {
 	uploadRateLimit: 0,
 	matchThreshold: 0.8,
 	peerMaxDepth: 1,
+	keepDiscoveredPeers: false,
 	allowSwarm: true,
-	rendezvousUrl: null,
 	instanceName: null,
 	publicUrl: null,
 	defaultTargetPath: null,
 	transferHistoryDays: 30,
+	failedHistoryDays: 180,
 	refreshIntervalMinutes: 15,
 	fullScanCron: null,
 	cacheTtlSeconds: 60,
@@ -348,8 +349,31 @@ const build = (
 			findByPriority: jest.fn().mockResolvedValue([...services].sort((a, b) => a.priority - b.priority)),
 			findLocal: jest.fn().mockResolvedValue(world.localServices ?? []),
 			findWithSecrets: fakes.services.findWithSecrets,
+			findOne: jest.fn(({ where }: { where: { id: string } }) =>
+				Promise.resolve({
+					id: where.id,
+					peerId: where.id === 'service-peer' ? 'peer-1' : null,
+					filesMounted: where.id === 'service-fast',
+				}),
+			),
 		} as unknown as MediaServiceRepository,
-		{ findByServices: jest.fn().mockResolvedValue([]) } as unknown as LibraryRepository,
+		{
+			findByServices: jest.fn().mockResolvedValue([]),
+			// Answered by identifier, so a library on a friend's server really is a
+			// different answer here: `library-theirs` sits on `service-peer`, which the
+			// service fake below reports as a peer's.
+			findOne: jest.fn(({ where }: { where: { id: string } }) => {
+				if (where.id === 'library-ghost') {
+					return Promise.resolve(null);
+				}
+
+				return Promise.resolve({
+					id: where.id,
+					serviceId: where.id === 'library-theirs' ? 'service-peer' : 'service-fast',
+					localPath: where.id === 'library-unmapped' ? null : '/media/anime',
+				});
+			}),
+		} as unknown as LibraryRepository,
 		fakes.libraryManager as unknown as LibraryManager,
 		fakes.transfers as unknown as TransferRepository,
 		{
@@ -536,6 +560,83 @@ describe('SyncManager', () => {
 			expect(fakes.placement.resolve).toHaveBeenCalledWith(
 				expect.objectContaining({ preferredLibraryId: 'library-chosen' }),
 			);
+		});
+
+		/**
+		 * A preference on the plan, and what a run does with it.
+		 *
+		 * The decision this pins down: the destination lives on the plan and every run
+		 * of that plan uses it, because a run is one execution of a standing intent —
+		 * a library attached to a single run is a choice with nowhere to live
+		 * afterwards, and the next run would quietly go back to the old shelf with
+		 * nothing connecting the two.
+		 */
+		describe('a plan that prefers a library', () => {
+			const preferring = (manager: SyncManager): void => {
+				const plans = (manager as unknown as { _plans: { findOne: jest.Mock } })._plans;
+
+				plans.findOne.mockResolvedValue({
+					id: 'plan-1',
+					scope: {},
+					filter: {},
+					sourceServiceIds: [],
+					preferredLibraryId: 'library-anime',
+					maxItemsPerRun: null,
+					maxBytesPerRun: null,
+				} as unknown as SyncPlan);
+			};
+
+			it('is what its runs place with, without anybody naming it again', async () => {
+				const { manager, fakes } = build();
+
+				preferring(manager);
+
+				await manager.preview({ planId: 'plan-1' });
+
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(
+					expect.objectContaining({
+						preferredLibraryId: 'library-anime',
+						preferredBy: PlacedBy.PLAN_PREFERENCE,
+					}),
+				);
+			});
+
+			it('is recorded as the plan’s and not as something a run asked for', async () => {
+				const { manager, fakes } = build();
+
+				preferring(manager);
+				fakes.placement.resolve.mockResolvedValue({
+					libraryId: 'library-anime',
+					libraryName: 'Animes',
+					directory: '/media/anime/Show',
+					path: '/media/anime/Show/S01E03.mkv',
+					strategy: PlacementStrategy.DEFAULT_LIBRARY,
+					fallback: false,
+					reason: null,
+					placedBy: PlacedBy.PLAN_PREFERENCE,
+				});
+
+				const planning = await manager.plan({ planId: 'plan-1' });
+
+				expect(planning.items[0].placedBy).toBe(PlacedBy.PLAN_PREFERENCE);
+			});
+
+			it('gives way to a library this one run named instead', async () => {
+				const { manager, fakes } = build();
+
+				preferring(manager);
+
+				await manager.preview({ planId: 'plan-1', targetLibraryId: 'library-films' });
+
+				// A one-off, and recorded as one: somebody reading the run next month must
+				// not be sent to edit a plan whose preference had nothing to do with it.
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(
+					expect.objectContaining({
+						preferredLibraryId: 'library-films',
+						preferredBy: PlacedBy.REQUESTED,
+					}),
+				);
+			});
 		});
 
 		it('asks for room for the file, so a full disk is refused before it is written to', async () => {
@@ -743,6 +844,76 @@ describe('SyncManager', () => {
 			const { manager } = build();
 
 			await expect(manager.readPlan('ghost')).rejects.toThrow(ErrorKey.SYNC_PLAN_NOT_FOUND);
+		});
+
+		/**
+		 * A preference is only worth storing if it can ever be honoured.
+		 *
+		 * The same rule the queue applies to a re-pointed transfer, for the same reason:
+		 * a library on somebody else's server, or on one of ours whose files this gateway
+		 * does not hold, accepts everything and produces nothing anybody can watch — and
+		 * the failure is silent, because the pull succeeds. Refused when it is chosen
+		 * rather than discovered at four in the morning.
+		 */
+		describe('the library a plan prefers', () => {
+			const creating = (preferredLibraryId: string) => ({
+				name: 'Animes',
+				trigger: SyncTrigger.MANUAL,
+				scope: { categoryKeys: ['animes'] },
+				preferredLibraryId,
+			});
+
+			it('is kept when it is one of ours the gateway holds the files of', async () => {
+				const { manager } = build();
+
+				await expect(manager.createPlan(creating('library-anime'))).resolves.toMatchObject({
+					preferredLibraryId: 'library-anime',
+				});
+			});
+
+			it('is refused when it belongs to a peer', async () => {
+				const { manager } = build();
+
+				await expect(manager.createPlan(creating('library-theirs'))).rejects.toThrow(
+					ErrorKey.TRANSFER_DESTINATION_INVALID,
+				);
+			});
+
+			it('is refused when this gateway has no path into it', async () => {
+				// One of our own services, but nothing tells us where its files are from
+				// here. Writing to a library we cannot address is not a thing that exists.
+				const { manager } = build();
+
+				await expect(manager.createPlan(creating('library-unmapped'))).rejects.toThrow(
+					ErrorKey.TRANSFER_DESTINATION_INVALID,
+				);
+			});
+
+			it('is refused when nobody has it', async () => {
+				const { manager } = build();
+
+				await expect(manager.createPlan(creating('library-ghost'))).rejects.toThrow(
+					ErrorKey.LIBRARY_NOT_FOUND,
+				);
+			});
+
+			it('can always be cleared, whatever is reachable today', async () => {
+				const { manager } = build();
+				const plans = (manager as unknown as { _plans: { findOne: jest.Mock } })._plans;
+
+				plans.findOne.mockResolvedValue({
+					id: 'plan-1',
+					scope: { categoryKeys: ['animes'] },
+					filter: {},
+					sourceServiceIds: [],
+					preferredLibraryId: 'library-theirs',
+					enabled: true,
+				} as unknown as SyncPlan);
+
+				await expect(
+					manager.updatePlan('plan-1', { preferredLibraryId: null }),
+				).resolves.toMatchObject({ preferredLibraryId: null });
+			});
 		});
 	});
 

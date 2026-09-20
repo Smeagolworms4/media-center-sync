@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import request from 'supertest';
 import {
 	ChunkState,
 	LibraryKind,
+	MediaLandingState,
 	MediaServiceType,
 	PlacedBy,
 	TransferState,
@@ -16,8 +18,10 @@ import {
 	type TransferQueueStats,
 	type UnconfiguredPlacement,
 } from '@mcs/shared';
+import type { Transfer as TransferEntity } from '@/entities';
 import {
 	LibraryRepository,
+	MediaLandingRepository,
 	MediaServiceRepository,
 	TransferChunkRepository,
 	TransferRepository,
@@ -31,9 +35,24 @@ describe('The transfer queue', () => {
 	let downloading: string;
 	let done: string;
 	let unconfigured: string;
+	let landed: string;
+	let landedPath: string;
 	let ourLibraryId: string;
 	let theirLibraryId: string;
 	let ourPath: string;
+	/**
+	 * Seeding from inside a test rather than only up front.
+	 *
+	 * The queue counters are asserted against the rows this file creates, so a state
+	 * only one test needs — a transfer caught mid-placement — is created by that test
+	 * instead of being added to the fixture and quietly moving somebody else's numbers.
+	 */
+	let seed: (
+		state: TransferState,
+		title: string,
+		placedBy?: PlacedBy | null,
+		targetPath?: string | null,
+	) => Promise<string>;
 
 	beforeAll(async () => {
 		context = await createTestApp();
@@ -96,10 +115,11 @@ describe('The transfer queue', () => {
 			)
 		).id;
 
-		const seed = async (
+		seed = async (
 			state: TransferState,
 			title: string,
 			placedBy: PlacedBy | null = null,
+			targetPath: string | null = null,
 		): Promise<string> => {
 			const id = randomUUID();
 
@@ -109,7 +129,7 @@ describe('The transfer queue', () => {
 					itemId: randomUUID(),
 					title,
 					state,
-					targetPath: `/media/shows/${title}.mkv`,
+					targetPath: targetPath ?? `/media/shows/${title}.mkv`,
 					targetLibraryId: null,
 					placedBy,
 					workPath: `/var/transfer/${id}.part`,
@@ -135,6 +155,10 @@ describe('The transfer queue', () => {
 		downloading = await seed(TransferState.DOWNLOADING, 'S01E03');
 		done = await seed(TransferState.DONE, 'S01E01');
 		unconfigured = await seed(TransferState.QUEUED, 'S01E04', PlacedBy.FALLBACK_PATH);
+		// A finished transfer whose file really exists, under a directory of its own so
+		// the move has something to carry: the point of the test is the bytes.
+		landedPath = join(mkdtempSync(join(tmpdir(), 'mcs-landed-')), 'S01E02.mkv');
+		landed = await seed(TransferState.DONE, 'S01E02', null, landedPath);
 	});
 
 	afterAll(async () => {
@@ -151,13 +175,13 @@ describe('The transfer queue', () => {
 		const page = response.body as ResultList<Transfer>;
 
 		expect(page.items).toHaveLength(2);
-		expect(page.pagination).toMatchObject({ page: 1, limit: 2, total: 3, pages: 2 });
+		expect(page.pagination).toMatchObject({ page: 1, limit: 2, total: 4, pages: 2 });
 	});
 
 	it('filters by state', async () => {
 		const response = await asReader(`?state=${TransferState.DONE}`).expect(200);
 
-		expect((response.body as ResultList<Transfer>).pagination.total).toBe(1);
+		expect((response.body as ResultList<Transfer>).pagination.total).toBe(2);
 	});
 
 	it('counts the pieces that are really done rather than guessing from the bytes', async () => {
@@ -269,7 +293,82 @@ describe('The transfer queue', () => {
 			// Nothing has been placed, so this cost one row write rather than a move.
 			expect(transfer.targetPath).toBe(join(ourPath, 'S01E03.mkv'));
 			expect(transfer.targetLibraryId).toBe(ourLibraryId);
-			expect(transfer.placedBy).toBe(PlacedBy.REQUESTED);
+			// Its own value: a correction to this one file, not a rule and not a run's
+			// request, so the screen can word it as what it is.
+			expect(transfer.placedBy).toBe(PlacedBy.CHOSEN_BY_HAND);
+		});
+
+		/**
+		 * Moving bytes that are already in a library, over HTTP, with the landing
+		 * following them.
+		 *
+		 * The landing row is the half that fails silently: it says "this file is on the
+		 * disk and no media server has indexed it yet", it is resolved by path, and a
+		 * move that left it naming the old one would have the next reconciliation decide
+		 * the file had been deleted. The media would go back to reading `missing` with a
+		 * perfectly good copy on disk, and every screen would offer to download it again.
+		 */
+		it('moves a file that has already landed, and the landing follows it', async () => {
+			const landings = context.app.get(MediaLandingRepository);
+			const transfers = context.app.get(TransferRepository);
+			const row = (await transfers.findOne({ where: { id: landed } })) as TransferEntity;
+
+			await mkdir(dirname(row.targetPath), { recursive: true });
+			await writeFile(row.targetPath, 'a whole film, allegedly');
+
+			await landings.save(
+				landings.create({
+					itemId: row.itemId,
+					transferId: row.id,
+					libraryId: null,
+					path: row.targetPath,
+					bytes: 4_000,
+					contentId: null,
+					state: MediaLandingState.WAITING,
+					expiresAt: new Date(Date.now() + 3_600_000),
+				}),
+			);
+
+			const response = await request(context.app.getHttpServer())
+				.post(`/api/transfers/${landed}/destination`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ libraryId: ourLibraryId })
+				.expect(200);
+
+			const moved = join(ourPath, 'S01E02.mkv');
+
+			expect((response.body as Transfer).targetPath).toBe(moved);
+			// The bytes, not only the row: a destination field that changes the record
+			// and leaves the file where it was makes the interface lie about where
+			// something is.
+			await expect(readFile(moved, 'utf8')).resolves.toBe('a whole film, allegedly');
+			await expect(access(row.targetPath)).rejects.toThrow();
+
+			const landing = await landings.findForItem(row.itemId);
+
+			expect(landing?.path).toBe(moved);
+			expect(landing?.libraryId).toBe(ourLibraryId);
+		});
+
+		/**
+		 * The one answer that is "not now" rather than yes or no.
+		 *
+		 * A key of its own and not `not_resumable`, because they mean opposite things to
+		 * whoever reads the screen: one says this transfer will never move again, this
+		 * one says it is being moved at this exact second and the request can be made
+		 * again in a minute. Cancelling the copy in flight was rejected — see the key's
+		 * own documentation — because a half-moved file is the outcome to design against.
+		 */
+		it('refuses while the file is being placed, with a key that says so', async () => {
+			const placing = await seed(TransferState.PLACING, 'S01E05');
+
+			const response = await request(context.app.getHttpServer())
+				.post(`/api/transfers/${placing}/destination`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ libraryId: ourLibraryId })
+				.expect(409);
+
+			expect(response.body).toMatchObject({ message: 'error.transfer.being_placed' });
 		});
 
 		/**

@@ -30,7 +30,7 @@ import {
 	ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Granted } from '@/decorators';
-import { PeerManager } from '@/managers';
+import { PeerIntroductionManager, PeerManager } from '@/managers';
 import {
 	AcceptPeerInviteDto,
 	AddPeerDto,
@@ -39,6 +39,7 @@ import {
 	CreatePeerInviteDto,
 	PeerMaxDepthDto,
 	RenamePeerDto,
+	RequestIntroductionDto,
 	SetPeerReadingDto,
 } from '@/models';
 
@@ -55,7 +56,10 @@ import {
 @ApiBearerAuth()
 @Controller('peers')
 export class PeerController {
-	public constructor(private readonly _peers: PeerManager) {}
+	public constructor(
+		private readonly _peers: PeerManager,
+		private readonly _introductions: PeerIntroductionManager,
+	) {}
 
 	@Get()
 	@Granted(Right.PEER_READ)
@@ -70,8 +74,9 @@ export class PeerController {
 	@ApiOperation({
 		summary: 'What you hand to somebody so they can find you',
 		description:
-			'The fingerprint, the rendezvous, and whether a direct connection is possible at all. ' +
-			'A gateway whose port is not forwarded works, but every transfer goes through a relay.',
+			'The fingerprint, the name, and whether a direct connection is possible at all. ' +
+			'A gateway whose port is not forwarded can still be introduced by a friend both ends ' +
+			'have, and only a friend willing to carry the bytes can link it to another one.',
 	})
 	@ApiOkResponse({ description: 'PeerIdentity' })
 	public identity(): Promise<PeerIdentity> {
@@ -268,6 +273,40 @@ export class PeerController {
 	@ApiServiceUnavailableResponse({ description: 'error.peer.unreachable' })
 	public connect(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {
 		return this._peers.connect(id);
+	}
+
+	@Post(':id/introductions')
+	@Granted(Right.PEER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Be introduced to a gateway behind this peer, and link to it directly',
+		description:
+			'The peer in the middle signs a short-lived token and steps out; the two ends ' +
+			'open a link to each other and no byte crosses the friend who introduced them. ' +
+			'Direct when either end can be dialled, carried by that same friend when ' +
+			'neither can. Kept afterwards only if keepDiscoveredPeers is on.',
+	})
+	@ApiOkResponse({ description: 'Peer' })
+	@ApiServiceUnavailableResponse({ description: 'error.peer.unreachable' })
+	public introduce(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: RequestIntroductionDto,
+	): Promise<Peer> {
+		return this._introductions.reach(id, body.holderId);
+	}
+
+	@Post(':id/release')
+	@Granted(Right.PEER_MANAGE)
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({
+		summary: 'Let go of a peer that was only met for a transfer',
+		description:
+			'Closes the link and forgets the row. A peer somebody chose to keep is left ' +
+			'exactly as it is, so this is safe to call whichever kind it turns out to be.',
+	})
+	@ApiNoContentResponse()
+	public release(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+		return this._introductions.release(id);
 	}
 
 	@Get(':id/services')

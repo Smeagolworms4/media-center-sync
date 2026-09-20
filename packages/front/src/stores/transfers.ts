@@ -1,4 +1,5 @@
 import type {
+	HistoryView,
 	Pagination,
 	ResultList,
 	Revalidation,
@@ -31,6 +32,14 @@ export interface TransferQuery {
 	page?: number;
 	limit?: number;
 	state?: TransferState | null;
+	/**
+	 * Which half of the queue to ask for. Omitted means all of it.
+	 *
+	 * The queue screen asks for the live half so that a transfer that ended thirty
+	 * seconds ago stops sitting on top of the one that is running. The dashboard
+	 * deliberately does not: it reports failed transfers out of the same list.
+	 */
+	view?: HistoryView | null;
 }
 
 /** A transfer the list does not hold yet has to show something before its first frame. */
@@ -138,6 +147,9 @@ export const useTransfersStore = defineStore('transfers', () => {
 			}
 			if (query.state) {
 				params.set('state', query.state);
+			}
+			if (query.view) {
+				params.set('view', query.view);
 			}
 			const serialized = params.toString();
 			const result = await caller('api').get<ResultList<Transfer>>(

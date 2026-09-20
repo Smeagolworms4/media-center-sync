@@ -1,5 +1,6 @@
 import {
 	ErrorKey,
+	MAX_INTRODUCERS_ASKED,
 	MAX_PEER_MAX_DEPTH,
 	PROTOCOL_VERSION,
 	PeerCapability,
@@ -21,7 +22,9 @@ import type {
 import type { ConfigService } from '@nestjs/config';
 import {
 	PeerDialOutcome,
+	PeerIntroductionService,
 	type EventGatewayService,
+	type PeerCredential,
 	type PeerLinkService,
 	type PeerReconnectService,
 	type SettingsService,
@@ -97,7 +100,20 @@ interface Fakes {
 		now: jest.Mock;
 		dial(peerId: string): Promise<PeerDialOutcome>;
 	};
+	/**
+	 * The real token service over the fake key pair.
+	 *
+	 * Real, because minting a token in a test and having the manager read a different
+	 * shape is exactly the bug these tests would otherwise miss. The cryptography under
+	 * it is the fake link service's, so a test says whether a signature verifies by
+	 * saying so rather than by holding a private key.
+	 */
+	introductions: PeerIntroductionService;
+	settings: { get: jest.Mock; getValue: jest.Mock };
 }
+
+/** Let everything already queued run, without counting how many turns that takes. */
+const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 const peerRow = (overrides: Partial<Peer> = {}): Peer =>
 	({
@@ -110,6 +126,7 @@ const peerRow = (overrides: Partial<Peer> = {}): Peer =>
 		depth: 1,
 		maxDepth: null,
 		readingForbidden: false,
+		discovered: false,
 		linkMode: null,
 		address: null,
 		viaPeerId: null,
@@ -120,9 +137,12 @@ const peerRow = (overrides: Partial<Peer> = {}): Peer =>
 	}) as Peer;
 
 const build = (
-	{ autoConnect = false }: { autoConnect?: boolean } = {},
+	{
+		autoConnect = false,
+		settings = {},
+	}: { autoConnect?: boolean; settings?: Record<string, unknown> } = {},
 ): { manager: PeerManager; fakes: Fakes } => {
-	const fakes: Fakes = {
+	const base = {
 		peers: {
 			find: jest.fn().mockResolvedValue([]),
 			findOne: jest.fn().mockResolvedValue(null),
@@ -145,7 +165,6 @@ const build = (
 			identity: jest.fn(() => ({
 				fingerprint: OUR_FINGERPRINT,
 				name: 'gateway',
-				rendezvous: 'https://rendezvous.test',
 				directAddress: null,
 				directReachable: false,
 			})),
@@ -215,6 +234,21 @@ const build = (
 			now: jest.fn(),
 			dial: () => Promise.resolve(PeerDialOutcome.REFUSED),
 		},
+		settings: {
+			// Three hops and nothing kept, which is what a gateway nobody has configured
+			// does. A test that cares about either says so.
+			get: jest.fn().mockResolvedValue({
+				peerMaxDepth: 3,
+				keepDiscoveredPeers: false,
+				...settings,
+			}),
+			getValue: jest.fn().mockResolvedValue('https://ours.example.org'),
+		},
+	};
+
+	const fakes: Fakes = {
+		...base,
+		introductions: new PeerIntroductionService(base.links as unknown as PeerLinkService),
 	};
 
 	fakes.reconnects.onDial.mockImplementation((dial: (peerId: string) => Promise<PeerDialOutcome>) => {
@@ -229,9 +263,8 @@ const build = (
 		fakes.services as unknown as MediaServiceRepository,
 		fakes.items as unknown as MediaItemRepository,
 		fakes.links as unknown as PeerLinkService,
-		{
-			getValue: jest.fn().mockResolvedValue('https://rendezvous.test'),
-		} as unknown as SettingsService,
+		fakes.introductions,
+		fakes.settings as unknown as SettingsService,
 		{ emit: jest.fn() } as unknown as EventGatewayService,
 		fakes.libraries as unknown as LibraryRepository,
 		fakes.matches as unknown as MediaMatchRepository,
@@ -251,7 +284,11 @@ const build = (
 
 /** An invitation as a friend's gateway would hand it over. */
 const foreignInvite = (expiresAt: Date, code = 'abc123'): string =>
-	`mcs://invite/${code}?fingerprint=${THEIR_FINGERPRINT}&rendezvous=https%3A%2F%2Frendezvous.test&secret=s3cr3t&exp=${expiresAt.toISOString()}`;
+	`mcs://invite/${code}?fingerprint=${THEIR_FINGERPRINT}&address=https%3A%2F%2Ftheirs.example.org&secret=s3cr3t&exp=${expiresAt.toISOString()}`;
+
+/** The same invitation as a gateway on the previous image spells it. */
+const legacyInvite = (expiresAt: Date, code = 'abc123'): string =>
+	`mcs://invite/${code}?fingerprint=${THEIR_FINGERPRINT}&rendezvous=https%3A%2F%2Ftheirs.example.org&secret=s3cr3t&exp=${expiresAt.toISOString()}`;
 
 describe('PeerManager', () => {
 	describe('what a link brings', () => {
@@ -378,11 +415,14 @@ describe('PeerManager', () => {
 	});
 
 	describe('an inbound link', () => {
-		const credential = {
+		const credential: PeerCredential = {
 			fingerprint: THEIR_FINGERPRINT,
 			publicKey: 'their-public-key',
 			challenge: `${THEIR_FINGERPRINT}:${Date.now()}`,
 			signature: 'a-signature',
+			// The ordinary case, and the one every test below but the introductions
+			// describes: two gateways that already know each other need nobody to vouch.
+			introduction: null,
 			address: '203.0.113.9',
 		};
 
@@ -480,6 +520,207 @@ describe('PeerManager', () => {
 			await expect(manager.admit(credential)).resolves.toBeNull();
 		});
 
+		describe('through an introduction', () => {
+			const INTRODUCER_FINGERPRINT = 'b'.repeat(32);
+
+			/**
+			 * The gateway in the middle, as our own peer row sees it.
+			 *
+			 * It carries a public key, because that is the whole mechanism: the holder
+			 * checks the token against the key it already holds for its own peer, never
+			 * against one the token brought with it.
+			 */
+			const introducerRow = (overrides: Partial<Peer> = {}): Peer =>
+				peerRow({
+					id: 'peer-bob',
+					name: 'Bob',
+					fingerprint: INTRODUCER_FINGERPRINT,
+					publicKey: 'bobs-public-key',
+					depth: 1,
+					...overrides,
+				});
+
+			/**
+			 * Bob's own token service, which is the point of the test.
+			 *
+			 * Built on a key of Bob's rather than on ours: a token minted by this gateway
+			 * would name this gateway as the introducer, and every test below would be
+			 * describing a gateway vouching for its own visitors.
+			 */
+			const bobs = new PeerIntroductionService({
+				fingerprint: INTRODUCER_FINGERPRINT,
+				sign: (payload: string) => `signed-by-bob:${payload}`,
+			} as unknown as PeerLinkService);
+
+			/** A stranger arriving with a token minted for us by Bob. */
+			const introduced = (
+				{ depth = 2, holder = OUR_FINGERPRINT, subject = THEIR_FINGERPRINT } = {},
+			): PeerCredential => ({
+				...credential,
+				introduction: bobs.issue(subject, holder, depth).token,
+			});
+
+			const knownIntroducer = (fakes: Fakes, row: Peer = introducerRow()): void => {
+				fakes.peers.findByFingerprint.mockImplementation((fingerprint: string) =>
+					Promise.resolve(fingerprint === INTRODUCER_FINGERPRINT ? row : null),
+				);
+				fakes.peers.findWithPublicKey.mockResolvedValue(row);
+			};
+
+			it('admits a gateway it has never met, as a friend of a friend', async () => {
+				// The whole feature. Nobody is asked to approve anything — being reachable
+				// at this distance is the agreement — and the link is theirs to use at
+				// once, which is what stops the bytes going through Bob.
+				const { manager, fakes } = build();
+
+				knownIntroducer(fakes);
+
+				await expect(manager.admit(introduced())).resolves.toMatchObject({
+					name: expect.stringContaining('peer-'),
+				});
+				expect(fakes.peers.save).toHaveBeenCalledWith(
+					expect.objectContaining({
+						fingerprint: THEIR_FINGERPRINT,
+						status: PeerStatus.LINKED,
+						trust: PeerTrust.FRIEND_OF_FRIEND,
+						depth: 2,
+						viaPeerId: 'peer-bob',
+						discovered: true,
+					}),
+				);
+			});
+
+			it('keeps them when the gateway asked for peers met this way to be kept', async () => {
+				const { manager, fakes } = build({ settings: { keepDiscoveredPeers: true } });
+
+				knownIntroducer(fakes);
+
+				await expect(manager.admit(introduced())).resolves.not.toBeNull();
+				expect(fakes.peers.save).toHaveBeenCalledWith(
+					expect.objectContaining({ discovered: false }),
+				);
+			});
+
+			it('refuses a token signed by somebody who is not a peer of ours', async () => {
+				// A signature is only worth the relationship behind it. Whoever signed
+				// this vouches for nobody here, however well formed it is.
+				const { manager, fakes } = build();
+
+				fakes.peers.findByFingerprint.mockResolvedValue(null);
+
+				await expect(manager.admit(introduced())).resolves.toBeNull();
+			});
+
+			it('refuses a token from a peer we have not settled a link with', async () => {
+				const { manager, fakes } = build();
+
+				knownIntroducer(fakes, introducerRow({ status: PeerStatus.PENDING }));
+
+				await expect(manager.admit(introduced())).resolves.toBeNull();
+			});
+
+			it('refuses a token whose signature does not verify', async () => {
+				const { manager, fakes } = build();
+
+				knownIntroducer(fakes);
+				fakes.links.verify.mockReturnValue(false);
+
+				await expect(manager.admit(introduced())).resolves.toBeNull();
+			});
+
+			it('refuses a token minted for a different gateway', async () => {
+				// Without the holder in the claim, a token good for one of Bob's friends
+				// would open a link to every one of them.
+				const { manager, fakes } = build();
+
+				knownIntroducer(fakes);
+
+				await expect(
+					manager.admit(introduced({ holder: 'e'.repeat(32) })),
+				).resolves.toBeNull();
+			});
+
+			it('refuses a token minted for somebody else, even from the right signer', async () => {
+				const { manager, fakes } = build();
+
+				knownIntroducer(fakes);
+
+				await expect(
+					manager.admit(introduced({ subject: 'e'.repeat(32) })),
+				).resolves.toBeNull();
+			});
+
+			it('never admits a gateway further away than the hop limit allows', async () => {
+				// The limit is the consent: somebody who shortened it is saying fewer
+				// people may reach them, and this is where that sentence is enforced.
+				const { manager, fakes } = build({ settings: { peerMaxDepth: 1 } });
+
+				knownIntroducer(fakes);
+
+				await expect(manager.admit(introduced())).resolves.toBeNull();
+			});
+
+			it("honours the introducer's own shorter reach over the gateway ceiling", async () => {
+				const { manager, fakes } = build({ settings: { peerMaxDepth: 4 } });
+
+				knownIntroducer(fakes, introducerRow({ maxDepth: 1 }));
+
+				await expect(manager.admit(introduced())).resolves.toBeNull();
+			});
+
+			it('refuses a banned key however well it was introduced', async () => {
+				const { manager, fakes } = build();
+
+				knownIntroducer(fakes);
+				fakes.bans.isBanned.mockResolvedValue(true);
+
+				await expect(manager.admit(introduced())).resolves.toBeNull();
+				expect(fakes.peers.save).not.toHaveBeenCalled();
+			});
+
+			it('reads the distance as the longer of what was claimed and what we counted', async () => {
+				// A gateway stating a smaller number than it counted would be promoting a
+				// chain to a direct friendship.
+				const { manager, fakes } = build({ settings: { peerMaxDepth: 4 } });
+
+				knownIntroducer(fakes, introducerRow({ depth: 3 }));
+
+				await expect(manager.admit(introduced({ depth: 2 }))).resolves.not.toBeNull();
+				expect(fakes.peers.save).toHaveBeenCalledWith(
+					expect.objectContaining({ depth: 4 }),
+				);
+			});
+
+			it('forgets a temporary peer when their link closes, and keeps a kept one', async () => {
+				const { manager, fakes } = build();
+
+				fakes.peers.findOne.mockResolvedValue(peerRow({ discovered: true }));
+
+				await manager.forget('peer-1');
+
+				expect(fakes.peers.delete).toHaveBeenCalledWith({ id: 'peer-1' });
+
+				fakes.peers.delete.mockClear();
+				fakes.peers.findOne.mockResolvedValue(peerRow({ discovered: false }));
+
+				await manager.forget('peer-1');
+
+				expect(fakes.peers.delete).not.toHaveBeenCalled();
+			});
+
+			it('leaves a temporary peer alone while a link of our own is still open', async () => {
+				// Both ends may hold a socket. Forgetting the row while we are still
+				// pulling from them would cut a transfer that is running.
+				const { manager, fakes } = build();
+
+				fakes.peers.findOne.mockResolvedValue(peerRow({ discovered: true }));
+				fakes.links.isLinked.mockReturnValue(true);
+
+				await expect(manager.forget('peer-1')).resolves.toBe(false);
+				expect(fakes.peers.delete).not.toHaveBeenCalled();
+			});
+		});
+
 		it('answers a hello with ours, signed with their challenge', async () => {
 			const { manager, fakes } = build();
 
@@ -505,6 +746,70 @@ describe('PeerManager', () => {
 		});
 	});
 
+	describe('who is asked to introduce us', () => {
+		const linkedRows = [
+			peerRow({ id: 'bob', fingerprint: 'b'.repeat(32) }),
+			peerRow({ id: 'cara', fingerprint: 'c'.repeat(32) }),
+			peerRow({ id: 'dan', fingerprint: 'd'.repeat(32) }),
+			peerRow({ id: 'eve', fingerprint: 'e'.repeat(32) }),
+		];
+
+		it('asks first the peer that told us about this one', async () => {
+			// The obvious answer and the one that certainly can: `viaPeerId` is how we
+			// know this gateway exists at all, so that friend is linked to them by
+			// construction.
+			const { manager, fakes } = build();
+
+			fakes.peers.findLinked.mockResolvedValue(linkedRows);
+			fakes.links.isLinked.mockReturnValue(true);
+
+			await expect(
+				manager.introducersFor(peerRow({ id: 'chris', viaPeerId: 'dan' })),
+			).resolves.toEqual(['dan', 'bob', 'cara']);
+		});
+
+		it('tries the others when that one is offline', async () => {
+			// A friend's gateway being down is the commonest reason a link cannot be
+			// opened, and giving up there would make the whole ladder depend on one
+			// household's uptime.
+			const { manager, fakes } = build();
+
+			fakes.peers.findLinked.mockResolvedValue(linkedRows);
+			fakes.links.isLinked.mockImplementation((id: string) => id !== 'dan');
+
+			await expect(
+				manager.introducersFor(peerRow({ id: 'chris', viaPeerId: 'dan' })),
+			).resolves.toEqual(['bob', 'cara', 'eve']);
+		});
+
+		it('never returns more than the bound, however many friends there are', async () => {
+			// A gateway that asked twenty peers in turn before reporting failure is a
+			// screen that hangs, and the twentieth answer says nothing the first three
+			// did not.
+			const { manager, fakes } = build();
+
+			fakes.peers.findLinked.mockResolvedValue(linkedRows);
+			fakes.links.isLinked.mockReturnValue(true);
+
+			await expect(manager.introducersFor(peerRow({ id: 'chris' }))).resolves.toHaveLength(
+				MAX_INTRODUCERS_ASKED,
+			);
+		});
+
+		it('asks nobody when no link is open, and never asks the peer about itself', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findLinked.mockResolvedValue(linkedRows);
+			fakes.links.isLinked.mockReturnValue(false);
+
+			await expect(manager.introducersFor(peerRow({ id: 'chris' }))).resolves.toEqual([]);
+
+			fakes.links.isLinked.mockReturnValue(true);
+
+			await expect(manager.introducersFor(peerRow({ id: 'bob' }))).resolves.not.toContain('bob');
+		});
+	});
+
 	describe('invitations', () => {
 		it('stores the hash of the secret and never the secret', async () => {
 			const { manager, fakes } = build();
@@ -516,6 +821,44 @@ describe('PeerManager', () => {
 			expect(invite.url).toContain(OUR_FINGERPRINT);
 			expect(stored.secretHash).toHaveLength(64);
 			expect(invite.url).not.toContain(stored.secretHash);
+		});
+
+		it('carries the issuing gateway\'s own address, and calls it what it is', async () => {
+			// The one address left in the whole design, and it is ours. Two gateways that
+			// have never met have nobody in the middle to introduce them, which is the
+			// case this covers and the only one it covers.
+			const { manager, fakes } = build();
+
+			const invite = await manager.createInvite(30);
+
+			expect(fakes.settings.getValue).toHaveBeenCalledWith('publicUrl');
+			expect(fakes.settings.getValue).not.toHaveBeenCalledWith('rendezvousUrl');
+			expect(invite.address).toBe('https://ours.example.org');
+			expect(invite.url).toContain('address=https%3A%2F%2Fours.example.org');
+			expect(invite.url).not.toContain('rendezvous');
+		});
+
+		it('keeps the address an invitation carries, so a first link has somewhere to dial', async () => {
+			const { manager, fakes } = build();
+
+			await manager.accept(foreignInvite(new Date(Date.now() + 60_000)), 'Alice');
+
+			expect(fakes.peers.create).toHaveBeenCalledWith(
+				expect.objectContaining({ address: 'https://theirs.example.org' }),
+			);
+		});
+
+		it('still reads an invitation minted before the parameter was renamed', async () => {
+			// One lives in somebody's chat window for an hour. Refusing to read its
+			// address would turn a rename into a link with nowhere to dial.
+			const { manager, fakes } = build();
+
+			const peer = await manager.accept(legacyInvite(new Date(Date.now() + 60_000)), 'Alice');
+
+			expect(peer.status).toBe(PeerStatus.LINKED);
+			expect(fakes.peers.create).toHaveBeenCalledWith(
+				expect.objectContaining({ address: 'https://theirs.example.org' }),
+			);
 		});
 
 		it('links to whoever the invitation names', async () => {
@@ -763,8 +1106,10 @@ describe('PeerManager', () => {
 			fakes.peers.findLinked.mockResolvedValue([peerRow(), peerRow({ id: 'peer-2' })]);
 
 			manager.onApplicationBootstrap();
-			await Promise.resolve();
-			await Promise.resolve();
+			// Detached, and now with a sweep of the temporary peers in front of it:
+			// draining the queue is what a boot really does, and counting `await`s would
+			// break the next time a step is added in front.
+			await flush();
 
 			expect(fakes.reconnects.schedule.mock.calls.map((call) => call[0])).toEqual([
 				'peer-1',
@@ -778,6 +1123,10 @@ describe('PeerManager', () => {
 			const lost = fakes.links.onLinkLost.mock.calls[0]?.[0] as (peerId: string) => void;
 
 			lost('peer-1');
+			// The drop is answered off the socket callback: a peer that only existed for
+			// a transfer is forgotten instead of being redialled, and telling the two
+			// apart is a question for the database.
+			await flush();
 
 			expect(fakes.reconnects.schedule).toHaveBeenCalledWith('peer-1');
 			expect(fakes.peers.setStatus).toHaveBeenCalledWith('peer-1', PeerStatus.UNREACHABLE);

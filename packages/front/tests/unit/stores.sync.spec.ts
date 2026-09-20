@@ -12,7 +12,7 @@ function plan (overrides: Partial<SyncPlan> = {}): SyncPlan {
 		trigger: SyncTrigger.SCHEDULE,
 		schedule: '0 4 * * *',
 		sourceServiceIds: [],
-		targetLibraryId: null,
+		preferredLibraryId: null,
 		scope: {},
 		maxItemsPerRun: null,
 		maxBytesPerRun: null,

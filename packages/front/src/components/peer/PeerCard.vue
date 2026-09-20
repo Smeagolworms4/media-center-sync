@@ -10,8 +10,8 @@
 	 *
 	 * Trust and link mode are shown together because they answer two different
 	 * questions people do ask: who this is — somebody we invited, or a friend of a
-	 * friend we did not — and how the bytes travel, since a relayed link shares its
-	 * bandwidth with everybody else using that rendezvous.
+	 * friend we did not — and how the bytes travel, since a relayed link spends the
+	 * upload of the friend who introduced the two ends.
 	 */
 	const props = defineProps<{
 		peer: Peer;
@@ -86,6 +86,16 @@
 	const protocol = computed(() => props.peer.protocol ?? null);
 	const capabilities = computed(() => props.peer.capabilities ?? []);
 	const relayed = computed(() => props.peer.linkMode === PeerLinkMode.RELAY);
+
+	/*
+	 * Met while pulling from a friend of a friend, and not being kept.
+	 *
+	 * Worth a word on the card rather than hiding: the row really is in the list for
+	 * the length of a transfer, and a gateway nobody invited appearing and then
+	 * disappearing with nothing to explain it reads as a bug. Read through `?? false`
+	 * like the two above, because a peer recorded before this existed carries no field.
+	 */
+	const discovered = computed(() => props.peer.discovered ?? false);
 </script>
 
 <template>
@@ -174,6 +184,17 @@
 				</v-chip>
 
 				<v-chip
+					v-if="discovered"
+					data-test="peer-discovered"
+					label
+					size="small"
+					variant="outlined"
+				>
+					<v-icon class="mr-1" icon="mdi-timer-sand" size="x-small" />
+					{{ $t('peer.discovered_chip') }}
+				</v-chip>
+
+				<v-chip
 					v-if="peer.linkMode"
 					:color="relayed ? 'state-outdated' : undefined"
 					data-test="peer-link-mode"
@@ -193,8 +214,22 @@
 				{{ $t('peer.direction.outgoing_hint') }}
 			</p>
 
-			<p v-if="relayed" class="text-caption text-medium-emphasis mt-2 mb-0">
+			<!--
+				Stated, not dressed up. Nothing here is encrypted above the transport, so
+				on a relayed link the friend in the middle really does carry the bytes —
+				and a card that showed "relayed" without saying what that means would be
+				implying a privacy this gateway does not provide.
+			-->
+			<p v-if="relayed" class="text-caption text-medium-emphasis mt-2 mb-0" data-test="peer-relay-hint">
 				{{ $t('peer.relay_hint') }}
+			</p>
+
+			<p
+				v-if="discovered"
+				class="text-caption text-medium-emphasis mt-2 mb-0"
+				data-test="peer-discovered-hint"
+			>
+				{{ $t('peer.discovered_hint') }}
 			</p>
 
 			<!--
@@ -218,6 +253,20 @@
 				data-test="peer-unreachable-hint"
 			>
 				{{ $t('peer.unreachable_hint') }}
+			</p>
+
+			<!--
+				The limit, said once and without alarm. Two gateways behind two routers
+				with no friend in common cannot be connected at all, and there is no
+				field anybody could have filled in to change that — so the row says what
+				would fix it instead of waiting silently for an attempt that cannot work.
+			-->
+			<p
+				v-if="unreachable"
+				class="text-caption text-medium-emphasis mt-1 mb-0"
+				data-test="peer-unreachable-port-hint"
+			>
+				{{ $t('peer.unreachable_port_hint') }}
 			</p>
 
 			<!--

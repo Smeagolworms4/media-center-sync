@@ -835,6 +835,107 @@ describe('MediaGroupManager', () => {
 			expect(missing.pagination.total).toBe(1);
 			expect(missing.items[0].title).toBe('Theirs');
 		});
+
+		it('reads as downloaded rather than missing while the library resyncs', async () => {
+			/*
+			 * The case the whole state exists for: the file is in the library folder and
+			 * no service has scanned yet, so there is no local row and every other test
+			 * above would answer `missing` — which is what offered the same episode a
+			 * second time.
+			 */
+			const { manager } = build({
+				items: [
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						title: 'Theirs',
+						syncState: SyncState.AWAITING_INDEX,
+					}),
+				],
+				services: [service(), service({ id: 'remote', filesMounted: false })],
+			});
+
+			expect((await manager.groups(query())).items[0].sync).toBe(SyncState.AWAITING_INDEX);
+		});
+
+		it('says it was never indexed once the gateway has stopped waiting', async () => {
+			const { manager } = build({
+				items: [
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						title: 'Theirs',
+						syncState: SyncState.NOT_INDEXED,
+					}),
+				],
+				services: [service(), service({ id: 'remote', filesMounted: false })],
+			});
+
+			expect((await manager.groups(query())).items[0].sync).toBe(SyncState.NOT_INDEXED);
+		});
+
+		it('answers the landed state to a filter that asks for it', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'a', title: 'Held', syncState: SyncState.IN_SYNC }),
+					item({
+						id: 'c',
+						serviceId: 'remote',
+						title: 'Landed',
+						syncState: SyncState.AWAITING_INDEX,
+					}),
+				],
+				services: [service(), service({ id: 'remote', filesMounted: false })],
+			});
+
+			const landed = await manager.groups(query({ states: [SyncState.AWAITING_INDEX] }));
+
+			expect(landed.items.map((group) => group.title)).toEqual(['Landed']);
+		});
+	});
+
+	describe('a child already on the disk', () => {
+		it('is not counted as a gap under its season', async () => {
+			// Counting it would put a number on a season card that nothing anybody does
+			// can bring down: fetching it again writes the same bytes to the same path.
+			const { manager } = build({
+				items: [
+					item({ id: 'show', serviceId: 'local', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-here', serviceId: 'local', parentId: 'show' }),
+					item({ id: 'show-remote', serviceId: 'remote', kind: MediaKind.SERIES, file: null }),
+					item({
+						id: 'ep-landed',
+						serviceId: 'remote',
+						parentId: 'show-remote',
+						syncState: SyncState.AWAITING_INDEX,
+					}),
+				],
+				matches: [correlation({ localItemId: 'show', remoteItemId: 'show-remote' })],
+			});
+
+			const answer = await manager.groups(query({ rootsOnly: true }));
+
+			expect(answer.items[0].missingCount).toBe(0);
+		});
+
+		it('is hidden by "hide what I already have", like anything else we hold', async () => {
+			const { manager } = build({
+				items: [
+					item({
+						id: 'landed',
+						serviceId: 'remote',
+						kind: MediaKind.SERIES,
+						file: null,
+						syncState: SyncState.AWAITING_INDEX,
+					}),
+				],
+				services: [service(), service({ id: 'remote', filesMounted: false })],
+			});
+
+			const answer = await manager.groups(query({ hideOwned: true, rootsOnly: true }));
+
+			expect(answer.items).toHaveLength(0);
+		});
 	});
 
 	describe('filtering and paging', () => {

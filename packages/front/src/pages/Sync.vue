@@ -1,7 +1,8 @@
 <script lang="ts" setup>
 	import type { SyncJob, SyncPlan } from '@mcs/shared';
-	import { SyncTrigger } from '@mcs/shared';
-	import { computed, onMounted, ref } from 'vue';
+	import { HistoryView, SyncTrigger } from '@mcs/shared';
+	import { computed, onMounted, ref, watch } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import CronHint from '@/components/common/CronHint.vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -22,23 +23,38 @@
 	 * Plans and jobs share this screen because neither answers anything alone: a
 	 * plan that looks right and a last run that failed three times is the state
 	 * people need to see, and two screens would hide exactly that pairing.
+	 *
+	 * The runs list opens on what is still going. Finished runs are not destroyed —
+	 * they are under "Finished", and the screen says so, because a list that silently
+	 * drops rows teaches people not to believe the next one either.
+	 *
+	 * A run that finishes while this page is open stays where it is until the next
+	 * load. That is deliberate: the moment somebody is watching a run complete is the
+	 * worst possible moment for its row to vanish, and it is gone the next time the
+	 * list is asked for.
 	 */
 	const syncStore = useSyncStore();
 	const servicesStore = useServicesStore();
 	const librariesStore = useLibrariesStore();
+	const { t } = useI18n();
 	const { notify, tryCallback } = useNotifier();
 
 	const failed = ref(false);
 	const busyId = ref<string | null>(null);
 	const removing = ref<SyncPlan | null>(null);
 	const removeBusy = ref(false);
+	const jobView = ref<HistoryView>(HistoryView.LIVE);
+
+	async function loadJobs (): Promise<void> {
+		await syncStore.loadJobs({ page: 1, limit: 20, view: jobView.value });
+	}
 
 	async function load (): Promise<void> {
 		failed.value = false;
 		try {
 			await Promise.all([
 				syncStore.loadPlans(),
-				syncStore.loadJobs({ page: 1, limit: 20 }),
+				loadJobs(),
 				servicesStore.loaded ? Promise.resolve() : servicesStore.load().catch(() => undefined),
 				librariesStore.loaded ? Promise.resolve() : librariesStore.load().catch(() => undefined),
 			]);
@@ -51,6 +67,17 @@
 		void load();
 	});
 
+	watch(jobView, () => {
+		void loadJobs();
+	});
+
+	const viewItems = computed(() => Object.values(HistoryView).map(value => ({
+		value,
+		title: t(`history.view.${value}`),
+	})));
+
+	const showingLiveOnly = computed(() => jobView.value === HistoryView.LIVE);
+
 	const plans = computed(() => syncStore.plans);
 
 	function sourceNames (plan: SyncPlan): string {
@@ -62,9 +89,15 @@
 			.join(' → ');
 	}
 
-	function targetName (plan: SyncPlan): string | null {
-		return plan.targetLibraryId
-			? librariesStore.byId[plan.targetLibraryId]?.name ?? plan.targetLibraryId
+	/**
+	 * The library a plan prefers, named rather than identified.
+	 *
+	 * Falls back to the identifier when the library is not loaded: an empty chip would
+	 * read as "no preference", which is the opposite of what the row says.
+	 */
+	function preferredName (plan: SyncPlan): string | null {
+		return plan.preferredLibraryId
+			? librariesStore.byId[plan.preferredLibraryId]?.name ?? plan.preferredLibraryId
 			: null;
 	}
 
@@ -177,8 +210,8 @@
 							{{ plan.sourceServiceIds.length === 0
 								? $t('sync.plan.sources_default')
 								: `${$t('sync.plan.sources')}: ${sourceNames(plan)}` }}
-							<template v-if="targetName(plan)">
-								· {{ $t('sync.plan.target') }}: {{ targetName(plan) }}
+							<template v-if="preferredName(plan)">
+								· {{ $t('sync.plan.target') }}: {{ preferredName(plan) }}
 							</template>
 						</v-list-item-subtitle>
 
@@ -240,15 +273,46 @@
 			</v-card>
 
 			<v-card class="mt-4" data-test="job-list">
-				<v-card-title class="text-subtitle-1">{{ $t('sync.jobs') }}</v-card-title>
+				<v-card-title class="sync_jobsTitle text-subtitle-1">
+					<span>{{ $t('sync.jobs') }}</span>
+
+					<v-spacer />
+
+					<v-btn-toggle
+						v-model="jobView"
+						data-test="job-view"
+						density="compact"
+						mandatory
+						variant="outlined"
+					>
+						<v-btn
+							v-for="item of viewItems"
+							:key="item.value"
+							:data-test="`job-view-${item.value}`"
+							size="small"
+							:value="item.value"
+						>
+							{{ item.title }}
+						</v-btn>
+					</v-btn-toggle>
+				</v-card-title>
 
 				<v-card-text>
 					<EmptyState
 						v-if="!syncStore.loadingJobs && syncStore.jobs.length === 0"
 						icon="mdi-history"
-						:text="$t('sync.no_jobs_text')"
-						:title="$t('sync.no_jobs_title')"
-					/>
+						:text="showingLiveOnly ? $t('history.empty_live_runs_text') : $t('sync.no_jobs_text')"
+						:title="showingLiveOnly ? $t('history.empty_live_runs_title') : $t('sync.no_jobs_title')"
+					>
+						<v-btn
+							v-if="showingLiveOnly"
+							data-test="job-see-finished"
+							variant="tonal"
+							@click="jobView = HistoryView.FINISHED"
+						>
+							{{ $t('history.see_finished') }}
+						</v-btn>
+					</EmptyState>
 
 					<template v-else>
 						<JobRow
@@ -257,6 +321,14 @@
 							:job="job"
 							@cancel="cancelJob"
 						/>
+
+						<p
+							v-if="showingLiveOnly"
+							class="text-caption text-medium-emphasis mt-2"
+							data-test="job-history-hint"
+						>
+							{{ $t('history.hint_runs') }}
+						</p>
 					</template>
 				</v-card-text>
 			</v-card>
@@ -282,6 +354,13 @@
 			&:hover {
 				text-decoration: underline;
 			}
+		}
+
+		&_jobsTitle {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			flex-wrap: wrap;
 		}
 
 		&_actions {

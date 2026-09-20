@@ -4,14 +4,43 @@ import type { PlacedBy } from './transfer.model';
  * What the icon next to a media item means.
  *
  * This is the single vocabulary the whole interface uses — a list, a series page
- * and a season row all render the same seven states, so that a glance means the
- * same thing everywhere.
+ * and a season row all render the same states, so that a glance means the same
+ * thing everywhere.
  */
 export enum SyncState {
 	/** Present here and nowhere else we know of. */
 	LOCAL_ONLY = 'local_only',
 	/** Known on another service, missing here. This is what a sync fills in. */
 	MISSING = 'missing',
+	/**
+	 * The bytes are on our disk; the media server has not indexed them yet.
+	 *
+	 * Neither `missing` nor present, and both of those would be a lie in a way people
+	 * act on. Calling it missing is the bug this state was added for: a pull finished,
+	 * the file is in the right folder, and every screen still offered to fetch it again
+	 * — so it was fetched again. Calling it present is the opposite mistake: nothing can
+	 * be played, because the media server has no row for it and the interface that
+	 * reads our index would be promising something the server cannot serve.
+	 *
+	 * It is transient by construction, and what ends it is our own scan finding a real
+	 * item for that file. See `NOT_INDEXED` for what happens when that never comes.
+	 */
+	AWAITING_INDEX = 'awaiting_index',
+	/**
+	 * On our disk, and the media server never took it — long past the point where it
+	 * should have.
+	 *
+	 * The terminal half of `AWAITING_INDEX`, and the reason that one is allowed to be
+	 * bounded. Something is wrong and it is never the download: the library path the
+	 * gateway writes into is not the directory the server scans, the server's scanner is
+	 * off, or the file is in a form it refuses. None of that produces an error anywhere
+	 * — the transfer succeeded — so it needs a state or it is invisible.
+	 *
+	 * Still not `missing`: pulling it again would land the same bytes in the same folder
+	 * and change nothing. It clears if the server ever does index it, and if the file
+	 * leaves the disk.
+	 */
+	NOT_INDEXED = 'not_indexed',
 	/** Present on both sides, same version. */
 	IN_SYNC = 'in_sync',
 	/** Present here, but a better version exists elsewhere. */
@@ -22,6 +51,21 @@ export enum SyncState {
 	SYNCING = 'syncing',
 	/** Not correlated yet. */
 	UNKNOWN = 'unknown',
+}
+
+/**
+ * Where a file the gateway put on the disk has got to.
+ *
+ * Only two values, and neither of them is "indexed": a landing that has been indexed
+ * has nothing left to say and its row is gone. Keeping a resolved row would mean every
+ * reader having to remember to exclude it, and the media item the scan created is
+ * already the record that the file arrived.
+ */
+export enum MediaLandingState {
+	/** Written, announced to the media server, waiting for it to appear in a scan. */
+	WAITING = 'waiting',
+	/** The grace period ran out with nothing indexed. Surfaced, not forgotten. */
+	STALE = 'stale',
 }
 
 /** How two items were matched. Kept so a wrong match can be explained and undone. */
@@ -67,6 +111,19 @@ export enum SyncJobState {
 	CANCELLED = 'cancelled',
 }
 
+/** The states a run never leaves again. The counterpart of `FINISHED_TRANSFER_STATES`. */
+export const FINISHED_SYNC_JOB_STATES: SyncJobState[] = [
+	SyncJobState.DONE,
+	SyncJobState.FAILED,
+	SyncJobState.CANCELLED,
+];
+
+/** A failed or cancelled run is why a series has a hole in it, so it is kept longer. */
+export const KEPT_LONGER_SYNC_JOB_STATES: SyncJobState[] = [
+	SyncJobState.FAILED,
+	SyncJobState.CANCELLED,
+];
+
 /**
  * A standing intent: what to pull, from where, to where.
  *
@@ -82,8 +139,22 @@ export interface SyncPlan {
 	/** Cron expression, when the trigger is a schedule. */
 	schedule: string | null;
 	sourceServiceIds: string[];
-	/** Where the media lands. Empty means: next to our own copy, or the default. */
-	targetLibraryId: string | null;
+	/**
+	 * The library this plan would rather its files went to. A preference, not a target.
+	 *
+	 * It sits inside the placement rules and not above them: a series we already hold
+	 * still keeps its own folder, because a season split across two shelves is worse
+	 * than one landing somewhere unexpected. Everything the plan pulls that is genuinely
+	 * new goes here, ahead of the category's library and the global default.
+	 *
+	 * It lives on the plan and not on a run because a run is one execution of a standing
+	 * intent: a destination attached to a single run is a decision with nowhere to live
+	 * afterwards, and the next run would quietly go back to the old place with nothing
+	 * connecting the two. A one-off different destination is a re-pointed transfer.
+	 *
+	 * Null means the rules decide on their own, which is the ordinary case.
+	 */
+	preferredLibraryId: string | null;
 	/** What this plan covers. See `SyncScope` for why it is not left to the filter. */
 	scope: SyncScope;
 	filter: SyncFilter;
@@ -222,7 +293,8 @@ export interface CreateSyncPlanRequest {
 	trigger: SyncTrigger;
 	schedule?: string | null;
 	sourceServiceIds?: string[];
-	targetLibraryId?: string | null;
+	/** See `SyncPlan.preferredLibraryId`: a standing preference, refused if unwritable. */
+	preferredLibraryId?: string | null;
 	scope?: SyncScope;
 	filter?: SyncFilter;
 	maxItemsPerRun?: number | null;
@@ -353,6 +425,15 @@ export interface RunSyncRequest {
 	planId?: string;
 	scope?: SyncScope;
 	sourceServiceIds?: string[];
+	/**
+	 * A destination for this run and no other, overriding the plan's preference.
+	 *
+	 * Deliberately not stored anywhere afterwards — it is recorded on each item as
+	 * `PlacedBy.REQUESTED` and nothing else remembers it — because a run is an
+	 * execution and not an intent. Somebody who wants the change to stick edits the
+	 * plan's `preferredLibraryId`; somebody who wants this file elsewhere re-points
+	 * the transfer.
+	 */
 	targetLibraryId?: string | null;
 	filter?: SyncFilter;
 	maxItemsPerRun?: number | null;

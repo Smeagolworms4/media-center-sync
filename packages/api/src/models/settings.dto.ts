@@ -262,16 +262,22 @@ export class UpdateSettingsDto {
 	@Max(MAX_PEER_MAX_DEPTH)
 	public peerMaxDepth?: number;
 
+	/**
+	 * Whether a peer met while pulling from a friend of a friend is kept.
+	 *
+	 * Declared here or unreachable: the validation pipe runs with `whitelist`, so a key
+	 * the DTO does not name is stripped before anything sees it and the request answers
+	 * 200 with nothing changed.
+	 */
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsBoolean()
+	public keepDiscoveredPeers?: boolean;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsBoolean()
 	public allowSwarm?: boolean;
-
-	@ApiPropertyOptional()
-	@IsOptional()
-	@IsString()
-	@MaxLength(512)
-	public rendezvousUrl?: string | null;
 
 	/**
 	 * Declared here or unreachable over HTTP.
@@ -323,12 +329,32 @@ export class UpdateSettingsDto {
 	@MaxLength(1024)
 	public defaultTargetPath?: string | null;
 
-	@ApiPropertyOptional({ minimum: 0, maximum: 365 })
+	@ApiPropertyOptional({
+		description:
+			'How long finished work that succeeded is kept, in days. Covers sync runs as well ' +
+			'as transfers. Zero keeps none of it.',
+		minimum: 0,
+		maximum: 3650,
+	})
 	@IsOptional()
 	@IsInt()
 	@Min(0)
-	@Max(365)
+	@Max(3650)
 	public transferHistoryDays?: number;
+
+	@ApiPropertyOptional({
+		description:
+			'How long finished work that failed or was cancelled is kept, in days. Longer than ' +
+			'the window for successes, because a failure is the evidence of why something ' +
+			'never arrived.',
+		minimum: 0,
+		maximum: 3650,
+	})
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	@Max(3650)
+	public failedHistoryDays?: number;
 
 	@ApiPropertyOptional({ minimum: 1, maximum: 1440 })
 	@IsOptional()

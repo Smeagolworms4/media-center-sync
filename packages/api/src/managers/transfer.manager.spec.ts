@@ -25,6 +25,7 @@ import type {
 	TransferEngineService,
 	VerificationService,
 } from '@/services';
+import type { LandingManager } from './landing.manager';
 import type { LibraryManager } from './library.manager';
 import { TransferManager } from './transfer.manager';
 
@@ -32,6 +33,7 @@ interface Fakes {
 	transfers: {
 		findOne: jest.Mock;
 		findAndCount: jest.Mock;
+		pageOf: jest.Mock;
 		save: jest.Mock;
 		queueStats: jest.Mock;
 		findUnconfigured: jest.Mock;
@@ -57,6 +59,7 @@ interface Fakes {
 	lines: { findLine: jest.Mock; save: jest.Mock };
 	libraryManager: { probe: jest.Mock; categories: jest.Mock };
 	mover: { move: jest.Mock };
+	landings: { record: jest.Mock };
 }
 
 /** A library on one of our own services, writable, which is the only valid target. */
@@ -101,6 +104,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 		transfers: {
 			findOne: jest.fn().mockResolvedValue(row),
 			findAndCount: jest.fn().mockResolvedValue([[row], 1]),
+			pageOf: jest.fn().mockResolvedValue([[row], 1]),
 			save: jest.fn((value: Transfer) => Promise.resolve(value)),
 			queueStats: jest
 				.fn()
@@ -163,6 +167,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				.fn()
 				.mockResolvedValue({ outcome: FileMoveOutcome.RENAMED, bytesCopied: 0, partialPath: null }),
 		},
+		landings: { record: jest.fn().mockResolvedValue(undefined) },
 	};
 
 	const manager = new TransferManager(
@@ -189,6 +194,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 		fakes.libraries as unknown as LibraryRepository,
 		fakes.lines as unknown as SyncJobItemRepository,
 		fakes.libraryManager as unknown as LibraryManager,
+		fakes.landings as unknown as LandingManager,
 		{
 			get: jest
 				.fn()
@@ -549,23 +555,88 @@ describe('TransferManager', () => {
 			).rejects.toThrow(ErrorKey.TRANSFER_TARGET_OCCUPIED);
 		});
 
+		/**
+		 * The one moment the answer is "not now" rather than yes or no.
+		 *
+		 * A key of its own, and not `TRANSFER_NOT_RESUMABLE`, because the two mean
+		 * opposite things to whoever is reading the screen: one says this transfer will
+		 * never move again, and this one says it is moving right now and the request can
+		 * be made again in a minute.
+		 */
 		it('refuses while the engine is placing the file at this exact moment', async () => {
 			const { manager, fakes } = build(TransferState.PLACING);
 
 			await expect(
 				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
-			).rejects.toThrow(ErrorKey.TRANSFER_NOT_RESUMABLE);
+			).rejects.toThrow(ErrorKey.TRANSFER_BEING_PLACED);
 			expect(fakes.transfers.save).not.toHaveBeenCalled();
+			expect(fakes.mover.move).not.toHaveBeenCalled();
 		});
 
-		it('marks a destination somebody chose by hand as chosen', async () => {
+		it('marks a destination somebody chose by hand as its own kind of decision', async () => {
 			const { manager, fakes } = build(TransferState.DOWNLOADING);
 
 			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
 
+			// Not `REQUESTED`, which belongs to a run that named a library for everything
+			// it pulled: this is a correction to one file, and no rule underneath it moved.
 			expect((fakes.transfers.save.mock.calls[0][0] as Transfer).placedBy).toBe(
-				PlacedBy.REQUESTED,
+				PlacedBy.CHOSEN_BY_HAND,
 			);
+		});
+
+		/**
+		 * The interaction that fails silently, and the reason this is tested at all.
+		 *
+		 * `media_landings` records that a file is on the disk before any media server has
+		 * indexed it, and the reconciliation resolves a row by path. A move that left the
+		 * row naming the old path makes the next pass stat a file that is not there,
+		 * conclude it was deleted and forget the landing — so the media goes back to
+		 * reading `missing` with a perfectly good copy on disk, and every screen offers a
+		 * download of it again. Nothing fails, nothing is logged, and the only symptom is
+		 * the same episode arriving twice.
+		 */
+		it('re-records the landing so it names the file where it now is', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			expect(fakes.landings.record).toHaveBeenCalledTimes(1);
+
+			const [recorded] = fakes.landings.record.mock.calls[0] as [Transfer];
+
+			// Recorded from the transfer as it is *after* the move, or the row would be
+			// rewritten with exactly the path that has just stopped being true.
+			expect(recorded.targetPath).toBe('/media/anime/S01E03.mkv');
+			expect(recorded.targetLibraryId).toBe('lib-anime');
+			expect(recorded.state).toBe(TransferState.DONE);
+		});
+
+		it('leaves the landing alone when no byte moved', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			// Nothing has landed yet, so there is nothing on any disk to point at — and
+			// writing a landing here would mark a media as held while it is still being
+			// downloaded.
+			expect(fakes.landings.record).not.toHaveBeenCalled();
+		});
+
+		it('does not re-record a landing for a move that was refused', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			fakes.mover.move.mockRejectedValue(
+				new FileMoveError(ErrorKey.TRANSFER_NO_SPACE, 'ENOSPC: no space left on device'),
+			);
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_NO_SPACE);
+
+			// The file never left the library it was in, so the row that names it is still
+			// correct and must not be pointed at a path nothing reached.
+			expect(fakes.landings.record).not.toHaveBeenCalled();
 		});
 	});
 

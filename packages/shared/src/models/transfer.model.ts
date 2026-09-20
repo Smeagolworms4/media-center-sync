@@ -9,9 +9,14 @@ import type { MediaFileInfo } from './media.model';
 export enum TransferTransport {
 	/** Ranged HTTP against the source service. One host, several connections. */
 	HTTP_RANGE = 'http_range',
-	/** Direct link to a peer's gateway, negotiated through the rendezvous. */
+	/** Direct link to a peer's gateway, dialled or reached after an introduction. */
 	PEER_DIRECT = 'peer_direct',
-	/** Relayed through the rendezvous when no direct link can be established. */
+	/**
+	 * Carried by the friend who introduced the two ends, when neither can be dialled.
+	 *
+	 * Their upload, not ours and not the far end's, which is why it is the last rung
+	 * of the ladder and never a first choice.
+	 */
 	PEER_RELAY = 'peer_relay',
 	/**
 	 * Encapsulated BitTorrent. Several peers holding the same file feed the same
@@ -23,15 +28,38 @@ export enum TransferTransport {
 /**
  * Which step of the placement rule decided where a file went.
  *
- * Recorded because the last two mean nobody chose: the file is not lost, the
+ * Recorded because three of these mean nobody chose: the file is not lost, the
  * transfer did not fail, and nothing anywhere would ever say a word — the library
  * simply grows a folder somebody did not plan, and it is found months later. A
  * screen can only offer to file those properly if it can tell them from the ones
  * that landed where they were meant to.
+ *
+ * Three separate values say "somebody decided", and they are not interchangeable
+ * because the thing to do about each is different. A plan's preference is a standing
+ * decision and the place to change it is the plan; a one-off run's request died with
+ * that run; a file moved by hand is a correction somebody made to this file alone and
+ * the rules underneath it were not touched. Folding them into one value would make
+ * "why is this here" unanswerable on exactly the files somebody went out of their way
+ * to place.
  */
 export enum PlacedBy {
 	/** The run said so, for this run only. */
 	REQUESTED = 'requested',
+	/**
+	 * The plan's standing preferred library.
+	 *
+	 * Distinct from `REQUESTED` because it outlives the run: the next run of the same
+	 * plan will decide the same way, and the plan is where somebody changes it.
+	 */
+	PLAN_PREFERENCE = 'plan_preference',
+	/**
+	 * Somebody sent this one file here, on the queue screen.
+	 *
+	 * A correction to this file and to nothing else — no rule was learned, no setting
+	 * changed — which is exactly why it must not read as `PLAN_PREFERENCE`: the next
+	 * episode of the same show will still go wherever the rules send it.
+	 */
+	CHOSEN_BY_HAND = 'chosen_by_hand',
 	/** Beside our own copies of the same show. The rule that always wins. */
 	EXISTING_COPY = 'existing_copy',
 	/** The library the category names. */
@@ -82,6 +110,33 @@ export enum TransferState {
 	FAILED = 'failed',
 	CANCELLED = 'cancelled',
 }
+
+/**
+ * The states a transfer never leaves again.
+ *
+ * One list, read by the retention, by the list filter and by the queue screen, so
+ * that "finished" means the same thing in all three. `PAUSED` is deliberately not
+ * here: somebody stopped it and it will move again when they say so, which is exactly
+ * the row that must never be cleaned up or hidden as history.
+ */
+export const FINISHED_TRANSFER_STATES: TransferState[] = [
+	TransferState.DONE,
+	TransferState.FAILED,
+	TransferState.CANCELLED,
+];
+
+/**
+ * The finished states that carry information nobody else has.
+ *
+ * A success leaves the file in the library, which says everything the row said. A
+ * failure or a cancellation leaves nothing at all — the row is the only record that
+ * the file was ever attempted — which is why retention gives these two their own,
+ * longer window.
+ */
+export const KEPT_LONGER_TRANSFER_STATES: TransferState[] = [
+	TransferState.FAILED,
+	TransferState.CANCELLED,
+];
 
 export enum ChunkState {
 	PENDING = 'pending',

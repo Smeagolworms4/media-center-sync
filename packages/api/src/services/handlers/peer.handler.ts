@@ -14,17 +14,18 @@ import { PeerCatalogueService } from '../peer-catalogue.service';
 import { PeerLinkService } from '../peer-link.service';
 import { normalizeTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
-import type {
-	ByteRange,
-	ExternalIdentity,
-	LibraryRefresh,
-	LibraryScanOptions,
-	MediaItemRef,
-	MediaServiceHandler,
-	MediaStream,
-	NormalisedLibrary,
-	NormalisedMediaItem,
-	ServiceConnection,
+import {
+	RescanOutcome,
+	type ByteRange,
+	type ExternalIdentity,
+	type LibraryRefresh,
+	type LibraryScanOptions,
+	type MediaItemRef,
+	type MediaServiceHandler,
+	type MediaStream,
+	type NormalisedLibrary,
+	type NormalisedMediaItem,
+	type ServiceConnection,
 } from './media-handler.interface';
 
 /**
@@ -246,6 +247,24 @@ export class PeerHandler implements MediaServiceHandler {
 		}
 
 		return { items, cursor: new Date().toISOString() };
+	}
+
+	/**
+	 * A friend's gateway is not ours to send scanning.
+	 *
+	 * The refusal is the point rather than a gap waiting to be filled. This handler
+	 * only ever reaches media somebody else holds, so there is no case where we have
+	 * just put a file on the far end's disk and need it noticed — and a call that made
+	 * a friend's server re-read a library on our say-so is a thing to be asked for, not
+	 * a side effect of our own download.
+	 *
+	 * `UNSUPPORTED` rather than an exception, because an exception would be
+	 * indistinguishable from the link being down, and the caller's answer to those two
+	 * is different: one is a permanent property of this service type and the other is
+	 * worth retrying.
+	 */
+	public async requestRescan(): Promise<RescanOutcome> {
+		return RescanOutcome.UNSUPPORTED;
 	}
 
 	/**

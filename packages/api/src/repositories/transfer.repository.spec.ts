@@ -1,5 +1,5 @@
 import type { DataSource } from 'typeorm';
-import { TransferState } from '@mcs/shared';
+import { HistoryView, TransferState } from '@mcs/shared';
 import { createTestDataSource } from '../../test/utils/database';
 import { TransferRepository } from './transfer.repository';
 
@@ -159,5 +159,96 @@ describe('TransferRepository', () => {
 			transfers.deleteFinishedBefore(new Date(Date.now() - 30 * 86_400_000)),
 		).resolves.toBe(1);
 		await expect(transfers.count()).resolves.toBe(1);
+	});
+
+	describe('retention', () => {
+		const ago = (days: number): Date => new Date(Date.now() - days * 86_400_000);
+
+		it('takes nothing that finished inside the window', async () => {
+			await aTransfer(TransferState.DONE, 1_000, 1_000, ago(29));
+			await aTransfer(TransferState.FAILED, 1_000, 10, ago(1));
+
+			await expect(transfers.deleteFinishedBefore(ago(30))).resolves.toBe(0);
+			await expect(transfers.count()).resolves.toBe(2);
+		});
+
+		it('sweeps only the states it was given', async () => {
+			// Successes and failures get different windows, which is the whole reason
+			// this takes a list at all.
+			await aTransfer(TransferState.DONE, 1_000, 1_000, ago(90));
+			await aTransfer(TransferState.FAILED, 1_000, 10, ago(90));
+
+			await expect(
+				transfers.deleteFinishedBefore(ago(30), [TransferState.DONE]),
+			).resolves.toBe(1);
+			await expect(transfers.findOne({ where: { state: TransferState.FAILED } })).resolves
+				.not.toBeNull();
+		});
+
+		it('refuses to sweep a state that is not finished, whatever it is asked', async () => {
+			// A mistake upstairs must cost a row that is not deleted, never a download
+			// that disappears mid-flight.
+			await aTransfer(TransferState.DOWNLOADING, 1_000, 10, ago(90));
+
+			await expect(
+				transfers.deleteFinishedBefore(ago(30), [TransferState.DOWNLOADING]),
+			).resolves.toBe(0);
+			await expect(transfers.count()).resolves.toBe(1);
+		});
+
+		it('leaves a finished transfer with no finish date alone', async () => {
+			// Rows written before the column existed, or by a crash between the state
+			// and the timestamp. Nothing can say whether they are past a window.
+			await aTransfer(TransferState.DONE, 1_000, 1_000);
+
+			await expect(transfers.deleteFinishedBefore(ago(0))).resolves.toBe(0);
+		});
+	});
+
+	describe('paging the queue', () => {
+		it('answers everything when no view is asked for', async () => {
+			await aTransfer(TransferState.DOWNLOADING);
+			await aTransfer(TransferState.DONE, 1_000, 1_000, new Date());
+
+			await expect(transfers.pageOf({ page: 1, limit: 20 })).resolves.toMatchObject([
+				expect.anything(),
+				2,
+			]);
+		});
+
+		it('keeps a paused transfer in the live half', async () => {
+			// Somebody stopped it and it resumes when they say so. A queue view that
+			// filed it under history would be one where pausing loses the transfer.
+			await aTransfer(TransferState.PAUSED);
+
+			const [rows] = await transfers.pageOf({ page: 1, limit: 20, view: HistoryView.LIVE });
+
+			expect(rows).toHaveLength(1);
+		});
+
+		it('puts done, failed and cancelled on the finished side', async () => {
+			await aTransfer(TransferState.DONE, 1_000, 1_000, new Date());
+			await aTransfer(TransferState.FAILED, 1_000, 10, new Date());
+			await aTransfer(TransferState.CANCELLED, 1_000, 10, new Date());
+			await aTransfer(TransferState.QUEUED);
+
+			const [live] = await transfers.pageOf({ page: 1, limit: 20, view: HistoryView.LIVE });
+			const [finished] = await transfers.pageOf({
+				page: 1,
+				limit: 20,
+				view: HistoryView.FINISHED,
+			});
+
+			expect(live).toHaveLength(1);
+			expect(finished).toHaveLength(3);
+		});
+
+		it('answers nothing when the state and the view contradict each other', async () => {
+			await aTransfer(TransferState.DONE, 1_000, 1_000, new Date());
+
+			await expect(
+				transfers.pageOf({ page: 1, limit: 20, state: TransferState.DONE, view: HistoryView.LIVE }),
+			).resolves.toEqual([[], 0]);
+		});
 	});
 });

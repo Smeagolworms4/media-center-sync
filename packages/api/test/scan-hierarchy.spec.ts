@@ -12,6 +12,7 @@ import {
 import { LibraryRepository, MediaServiceRepository } from '@/repositories';
 import {
 	HandlerRegistry,
+	RescanOutcome,
 	type LibraryRefresh,
 	type MediaServiceHandler,
 	type NormalisedLibrary,
@@ -60,6 +61,17 @@ class OrderedHandler implements MediaServiceHandler {
 
 	public refreshLibrary(): Promise<LibraryRefresh> {
 		return Promise.resolve({ items: [], cursor: null });
+	}
+
+	/**
+	 * Answered rather than thrown, although no scan in this file asks for it.
+	 *
+	 * A landing settles at the end of every pass and may ask the service to re-read
+	 * itself; throwing here would make a test about enumeration order fail with a
+	 * message about a rescan.
+	 */
+	public requestRescan(): Promise<RescanOutcome> {
+		return Promise.resolve(RescanOutcome.UNSUPPORTED);
 	}
 
 	public getItem(

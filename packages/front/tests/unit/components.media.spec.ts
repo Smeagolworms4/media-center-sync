@@ -23,7 +23,7 @@ function variant (overrides: Partial<QualityVariant> = {}): QualityVariant {
 }
 
 describe('useSyncState', () => {
-	it('describes every one of the seven states', () => {
+	it('describes every state the vocabulary holds', () => {
 		for (const state of Object.values(SyncState)) {
 			const descriptor = describeSyncState(state);
 			expect(descriptor.state).toBe(state);
@@ -37,6 +37,23 @@ describe('useSyncState', () => {
 		expect(new Set(Object.values(SYNC_STATE_ICON)).size).toBe(Object.values(SyncState).length);
 		expect(new Set(Object.values(SYNC_STATE_COLOR)).size).toBe(Object.values(SyncState).length);
 	});
+
+	/**
+	 * The two states a file on our own disk can be in, drawn apart from the rest.
+	 *
+	 * They are not variations on `missing` and must not look like one: the bytes are
+	 * here, and offering to download them again is the behaviour they were added to
+	 * stop.
+	 */
+	it.each([SyncState.AWAITING_INDEX, SyncState.NOT_INDEXED])(
+		'draws %s as something of its own, not as a shade of missing',
+		state => {
+			expect(SYNC_STATE_ICON[state]).not.toBe(SYNC_STATE_ICON[SyncState.MISSING]);
+			expect(SYNC_STATE_COLOR[state]).not.toBe(SYNC_STATE_COLOR[SyncState.MISSING]);
+			expect(describeSyncState(state).labelKey).toBe(`sync.state.${state}`);
+			expect(describeSyncState(state).helpKey).toBe(`sync.state_help.${state}`);
+		},
+	);
 
 	it('falls back to unknown for a state this build has never heard of', () => {
 		expect(describeSyncState('teleported' as SyncState).state).toBe(SyncState.UNKNOWN);

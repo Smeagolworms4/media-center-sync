@@ -14,7 +14,7 @@ interface Fakes {
 	scheduler: { reload: jest.Mock };
 	engine: { applyRateLimits: jest.Mock };
 	bandwidth: { apply: jest.Mock };
-	libraries: { probe: jest.Mock; mergeCategoryInto: jest.Mock };
+	libraries: { probe: jest.Mock; mergeCategoryInto: jest.Mock; categories: jest.Mock };
 }
 
 const build = (): { manager: SettingsManager; fakes: Fakes } => {
@@ -31,6 +31,9 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 		bandwidth: { apply: jest.fn() },
 		libraries: {
 			mergeCategoryInto: jest.fn().mockResolvedValue('Shows'),
+			// Enough for the stale-entry warning to have something to compare against:
+			// the tests that care about which keys are live declare their own.
+			categories: jest.fn().mockResolvedValue([{ key: 'shows' }, { key: 'animes' }]),
 			probe: jest.fn().mockResolvedValue({
 				exists: true,
 				readable: true,
@@ -234,6 +237,51 @@ describe('SettingsManager', () => {
 
 			expect(fakes.libraries.mergeCategoryInto).toHaveBeenCalledTimes(1);
 			expect(fakes.libraries.mergeCategoryInto).toHaveBeenCalledWith('animes', 'library-animes');
+		});
+
+		it('moves the stored destination to the key the rename produced', async () => {
+			/*
+			 * The defect: saving `series -> the Shows library` renames the libraries of
+			 * `series` to `Shows`, and a category key is folded from the name people
+			 * read — so the category that entry was saved against no longer exists one
+			 * line later. Placement looked `series` up, found nothing, fell back to the
+			 * default library and filed the episode in a folder nobody chose, with no
+			 * error and nothing on screen. "Where the files land is not reliable at all"
+			 * is what that looks like from outside.
+			 */
+			const { manager, fakes } = withTargets();
+
+			const settings = await manager.write({ categoryTargets: { series: 'library-shows' } });
+
+			expect(settings.categoryTargets).toEqual({ shows: 'library-shows' });
+			expect(fakes.settings.update).toHaveBeenLastCalledWith({
+				categoryTargets: { shows: 'library-shows' },
+			});
+		});
+
+		it('leaves an entry already standing at the merged key exactly where it is', async () => {
+			// It is either the same answer or a choice made in this very patch, and a
+			// side effect must not overwrite either of them.
+			const { manager } = withTargets();
+
+			const settings = await manager.write({
+				categoryTargets: { series: 'library-shows', shows: 'library-chosen' },
+			});
+
+			expect(settings.categoryTargets).toEqual({ shows: 'library-chosen' });
+		});
+
+		it('writes the table once when no rename moved a key', async () => {
+			// The second write is the correction, and a correction that fires when
+			// nothing moved is an extra row rewritten on every unrelated save.
+			const { manager, fakes } = withTargets();
+
+			fakes.libraries.mergeCategoryInto.mockResolvedValue('Séries');
+
+			const settings = await manager.write({ categoryTargets: { series: 'library-series' } });
+
+			expect(settings.categoryTargets).toEqual({ series: 'library-series' });
+			expect(fakes.settings.update).toHaveBeenCalledTimes(1);
 		});
 
 		it('saves the setting even when nothing was renamed', async () => {

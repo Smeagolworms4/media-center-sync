@@ -110,6 +110,10 @@ test.describe('categories', () => {
 		await signIn(page);
 		await page.locator(test0('nav-settings')).click();
 
+		// The order, the counts and the way out to the rename all live one fold down
+		// now: the card opens on the mapping, which is the thing somebody came to do.
+		await page.locator(test0('category-mapping-order-toggle')).click();
+
 		const rows = page.locator(test0('category-row'));
 		await expect(rows).toHaveCount(categories.length);
 

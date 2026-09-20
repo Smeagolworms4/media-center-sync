@@ -270,7 +270,7 @@ describe('stores/transfers', () => {
 				categoryName: 'Shows',
 				placedAt: '2026-02-02T10:00:00.000Z',
 			}] },
-			{ body: transfer({ targetLibraryId: 'lib-anime', placedBy: PlacedBy.REQUESTED }) },
+			{ body: transfer({ targetLibraryId: 'lib-anime', placedBy: PlacedBy.CHOSEN_BY_HAND }) },
 		]);
 		const store = useTransfersStore();
 

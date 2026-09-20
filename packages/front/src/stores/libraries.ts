@@ -1,4 +1,10 @@
-import type { Library, LibraryCheck, MediaCategory, UpdateLibraryRequest } from '@mcs/shared';
+import type {
+	CategoryKeyword,
+	Library,
+	LibraryCheck,
+	MediaCategory,
+	UpdateLibraryRequest,
+} from '@mcs/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
@@ -17,9 +23,11 @@ export const useLibrariesStore = defineStore('libraries', () => {
 	const libraries = ref<Library[]>([]);
 	const categories = ref<MediaCategory[]>([]);
 	const checks = ref<LibraryCheck[]>([]);
+	const keywords = ref<CategoryKeyword[]>([]);
 	const loading = ref(false);
 	const loaded = ref(false);
 	const categoriesLoaded = ref(false);
+	const keywordsLoaded = ref(false);
 	const checking = ref(false);
 	const error = ref<unknown>(null);
 
@@ -163,6 +171,61 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		return categories.value;
 	}
 
+	/**
+	 * The names plugged into each category.
+	 *
+	 * Read separately from the categories and always reloaded with them, because the
+	 * two are one answer seen from two sides: a keyword is what folded a shelf, and a
+	 * screen showing a category without the keyword that produced it cannot say why
+	 * two shelves became one band.
+	 */
+	async function loadKeywords (): Promise<CategoryKeyword[]> {
+		const loadedKeywords = await caller('api').get<CategoryKeyword[]>('/libraries/keywords', {
+			keepLastKey: 'libraries|keywords',
+		});
+		// An empty body parses to `null`, and the mapping screen reads this as a list.
+		keywords.value = Array.isArray(loadedKeywords) ? loadedKeywords : [];
+		keywordsLoaded.value = true;
+		return keywords.value;
+	}
+
+	/**
+	 * Both halves, after a mapping changed.
+	 *
+	 * Re-read rather than patched in place: which libraries a keyword folds is the
+	 * gateway's answer, and working it out again here is how two clients start
+	 * disagreeing about what is in the pool.
+	 */
+	async function reloadMapping (): Promise<void> {
+		await Promise.all([loadKeywords(), loadCategories()]);
+	}
+
+	async function addKeyword (categoryKey: string, keyword: string): Promise<CategoryKeyword> {
+		const created = await caller('api')
+			.post<CategoryKeyword>(`/libraries/categories/${categoryKey}/keywords`, { keyword });
+		await reloadMapping();
+		return created;
+	}
+
+	async function moveKeyword (id: string, categoryKey: string): Promise<CategoryKeyword> {
+		const moved = await caller('api')
+			.patch<CategoryKeyword>(`/libraries/keywords/${id}`, { categoryKey });
+		await reloadMapping();
+		return moved;
+	}
+
+	/**
+	 * The undo, and the only one there is.
+	 *
+	 * Exact because plugging a keyword in wrote nothing on any library: the shelves it
+	 * was folding read as their own names again from the very next request, with no
+	 * alias to guess at and none to type back by hand.
+	 */
+	async function removeKeyword (id: string): Promise<void> {
+		await caller('api').delete(`/libraries/keywords/${id}`);
+		await reloadMapping();
+	}
+
 	async function loadChecks (): Promise<LibraryCheck[]> {
 		checking.value = true;
 		try {
@@ -186,9 +249,11 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		libraries,
 		categories,
 		checks,
+		keywords,
 		loading,
 		loaded,
 		categoriesLoaded,
+		keywordsLoaded,
 		checking,
 		error,
 		byId,
@@ -200,6 +265,10 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		unwritableChecks,
 		load,
 		loadCategories,
+		loadKeywords,
+		addKeyword,
+		moveKeyword,
+		removeKeyword,
 		get,
 		update,
 		loadChecks,

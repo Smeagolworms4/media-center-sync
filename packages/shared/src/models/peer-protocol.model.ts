@@ -58,6 +58,14 @@ export const PeerCapability = {
 	SWARM: 'swarm',
 	/** Pass on what a friend of a friend announced. */
 	RELAY: 'relay',
+	/**
+	 * Hand out a signed token so two of its friends can link to each other directly.
+	 *
+	 * Advertised rather than assumed, like everything else here: a gateway from before
+	 * this existed answers "not supported", and a caller that asked anyway would report
+	 * a friend as refusing an introduction they have never heard of.
+	 */
+	INTRODUCE: 'introduce',
 } as const;
 
 export type PeerCapabilityValue = (typeof PeerCapability)[keyof typeof PeerCapability];

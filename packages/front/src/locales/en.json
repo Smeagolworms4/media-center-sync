@@ -118,6 +118,20 @@
 	"general": {
 		"byte_unit": "B"
 	},
+	"history": {
+		"view": {
+			"live": "Live",
+			"finished": "Finished",
+			"all": "All"
+		},
+		"see_finished": "Show finished",
+		"hint_transfers": "Only what is still moving is shown. Finished transfers are under Finished.",
+		"hint_runs": "Only runs still going are shown. Finished runs are under Finished.",
+		"empty_live_title": "Nothing is moving",
+		"empty_live_text": "No transfer is running, queued or paused right now. Anything already finished is still here, under Finished.",
+		"empty_live_runs_title": "No run in progress",
+		"empty_live_runs_text": "No sync is running at the moment. Runs that have already finished are still here, under Finished."
+	},
 	"cron": {
 		"describe": {
 			"every_minute": "Every minute.",
@@ -147,6 +161,7 @@
 		"services_all_online": "All answering",
 		"missing": "Missing here",
 		"missing_hint": "Known elsewhere, not held here",
+		"awaiting_index": "{count} downloaded, waiting for the library to resync",
 		"active_transfers": "Transfers running",
 		"queued": "{count} queued",
 		"peers": "Peers",
@@ -161,6 +176,7 @@
 		"all_jobs": "See every run",
 		"problem": {
 			"library_not_writable": "{name} cannot be written to — transfers would land where your server never looks",
+			"not_indexed": "{count} downloaded files your media server has never indexed",
 			"service_offline": "{name} is not answering",
 			"service_unauthorized": "{name} refused the gateway — check its token",
 			"peer_unreachable": "{name} is unreachable",
@@ -181,7 +197,7 @@
 		"section_count": "no item | {count} item | {count} items",
 		"section_empty": "Nothing in this category matches these filters.",
 		"section_latest": "latest additions",
-		"section_local": "Ours",
+		"section_local": "Files here",
 		"everything": "Across every category",
 		"categories": "Your libraries",
 		"categories_hint": "Libraries of the same name, on every server, seen as one.",
@@ -224,8 +240,21 @@
 	},
 	"category": {
 		"empty": "No category yet. Register a media service and scan it; its libraries appear here.",
-		"local": "Ours",
-		"libraries": "no library | {count} library | {count} libraries"
+		"local": "Files here",
+		"libraries": "no library | {count} library | {count} libraries",
+		"mapping": {
+			"pool_title": "Not filed anywhere yet",
+			"unfile": "Put back at the top",
+			"pool_empty": "Nothing left over — every shelf is filed.",
+			"map_to": "File into",
+			"move_to": "Move",
+			"add_keyword": "Another name for this category",
+			"no_keyword": "No name plugged in yet.",
+			"no_local": "No category of your own yet. Register a media service this gateway can reach, then scan it.",
+			"applied": "“{keyword}” files here from now on.",
+			"undo": "Undo",
+			"order_title": "Order, renaming and reordering"
+		}
 	},
 	"media": {
 		"children": "Contents",
@@ -436,7 +465,9 @@
 		"empty_text": "Paste a friend's fingerprint, or hand them an invitation — either links the two gateways.",
 		"shares": "{services} services · {items} shared items",
 		"last_seen": "last seen",
-		"relay_hint": "This link goes through the rendezvous, whose bandwidth is shared by everyone using it.",
+		"relay_hint": "This link is carried by the friend who introduced the two gateways: their machine moves the bytes, at the cost of their upload.",
+		"discovered_chip": "Temporary",
+		"discovered_hint": "Met while pulling a file from a friend of a friend. The two gateways are connected directly, and this link closes when the transfer ends — keep peers discovered while downloading, in the settings, to hold on to it.",
 		"remove_title": "Remove this peer?",
 		"remove_confirm": "The link with {name} will be dropped. Anything already pulled from them stays, and they may ask again — refusing their key for good is the ban.",
 		"connecting": "Trying to reach the peer now…",
@@ -464,7 +495,7 @@
 			"fingerprint": "Their fingerprint",
 			"fingerprint_hint": "As their own gateway displays it, under \"This gateway\".",
 			"address": "Their address",
-			"address_hint": "Optional. Tried first when you know it; the rendezvous finds them otherwise.",
+			"address_hint": "Optional. Tried first when you know it; otherwise a friend you both have can introduce them.",
 			"action": "Send the request"
 		},
 		"status": {
@@ -486,10 +517,9 @@
 			"node_id": "Node identifier",
 			"node_id_help": "This gateway's stable name across the shared network. Generated once, and deliberately not the fingerprint: rotating a key must not make this look like a new participant. It is what to quote when an announcement from a friend of a friend goes round in circles.",
 			"fingerprint": "Fingerprint",
-			"rendezvous": "Rendezvous",
 			"direct_address": "Direct address",
 			"direct_ok": "Direct connections are possible, so transfers do not go through the relay.",
-			"relay_only": "This gateway is not reachable from outside, so friends cannot dial it directly and every transfer goes through the rendezvous, whose bandwidth is shared between everyone using it at that moment. Forwarding the interface's port on your router fixes it. There is no second port to open: a peer link is a WebSocket upgrade on that same one."
+			"relay_only": "This gateway is not reachable from outside, so friends cannot dial it directly: a link then depends on a friend you both already have, and there is nothing else to fall back on. Forwarding the interface's port on your router fixes it. There is no second port to open: a peer link is a WebSocket upgrade on that same one."
 		},
 		"invite": {
 			"open": "Link a gateway",
@@ -547,6 +577,7 @@
 		},
 		"connect_hint": "This gateway dials at startup and retries by itself after a drop, waiting longer each time. This tries again straight away.",
 		"unreachable_hint": "Not reachable at the moment. The gateway keeps trying on its own, waiting longer between attempts.",
+		"unreachable_port_hint": "If neither gateway can be dialled and you have no friend in common, there is nothing left to try: forwarding the interface's port on one of the two routers is what opens the link.",
 		"reading_forbidden_chip": "Sees nothing",
 		"reading_forbidden_hint": "Forbidden from reading: they stay linked and this gateway still reads from them, but everything they ask of it answers empty.",
 		"forbid_reading_title": "Forbid this peer from reading?",
@@ -705,24 +736,21 @@
 		"destination": {
 			"rule_title": "How the gateway decides where a file goes",
 			"rule_existing": "A series you already have keeps its own folder. A new episode is filed beside its siblings, in that library's own spelling of a season folder — Saison 1 stays Saison 1.",
-			"rule_category": "Otherwise, the library set for that category in the table below.",
+			"rule_plan": "A sync plan may prefer a library: everything new that plan pulls goes there, ahead of the table below.",
+			"rule_category": "Otherwise, the library that category is pointed at, under Categories below.",
 			"rule_global": "Otherwise, the default destination library.",
 			"rule_fallback": "Otherwise, the fallback folder.",
 			"rule_fixed": "The first step is not a setting and cannot be turned off. Splitting one season across two folders is worse than either answer on its own, so a series that already has a home keeps it.",
 			"global": "Default destination library",
 			"global_help": "Where anything no category names is filed. Set this one and you never need to open the table.",
 			"none": "No library here can receive files. A destination has to be a library on one of your own services that this gateway can write into.",
-			"table_title": "Per-category exceptions",
-			"table_help": "One row per category. A row you leave alone uses the default destination above.",
-			"category_header": "Category",
 			"target_header": "Goes to",
 			"falls_back": "Falls back to {target}",
 			"merges": "Choosing a destination also files this category under that library’s name: in the library view the two are then shown as one category, not two.",
-			"merges_foreign": "This gateway does not reach these libraries’ folders, so their names stay as they are and this category is still shown on its own. Only where new files land changes.",
 			"fallback_unset": "whatever library can take it — nothing is set above",
 			"rejected": {
-				"not_ours": "{library} on {service} cannot be offered: this gateway does not reach that server’s folders, so nothing written there would ever appear in it.",
-				"not_writable": "{library} on {service} cannot be offered: this gateway cannot write into its folder."
+				"not_ours": "this gateway does not reach that server’s folders",
+				"not_writable": "this gateway cannot write into its folder"
 			},
 			"fixed_path_active": "Everything is currently going to {path}, whatever it is — an older setting that overrules everything on this page. Nothing above applies until it is cleared.",
 			"fixed_path_clear": "Use the rule above"
@@ -768,13 +796,14 @@
 		"rate_limit_help": "Such as 10M. Empty means no cap.",
 		"upload_rate_limit_help": "Such as 10M. Empty means no cap. It throttles everything this gateway sends, peers pulling from it included.",
 		"categories_help": "Libraries of the same name are one category, and this is the order they appear in. A library is renamed or reordered on the service that holds it.",
+		"categories_mapping_help": "Give each of your categories the names other people’s shelves go by. A library whose name matches one of them joins the category on its own — including one that turns up later, on a gateway you have not met yet.",
 		"categories_edit": "Rename or reorder a library",
-		"history_days": "Keep finished transfers for",
-		"history_days_help": "In days. After that they leave the queue.",
+		"history_days": "Keep successful work for",
+		"history_days_help": "In days. Applies to transfers and sync runs that went through. Zero keeps none of them.",
 		"swarm": "Allow the swarm",
 		"swarm_help": "Several peers holding the same file can feed one transfer together.",
-		"rendezvous": "Rendezvous",
-		"rendezvous_help": "The server that introduces two gateways so they can open a direct link.",
+		"keep_discovered_peers": "Keep peers discovered while downloading",
+		"keep_discovered_peers_help": "When you pull a file from a friend of a friend, the two gateways connect directly; keep it in your list, or let the connection close with the transfer.",
 		"match_threshold": "Correlation threshold",
 		"match_threshold_help": "Below this score a match is proposed rather than applied.",
 		"refresh_interval": "Refresh every (minutes)",
@@ -790,11 +819,14 @@
 		"peer_max_depth_help": "Hops allowed from here: 1 is friends only, 2 their friends, and so on.",
 		"peer_max_depth_pinned": "Fixed by this deployment’s environment and cannot be changed here.",
 		"peer_max_depth_per_peer": "A ceiling over the whole gateway. Each peer can be held shorter on its own row, and no setting here can reach past what somebody else allowed.",
+		"peer_max_depth_consent": "This is a consent, not a search setting: being reachable at that distance is the agreement itself, so lowering it narrows who can open a link to this gateway. It is the only reach control there is.",
 		"write_nfo": "Write an .nfo when the source has none",
 		"write_nfo_help": "A source often keeps its metadata in its own database and nothing on disk, so copying gives the file and none of the facts — and your media server then re-identifies the episode from its filename. Never replaces a document you already have.",
 		"default_share": "Share new libraries with",
 		"default_share_help": "Applies the moment a scan finds a library, so a friend who links to this gateway is not met with an empty shelf.",
-		"default_share_note": "Applies to every library on a server whose sharing is switched on — including one whose files this gateway does not hold, which is then read from that server and passed on at the cost of this connection. What a peer shares with us is never passed on further."
+		"default_share_note": "Applies to every library on a server whose sharing is switched on — including one whose files this gateway does not hold, which is then read from that server and passed on at the cost of this connection. What a peer shares with us is never passed on further.",
+		"failed_history_days": "Keep failures for",
+		"failed_history_days_help": "In days, and longer on purpose: a failed transfer is the record of why something never arrived."
 	},
 	"sync": {
 		"subtitle": "Standing intents, and what they have actually done.",
@@ -811,6 +843,8 @@
 		"state": {
 			"local_only": "Local only",
 			"missing": "Missing here",
+			"awaiting_index": "Downloaded — resyncing",
+			"not_indexed": "Never indexed",
 			"in_sync": "In sync",
 			"outdated": "Outdated",
 			"conflict": "Conflict",
@@ -820,6 +854,8 @@
 		"state_help": {
 			"local_only": "Held here and on no other service we know of.",
 			"missing": "Another service has it, this one does not. A sync fills it in.",
+			"awaiting_index": "The file is on your disk. The media server has been asked to rescan and has not indexed it yet.",
+			"not_indexed": "The file has been on your disk for hours and no media server has indexed it. Check that the folder the gateway writes into is the one your server scans.",
 			"in_sync": "Present on both sides, same version.",
 			"outdated": "Held here, but a better version exists elsewhere.",
 			"conflict": "Two versions that cannot be ordered — different cuts or languages.",
@@ -863,8 +899,8 @@
 			"sources_default": "No source pinned: the plan follows the service priority set in the settings, which is what most people want.",
 			"sources_ordered": "Consulted in this order.",
 			"add_source": "Add a source",
-			"target": "Target library",
-			"target_hint": "Empty means: beside our own copy, or the default target for that kind.",
+			"target": "Preferred library",
+			"target_hint": "Where this plan files anything new. A series you already have still keeps its own folder. Empty: the rules below decide.",
 			"root": "Root item",
 			"root_hint": "Optional. The identifier of a series or collection, to restrict the plan to that subtree.",
 			"filters": "Filters",
@@ -974,7 +1010,7 @@
 		"transport": {
 			"http_range": "Ranged HTTP against the service",
 			"peer_direct": "Direct link to the peer",
-			"peer_relay": "Relayed through the rendezvous",
+			"peer_relay": "Relayed through a friend",
 			"swarm": "Swarm — several peers feeding together"
 		},
 		"stats": {
@@ -1058,10 +1094,14 @@
 			"cancel": "Cancel"
 		},
 		"retarget": {
-			"title": "Pull it somewhere else",
-			"hint": "The item will be planned again into the library you choose. Only libraries the gateway can write to are offered.",
-			"library": "Target library",
-			"confirm": "Pull it there"
+			"title": "Send it to another library",
+			"hint_repoint": "Nothing has landed yet, so this only changes where it will go. The download is not interrupted and not a byte is copied.",
+			"hint_move": "This file is already in a library. Choosing another one really moves it, which takes a while on a large file — the queue shows the progress.",
+			"library": "Destination library",
+			"confirm": "Send it there",
+			"confirm_move": "Move it there",
+			"repointed": "It will go there instead.",
+			"moved": "Moved. The file is in that library now."
 		},
 		"revalidation": {
 			"title": "Why this transfer changed its mind",
@@ -1159,7 +1199,11 @@
 		"library": {
 			"not_found": "This library no longer exists.",
 			"path_unreadable": "The gateway cannot read this path.",
-			"path_not_writable": "The gateway cannot write to this path."
+			"path_not_writable": "The gateway cannot write to this path.",
+			"category_not_found": "That category no longer reads as anything here. Reload the page: the libraries behind it may have been renamed or removed.",
+			"keyword_not_found": "That name is no longer plugged into anything. Reload the page.",
+			"keyword_invalid": "Nothing could ever match that. Use at least one letter or digit.",
+			"keyword_taken": "Another category already files that name. Move it from there rather than adding it twice."
 		},
 		"media": {
 			"not_found": "This media item no longer exists."
@@ -1174,7 +1218,8 @@
 			"protocol_unsupported": "This peer speaks a version of the protocol this gateway does not know.",
 			"method_unsupported": "This peer asked for something this gateway does not implement.",
 			"banned": "This fingerprint is on the ban list. Lift the ban before linking to them again.",
-			"ban_not_found": "Nothing on the ban list matches that fingerprint."
+			"ban_not_found": "Nothing on the ban list matches that fingerprint.",
+			"introduction_refused": "That gateway cannot be reached through this friend."
 		},
 		"sync": {
 			"plan_not_found": "This sync plan no longer exists.",
@@ -1188,6 +1233,7 @@
 		"transfer": {
 			"not_found": "This transfer no longer exists.",
 			"not_resumable": "This transfer cannot be resumed and has to start over.",
+			"being_placed": "This file is being moved into its library right now. Try again once that has finished.",
 			"no_space": "Not enough free space on the target library.",
 			"checksum_mismatch": "The downloaded file does not match its checksum.",
 			"destination_full": "The destination filled up while the file was being moved into it. Nothing is lost: free some space and resume, and the move carries on from where it stopped.",

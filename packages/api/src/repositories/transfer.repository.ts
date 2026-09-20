@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, In, LessThan, Not, Repository } from 'typeorm';
 import type { TransferQueueStats } from '@mcs/shared';
-import { TransferState, UNCONFIGURED_PLACEMENTS } from '@mcs/shared';
+import {
+	FINISHED_TRANSFER_STATES,
+	HistoryView,
+	TransferState,
+	UNCONFIGURED_PLACEMENTS,
+} from '@mcs/shared';
 import { Transfer } from '@/entities';
 
 /** States in which a transfer is still moving, or about to. */
@@ -14,7 +19,30 @@ const LIVE_STATES = [
 	TransferState.PLACING,
 ];
 
-const FINISHED_STATES = [TransferState.DONE, TransferState.FAILED, TransferState.CANCELLED];
+/**
+ * Which states a listing may return, or `null` for "no restriction at all".
+ *
+ * A paused transfer counts as live here although it is not moving: somebody stopped
+ * it and it resumes when they say so, and a queue screen that filed it under history
+ * would be a screen on which pausing a transfer loses it.
+ */
+const statesInView = (
+	view: HistoryView | undefined,
+	state: TransferState | undefined,
+): TransferState[] | null => {
+	const inView =
+		view === HistoryView.LIVE
+			? Object.values(TransferState).filter((one) => !FINISHED_TRANSFER_STATES.includes(one))
+			: view === HistoryView.FINISHED
+				? FINISHED_TRANSFER_STATES
+				: null;
+
+	if (state === undefined) {
+		return inView;
+	}
+
+	return inView === null ? [state] : inView.filter((one) => one === state);
+};
 
 @Injectable()
 export class TransferRepository extends Repository<Transfer> {
@@ -141,13 +169,55 @@ export class TransferRepository extends Repository<Transfer> {
 	 *
 	 * Only finished ones: a queued transfer created a month ago by a plan that never
 	 * ran is still something somebody is waiting for.
+	 *
+	 * `states` narrows which finished states are swept, because retention gives
+	 * successes and failures different windows. Anything not finished is dropped from
+	 * the list whatever the caller passed, so a mistake upstairs costs a row that is
+	 * not deleted rather than a download that disappears mid-flight.
 	 */
-	public async deleteFinishedBefore(before: Date): Promise<number> {
+	public async deleteFinishedBefore(
+		before: Date,
+		states: TransferState[] = FINISHED_TRANSFER_STATES,
+	): Promise<number> {
+		const swept = states.filter((state) => FINISHED_TRANSFER_STATES.includes(state));
+
+		if (swept.length === 0) {
+			return 0;
+		}
+
 		const result = await this.delete({
-			state: In(FINISHED_STATES),
+			state: In(swept),
 			finishedAt: LessThan(before),
 		});
 
 		return result.affected ?? 0;
+	}
+
+	/**
+	 * One page of the queue, newest first, narrowed to a state or to half the list.
+	 *
+	 * The two narrowings are intersected here rather than in SQL: asking for the live
+	 * half *and* for `done` is a contradiction, and an empty page says so where two
+	 * find operators on one column would have answered whichever the driver rendered
+	 * last.
+	 */
+	public pageOf(options: {
+		page: number;
+		limit: number;
+		state?: TransferState;
+		view?: HistoryView;
+	}): Promise<[Transfer[], number]> {
+		const allowed = statesInView(options.view, options.state);
+
+		if (allowed !== null && allowed.length === 0) {
+			return Promise.resolve([[], 0]);
+		}
+
+		return this.findAndCount({
+			where: allowed === null ? {} : { state: In(allowed) },
+			order: { createdAt: 'DESC' },
+			skip: (options.page - 1) * options.limit,
+			take: options.limit,
+		});
 	}
 }

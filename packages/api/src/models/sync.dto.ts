@@ -128,10 +128,18 @@ export class CreateSyncPlanDto {
 	@IsUUID('4', { each: true })
 	public sourceServiceIds?: string[];
 
+	/**
+	 * The library this plan would rather its files went to. See `SyncPlan`.
+	 *
+	 * An identifier and never a path, as everywhere a destination is chosen: a library
+	 * is a directory this gateway has probed and one of our own media servers is known
+	 * to scan, while a path is a string somebody typed — and a file written where no
+	 * server looks is a pull that succeeds and produces nothing.
+	 */
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsUUID()
-	public targetLibraryId?: string | null;
+	public preferredLibraryId?: string | null;
 
 	@ApiPropertyOptional({ type: SyncScopeDto })
 	@IsOptional()

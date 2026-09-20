@@ -18,7 +18,7 @@ const SCHEME = /^Peer\s+([^:\s]+):(.+)$/i;
  * Proves a peer credential really belongs to that peer.
  *
  * The check is cryptographic and belongs to the link service, which holds the session
- * keys negotiated through the rendezvous. The guard only knows it has to ask.
+ * keys established when the link was opened. The guard only knows it has to ask.
  */
 export interface PeerCredentialVerifier {
 	verify(fingerprint: string, token: string): Promise<boolean>;

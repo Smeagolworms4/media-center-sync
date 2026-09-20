@@ -6,6 +6,7 @@ import {
 	LibraryKind,
 	MediaServiceType,
 	UserRole,
+	type CategoryKeyword,
 	type Library,
 	type LibraryCheck,
 	type MediaCategory,
@@ -313,6 +314,160 @@ describe('Libraries', () => {
 			}).expect(404);
 
 			expect(response.body).toMatchObject({ message: 'error.library.not_found' });
+		});
+	});
+
+	/**
+	 * The screen this suite exists for, over HTTP and over a real database.
+	 *
+	 * The gateway's own categories are two rows; a friend's gateway brings nine more,
+	 * every one of them stranded under a name of its own. Folding them by hand meant
+	 * typing the same alias once per library, again for every peer that ever appears.
+	 * A keyword is that sentence written once — and the case that matters most is the
+	 * last one here, where a library simply turns up and files itself with nobody
+	 * touching anything.
+	 */
+	describe('keywords plugged into a category', () => {
+		const post = (key: string, body: Record<string, unknown>, identity: TestIdentity = admin): request.Test =>
+			request(context.app.getHttpServer())
+				.post(`/api/libraries/categories/${key}/keywords`)
+				.set('Authorization', `Bearer ${identity.token}`)
+				.send(body);
+
+		const remove = (id: string, identity: TestIdentity = admin): request.Test =>
+			request(context.app.getHttpServer())
+				.delete(`/api/libraries/keywords/${id}`)
+				.set('Authorization', `Bearer ${identity.token}`);
+
+		let planted: string[] = [];
+
+		afterEach(async () => {
+			for (const id of planted) {
+				await remove(id);
+			}
+
+			planted = [];
+		});
+
+		const plant = async (key: string, keyword: string): Promise<CategoryKeyword> => {
+			const response = await post(key, { keyword }).expect(201);
+			const created = response.body as CategoryKeyword;
+
+			planted.push(created.id);
+
+			return created;
+		};
+
+		it('serves `keywords` rather than reading it as an identifier', async () => {
+			const response = await read('/keywords').expect(200);
+
+			expect(response.body).toEqual([]);
+		});
+
+		it('folds a shelf into the category, across case, accents and punctuation', async () => {
+			await plant('shows', 'series-tv');
+
+			const libraries = context.app.get(LibraryRepository);
+			const arrival = await libraries.save(
+				libraries.create({
+					serviceId: (await libraries.findOneOrFail({ where: { id: otherShowsId } })).serviceId,
+					externalId: 'lib-series-tv',
+					// Nobody types this spelling anywhere: it has to fold to the keyword on
+					// its own, or the mapping is a rename by another name.
+					name: 'Séries TV',
+					kind: LibraryKind.OTHER,
+					paths: ['/srv/series-tv'],
+					position: 100,
+					itemCount: 5,
+				}),
+			);
+
+			try {
+				const categories = (await read('/categories').expect(200)).body as MediaCategory[];
+				const shows = categories.find((category) => category.key === 'shows');
+
+				// Nobody patched anything: the row went in and the category answered.
+				expect(shows?.libraryIds).toContain(arrival.id);
+				expect(categories.some((category) => category.key === 'series-tv')).toBe(false);
+
+				// And the alias column is untouched, which is what makes the undo exact.
+				expect((await libraries.findOneOrFail({ where: { id: arrival.id } })).alias).toBeNull();
+			} finally {
+				await libraries.delete({ id: arrival.id });
+			}
+		});
+
+		it('says which category a keyword files into and what it is catching', async () => {
+			const created = await plant('films', 'Émissions TV');
+
+			expect(created).toMatchObject({
+				categoryKey: 'films',
+				categoryName: 'Films',
+				keyword: 'Émissions TV',
+				normalized: 'emissions-tv',
+				libraryIds: [],
+			});
+		});
+
+		it('moves a keyword to another category', async () => {
+			const created = await plant('films', 'TV');
+
+			const moved = await request(context.app.getHttpServer())
+				.patch(`/api/libraries/keywords/${created.id}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ categoryKey: 'shows' })
+				.expect(200);
+
+			expect((moved.body as CategoryKeyword).categoryKey).toBe('shows');
+		});
+
+		it('refuses a keyword another category already holds', async () => {
+			await plant('shows', 'Documentaires');
+
+			const response = await post('films', { keyword: 'documentaires' }).expect(409);
+
+			expect(response.body).toMatchObject({ message: 'error.library.keyword_taken' });
+		});
+
+		it('refuses a keyword that folds to nothing', async () => {
+			const response = await post('shows', { keyword: '  -  ' }).expect(400);
+
+			expect(response.body).toMatchObject({ message: 'error.library.keyword_invalid' });
+		});
+
+		it('answers a key for a category nobody reads as anything', async () => {
+			const response = await post('no-such-category', { keyword: 'TV' }).expect(404);
+
+			expect(response.body).toMatchObject({ message: 'error.library.category_not_found' });
+		});
+
+		it('answers a key for a keyword nobody wrote', async () => {
+			const response = await remove('11111111-2222-4333-8444-555555555555').expect(404);
+
+			expect(response.body).toMatchObject({ message: 'error.library.keyword_not_found' });
+		});
+
+		it('puts the shelf back under its own name when the keyword is unplugged', async () => {
+			const created = await plant('shows', 'shóws');
+
+			await remove(created.id).expect(204);
+			planted = [];
+
+			const categories = (await read('/categories').expect(200)).body as MediaCategory[];
+
+			// The undo is a deletion and nothing else, because nothing was written.
+			expect(categories.some((category) => category.key === 'shows')).toBe(true);
+			expect((await read('/keywords').expect(200)).body).toEqual([]);
+		});
+
+		it('lets a guest read the keywords, because the wall is built from them', async () => {
+			await read('/keywords', guest).expect(200);
+		});
+
+		it('refuses a guest the mapping, which needs LIBRARY_MANAGE', async () => {
+			const response = await post('shows', { keyword: 'Nope' }, guest).expect(403);
+
+			expect(response.body).toMatchObject({ message: 'error.auth.forbidden' });
 		});
 	});
 

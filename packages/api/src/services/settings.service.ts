@@ -64,8 +64,12 @@ export const DEFAULT_SETTINGS: Settings = {
 	uploadRateLimit: 0,
 	matchThreshold: 0.8,
 	peerMaxDepth: DEFAULT_PEER_MAX_DEPTH,
+	// Off: a gateway that kept a peer for every file it ever pulled from a friend of a
+	// friend would end up linked to a circle nobody chose, dialling all of them at
+	// every restart. The link is opened for the transfer and closes with it, and
+	// keeping one is a deliberate click.
+	keepDiscoveredPeers: false,
 	allowSwarm: true,
-	rendezvousUrl: null,
 	// A real level rather than silence, and it applies only to libraries on our own
 	// services: a gateway whose libraries are all invisible until somebody visits a
 	// screen looks broken to the friend who linked to it. See `effectiveVisibility`,
@@ -79,6 +83,11 @@ export const DEFAULT_SETTINGS: Settings = {
 	publicUrl: null,
 	defaultTargetPath: null,
 	transferHistoryDays: 30,
+	// Six months, against thirty days for what succeeded. A failure is the only record
+	// that a file was ever attempted, and the person who needs it is looking months
+	// later at a series with a hole in it — which is exactly the moment a thirty-day
+	// window would have removed the row that explains the hole.
+	failedHistoryDays: 180,
 	refreshIntervalMinutes: 15,
 	fullScanCron: '0 4 * * *',
 	cacheTtlSeconds: 60,
@@ -98,6 +107,7 @@ const NUMERIC_BOUNDS: Partial<Record<keyof Settings, { min: number; max: number 
 	uploadRateLimit: { min: 0, max: Number.MAX_SAFE_INTEGER },
 	matchThreshold: { min: 0, max: 1 },
 	transferHistoryDays: { min: 0, max: 3650 },
+	failedHistoryDays: { min: 0, max: 3650 },
 	refreshIntervalMinutes: { min: 1, max: 1440 },
 	cacheTtlSeconds: { min: 1, max: 3600 },
 	// One is direct friends only, which has to stay reachable: it is the setting

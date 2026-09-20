@@ -1,5 +1,6 @@
 import type {
 	CreateSyncPlanRequest,
+	HistoryView,
 	Pagination,
 	ResultList,
 	RunSyncRequest,
@@ -21,6 +22,8 @@ export interface JobQuery {
 	page?: number;
 	limit?: number;
 	state?: SyncJobState | null;
+	/** Which half of the history to ask for. Omitted means all of it. */
+	view?: HistoryView | null;
 }
 
 /**
@@ -138,6 +141,9 @@ export const useSyncStore = defineStore('sync', () => {
 			}
 			if (query.state) {
 				params.set('state', query.state);
+			}
+			if (query.view) {
+				params.set('view', query.view);
 			}
 			const serialized = params.toString();
 			const result = await caller('api').get<ResultList<SyncJob>>(

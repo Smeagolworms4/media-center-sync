@@ -8,8 +8,8 @@ import { Timestampable } from './timestampable.entity';
  * Another gateway, run by somebody else.
  *
  * The identity is the public key fingerprint, never the address: a friend behind a
- * dynamic IP is the same friend tomorrow. The rendezvous introduces the two ends by
- * fingerprint, and the address is only remembered as a hint for the next direct
+ * dynamic IP is the same friend tomorrow. A friend both ends already have is what
+ * introduces them, and the address is only remembered as a hint for the next direct
  * attempt.
  */
 @Entity('peers')
@@ -121,6 +121,23 @@ export class Peer extends Timestampable {
 	@ApiProperty()
 	@Column({ type: 'boolean', default: false })
 	public readingForbidden!: boolean;
+
+	/**
+	 * Met through an introduction, and not being kept.
+	 *
+	 * A column rather than a flag held in memory, because the thing that has to survive
+	 * is the *undoing*: the row is deleted when the link closes, and a gateway killed
+	 * mid-transfer would otherwise come back with a peer nobody invited, dialled at
+	 * every restart, with nothing anywhere able to say where it came from.
+	 * `PeerManager` sweeps these at boot for exactly that reason.
+	 *
+	 * False for everything that existed before this column, which is correct: every one
+	 * of those rows was invited, accepted or introduced back when an introduction meant
+	 * a permanent peer.
+	 */
+	@ApiProperty()
+	@Column({ type: 'boolean', default: false })
+	public discovered!: boolean;
 
 	@ApiProperty({ enum: PeerLinkMode, nullable: true })
 	@Column({ type: 'varchar', nullable: true })

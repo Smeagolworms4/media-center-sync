@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-	import type { Library, MediaService, RunSyncRequest, SyncPlan } from '@mcs/shared';
+	import type { MediaService, RunSyncRequest, SyncPlan } from '@mcs/shared';
 	import { MediaKind, SyncTrigger } from '@mcs/shared';
 	import { computed, reactive, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import CronHint from '@/components/common/CronHint.vue';
 	import FormMainError from '@/components/FormMainError.vue';
 	import { useByteSize } from '@/composables/useByteSize';
+	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
 	import { useForm } from '@/composables/useForm';
 	import { useValidators } from '@/plugins/validators';
 	import { useSyncStore } from '@/stores/sync';
@@ -21,11 +22,9 @@
 	const props = withDefaults(defineProps<{
 		plan?: SyncPlan | null;
 		services?: MediaService[];
-		libraries?: Library[];
 	}>(), {
 		plan: null,
 		services: () => [],
-		libraries: () => [],
 	});
 
 	const emit = defineEmits<{
@@ -38,6 +37,17 @@
 	const syncStore = useSyncStore();
 	const validators = useValidators();
 	const { parseByteSize, toByteSizeInput } = useByteSize();
+	/**
+	 * The libraries a plan may prefer, computed rather than handed in as a list.
+	 *
+	 * It used to take every library the gateway knows, which meant the form offered a
+	 * friend's shelf as a destination: the gateway will never write into it, so the
+	 * preference would be stored, silently passed over on every run, and the person who
+	 * set it would be left wondering why nothing ever went there. The API refuses one
+	 * now — but a form that lets somebody choose an answer the API will reject is a form
+	 * that wastes their time.
+	 */
+	const { destinations, rejected } = useDestinationLibraries();
 
 	const model = reactive({
 		name: props.plan?.name ?? '',
@@ -45,7 +55,7 @@
 		trigger: props.plan?.trigger ?? SyncTrigger.MANUAL,
 		schedule: props.plan?.schedule ?? '',
 		sourceServiceIds: [...(props.plan?.sourceServiceIds ?? [])],
-		targetLibraryId: props.plan?.targetLibraryId ?? null,
+		preferredLibraryId: props.plan?.preferredLibraryId ?? null,
 		// One subtree from the form, which is the only part of `SyncScope` this form
 		// offers so far; the full editor is a screen of its own.
 		rootItemId: props.plan?.scope?.rootItemIds?.[0] ?? '',
@@ -113,7 +123,9 @@
 			...(props.plan ? { planId: props.plan.id } : {}),
 			...(model.rootItemId ? { scope: { rootItemIds: [model.rootItemId] } } : {}),
 			sourceServiceIds: [...model.sourceServiceIds],
-			targetLibraryId: model.targetLibraryId,
+			// A run takes a one-off destination; the plan's preference is the default
+			// for it, so a preview shows what a run of this plan would actually do.
+			targetLibraryId: model.preferredLibraryId,
 			filter: filter(),
 		};
 	}
@@ -138,7 +150,7 @@
 				trigger: model.trigger,
 				schedule: scheduled.value && model.schedule ? model.schedule : null,
 				sourceServiceIds: [...model.sourceServiceIds],
-				targetLibraryId: model.targetLibraryId,
+				preferredLibraryId: model.preferredLibraryId,
 				scope: model.rootItemId ? { rootItemIds: [model.rootItemId] } : {},
 				filter: filter(),
 			};
@@ -160,6 +172,14 @@
 	const kindItems = computed(() => Object.values(MediaKind).map(value => ({
 		value,
 		title: t(`media.kind.${value}`),
+	})));
+
+	// The path under the name: on a gateway with a `Shows` on two servers, the name
+	// alone is not a choice anybody can make correctly.
+	const destinationItems = computed(() => destinations.value.map(one => ({
+		value: one.id,
+		title: one.name,
+		subtitle: one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
 	})));
 </script>
 
@@ -274,17 +294,41 @@
 		</div>
 
 		<v-select
-			v-model="model.targetLibraryId"
+			v-model="model.preferredLibraryId"
 			class="mt-4"
 			clearable
 			data-test="plan-target"
 			:hint="$t('sync.plan.target_hint')"
-			item-title="name"
-			item-value="id"
-			:items="libraries"
+			item-props
+			item-title="title"
+			item-value="value"
+			:items="destinationItems"
 			:label="$t('sync.plan.target')"
 			persistent-hint
 		/>
+
+		<p
+			v-if="destinations.length === 0"
+			class="text-caption text-warning mb-0 mt-1"
+			data-test="plan-target-none"
+		>
+			{{ $t('settings.destination.none') }}
+		</p>
+
+		<!--
+			A shelf somebody expects to see and cannot is a bug until it is explained.
+			Naming the ones left out, with which of the two reasons applies, is the
+			difference between "this is broken" and "that disk is on a friend's machine".
+		-->
+		<p
+			v-for="one of rejected"
+			:key="one.id"
+			class="text-caption text-medium-emphasis mb-0 mt-1"
+			data-test="plan-target-rejected"
+		>
+			{{ one.name }} ({{ one.serviceName }}) —
+			{{ $t(`settings.destination.rejected.${one.reason}`) }}
+		</p>
 
 		<v-text-field
 			v-model="model.rootItemId"

@@ -7,6 +7,7 @@ export * from './file-move.service';
 export * from './filesystem.service';
 export * from './fingerprint.service';
 export * from './handlers';
+export * from './landing-state';
 export * from './library-path';
 export * from './matching.service';
 export * from './media-override';
@@ -18,11 +19,11 @@ export * from './path-containment';
 export * from './placed-by';
 export * from './peer-catalogue.service';
 export * from './peer-gateway.service';
+export * from './peer-introduction.service';
 export * from './peer-link.service';
 export * from './peer-reconnect.service';
 export * from './placement.service';
 export * from './quality.service';
-export * from './rendezvous.client';
 export * from './revalidation.service';
 export * from './run-ceiling';
 export * from './scheduler.service';
@@ -48,11 +49,11 @@ import { NamingService } from './naming.service';
 import { NOTIFICATION_HANDLER_PROVIDERS } from './notifications';
 import { PeerCatalogueService } from './peer-catalogue.service';
 import { PeerGatewayService } from './peer-gateway.service';
+import { PeerIntroductionService } from './peer-introduction.service';
 import { PeerLinkService } from './peer-link.service';
 import { PeerReconnectService } from './peer-reconnect.service';
 import { PlacementService } from './placement.service';
 import { QualityService } from './quality.service';
-import { RendezvousClient } from './rendezvous.client';
 import { RevalidationService } from './revalidation.service';
 import { SchedulerService } from './scheduler.service';
 import { SettingsService } from './settings.service';
@@ -84,11 +85,11 @@ export const SERVICE_PROVIDERS = [
 	MetadataService,
 	VerificationService,
 	RevalidationService,
-	RendezvousClient,
 	PeerLinkService,
 	PeerReconnectService,
 	PeerGatewayService,
 	PeerCatalogueService,
+	PeerIntroductionService,
 	TransferEngineService,
 	...MEDIA_HANDLER_PROVIDERS,
 	...NOTIFICATION_HANDLER_PROVIDERS,

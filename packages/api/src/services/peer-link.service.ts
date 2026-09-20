@@ -13,8 +13,11 @@ import { dirname, join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
 import {
 	ErrorKey,
+	MAX_INTRODUCERS_ASKED,
 	PEER_HELLO_METHOD,
+	PEER_INTRODUCE_METHOD,
 	PROTOCOL_VERSION,
+	PEER_INTRODUCTION_HEADER,
 	PeerCapability,
 	PeerLinkMode,
 	negotiateProtocol,
@@ -22,6 +25,7 @@ import {
 	type PeerHandshake,
 	type PeerHello,
 	type PeerIdentity,
+	type PeerIntroduction,
 } from '@mcs/shared';
 import {
 	Injectable,
@@ -31,7 +35,6 @@ import {
 } from '@nestjs/common';
 import { WebSocket } from 'ws';
 import { PEER_LINK_PATH, type PeerCredential } from './peer-gateway.service';
-import { RendezvousClient } from './rendezvous.client';
 
 /** Where the gateway's own key pair lives, unless the environment says otherwise. */
 const DEFAULT_DATA_DIR = './data';
@@ -55,9 +58,16 @@ const CHALLENGE_MAX_AGE_MS = 5 * 60_000;
  *
  * Every entry here is a method this gateway really answers — advertising one it does
  * not is worse than advertising nothing, because the far end will use it and be
- * refused at the one moment it mattered. `RELAY` is absent on purpose: passing a
- * friend of a friend's traffic through this machine is the rendezvous's job, not
- * ours.
+ * refused at the one moment it mattered. `RELAY` is absent on purpose, and stays
+ * absent: a friend of a friend's bytes are never passed through this machine. They are
+ * introduced to whoever holds the file and pull it directly, which is what `INTRODUCE`
+ * says this gateway will help with.
+ *
+ * The consequence is worth stating, because it is the limit the peers screen reports:
+ * between two gateways that both run this code and can neither of them be dialled,
+ * the relay rung of `connect` finds nobody advertising `RELAY` and the link cannot be
+ * opened. Forwarding the interface's port on one of the two routers is the fix, and
+ * there is no third party to configure instead.
  */
 export const LOCAL_CAPABILITIES: readonly PeerCapabilityValue[] = Object.freeze([
 	PeerCapability.CONTENT,
@@ -66,6 +76,7 @@ export const LOCAL_CAPABILITIES: readonly PeerCapabilityValue[] = Object.freeze(
 	PeerCapability.REVALIDATE,
 	PeerCapability.ANNOUNCE,
 	PeerCapability.SWARM,
+	PeerCapability.INTRODUCE,
 ]);
 
 /**
@@ -82,10 +93,35 @@ export interface PeerDescriptor {
 	id: string;
 	name: string;
 	fingerprint: string;
-	/** Last known address. Null forces a rendezvous lookup. */
+	/** Last known address. Null means only an introduction can reach them. */
 	address: string | null;
 	/** The far end's public key, learned when the invitation was accepted. */
 	publicKey: string | null;
+}
+
+/** What a dial may carry beyond the identity of the gateway being dialled. */
+export interface PeerDialOptions {
+	/**
+	 * A token from a gateway both ends are linked to, for somebody we have never met.
+	 *
+	 * Sent on every attempt of the ladder below, not only the first. The whole reason
+	 * the relay exists is that the direct attempt failed, and a token good for one
+	 * upgrade would be spent exactly when the fallback needs it — which is why it is
+	 * bounded by its two minutes rather than by a counter. See the introduction model.
+	 */
+	introduction?: string | null;
+	/** Who minted `introduction`, so the relay rung falls back through that same one. */
+	via?: string | null;
+	/**
+	 * Peers to ask for an introduction, best first, when the address does not answer.
+	 *
+	 * Handed in rather than worked out here, and that is the layering: this class holds
+	 * sockets and knows which of them are open, while *who is worth asking* is a
+	 * question about rows — who introduced this peer, who is still linked, how far away
+	 * they are — and answering it here would put a repository behind a socket map. See
+	 * `PeerManager.introducersFor`, which is where the order is decided and why.
+	 */
+	introducers?: readonly string[];
 }
 
 export interface PeerLinkState {
@@ -304,18 +340,20 @@ class PeerLink {
 /**
  * Establishes and holds links to other gateways.
  *
- * Direct when the far end's port is reachable, relayed through the rendezvous when
- * it is not — and the distinction is discovered by trying, not by configuration,
+ * **Peers are introduced by the intermediaries they already have.** There is nothing
+ * in the middle to run and nothing to configure: the ladder below climbs the last
+ * known address, then a friend both ends have, then that same friend carrying the
+ * bytes. The distinction between the rungs is discovered by trying, not declared,
  * because whether a direct connection works depends on two routers neither end
  * controls. The identity underneath is a key pair generated once and kept: the
  * address changes, the fingerprint does not, and it is the fingerprint an invitation
  * carries.
  *
  * Verification runs after connecting rather than before, and that order is the whole
- * security argument: the rendezvous chooses the address, so a dishonest one can send
- * us to a machine of its choosing. That machine then has to prove it holds the
- * private key behind the fingerprint we asked for, which it cannot, and the link is
- * dropped before a single catalogue row crosses it.
+ * security argument: an introducer chooses the address it hands us, so a dishonest
+ * one can send us to a machine of its choosing. That machine then has to prove it
+ * holds the private key behind the fingerprint we asked for, which it cannot, and the
+ * link is dropped before a single catalogue row crosses it.
  */
 @Injectable()
 export class PeerLinkService implements OnModuleDestroy {
@@ -338,7 +376,7 @@ export class PeerLinkService implements OnModuleDestroy {
 
 	private readonly _nodeId: string;
 
-	public constructor(private readonly _rendezvous: RendezvousClient) {
+	public constructor() {
 		const keys = this._loadOrCreateKeys();
 
 		this._privateKeyPem = keys.privateKey;
@@ -393,12 +431,11 @@ export class PeerLinkService implements OnModuleDestroy {
 		return nodeId;
 	}
 
-	public identity(name: string, rendezvousUrl: string | null): PeerIdentity {
+	public identity(name: string): PeerIdentity {
 		return {
 			nodeId: this._nodeId,
 			fingerprint: this._fingerprint,
 			name,
-			rendezvous: rendezvousUrl ?? '',
 			directAddress: process.env.PEER_PUBLIC_ADDRESS ?? null,
 			directReachable: !!process.env.PEER_PUBLIC_ADDRESS,
 		};
@@ -520,13 +557,29 @@ export class PeerLinkService implements OnModuleDestroy {
 	/**
 	 * Connect if we are not already, and hand back the live link.
 	 *
-	 * Direct first: it is faster, it costs the rendezvous nothing, and on a home
-	 * network it is the only thing that works when the rendezvous is unreachable.
+	 * Three rungs, in this order and for these reasons:
+	 *
+	 * 1. **The last known address.** Fastest, and it involves nobody else. On a home
+	 *    network it is the only rung that works, because there is no intermediary to
+	 *    ask and none is needed.
+	 * 2. **An introduction from a friend both ends have.** The far end's router will
+	 *    not let a stranger in, but it will let in somebody carrying a token one of
+	 *    its own peers signed — and that token also buys a fresh address, because the
+	 *    friend in the middle has a live link to them and we do not. Which friends are
+	 *    asked, and in which order, is decided a layer up and handed in as
+	 *    `options.introducers`; at most `MAX_INTRODUCERS_ASKED` of them are tried,
+	 *    because somebody is watching a spinner while this runs.
+	 * 3. **That same friend carrying the bytes.** Only when they advertise
+	 *    `PeerCapability.RELAY`, which this gateway deliberately never does: passing a
+	 *    friend of a friend's film through this machine is what the whole introduction
+	 *    mechanism exists to avoid. When nobody in the middle offers it, two gateways
+	 *    that can neither of them be dialled cannot be connected, and the peers screen
+	 *    says so rather than leaving a row that silently never links.
+	 *
+	 * There is no fourth rung and nothing to configure. The address in an invitation
+	 * is the issuing gateway's own, not a directory's — see `PeerManager`.
 	 */
-	public async connect(
-		peer: PeerDescriptor,
-		rendezvousUrl: string | null,
-	): Promise<PeerLinkState> {
+	public async connect(peer: PeerDescriptor, options: PeerDialOptions = {}): Promise<PeerLinkState> {
 		const existing = this._links.get(peer.id);
 
 		if (existing?.connected) {
@@ -534,10 +587,10 @@ export class PeerLinkService implements OnModuleDestroy {
 		}
 
 		if (peer.address) {
-			const direct = await this._open(peer, peer.address, PeerLinkMode.DIRECT).catch(
+			const direct = await this._open(peer, peer.address, PeerLinkMode.DIRECT, options).catch(
 				(error: unknown) => {
 					// A far end that answered and failed to prove its identity is not a
-					// far end we failed to reach. Falling through to the rendezvous would
+					// far end we failed to reach. Falling through to an introduction would
 					// reach the same machine, fail the same way, and report it as
 					// unreachable — which sends somebody looking at their firewall for a
 					// problem that is a wrong fingerprint.
@@ -556,34 +609,150 @@ export class PeerLinkService implements OnModuleDestroy {
 			}
 		}
 
-		if (!rendezvousUrl) {
+		const link = await this._viaIntroducers(peer, options);
+
+		if (link === null) {
 			throw new ServiceUnavailableException({ key: ErrorKey.PEER_UNREACHABLE });
 		}
 
-		const introduction = await this._rendezvous.introduce(
-			rendezvousUrl,
-			peer.fingerprint,
-			this.sign(`${this._fingerprint}:${peer.fingerprint}`),
-		);
+		this._links.set(peer.id, link);
 
-		if (introduction.address) {
-			const punched = await this._open(peer, introduction.address, PeerLinkMode.DIRECT).catch(
-				() => null,
-			);
+		return this._toState(link);
+	}
 
-			if (punched) {
-				this._links.set(peer.id, punched);
+	/**
+	 * Rungs two and three, asked of one friend at a time.
+	 *
+	 * Each candidate gets the whole of its own ladder — the address it gave us, then
+	 * itself as a carrier — before the next one is asked, because a friend who answered
+	 * is a friend who can carry, and moving on to somebody else first would spend a
+	 * round trip to learn nothing new.
+	 *
+	 * A candidate whose link has dropped since the list was built is skipped without
+	 * counting against the budget: the point of the bound is to cap how long somebody
+	 * waits, and skipping a closed socket costs no time at all.
+	 */
+	private async _viaIntroducers(
+		peer: PeerDescriptor,
+		options: PeerDialOptions,
+	): Promise<PeerLink | null> {
+		let asked = 0;
 
-				return this._toState(punched);
+		for (const viaPeerId of options.introducers ?? []) {
+			if (asked >= MAX_INTRODUCERS_ASKED) {
+				break;
+			}
+
+			if (!this.isLinked(viaPeerId) || !this.supports(viaPeerId, PeerCapability.INTRODUCE)) {
+				continue;
+			}
+
+			asked += 1;
+
+			// A token we were already handed is not asked for again. The caller that has
+			// one got it from this very peer moments ago, and spending a second round
+			// trip on it would burn the budget on an answer we are holding.
+			const introduction =
+				options.via === viaPeerId && options.introduction
+					? { token: options.introduction, address: peer.address }
+					: await this._askForIntroduction(viaPeerId, peer);
+
+			if (introduction === null) {
+				continue;
+			}
+
+			const dial: PeerDialOptions = { introduction: introduction.token, via: viaPeerId };
+
+			// Only when it is somewhere new. The address we already had was rung one and
+			// it did not answer; trying it again here would cost the connect timeout
+			// twice for one unreachable gateway.
+			if (introduction.address && introduction.address !== peer.address) {
+				const punched = await this._open(
+					peer,
+					introduction.address,
+					PeerLinkMode.DIRECT,
+					dial,
+				).catch(() => null);
+
+				if (punched) {
+					return punched;
+				}
+			}
+
+			const relayed = await this._relay(peer, viaPeerId, dial);
+
+			if (relayed) {
+				return relayed;
 			}
 		}
 
-		const relayUrl = introduction.relayUrl ?? this._rendezvous.relayUrl(rendezvousUrl, peer.fingerprint);
-		const relayed = await this._open(peer, relayUrl, PeerLinkMode.RELAY);
+		return null;
+	}
 
-		this._links.set(peer.id, relayed);
+	/**
+	 * Ask one friend to introduce us, by fingerprint.
+	 *
+	 * By fingerprint and not by their row identifier, because their row identifier is
+	 * the one thing we cannot know: it is theirs, and the only reason
+	 * `PeerIntroductionManager.reach` has one is that a holder answer just handed it
+	 * over. A fingerprint is what a peer *is*, and it is the only name for a gateway
+	 * that means the same thing on both sides of a link.
+	 *
+	 * A refusal is answered as null and nothing else: the far end deliberately gives
+	 * one flat refusal for "not my peer", "further than I allow" and "forbidden from
+	 * reading", so that nobody can map out a gateway's friends by asking.
+	 */
+	private async _askForIntroduction(
+		viaPeerId: string,
+		peer: PeerDescriptor,
+	): Promise<PeerIntroduction | null> {
+		const answer = await this.request<Partial<PeerIntroduction>>(
+			viaPeerId,
+			PEER_INTRODUCE_METHOD,
+			{ fingerprint: peer.fingerprint },
+		).catch((error: unknown) => {
+			this._logger.warn(`No introduction to ${peer.name} from ${viaPeerId}: ${String(error)}`);
 
-		return this._toState(relayed);
+			return null;
+		});
+
+		if (!answer?.token) {
+			return null;
+		}
+
+		return {
+			token: answer.token,
+			fingerprint: answer.fingerprint ?? peer.fingerprint,
+			address: answer.address ?? null,
+			expiresAt: answer.expiresAt ?? new Date().toISOString(),
+			depth: answer.depth ?? 0,
+		};
+	}
+
+	/**
+	 * The last rung: the friend in the middle carries the bytes.
+	 *
+	 * Gated on them advertising it, like every other feature — a gateway that does not
+	 * relay answers the upgrade with a refusal, and spending fifteen seconds of connect
+	 * timeout to find that out is fifteen seconds of somebody's spinner. The endpoint
+	 * is their own link address with `/relay` on it, and the holder it leads to is the
+	 * one named inside the token, which they can read and we cannot forge.
+	 *
+	 * Nothing here is encrypted above the transport, so their machine really does see
+	 * the bytes. The peer card says so in one line instead of showing a word.
+	 */
+	private async _relay(
+		peer: PeerDescriptor,
+		viaPeerId: string,
+		dial: PeerDialOptions,
+	): Promise<PeerLink | null> {
+		const via = this._links.get(viaPeerId);
+
+		if (!via?.connected || !via.address || !this.supports(viaPeerId, PeerCapability.RELAY)) {
+			return null;
+		}
+
+		return this._open(peer, via.address, PeerLinkMode.RELAY, dial).catch(() => null);
 	}
 
 	/**
@@ -647,7 +816,7 @@ export class PeerLinkService implements OnModuleDestroy {
 
 		const response = error.getResponse() as { key?: string };
 
-		// A version we cannot speak counts as a refusal too: the rendezvous would send
+		// A version we cannot speak counts as a refusal too: an introduction would send
 		// us to the same machine, which would refuse the same way, and it would be
 		// reported as unreachable — sending somebody to look at their firewall for a
 		// problem that is a release difference.
@@ -671,6 +840,7 @@ export class PeerLinkService implements OnModuleDestroy {
 		peer: PeerDescriptor,
 		address: string,
 		mode: PeerLinkMode,
+		options: PeerDialOptions = {},
 	): Promise<PeerLink> {
 		const url = this._toWebSocketUrl(address, mode);
 		const challenge = `${this._fingerprint}:${Date.now()}`;
@@ -684,6 +854,10 @@ export class PeerLinkService implements OnModuleDestroy {
 				'x-mcs-public-key': Buffer.from(this._publicKeyPem).toString('base64'),
 				'x-mcs-challenge': challenge,
 				'x-mcs-signature': this.sign(challenge),
+				// Only for a gateway that has never heard of us, and it proves nothing
+				// on its own: the four headers above are still what says we hold this
+				// key, and the token only says whose friend we are.
+				...(options.introduction ? { [PEER_INTRODUCTION_HEADER]: options.introduction } : {}),
 			},
 			handshakeTimeout: CONNECT_TIMEOUT_MS,
 		});
@@ -773,8 +947,14 @@ export class PeerLinkService implements OnModuleDestroy {
 	}
 
 	private _toWebSocketUrl(address: string, mode: PeerLinkMode): string {
+		const suffix = mode === PeerLinkMode.RELAY ? '/relay' : '';
+
+		// An address that is already a WebSocket URL names the link endpoint itself, so
+		// only the relay suffix is added to it. Returning it untouched would send every
+		// relayed dial to the ordinary link path, where the friend in the middle answers
+		// as themselves instead of carrying anything.
 		if (address.startsWith('ws://') || address.startsWith('wss://')) {
-			return address;
+			return `${address.replace(/\/+$/, '')}${suffix}`;
 		}
 
 		const scheme = address.startsWith('https://') ? 'wss://' : 'ws://';
@@ -783,7 +963,7 @@ export class PeerLinkService implements OnModuleDestroy {
 		// The same port the interface and the API are on. There is no second one, and
 		// that is the point: a reverse proxy and its certificate cover peer traffic for
 		// free, and there is nothing extra to forward on a router.
-		return `${scheme}${host}${PEER_LINK_PATH}${mode === PeerLinkMode.RELAY ? '/relay' : ''}`;
+		return `${scheme}${host}${PEER_LINK_PATH}${suffix}`;
 	}
 
 	private _toState(link: PeerLink): PeerLinkState {

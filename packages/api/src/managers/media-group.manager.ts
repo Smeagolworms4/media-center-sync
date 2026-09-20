@@ -42,6 +42,18 @@ import { pageBounds, paginate } from './mappers';
  * the answer that means there is nothing to do. `unknown` is the fallback rather than
  * a rank, since it says only that correlation has not run.
  */
+/**
+ * The states that mean "the bytes are on our disk", whatever any service says.
+ *
+ * Grouped because every reader here asks the same question of them — is this a gap to
+ * fill — and the answer is no for both: one is waiting for an index and the other has
+ * given up waiting, and in neither case would downloading it again put anything new on
+ * the disk. Anywhere that tests only one of the two is a screen that counts a landed
+ * episode as missing once its grace period expires, which would be the original bug
+ * returning twelve hours late.
+ */
+const LANDED_STATES = new Set<SyncState>([SyncState.AWAITING_INDEX, SyncState.NOT_INDEXED]);
+
 const GROUP_STATE_ORDER = [
 	SyncState.SYNCING,
 	SyncState.CONFLICT,
@@ -437,7 +449,14 @@ export class MediaGroupManager {
 			return {
 				memberIds,
 				sync: this._state(members, context),
-				held: members.some((member) => context.local.has(member.serviceId)),
+				// A media whose file we have already downloaded counts as held, so that
+				// "hide what I already have" hides it. It is the same answer the wall
+				// gives about it, and a filter that kept offering a file already on the
+				// disk is the behaviour this whole state exists to remove.
+				held: members.some(
+					(member) =>
+						context.local.has(member.serviceId) || LANDED_STATES.has(member.syncState),
+				),
 				missingCount: gaps.get(root) ?? 0,
 			};
 		});
@@ -493,10 +512,17 @@ export class MediaGroupManager {
 				continue;
 			}
 
+			// A child whose file the gateway has already put on the disk is not a gap,
+			// whether the media server has indexed it yet or never will: fetching it
+			// again writes the same bytes to the same path. Counted, it would be a
+			// number on a season card that nothing anybody does can bring down.
 			const held = copies.some((id) => {
 				const copy = byId.get(id);
 
-				return copy !== undefined && context.local.has(copy.serviceId);
+				return (
+					copy !== undefined
+					&& (context.local.has(copy.serviceId) || LANDED_STATES.has(copy.syncState))
+				);
 			});
 
 			if (!held) {
@@ -648,7 +674,10 @@ export class MediaGroupManager {
 
 				// Asked of every copy of the child, not of the copies filed under this
 				// parent: holding it is a fact about the media, not about where one
-				// server decided to put it.
+				// server decided to put it. A file already on our disk counts as held
+				// for the same reason it does in `_gapCounts` — the same count is read
+				// off both, and a season card that disagreed with itself between the
+				// listing and the detail page would be unexplainable from the screen.
 				groups.set(
 					root,
 					context.graph
@@ -656,7 +685,11 @@ export class MediaGroupManager {
 						.some((id) => {
 							const copy = children.byId.get(id);
 
-							return copy !== undefined && context.local.has(copy.serviceId);
+							return (
+								copy !== undefined
+								&& (context.local.has(copy.serviceId)
+									|| LANDED_STATES.has(copy.syncState))
+							);
 						}),
 				);
 			}
@@ -671,12 +704,19 @@ export class MediaGroupManager {
 	 * A media with no local copy is `missing` whatever its remote rows say about each
 	 * other: two friends being in sync with one another is not an answer to "do I have
 	 * this", and the poster that asks that question is on our screen.
+	 *
+	 * Unless the gateway has already put the file on the disk. No service holds it —
+	 * none of them has scanned yet — so every test above answers "missing" while the
+	 * bytes are in the library folder, which is exactly how the same episode gets
+	 * pulled twice. The landing is carried on the copy we pulled from, which is one of
+	 * these members, so the group can read it here without a second query.
 	 */
 	private _state(members: MediaItemDigest[], context: GroupContext): SyncState {
 		const held = members.filter((member) => context.local.has(member.serviceId));
 
 		if (held.length === 0) {
-			return SyncState.MISSING;
+			return members.find((member) => LANDED_STATES.has(member.syncState))?.syncState
+				?? SyncState.MISSING;
 		}
 
 		for (const state of GROUP_STATE_ORDER) {

@@ -14,6 +14,10 @@ import { PlacementProvenance1758440000000 } from './1758440000000-PlacementProve
 import { ParentExternalId1758450000000 } from './1758450000000-ParentExternalId';
 import { ForbidPeerReading1758460000000 } from './1758460000000-ForbidPeerReading';
 import { ServiceSharingAndMount1758470000000 } from './1758470000000-ServiceSharingAndMount';
+import { DiscoveredPeers1758480000000 } from './1758480000000-DiscoveredPeers';
+import { MediaLandings1758490000000 } from './1758490000000-MediaLandings';
+import { CategoryKeywords1758500000000 } from './1758500000000-CategoryKeywords';
+import { PlanPreferredLibrary1758510000000 } from './1758510000000-PlanPreferredLibrary';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -58,6 +62,10 @@ export const MIGRATIONS = [
 	ParentExternalId1758450000000,
 	ForbidPeerReading1758460000000,
 	ServiceSharingAndMount1758470000000,
+	DiscoveredPeers1758480000000,
+	MediaLandings1758490000000,
+	CategoryKeywords1758500000000,
+	PlanPreferredLibrary1758510000000,
 ];
 
 export * from './1758240000000-InitialSchema';
@@ -76,3 +84,7 @@ export * from './1758440000000-PlacementProvenance';
 export * from './1758450000000-ParentExternalId';
 export * from './1758460000000-ForbidPeerReading';
 export * from './1758470000000-ServiceSharingAndMount';
+export * from './1758480000000-DiscoveredPeers';
+export * from './1758490000000-MediaLandings';
+export * from './1758500000000-CategoryKeywords';
+export * from './1758510000000-PlanPreferredLibrary';

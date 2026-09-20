@@ -118,6 +118,20 @@
 	"general": {
 		"byte_unit": "B"
 	},
+	"history": {
+		"view": {
+			"live": "In corso",
+			"finished": "Terminati",
+			"all": "Tutti"
+		},
+		"see_finished": "Mostra i terminati",
+		"hint_transfers": "Viene mostrato solo ciò che sta ancora avanzando. I trasferimenti terminati sono sotto Terminati.",
+		"hint_runs": "Vengono mostrate solo le esecuzioni in corso. Le esecuzioni terminate sono sotto Terminati.",
+		"empty_live_title": "Niente in movimento",
+		"empty_live_text": "Al momento non c’è alcun trasferimento in corso, in coda o in pausa. Tutto ciò che è già terminato è ancora qui, sotto Terminati.",
+		"empty_live_runs_title": "Nessuna esecuzione in corso",
+		"empty_live_runs_text": "Nessuna sincronizzazione è in corso. Le esecuzioni già terminate sono ancora qui, sotto Terminati."
+	},
 	"cron": {
 		"describe": {
 			"every_minute": "Ogni minuto.",
@@ -147,6 +161,7 @@
 		"services_all_online": "Rispondono tutti",
 		"missing": "Mancanti qui",
 		"missing_hint": "Noti altrove, assenti qui",
+		"awaiting_index": "{count} scaricati, in attesa della risincronizzazione della libreria",
 		"active_transfers": "Trasferimenti in corso",
 		"queued": "{count} in attesa",
 		"peers": "Peer",
@@ -161,6 +176,7 @@
 		"all_jobs": "Vedi tutte le esecuzioni",
 		"problem": {
 			"library_not_writable": "{name} non è scrivibile — i trasferimenti finirebbero dove il tuo server non guarda mai",
+			"not_indexed": "{count} file scaricati che il tuo server multimediale non ha mai indicizzato",
 			"service_offline": "{name} non risponde",
 			"service_unauthorized": "{name} ha rifiutato il gateway — controlla il suo token",
 			"peer_unreachable": "{name} è irraggiungibile",
@@ -181,7 +197,7 @@
 		"section_count": "nessun elemento | {count} elemento | {count} elementi",
 		"section_empty": "Niente in questa categoria corrisponde a questi filtri.",
 		"section_latest": "ultime aggiunte",
-		"section_local": "Nostri",
+		"section_local": "File qui",
 		"everything": "Tutte le categorie",
 		"categories": "Le tue librerie",
 		"categories_hint": "Le librerie con lo stesso nome, su tutti i server, viste come una sola.",
@@ -224,8 +240,21 @@
 	},
 	"category": {
 		"empty": "Ancora nessuna categoria. Registra un servizio multimediale e scansionalo; le sue librerie compaiono qui.",
-		"local": "Nostri",
-		"libraries": "nessuna libreria | {count} libreria | {count} librerie"
+		"local": "File qui",
+		"libraries": "nessuna libreria | {count} libreria | {count} librerie",
+		"mapping": {
+			"pool_title": "Non ancora archiviate",
+			"unfile": "Rimetti in cima",
+			"pool_empty": "Non resta nulla: è tutto archiviato.",
+			"map_to": "Archivia in",
+			"move_to": "Sposta",
+			"add_keyword": "Un altro nome per questa categoria",
+			"no_keyword": "Nessun nome collegato per ora.",
+			"no_local": "Ancora nessuna categoria tua. Registra un servizio multimediale raggiungibile da questo gateway e analizzalo.",
+			"applied": "«{keyword}» d’ora in poi finisce qui.",
+			"undo": "Annulla",
+			"order_title": "Ordine, rinomina e riordino"
+		}
 	},
 	"media": {
 		"children": "Contenuto",
@@ -436,7 +465,9 @@
 		"empty_text": "Incolla l'impronta di un amico, oppure mandagli un invito — entrambe le vie collegano i due gateway.",
 		"shares": "{services} servizi · {items} elementi condivisi",
 		"last_seen": "visto l'ultima volta",
-		"relay_hint": "Questo collegamento passa dal rendezvous, la cui banda è condivisa da tutti quelli che lo usano.",
+		"relay_hint": "Questo collegamento è portato dall'amico che ha presentato i due gateway: è la sua macchina a trasportare i byte, a spese della sua banda in upload.",
+		"discovered_chip": "Temporaneo",
+		"discovered_hint": "Incontrata prendendo un file dall'amico di un amico. I due gateway sono collegati direttamente e questo collegamento si chiude alla fine del trasferimento: per tenerlo, attivi nelle impostazioni la conservazione dei peer incontrati.",
 		"remove_title": "Rimuovere questo peer?",
 		"remove_confirm": "Il collegamento con {name} verrà interrotto. Ciò che è già stato recuperato resta, e potrà richiedere di nuovo: per rifiutare la sua chiave per sempre bisogna bloccarlo.",
 		"connecting": "Tentativo di raggiungere il peer adesso…",
@@ -464,7 +495,7 @@
 			"fingerprint": "La loro impronta",
 			"fingerprint_hint": "Così come la mostra il loro gateway, sotto «Questo gateway».",
 			"address": "Il loro indirizzo",
-			"address_hint": "Facoltativo. Provato per primo quando lo conosci; altrimenti li trova il rendezvous.",
+			"address_hint": "Facoltativo. Provato per primo quando lo conosci; altrimenti può presentarvi un amico che avete entrambi.",
 			"action": "Invia la richiesta"
 		},
 		"status": {
@@ -486,10 +517,9 @@
 			"node_id": "Identificatore del nodo",
 			"node_id_help": "Il nome stabile di questo gateway su tutta la rete condivisa. Generato una volta sola, e deliberatamente diverso dall'impronta: cambiare chiave non deve farlo sembrare un nuovo partecipante. È ciò che si cita quando un annuncio venuto da un amico di un amico gira in tondo.",
 			"fingerprint": "Impronta",
-			"rendezvous": "Rendezvous",
 			"direct_address": "Indirizzo diretto",
 			"direct_ok": "Le connessioni dirette sono possibili, quindi i trasferimenti non passano dal relay.",
-			"relay_only": "Questo gateway non è raggiungibile dall'esterno, quindi gli amici non possono collegarsi direttamente e ogni trasferimento passa dal rendezvous, la cui banda è divisa fra tutti quelli che lo stanno usando in quel momento. Inoltrare sul router la porta dell'interfaccia risolve. Non c'è una seconda porta da aprire: un collegamento fra peer è una connessione WebSocket su quella stessa porta."
+			"relay_only": "Questo gateway non è raggiungibile dall'esterno, quindi gli amici non possono collegarsi direttamente: un collegamento dipende allora da un amico che avete già entrambi, e non c'è altro a cui ricorrere. Inoltrare sul router la porta dell'interfaccia risolve. Non c'è una seconda porta da aprire: un collegamento fra peer è una connessione WebSocket su quella stessa porta."
 		},
 		"invite": {
 			"open": "Collega un gateway",
@@ -547,6 +577,7 @@
 		},
 		"connect_hint": "Questo gateway si collega all'avvio e riprova da solo dopo un'interruzione, aspettando ogni volta di più. Questo riprova subito.",
 		"unreachable_hint": "Irraggiungibile al momento. Il gateway continua a provarci da solo, distanziando i tentativi.",
+		"unreachable_port_hint": "Se nessuno dei due gateway è raggiungibile e non avete amici in comune, non resta altro da provare: inoltrare la porta dell'interfaccia su uno dei due router è ciò che apre il collegamento.",
 		"reading_forbidden_chip": "Non vede nulla",
 		"reading_forbidden_hint": "Lettura vietata: il collegamento resta e questo gateway continua a leggere dal suo, ma tutto ciò che chiede qui riceve una risposta vuota.",
 		"forbid_reading_title": "Vietare la lettura a questo peer?",
@@ -705,24 +736,21 @@
 		"destination": {
 			"rule_title": "Come il gateway decide dove va un file",
 			"rule_existing": "Una serie che hai già mantiene la sua cartella. Un nuovo episodio viene archiviato accanto ai suoi simili, con la grafia della cartella di stagione di quella libreria: «Saison 1» resta «Saison 1».",
-			"rule_category": "Altrimenti, la libreria impostata per quella categoria nella tabella qui sotto.",
+			"rule_plan": "Un piano di sincronizzazione può preferire una libreria: tutto ciò che di nuovo recupera finisce lì, prima della tabella qui sotto.",
+			"rule_category": "Altrimenti, la libreria a cui punta quella categoria, in Categorie più sotto.",
 			"rule_global": "Altrimenti, la libreria di destinazione predefinita.",
 			"rule_fallback": "Altrimenti, la cartella di ripiego.",
 			"rule_fixed": "Il primo passo non è un'impostazione e non si può disattivare. Spezzare una stagione su due cartelle è peggio di entrambe le risposte prese da sole, quindi una serie che ha già una casa se la tiene.",
 			"global": "Libreria di destinazione predefinita",
 			"global_help": "Dove finisce tutto ciò che nessuna categoria nomina. Imposta questa e non dovrai mai aprire la tabella.",
 			"none": "Nessuna libreria qui può ricevere file. Una destinazione deve essere una libreria su un tuo servizio, in cui questo gateway possa scrivere.",
-			"table_title": "Eccezioni per categoria",
-			"table_help": "Una riga per categoria. Una riga lasciata com'è usa la destinazione predefinita qui sopra.",
-			"category_header": "Categoria",
 			"target_header": "Va in",
 			"falls_back": "Ripiega su {target}",
 			"merges": "Scegliere una destinazione archivia anche questa categoria sotto il nome di quella libreria: nella vista delle librerie le due compaiono poi come una sola categoria, non due.",
-			"merges_foreign": "Questo gateway non raggiunge le cartelle di queste librerie, quindi i loro nomi restano come sono e questa categoria continua a essere mostrata a parte. Cambia solo dove atterrano i nuovi file.",
 			"fallback_unset": "una qualunque libreria che possa accoglierlo: sopra non è impostato niente",
 			"rejected": {
-				"not_ours": "{library} su {service} non può essere offerta: questo gateway non raggiunge le cartelle di quel server, quindi nulla di scritto lì vi comparirebbe mai.",
-				"not_writable": "{library} su {service} non può essere proposta: questo gateway non può scrivere nella sua cartella."
+				"not_ours": "questo gateway non raggiunge le cartelle di quel server",
+				"not_writable": "questo gateway non può scrivere nella sua cartella"
 			},
 			"fixed_path_active": "In questo momento tutto finisce in {path}, qualunque cosa sia: una vecchia impostazione che scavalca l'intera pagina. Niente di quanto sopra vale finché non viene cancellata.",
 			"fixed_path_clear": "Usa invece la regola qui sopra"
@@ -768,13 +796,14 @@
 		"rate_limit_help": "Ad esempio 10M. Vuoto significa nessun limite.",
 		"upload_rate_limit_help": "Ad esempio 10M. Vuoto significa nessun limite. Limita tutto ciò che questo gateway invia, compreso ciò che i peer recuperano da lui.",
 		"categories_help": "Le librerie con lo stesso nome sono una sola categoria, e questo è l'ordine in cui compaiono. Una libreria si rinomina o si riordina sul servizio che la detiene.",
+		"categories_mapping_help": "Dai a ogni tua categoria i nomi con cui compaiono le librerie degli altri. Una libreria il cui nome corrisponde entra nella categoria da sola — compresa quella che arriverà più tardi, su un gateway che non hai ancora incontrato.",
 		"categories_edit": "Rinomina o riordina una libreria",
-		"history_days": "Conserva i trasferimenti conclusi per",
-		"history_days_help": "In giorni. Dopo di che lasciano la coda.",
+		"history_days": "Conserva ciò che è riuscito per",
+		"history_days_help": "In giorni. Vale per i trasferimenti e per le esecuzioni di sincronizzazione andate a buon fine. Zero non ne conserva nessuno.",
 		"swarm": "Consenti lo swarm",
 		"swarm_help": "Più peer che hanno lo stesso file possono alimentare insieme un solo trasferimento.",
-		"rendezvous": "Rendezvous",
-		"rendezvous_help": "Il server che presenta due gateway perché possano aprire un collegamento diretto.",
+		"keep_discovered_peers": "Conservare i peer incontrati durante uno scaricamento",
+		"keep_discovered_peers_help": "Quando prende un file dall'amico di un amico, i due gateway si collegano direttamente; lo tenga nel suo elenco, oppure lasci che il collegamento si chiuda con il trasferimento.",
 		"match_threshold": "Soglia di correlazione",
 		"match_threshold_help": "Sotto questo punteggio una corrispondenza viene proposta anziché applicata.",
 		"refresh_interval": "Aggiorna ogni (minuti)",
@@ -790,11 +819,14 @@
 		"peer_max_depth_help": "Salti consentiti da qui: 1 solo amici, 2 i loro amici, e così via.",
 		"peer_max_depth_pinned": "Fissato dall'ambiente di questa installazione e non modificabile qui.",
 		"peer_max_depth_per_peer": "Un tetto per tutto il gateway. Ogni peer può essere limitato di più sulla propria riga, e nessuna impostazione qui va oltre ciò che un altro ha consentito.",
+		"peer_max_depth_consent": "Questo è un consenso, non un'impostazione di ricerca: essere raggiungibili a quella distanza è l'accordo stesso, quindi abbassarlo restringe chi può aprire un collegamento verso questo gateway. È l'unico controllo di portata che esiste.",
 		"write_nfo": "Scrivere un .nfo quando la sorgente non ne ha",
 		"write_nfo_help": "Una sorgente tiene spesso i metadati nel proprio database e nulla su disco: copiare dà il file e nessuno dei dati, e il tuo server multimediale reidentifica poi l’episodio dal nome del file. Non sostituisce mai un documento che hai già.",
 		"default_share": "Condividere le nuove librerie con",
 		"default_share_help": "Vale dal momento in cui una scansione trova una libreria, così un amico che si collega non trova uno scaffale vuoto.",
-		"default_share_note": "Si applica a ogni libreria su un server con la condivisione attiva, comprese quelle di cui questo gateway non ha i file: vengono allora lette da quel server e ritrasmesse a spese di questa connessione. Ciò che un peer condivide con noi non viene mai ritrasmesso oltre."
+		"default_share_note": "Si applica a ogni libreria su un server con la condivisione attiva, comprese quelle di cui questo gateway non ha i file: vengono allora lette da quel server e ritrasmesse a spese di questa connessione. Ciò che un peer condivide con noi non viene mai ritrasmesso oltre.",
+		"failed_history_days": "Conserva gli errori per",
+		"failed_history_days_help": "In giorni, e più a lungo di proposito: un trasferimento fallito è la traccia del perché qualcosa non è mai arrivato."
 	},
 	"sync": {
 		"subtitle": "Intenzioni permanenti, e ciò che hanno fatto davvero.",
@@ -811,6 +843,8 @@
 		"state": {
 			"local_only": "Solo locale",
 			"missing": "Manca qui",
+			"awaiting_index": "Scaricato — risincronizzazione",
+			"not_indexed": "Mai indicizzato",
 			"in_sync": "Sincronizzato",
 			"outdated": "Superato",
 			"conflict": "Conflitto",
@@ -820,6 +854,8 @@
 		"state_help": {
 			"local_only": "Presente qui e su nessun altro servizio che conosciamo.",
 			"missing": "Un altro servizio ce l'ha, questo no. Una sincronizzazione lo colma.",
+			"awaiting_index": "Il file è sul tuo disco. È stata chiesta una nuova scansione al server multimediale, che non l'ha ancora indicizzato.",
+			"not_indexed": "Il file è sul disco da ore e nessun server multimediale l'ha indicizzato. Verifica che la cartella in cui scrive il gateway sia quella che il tuo server analizza.",
 			"in_sync": "Presente da entrambe le parti, stessa versione.",
 			"outdated": "Presente qui, ma altrove esiste una versione migliore.",
 			"conflict": "Due versioni che non si possono ordinare — montaggi o lingue diverse.",
@@ -863,8 +899,8 @@
 			"sources_default": "Nessuna sorgente fissata: il piano segue la priorità dei servizi definita nelle impostazioni, che è ciò che quasi tutti vogliono.",
 			"sources_ordered": "Consultate in quest'ordine.",
 			"add_source": "Aggiungi una sorgente",
-			"target": "Libreria di destinazione",
-			"target_hint": "Vuoto significa: accanto alla nostra copia, o nella destinazione predefinita per quel tipo.",
+			"target": "Libreria preferita",
+			"target_hint": "Dove questo piano archivia ciò che è nuovo. Una serie che hai già mantiene comunque la sua cartella. Vuoto: decidono le regole qui sotto.",
 			"root": "Elemento radice",
 			"root_hint": "Facoltativo. L'identificatore di una serie o di una raccolta, per limitare il piano a quel sottoinsieme.",
 			"filters": "Filtri",
@@ -974,7 +1010,7 @@
 		"transport": {
 			"http_range": "HTTP a intervalli verso il servizio",
 			"peer_direct": "Collegamento diretto al peer",
-			"peer_relay": "Inoltrato tramite il rendezvous",
+			"peer_relay": "Inoltrato tramite un amico",
 			"swarm": "Swarm — più peer che alimentano insieme"
 		},
 		"stats": {
@@ -1058,10 +1094,14 @@
 			"cancel": "Annulla"
 		},
 		"retarget": {
-			"title": "Recuperalo altrove",
-			"hint": "L'elemento verrà pianificato di nuovo nella libreria che scegli. Vengono proposte solo le librerie in cui il gateway può scrivere.",
+			"title": "Mandarlo in un'altra libreria",
+			"hint_repoint": "Non è ancora stato archiviato nulla, quindi questo cambia solo la destinazione. Il download non viene interrotto e non viene copiato un byte.",
+			"hint_move": "Questo file è già in una libreria. Sceglierne un'altra lo sposta davvero, e su un file grande ci vuole un po': la coda ne mostra l'avanzamento.",
 			"library": "Libreria di destinazione",
-			"confirm": "Recuperalo lì"
+			"confirm": "Mandalo lì",
+			"confirm_move": "Spostalo lì",
+			"repointed": "Andrà lì invece.",
+			"moved": "Spostato. Il file ora è in quella libreria."
 		},
 		"revalidation": {
 			"title": "Perché questo trasferimento ha cambiato idea",
@@ -1159,7 +1199,11 @@
 		"library": {
 			"not_found": "Questa libreria non esiste più.",
 			"path_unreadable": "Il gateway non può leggere questo percorso.",
-			"path_not_writable": "Il gateway non può scrivere in questo percorso."
+			"path_not_writable": "Il gateway non può scrivere in questo percorso.",
+			"category_not_found": "Questa categoria non corrisponde più a nulla qui. Ricarica la pagina: le librerie che la componevano potrebbero essere state rinominate o rimosse.",
+			"keyword_not_found": "Questo nome non è più collegato a nulla. Ricarica la pagina.",
+			"keyword_invalid": "Niente potrà mai corrispondere a questo. Usa almeno una lettera o una cifra.",
+			"keyword_taken": "Un’altra categoria archivia già questo nome. Spostalo da lì invece di aggiungerlo due volte."
 		},
 		"media": {
 			"not_found": "Questo elemento multimediale non esiste più."
@@ -1174,7 +1218,8 @@
 			"protocol_unsupported": "Questo peer parla una versione del protocollo che questo gateway non conosce.",
 			"method_unsupported": "Questo peer ha chiesto qualcosa che questo gateway non implementa.",
 			"banned": "Questa impronta è nell'elenco dei bloccati. Rimuovi il blocco prima di collegarti di nuovo.",
-			"ban_not_found": "Nessun blocco corrisponde a questa impronta."
+			"ban_not_found": "Nessun blocco corrisponde a questa impronta.",
+			"introduction_refused": "Quel gateway non è raggiungibile tramite questo amico."
 		},
 		"sync": {
 			"plan_not_found": "Questo piano di sincronizzazione non esiste più.",
@@ -1188,6 +1233,7 @@
 		"transfer": {
 			"not_found": "Questo trasferimento non esiste più.",
 			"not_resumable": "Questo trasferimento non può essere ripreso e deve ricominciare da capo.",
+			"being_placed": "Questo file sta venendo spostato nella sua libreria proprio ora. Riprova quando avrà finito.",
 			"no_space": "Spazio libero insufficiente nella libreria di destinazione.",
 			"checksum_mismatch": "Il file scaricato non corrisponde al suo checksum.",
 			"destination_full": "La destinazione si è riempita mentre il file veniva spostato. Nulla è perduto: libera spazio e riprendi, lo spostamento ripartirà da dove si era fermato.",

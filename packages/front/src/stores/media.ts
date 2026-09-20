@@ -120,6 +120,27 @@ export const useMediaStore = defineStore('media', () => {
 	}
 
 	/**
+	 * How many media are in a state, without pulling a single row.
+	 *
+	 * A dashboard tile asks three of these at once, and that is why it is not `search`.
+	 * `search` carries `keepLastKey` so that a viewer typing in the box only renders
+	 * the answer to their last keystroke — which means three simultaneous calls under
+	 * that key abort each other, and two of the three counters would come back as a
+	 * cancelled call rather than a number. It also writes into `items`, which a count
+	 * has no business doing.
+	 *
+	 * One row is asked for because the answer lives in the pagination: counting forty
+	 * thousand missing episodes must not mean sending forty thousand rows.
+	 */
+	async function count (states: SyncState[]): Promise<number> {
+		const result = await caller('api').get<ResultList<MediaItem>>(
+			`/media${buildMediaQuery({ states, page: 1, limit: 1 })}`,
+		);
+
+		return result?.pagination?.total ?? 0;
+	}
+
+	/**
 	 * One band of the poster wall.
 	 *
 	 * `key` names the band — the library it shows — and is also what makes the
@@ -265,7 +286,21 @@ export const useMediaStore = defineStore('media', () => {
 	events.on(EventName.TRANSFER_STATE, transfer => {
 		switch (transfer.state) {
 			case TransferState.DONE: {
-				patchState(transfer.itemId, SyncState.IN_SYNC);
+				/*
+				 * Downloaded is not indexed, and claiming otherwise was half the bug.
+				 *
+				 * This used to patch the row to `in_sync`, which said the media server
+				 * holds it — while the media server had not been told anything yet, so
+				 * opening the item offered a file it could not play. The next listing
+				 * then reloaded from the API and the row went back to `missing`, with
+				 * the file on the disk the whole time and the screen having said two
+				 * contradictory things about it in a minute.
+				 *
+				 * `awaiting_index` is what the gateway has actually just learned, and it
+				 * is what the API answers for the same row on the next read — so the
+				 * optimistic patch and the reload now agree.
+				 */
+				patchState(transfer.itemId, SyncState.AWAITING_INDEX);
 				break;
 			}
 			case TransferState.DOWNLOADING:
@@ -290,6 +325,7 @@ export const useMediaStore = defineStore('media', () => {
 		loaded,
 		error,
 		search,
+		count,
 		searchGroups,
 		clearGroups,
 		group,

@@ -73,9 +73,14 @@ export enum PeerDirection {
 
 /** How the link is carried, once negotiated. */
 export enum PeerLinkMode {
-	/** Direct connection, after the rendezvous introduced both ends. */
+	/** A socket between the two gateways, dialled or opened after an introduction. */
 	DIRECT = 'direct',
-	/** Through the rendezvous, when no direct path could be opened. */
+	/**
+	 * Carried by the friend in the middle, when neither end can be dialled.
+	 *
+	 * The bytes really do cross their machine — nothing here is encrypted above the
+	 * transport — which is why the peer card says so rather than showing a word.
+	 */
 	RELAY = 'relay',
 }
 
@@ -111,8 +116,25 @@ export interface Peer {
 	 * Widening the reach for the first is harmless; doing it for the second, by
 	 * raising one number that applies to both, is how a friends-and-family index
 	 * quietly becomes a public one.
+	 *
+	 * Like `Settings.peerMaxDepth`, it is a consent rather than a tuning knob: an
+	 * introduction this friend hands out is somebody opening a link straight to this
+	 * gateway, so shortening it here says "fewer of their circle may reach me".
 	 */
 	maxDepth: number | null;
+	/**
+	 * They arrived through an introduction and are not being kept.
+	 *
+	 * The link is real while it lasts — it is the same authenticated socket a friend
+	 * gets — but it was opened to move one file, and it closes with the transfer.
+	 * `Settings.keepDiscoveredPeers` is what decides: on, a peer met this way is added
+	 * to the list like any other and this is false.
+	 *
+	 * Worth showing rather than hiding, because the row really is in the list for a
+	 * while: a peer nobody invited, appearing and then disappearing with no word for
+	 * it, reads as a bug.
+	 */
+	discovered: boolean;
 	/**
 	 * They are a peer, the link stays open, and they are served nothing of ours.
 	 *
@@ -165,7 +187,7 @@ export interface AddPeerRequest {
 	/**
 	 * Where to reach them, when you know.
 	 *
-	 * Optional because the rendezvous can find them by fingerprint. Given, it is tried
+	 * Optional because a friend of theirs can introduce us instead. Given, it is tried
 	 * first — a direct address is faster and involves nobody else.
 	 */
 	address?: string;
@@ -174,13 +196,22 @@ export interface AddPeerRequest {
 /**
  * What you hand to a friend so they can link to you.
  *
- * It carries the fingerprint, the rendezvous to meet at, and a one-shot secret. It
- * expires: an invitation that never expires is a credential left lying around.
+ * It carries the fingerprint, **the issuing gateway's own address**, and a one-shot
+ * secret. It expires: an invitation that never expires is a credential left lying
+ * around.
  */
 export interface PeerInvite {
 	code: string;
 	fingerprint: string;
-	rendezvous: string;
+	/**
+	 * Where the gateway that minted this can be reached — `Settings.publicUrl`.
+	 *
+	 * Empty when nobody has set one, and an invitation with nothing here names a
+	 * gateway without saying where it is: the two ends then need a friend in common,
+	 * and by definition a first peer has none. The field used to be called
+	 * `rendezvous` and is still read under that name; see `PeerManager`.
+	 */
+	address: string;
 	expiresAt: string;
 	/** Ready to copy and paste, encoding everything above. */
 	url: string;
@@ -266,7 +297,6 @@ export interface PeerIdentity {
 	nodeId: string;
 	fingerprint: string;
 	name: string;
-	rendezvous: string;
 	/** Address peers can reach directly, when the port is forwarded. */
 	directAddress: string | null;
 	/** False when only relayed links are possible. */

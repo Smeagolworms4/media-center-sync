@@ -56,8 +56,29 @@ export interface PlacementRequest {
 	 * than in a second copy of the show elsewhere.
 	 */
 	existingPath?: string | null;
-	/** Chosen by the sync plan, which overrides the global strategy. */
+	/**
+	 * The library this pull would rather go to: a plan's standing preference, or the
+	 * one a single run named.
+	 *
+	 * It is consulted **after** `existingPath` and before the configured targets, and
+	 * that order is the decision. Above everything it would file the fourth season of a
+	 * show into the preferred shelf while the first three stayed where they are, and no
+	 * media server shows a series split across two folders as one series — a worse
+	 * outcome than landing somewhere unexpected, which is at least whole and visible.
+	 * Below the category it would never do anything on the gateways that have a category
+	 * table, which is most of them, and a preference nothing ever honours is a field that
+	 * lies. So: it decides where genuinely new things go, and never splits a show.
+	 */
 	preferredLibraryId?: string | null;
+	/**
+	 * Which kind of decision that preference was, for the record on the transfer.
+	 *
+	 * The two are told apart on the screen and fixed in two different places — a plan's
+	 * preference is changed on the plan, a run's request died with the run — so the
+	 * caller says which it meant rather than having it guessed from whether a plan was
+	 * involved. Defaults to `REQUESTED`, the narrower reading of the two.
+	 */
+	preferredBy?: PlacedBy.PLAN_PREFERENCE | PlacedBy.REQUESTED;
 	/** Refuse a target that cannot hold this. Zero skips the check. */
 	requiredBytes?: number;
 	/**
@@ -300,8 +321,8 @@ export class PlacementService {
 	 * chain of nested conditionals here is how a placement bug becomes unexplainable.
 	 * The order is the specification —
 	 *
-	 * 1. what this run explicitly asked for;
-	 * 2. the folder our own copies of this series are already in;
+	 * 1. the folder our own copies of this series are already in;
+	 * 2. the library the plan prefers, or the one this run explicitly asked for;
 	 * 3. the library this category is configured to receive;
 	 * 4. the library everything else is configured to receive;
 	 * 5. the fixed path, when that strategy is selected;
@@ -310,6 +331,16 @@ export class PlacementService {
 	 *
 	 * — and each step only ever appends, so a destination that cannot be written into
 	 * hands the question to the next one instead of failing the pull.
+	 *
+	 * Steps one and two used to be the other way round, and swapping them is a
+	 * behaviour change worth stating. A preference that outranked the existing copy
+	 * filed the fourth season of a show into the preferred shelf while the first three
+	 * stayed where they were, and neither media server shows that as one series: a
+	 * split show is a worse outcome than a file landing somewhere unexpected, because
+	 * the second is whole and visible and the first is neither. Putting the preference
+	 * any lower — under the category — would make it dead weight on every gateway with
+	 * a category table, which is most of them. Between those two it does exactly what
+	 * somebody setting it meant: it decides where new things go.
 	 */
 	private _candidates(request: PlacementRequest): {
 		attempts: PlacementAttempt[];
@@ -322,19 +353,6 @@ export class PlacementService {
 		const attempts: PlacementAttempt[] = [];
 		const skipped: string[] = [];
 
-		// An explicit choice by the sync plan outranks the settings, because somebody
-		// typed it for this run.
-		const preferred = usable.find((library) => library.id === request.preferredLibraryId);
-
-		if (preferred) {
-			attempts.push({
-				library: preferred,
-				root: preferred.localPath as string,
-				strategy: request.settings.placement,
-				fallback: false,
-			});
-		}
-
 		/*
 		 * A series we already hold keeps its own folder, whatever the settings say.
 		 *
@@ -344,8 +362,9 @@ export class PlacementService {
 		 * somewhere else. A season split across two folders is worse than either
 		 * destination on its own — neither media server shows it as one series.
 		 *
-		 * It sits above the configured targets below for the same reason: those decide
-		 * where something *new* goes, and an episode of a series we hold is not new.
+		 * It sits above everything below, including the plan's preference, for the same
+		 * reason: those decide where something *new* goes, and an episode of a series we
+		 * hold is not new.
 		 */
 		if (request.existingPath) {
 			const host = this._libraryHolding(usable, request.existingPath);
@@ -361,6 +380,20 @@ export class PlacementService {
 			// No local copy, or it lives outside every writable library: nothing to sit
 			// beside, so the configured destinations below apply rather than an error.
 			// That is the common case on a first sync, not a fault.
+		}
+
+		// The plan's standing preference, or the library this one run named. It outranks
+		// the settings because somebody chose it for this pull and the settings are what
+		// applies when nobody did.
+		const preferred = usable.find((library) => library.id === request.preferredLibraryId);
+
+		if (preferred) {
+			attempts.push({
+				library: preferred,
+				root: preferred.localPath as string,
+				strategy: request.settings.placement,
+				fallback: false,
+			});
 		}
 
 		// A key whose category has vanished is never reached rather than cleaned up:

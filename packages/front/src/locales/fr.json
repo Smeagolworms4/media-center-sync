@@ -118,6 +118,20 @@
 	"general": {
 		"byte_unit": "o"
 	},
+	"history": {
+		"view": {
+			"live": "En cours",
+			"finished": "Terminés",
+			"all": "Tous"
+		},
+		"see_finished": "Voir les terminés",
+		"hint_transfers": "Seul ce qui avance est affiché. Les transferts terminés sont sous Terminés.",
+		"hint_runs": "Seules les exécutions en cours sont affichées. Les exécutions terminées sont sous Terminés.",
+		"empty_live_title": "Rien n’avance",
+		"empty_live_text": "Aucun transfert en cours, en attente ou en pause pour le moment. Tout ce qui est déjà terminé est toujours là, sous Terminés.",
+		"empty_live_runs_title": "Aucune exécution en cours",
+		"empty_live_runs_text": "Aucune synchronisation n’est en cours. Les exécutions déjà terminées sont toujours là, sous Terminés."
+	},
 	"cron": {
 		"describe": {
 			"every_minute": "Chaque minute.",
@@ -147,6 +161,7 @@
 		"services_all_online": "Tous répondent",
 		"missing": "Manquants ici",
 		"missing_hint": "Connus ailleurs, absents ici",
+		"awaiting_index": "{count} téléchargés, en attente de la resynchronisation de la bibliothèque",
 		"active_transfers": "Transferts en cours",
 		"queued": "{count} en attente",
 		"peers": "Pairs",
@@ -161,6 +176,7 @@
 		"all_jobs": "Voir toutes les exécutions",
 		"problem": {
 			"library_not_writable": "{name} n'est pas accessible en écriture — les transferts atterriraient là où votre serveur ne regarde jamais",
+			"not_indexed": "{count} fichiers téléchargés que votre serveur multimédia n'a jamais indexés",
 			"service_offline": "{name} ne répond pas",
 			"service_unauthorized": "{name} a refusé la passerelle — vérifiez son jeton",
 			"peer_unreachable": "{name} est injoignable",
@@ -181,7 +197,7 @@
 		"section_count": "aucun élément | {count} élément | {count} éléments",
 		"section_empty": "Rien dans cette catégorie ne correspond à ces filtres.",
 		"section_latest": "ajouts récents",
-		"section_local": "À nous",
+		"section_local": "Fichiers ici",
 		"everything": "Toutes catégories confondues",
 		"categories": "Vos bibliothèques",
 		"categories_hint": "Les bibliothèques du même nom, sur tous les serveurs, vues comme une seule.",
@@ -224,8 +240,21 @@
 	},
 	"category": {
 		"empty": "Aucune catégorie pour l'instant. Enregistrez un service média et analysez-le : ses bibliothèques apparaîtront ici.",
-		"local": "À nous",
-		"libraries": "aucune bibliothèque | {count} bibliothèque | {count} bibliothèques"
+		"local": "Fichiers ici",
+		"libraries": "aucune bibliothèque | {count} bibliothèque | {count} bibliothèques",
+		"mapping": {
+			"pool_title": "Pas encore rangées",
+			"unfile": "Remettre tout en haut",
+			"pool_empty": "Plus rien en attente — tout est rangé.",
+			"map_to": "Ranger dans",
+			"move_to": "Déplacer",
+			"add_keyword": "Un autre nom pour cette catégorie",
+			"no_keyword": "Aucun nom branché pour l’instant.",
+			"no_local": "Aucune catégorie à vous pour l’instant. Enregistrez un service multimédia que cette passerelle atteint, puis analysez-le.",
+			"applied": "« {keyword} » se range ici désormais.",
+			"undo": "Annuler",
+			"order_title": "Ordre, renommage et réorganisation"
+		}
 	},
 	"media": {
 		"children": "Contenu",
@@ -436,7 +465,9 @@
 		"empty_text": "Collez l'empreinte d'un ami, ou donnez-lui une invitation — les deux relient les passerelles.",
 		"shares": "{services} services · {items} éléments partagés",
 		"last_seen": "vu",
-		"relay_hint": "Ce lien passe par le rendez-vous, dont la bande passante est partagée par tous ceux qui l'utilisent.",
+		"relay_hint": "Ce lien est porté par l'ami qui a présenté les deux passerelles : c'est sa machine qui transporte les octets, aux frais de sa bande passante montante.",
+		"discovered_chip": "Temporaire",
+		"discovered_hint": "Rencontrée en récupérant un fichier chez l'ami d'un ami. Les deux passerelles sont reliées directement, et ce lien se ferme à la fin du transfert — pour le garder, activez la conservation des pairs rencontrés dans les réglages.",
 		"remove_title": "Supprimer ce pair ?",
 		"remove_confirm": "Le lien avec {name} sera rompu. Ce qui a déjà été récupéré reste, et ce pair pourra redemander — pour refuser sa clé définitivement, il faut le bannir.",
 		"connecting": "Nouvelle tentative de connexion au pair…",
@@ -464,7 +495,7 @@
 			"fingerprint": "Leur empreinte",
 			"fingerprint_hint": "Telle que leur propre passerelle l'affiche, sous « Cette passerelle ».",
 			"address": "Leur adresse",
-			"address_hint": "Facultatif. Essayée en premier quand vous la connaissez ; sinon le rendez-vous les trouve.",
+			"address_hint": "Facultatif. Essayée en premier quand vous la connaissez ; sinon, un ami que vous avez tous les deux peut vous présenter.",
 			"action": "Envoyer la demande"
 		},
 		"status": {
@@ -486,10 +517,9 @@
 			"node_id": "Identifiant de nœud",
 			"node_id_help": "Le nom stable de cette passerelle sur tout le réseau partagé. Généré une fois, et délibérément différent de l'empreinte : changer de clé ne doit pas la faire passer pour un nouveau participant. C'est ce que l'on cite quand une annonce venue d'un ami d'ami tourne en rond.",
 			"fingerprint": "Empreinte",
-			"rendezvous": "Rendez-vous",
 			"direct_address": "Adresse directe",
 			"direct_ok": "Les connexions directes sont possibles : les transferts ne passent pas par le relais.",
-			"relay_only": "Cette passerelle n'est pas joignable depuis l'extérieur : vos amis ne peuvent pas s'y connecter directement et chaque transfert passe par le rendez-vous, dont la bande passante est partagée entre tous ceux qui l'utilisent au même moment. Rediriger le port de l'interface sur votre box règle le problème. Il n'y a pas de second port à ouvrir : un lien entre pairs est une connexion WebSocket sur celui-là même."
+			"relay_only": "Cette passerelle n'est pas joignable depuis l'extérieur : vos amis ne peuvent pas s'y connecter directement, et un lien dépend alors d'un ami que vous avez déjà tous les deux, sans autre recours. Rediriger le port de l'interface sur votre box règle le problème. Il n'y a pas de second port à ouvrir : un lien entre pairs est une connexion WebSocket sur celui-là même."
 		},
 		"invite": {
 			"open": "Relier une passerelle",
@@ -547,6 +577,7 @@
 		},
 		"connect_hint": "Cette passerelle se connecte au démarrage et retente seule après une coupure, en attendant de plus en plus longtemps. Ceci réessaie tout de suite.",
 		"unreachable_hint": "Injoignable pour le moment. La passerelle continue d'essayer seule, en espaçant les tentatives.",
+		"unreachable_port_hint": "Si aucune des deux passerelles n'est joignable et que vous n'avez aucun ami commun, il ne reste rien à tenter : rediriger le port de l'interface sur l'une des deux box est ce qui ouvre le lien.",
 		"reading_forbidden_chip": "Ne voit rien",
 		"reading_forbidden_hint": "Lecture interdite : le lien est maintenu et cette passerelle lit toujours la sienne, mais tout ce que ce pair demande reçoit une réponse vide.",
 		"forbid_reading_title": "Interdire la lecture à ce pair ?",
@@ -705,24 +736,21 @@
 		"destination": {
 			"rule_title": "Comment la passerelle décide où va un fichier",
 			"rule_existing": "Une série que vous avez déjà garde son propre dossier. Un nouvel épisode est rangé à côté de ses voisins, avec l'orthographe de dossier de saison propre à cette bibliothèque — Saison 1 reste Saison 1.",
-			"rule_category": "Sinon, la bibliothèque définie pour cette catégorie dans le tableau ci-dessous.",
+			"rule_plan": "Un plan de synchronisation peut préférer une bibliothèque : tout ce qu'il récupère de nouveau y va, avant le tableau ci-dessous.",
+			"rule_category": "Sinon, la bibliothèque vers laquelle pointe cette catégorie, dans Catégories plus bas.",
 			"rule_global": "Sinon, la bibliothèque de destination par défaut.",
 			"rule_fallback": "Sinon, le dossier de repli.",
 			"rule_fixed": "La première étape n'est pas un réglage et ne peut pas être désactivée. Éclater une saison sur deux dossiers est pire que l'une ou l'autre réponse prise seule, donc une série qui a déjà un foyer le garde.",
 			"global": "Bibliothèque de destination par défaut",
 			"global_help": "Là où atterrit tout ce qu'aucune catégorie ne nomme. Réglez celle-ci et vous n'aurez jamais besoin d'ouvrir le tableau.",
 			"none": "Aucune bibliothèque ici ne peut recevoir de fichiers. Une destination doit être une bibliothèque d'un de vos propres services, dans laquelle cette passerelle peut écrire.",
-			"table_title": "Exceptions par catégorie",
-			"table_help": "Une ligne par catégorie. Une ligne laissée telle quelle utilise la destination par défaut ci-dessus.",
-			"category_header": "Catégorie",
 			"target_header": "Va vers",
 			"falls_back": "Se rabat sur {target}",
 			"merges": "Choisir une destination classe aussi cette catégorie sous le nom de cette bibliothèque : dans la vue des bibliothèques, les deux n’en forment plus qu’une, et non deux.",
-			"merges_foreign": "Cette passerelle n’atteint pas les dossiers de ces bibliothèques : leurs noms restent tels quels et cette catégorie reste affichée à part. Seul l’endroit où arrivent les nouveaux fichiers change.",
 			"fallback_unset": "n’importe quelle bibliothèque capable de l’accueillir — rien n’est défini ci-dessus",
 			"rejected": {
-				"not_ours": "{library} sur {service} ne peut pas être proposée : cette passerelle n’atteint pas les dossiers de ce serveur, donc rien de ce qui y serait écrit n’y apparaîtrait.",
-				"not_writable": "{library} sur {service} ne peut pas être proposée : cette passerelle ne peut pas écrire dans son dossier."
+				"not_ours": "cette passerelle n’atteint pas les dossiers de ce serveur",
+				"not_writable": "cette passerelle ne peut pas écrire dans son dossier"
 			},
 			"fixed_path_active": "Tout part actuellement dans {path}, quoi que ce soit — un ancien réglage qui prime sur toute cette page. Rien de ce qui précède ne s’applique tant qu’il n’est pas effacé.",
 			"fixed_path_clear": "Utiliser la règle ci-dessus"
@@ -768,13 +796,14 @@
 		"rate_limit_help": "Par exemple 10M. Vide signifie sans limite.",
 		"upload_rate_limit_help": "Par exemple 10M. Vide signifie sans limite. Cela bride tout ce que cette passerelle envoie, y compris ce que les pairs y récupèrent.",
 		"categories_help": "Les bibliothèques de même nom forment une catégorie, et voici l'ordre dans lequel elles apparaissent. Une bibliothèque se renomme et se réordonne sur le service qui la détient.",
+		"categories_mapping_help": "Donnez à chacune de vos catégories les noms sous lesquels apparaissent les bibliothèques des autres. Une bibliothèque dont le nom correspond rejoint la catégorie toute seule — y compris celle qui arrivera plus tard, sur une passerelle que vous n’avez pas encore rencontrée.",
 		"categories_edit": "Renommer ou réordonner une bibliothèque",
-		"history_days": "Conserver les transferts terminés",
-		"history_days_help": "En jours. Passé ce délai, ils quittent la file.",
+		"history_days": "Conserver ce qui a réussi pendant",
+		"history_days_help": "En jours. S’applique aux transferts et aux exécutions de synchronisation qui ont abouti. Zéro n’en conserve aucun.",
 		"swarm": "Autoriser l'essaim",
 		"swarm_help": "Plusieurs pairs détenant le même fichier peuvent alimenter un même transfert.",
-		"rendezvous": "Rendez-vous",
-		"rendezvous_help": "Le serveur qui présente deux passerelles pour qu'elles ouvrent un lien direct.",
+		"keep_discovered_peers": "Conserver les pairs rencontrés pendant un téléchargement",
+		"keep_discovered_peers_help": "Quand vous récupérez un fichier chez l'ami d'un ami, les deux passerelles se connectent directement ; gardez-la dans votre liste, ou laissez la connexion se fermer avec le transfert.",
 		"match_threshold": "Seuil de corrélation",
 		"match_threshold_help": "En dessous de ce score, une corrélation est proposée plutôt qu'appliquée.",
 		"refresh_interval": "Rafraîchir toutes les (minutes)",
@@ -790,11 +819,14 @@
 		"peer_max_depth_help": "Sauts autorisés depuis ici : 1 pour les amis seuls, 2 pour leurs amis, et ainsi de suite.",
 		"peer_max_depth_pinned": "Fixé par l'environnement de ce déploiement et non modifiable ici.",
 		"peer_max_depth_per_peer": "Un plafond pour toute la passerelle. Chaque pair peut être limité plus court sur sa propre ligne, et aucun réglage ici ne dépasse ce qu'un autre a autorisé.",
+		"peer_max_depth_consent": "C'est un consentement, pas un réglage de recherche : être joignable à cette distance est l'accord lui-même, donc l'abaisser restreint qui peut ouvrir un lien vers cette passerelle. C'est le seul réglage de portée qui existe.",
 		"write_nfo": "Écrire un .nfo quand la source n'en a pas",
 		"write_nfo_help": "Une source garde souvent ses métadonnées dans sa propre base et rien sur le disque : la copie donne le fichier et aucun des faits, et votre serveur de médias ré-identifie alors l'épisode d'après son nom. Ne remplace jamais un document que vous avez déjà.",
 		"default_share": "Partager les nouvelles bibliothèques avec",
 		"default_share_help": "S'applique dès qu'un scan découvre une bibliothèque, pour qu'un ami qui se relie à cette passerelle ne tombe pas sur une étagère vide.",
-		"default_share_note": "S’applique à toutes les bibliothèques d’un serveur dont le partage est activé — y compris celles dont cette passerelle n’a pas les fichiers, qui sont alors lues sur ce serveur et retransmises aux dépens de cette connexion. Ce qu’un pair partage avec nous n’est jamais retransmis plus loin."
+		"default_share_note": "S’applique à toutes les bibliothèques d’un serveur dont le partage est activé — y compris celles dont cette passerelle n’a pas les fichiers, qui sont alors lues sur ce serveur et retransmises aux dépens de cette connexion. Ce qu’un pair partage avec nous n’est jamais retransmis plus loin.",
+		"failed_history_days": "Conserver les échecs pendant",
+		"failed_history_days_help": "En jours, et plus longtemps à dessein : un transfert en échec est la trace de ce qui n’est jamais arrivé."
 	},
 	"sync": {
 		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",
@@ -811,6 +843,8 @@
 		"state": {
 			"local_only": "Uniquement ici",
 			"missing": "Manquant ici",
+			"awaiting_index": "Téléchargé — resynchronisation",
+			"not_indexed": "Jamais indexé",
 			"in_sync": "Synchronisé",
 			"outdated": "Obsolète",
 			"conflict": "Conflit",
@@ -820,6 +854,8 @@
 		"state_help": {
 			"local_only": "Présent ici et sur aucun autre service connu.",
 			"missing": "Un autre service le possède, pas celui-ci. Une synchronisation le récupère.",
+			"awaiting_index": "Le fichier est sur votre disque. Le serveur multimédia a reçu une demande d'analyse et ne l'a pas encore indexé.",
+			"not_indexed": "Le fichier est sur votre disque depuis des heures et aucun serveur multimédia ne l'a indexé. Vérifiez que le dossier où la passerelle écrit est bien celui que votre serveur analyse.",
 			"in_sync": "Présent des deux côtés, même version.",
 			"outdated": "Présent ici, mais une meilleure version existe ailleurs.",
 			"conflict": "Deux versions non comparables — montages ou langues différents.",
@@ -863,8 +899,8 @@
 			"sources_default": "Aucune source fixée : le plan suit la priorité des services définie dans les paramètres, ce qui convient à presque tout le monde.",
 			"sources_ordered": "Consultées dans cet ordre.",
 			"add_source": "Ajouter une source",
-			"target": "Bibliothèque cible",
-			"target_hint": "Vide signifie : à côté de notre propre copie, ou dans la cible par défaut de ce type.",
+			"target": "Bibliothèque préférée",
+			"target_hint": "Où ce plan range ce qui est nouveau. Une série que vous avez déjà garde malgré tout son propre dossier. Vide : ce sont les règles ci-dessous qui décident.",
 			"root": "Élément racine",
 			"root_hint": "Facultatif. L'identifiant d'une série ou d'une collection, pour restreindre le plan à ce sous-arbre.",
 			"filters": "Filtres",
@@ -974,7 +1010,7 @@
 		"transport": {
 			"http_range": "HTTP par plages vers le service",
 			"peer_direct": "Lien direct vers le pair",
-			"peer_relay": "Relayé par le rendez-vous",
+			"peer_relay": "Relayé par un ami",
 			"swarm": "Essaim — plusieurs pairs alimentent ensemble"
 		},
 		"stats": {
@@ -1058,10 +1094,14 @@
 			"cancel": "Annuler"
 		},
 		"retarget": {
-			"title": "Le récupérer ailleurs",
-			"hint": "L'élément sera replanifié vers la bibliothèque choisie. Seules les bibliothèques accessibles en écriture sont proposées.",
-			"library": "Bibliothèque cible",
-			"confirm": "Le récupérer là"
+			"title": "L'envoyer dans une autre bibliothèque",
+			"hint_repoint": "Rien n'a encore été déposé : cela ne change que la destination. Le téléchargement n'est pas interrompu et pas un octet n'est copié.",
+			"hint_move": "Ce fichier est déjà dans une bibliothèque. En choisir une autre le déplace réellement, ce qui prend un moment sur un gros fichier — la file en montre la progression.",
+			"library": "Bibliothèque de destination",
+			"confirm": "L'envoyer là",
+			"confirm_move": "Le déplacer là",
+			"repointed": "Il ira là à la place.",
+			"moved": "Déplacé. Le fichier est maintenant dans cette bibliothèque."
 		},
 		"revalidation": {
 			"title": "Pourquoi ce transfert a changé d'avis",
@@ -1159,7 +1199,11 @@
 		"library": {
 			"not_found": "Cette bibliothèque n'existe plus.",
 			"path_unreadable": "La passerelle ne peut pas lire ce chemin.",
-			"path_not_writable": "La passerelle ne peut pas écrire dans ce chemin."
+			"path_not_writable": "La passerelle ne peut pas écrire dans ce chemin.",
+			"category_not_found": "Cette catégorie ne correspond plus à rien ici. Rechargez la page : les bibliothèques qui la composaient ont pu être renommées ou supprimées.",
+			"keyword_not_found": "Ce nom n’est plus branché nulle part. Rechargez la page.",
+			"keyword_invalid": "Rien ne pourra jamais correspondre à cela. Utilisez au moins une lettre ou un chiffre.",
+			"keyword_taken": "Une autre catégorie range déjà ce nom. Déplacez-le depuis celle-ci plutôt que de l’ajouter deux fois."
 		},
 		"media": {
 			"not_found": "Ce média n'existe plus."
@@ -1174,7 +1218,8 @@
 			"protocol_unsupported": "Ce pair parle une version du protocole que cette passerelle ne connaît pas.",
 			"method_unsupported": "Ce pair a demandé quelque chose que cette passerelle n'implémente pas.",
 			"banned": "Cette empreinte est sur la liste des bannis. Levez le bannissement avant de relier ce pair.",
-			"ban_not_found": "Aucun bannissement ne correspond à cette empreinte."
+			"ban_not_found": "Aucun bannissement ne correspond à cette empreinte.",
+			"introduction_refused": "Cette passerelle n'est pas joignable par l'intermédiaire de cet ami."
 		},
 		"sync": {
 			"plan_not_found": "Ce plan de synchronisation n'existe plus.",
@@ -1188,6 +1233,7 @@
 		"transfer": {
 			"not_found": "Ce transfert n'existe plus.",
 			"not_resumable": "Ce transfert ne peut pas reprendre et doit recommencer.",
+			"being_placed": "Ce fichier est en train d'être déplacé dans sa bibliothèque. Réessayez une fois que ce sera terminé.",
 			"no_space": "Espace libre insuffisant sur la bibliothèque cible.",
 			"checksum_mismatch": "Le fichier téléchargé ne correspond pas à son empreinte.",
 			"destination_full": "La destination s’est remplie pendant le déplacement du fichier. Rien n’est perdu : libérez de l’espace et reprenez, le déplacement repartira d’où il s’est arrêté.",

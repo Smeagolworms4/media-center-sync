@@ -19,7 +19,14 @@ export enum TransferAction {
 	REPAIR = 'repair',
 	/** Plan the item again so the sources are chosen from scratch. */
 	ANOTHER_SOURCE = 'another_source',
-	/** Plan the item again into a library the gateway can actually write to. */
+	/**
+	 * Send this transfer to another library.
+	 *
+	 * Not a re-plan: the transfer is re-pointed where it stands, which costs one row
+	 * write while it is still downloading and a real move of real bytes once the file
+	 * has landed. Re-planning would start the item over and fetch everything again,
+	 * which is the wrong answer to "the disk it was going to is full".
+	 */
 	ANOTHER_TARGET = 'another_target',
 	/** The source refused us: its credentials are the thing to fix. */
 	FIX_SERVICE = 'fix_service',

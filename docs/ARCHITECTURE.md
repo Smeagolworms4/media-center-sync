@@ -55,7 +55,7 @@ packaging, and the only place the two meet.
 `packages/shared` is not a utility library. It holds the vocabulary both sides have to
 agree on:
 
-- the seven `SyncState` values the whole interface renders;
+- the `SyncState` values the whole interface renders;
 - `MediaServiceType`, `TransferState`, `RevalidationOutcome` and the rest of the
   enums that appear in the database, in HTTP payloads and in the UI;
 - every request and response shape;
@@ -237,18 +237,31 @@ queue shows results nobody can account for.
 ## Peers
 
 ```
-gateway A ──┐                        ┌── gateway B
-            ├─▶ rendezvous ◀─────────┤      introduce by fingerprint
+gateway A ──┐                        ┌── gateway C
+            ├─▶ friend B ◀───────────┤      introduce by fingerprint
             │                        │
-            └────── direct link ─────┘      or relay, when direct fails
+            └────── direct link ─────┘      or B relays, when direct fails
 ```
 
-Identity is the public key fingerprint, never the address. Linking happens through a
-one-shot, expiring invitation carrying the fingerprint, a rendezvous and a secret.
+Identity is the public key fingerprint, never the address. **Peers are introduced by
+the intermediaries they already have**: there is no server in the middle, no address
+to look up and nothing to configure. The ladder is the last known address, then an
+introduction from a friend both ends have, then that same friend carrying the bytes.
 
-The rendezvous introduces; it is not trusted with content. When no direct path opens it
-can relay, and that is the degraded mode — shared bandwidth, and a third party in the
-path — not the normal one.
+Which friends are asked is `PeerManager.introducersFor`: the peer that told us about
+this one first — that is how we know it exists — then the other linked peers, and at
+most `MAX_INTRODUCERS_ASKED` of them, because a gateway working through twenty friends
+in turn is a screen that hangs.
+
+The very first peer has nobody in the middle by definition, and that is what the
+one-shot, expiring invitation is for: it carries the fingerprint, **the issuing
+gateway's own address** and a secret, handed over out of band. That address names the
+sender and nobody else.
+
+Relaying is the last rung and is gated on the friend advertising `PeerCapability.RELAY`,
+which this gateway never does. So two gateways behind two routers with no friend in
+common cannot be connected — a stated limit, reported on the peers screen with the
+forwarded port named as the fix.
 
 ### One port
 
@@ -274,8 +287,8 @@ Both ends exchange a `PeerHello` — node identity, fingerprint, name, protocol 
 capabilities — before anything else is served. The answer to the first hello carries
 the responder's public key and a signature over the initiator's challenge, so the
 machine that answered proves it holds the key behind the fingerprint that was asked
-for. The address came from a rendezvous we do not control; that proof is the whole
-security argument for connecting first and verifying after.
+for. On the middle rung the address came from an introducer that chose it; that proof
+is the whole security argument for connecting first and verifying after.
 
 A version outside `SUPPORTED_PROTOCOL_VERSIONS` is refused outright with
 `error.peer.protocol_unsupported`. Before the first release there is one version, and
@@ -301,13 +314,16 @@ port, a public host, a tunnel, a proxy with a name. Whoever is reachable is dial
 
 It does nothing for the case where **both** ends are behind NAT with nothing
 forwarded. A WebSocket needs something to connect to, and in that topology neither
-side has one. Such a pair falls back to the rendezvous relay: correct, slower, and a
-third party carrying every byte.
+side has one. A friend both ends already have can introduce them, which gets past "has
+never heard of you" but not past "there is no socket to open"; that friend can also
+carry the bytes, and this gateway never offers to. **Such a pair, with no friend in
+common, cannot be connected at all** — a stated limit, not a field somebody left empty,
+and the fix is a forwarded port on one of the two routers.
 
-The intended answer is **WebRTC** — ICE with STUN to discover each end's public
-address, TURN when it cannot be discovered, signalled over the rendezvous that already
-exists for introductions (`rendezvousUrl` in the settings). It is **not implemented**,
-and nothing in the code pretends otherwise.
+The intended answer for the general case is **WebRTC** — ICE with STUN to discover each
+end's public address, TURN when it cannot be discovered, signalled over the peer link
+that already carries introductions. It is **not implemented**, and nothing in the code
+pretends otherwise.
 
 A linked peer can announce that one of *its* peers holds a given `contentId`. That
 friend of a friend widens the swarm and is marked as such everywhere, and

@@ -132,6 +132,34 @@ daily are in the README. Two habits worth keeping:
   the media server's path do not designate the same directory accepts transfers that
   the server will never see, and nothing anywhere reports an error.
 
+## You are not alone in this working tree
+
+Several people and several assistants work in this repository at the same time, and
+the working tree is shared. Everything below follows from that one fact.
+
+**Never run a git command that acts on the whole repository.** No `git stash`, no
+`git checkout -- .`, no `git reset --hard`, no `git clean`, no `git restore` without
+a path. These do not touch "your" changes — they touch everybody's, silently, and the
+person whose work vanished has no reason to suspect git. This has already cost a
+working tree: somebody stashed to find out whether a test failure was theirs, and
+took a hundred and thirteen modified files and a hundred untracked ones with it,
+including four features that were finished and unreviewed.
+
+To find out whether a failure is yours, read the diff of the file that failed. If you
+genuinely need a clean tree to compare against, use `git worktree add` and work in
+the copy — it is the only way to get one without taking it from somebody else.
+
+**Stage by name, never `git add -A`.** A commit built from `-A` sweeps in whatever
+anybody else had half-written, and `main` goes red for reasons nobody can attribute.
+
+**Re-read a file immediately before you edit it**, especially one you were told
+somebody else is working in. The version you read ten minutes ago may no longer be
+the one on disk, and an edit written against the old one silently reverts theirs.
+
+**A failure in a file you did not touch is not yours to fix.** Say so in your report
+and leave it; the person it belongs to is probably mid-edit, and "fixing" it means
+two of you writing the same lines.
+
 ## Commits
 
 One coherent change per commit. The subject says what changed, in the imperative or as

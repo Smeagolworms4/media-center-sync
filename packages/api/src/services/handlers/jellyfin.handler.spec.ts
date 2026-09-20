@@ -631,4 +631,30 @@ describe('JellyfinHandler', () => {
 			expect(fetchMock).toHaveBeenCalledTimes(1);
 		});
 	});
+
+	describe('requestRescan', () => {
+		it('asks the one library to re-read itself, recursively', async () => {
+			// Recursive is the load-bearing parameter: without it Jellyfin re-reads the
+			// library node's own metadata and never descends, so the episode that just
+			// landed three directories down is not seen and the refresh looks like a
+			// call that did nothing.
+			const fetchMock = stubFetch(() => ({}));
+
+			await expect(handler.requestRescan(connection, library)).resolves.toBe('library');
+
+			const [url, init] = fetchMock.mock.calls[0];
+
+			expect(String(url)).toContain('/Items/folder-1/Refresh');
+			expect(String(url)).toContain('Recursive=true');
+			expect(String(url)).toContain('ImageRefreshMode=None');
+			expect((init as RequestInit).method).toBe('POST');
+		});
+
+		it('falls back to the whole server when no library can be named', async () => {
+			const fetchMock = stubFetch(() => ({}));
+
+			await expect(handler.requestRescan(connection, null)).resolves.toBe('server');
+			expect(String(fetchMock.mock.calls[0][0])).toContain('/Library/Refresh');
+		});
+	});
 });

@@ -11,6 +11,8 @@ import {
 	PeerStatus,
 	PeerTrust,
 	negotiateProtocol,
+	IntroductionRefusal,
+	MAX_INTRODUCERS_ASKED,
 	type MediaService,
 	type AddPeerRequest,
 	type BannedPeer,
@@ -51,6 +53,7 @@ import type { PeerCredentialVerifier } from '@/security';
 import {
 	EventGatewayService,
 	PeerDialOutcome,
+	PeerIntroductionService,
 	PeerLinkService,
 	PeerReconnectService,
 	SettingsService,
@@ -77,8 +80,17 @@ export const PEER_SERVICE_PRIORITY = 500;
 /** Default life of an invitation. Long enough to send, short enough to forget about. */
 export const DEFAULT_INVITE_TTL_MINUTES = 60;
 
-/** `mcs://invite/<code>?fingerprint=…&rendezvous=…&secret=…&exp=…` */
+/** `mcs://invite/<code>?fingerprint=…&address=…&secret=…&exp=…` */
 const INVITE_SCHEME = 'mcs://invite/';
+
+/**
+ * The parameter this used to be called, still read when an invitation carries it.
+ *
+ * An invitation lives in somebody's chat window for an hour, and one minted by a
+ * gateway on the previous image is a perfectly good invitation — refusing to read its
+ * address would turn a rename into a link that silently has nowhere to dial.
+ */
+const LEGACY_INVITE_ADDRESS_PARAM = 'rendezvous';
 
 /**
  * Peers, and the invitations that create them.
@@ -109,6 +121,7 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		private readonly _services: MediaServiceRepository,
 		private readonly _items: MediaItemRepository,
 		private readonly _links: PeerLinkService,
+		private readonly _introductions: PeerIntroductionService,
 		private readonly _settings: SettingsService,
 		private readonly _events: EventGatewayService,
 		private readonly _libraries: LibraryRepository,
@@ -145,11 +158,25 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 */
 	public onModuleInit(): void {
 		this._reconnects.onDial((peerId) => this._dial(peerId));
-		this._links.onLinkLost((peerId) => {
-			this._logger.log(`Link with peer ${peerId} dropped, retrying`);
-			void this._peers.setStatus(peerId, PeerStatus.UNREACHABLE);
-			this._reconnects.schedule(peerId);
-		});
+		this._links.onLinkLost((peerId) => void this._lost(peerId));
+	}
+
+	/**
+	 * A link of ours dropped. Dial again, unless the peer was only ever a transfer.
+	 *
+	 * The two cases are opposite and the distinction has to be made before the retry is
+	 * scheduled: an ordinary friend is tried again, further away each time, while a peer
+	 * met through an introduction and not kept has just finished — redialling them would
+	 * be this gateway chasing a stranger it was never asked to know.
+	 */
+	private async _lost(peerId: string): Promise<void> {
+		if (await this._forgetIfDiscovered(peerId)) {
+			return;
+		}
+
+		this._logger.log(`Link with peer ${peerId} dropped, retrying`);
+		await this._peers.setStatus(peerId, PeerStatus.UNREACHABLE);
+		this._reconnects.schedule(peerId);
 	}
 
 	/**
@@ -161,11 +188,44 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 * changes nothing about whether this gateway can serve its own library.
 	 */
 	public onApplicationBootstrap(): void {
+		void this._resume();
+	}
+
+	/**
+	 * What a restart has to undo before it does anything else.
+	 *
+	 * A peer met through an introduction and not kept lives exactly as long as its
+	 * link, and the link did not survive the process. Sweeping those rows first is also
+	 * what stops the reconnection loop below adopting them: a temporary peer redialled
+	 * at every boot is a link nobody asked for, to somebody nobody invited.
+	 */
+	private async _resume(): Promise<void> {
+		await this._sweepDiscovered();
+
 		if (!this._autoConnect) {
 			return;
 		}
 
-		void this._dialLinkedPeers();
+		await this._dialLinkedPeers();
+	}
+
+	/** Rows left behind by a gateway that stopped mid-transfer. */
+	private async _sweepDiscovered(): Promise<void> {
+		try {
+			const discovered = await this._peers.find({ where: { discovered: true } });
+
+			for (const peer of discovered) {
+				await this.remove(peer.id);
+			}
+
+			if (discovered.length > 0) {
+				this._logger.log(`Forgot ${discovered.length} peers kept only for a transfer`);
+			}
+		} catch (error) {
+			// Worth a line and never worth failing a boot over: the cost of a row that
+			// outlived its link is a peer in a list, not a broken gateway.
+			this._logger.warn(`Could not forget temporary peers: ${String(error)}`);
+		}
 	}
 
 	private async _dialLinkedPeers(): Promise<void> {
@@ -205,9 +265,7 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 * better to know that before wondering why it is slow.
 	 */
 	public async identity(): Promise<PeerIdentity> {
-		const rendezvous = await this._settings.getValue('rendezvousUrl');
-
-		return this._links.identity(await this._instanceName(), rendezvous);
+		return this._links.identity(await this._instanceName());
 	}
 
 	/**
@@ -230,13 +288,25 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 *
 	 * Only the hash of the secret is stored. The secret itself exists in the URL and
 	 * nowhere else, so a stolen database hands over no usable invitations.
+	 *
+	 * **The address it carries is this gateway's own**, and that is the whole reason
+	 * this one address survives while the rendezvous does not. Peers are introduced by
+	 * the friends they already have — except the very first one, where by definition
+	 * there is nobody in the middle, and the two ends have never heard of each other.
+	 * An invitation is what covers exactly that case: it is handed over out of band, it
+	 * is signed, it is one shot and it expires, and the address in it is where *we* are.
+	 * It is not a third party's directory, it names nobody but the sender, and there is
+	 * nothing here for anybody to run or configure beyond the address at which this
+	 * gateway already answers. Empty when `publicUrl` is unset, which is an invitation
+	 * that names a gateway without saying where to find it — the interface says so on
+	 * the setting rather than letting somebody discover it by sending one.
 	 */
 	public async createInvite(ttlMinutes = DEFAULT_INVITE_TTL_MINUTES): Promise<PeerInvite> {
 		const code = randomBytes(9).toString('base64url');
 		const secret = randomBytes(24).toString('base64url');
 		const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
-		const rendezvous = (await this._settings.getValue('rendezvousUrl')) ?? '';
-		const identity = this._links.identity(await this._instanceName(), rendezvous);
+		const address = (await this._settings.getValue('publicUrl')) ?? '';
+		const identity = this._links.identity(await this._instanceName());
 
 		await this._invites.save(
 			this._invites.create({ code, secretHash: this._hash(secret), expiresAt }),
@@ -245,12 +315,12 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		return {
 			code,
 			fingerprint: identity.fingerprint,
-			rendezvous,
+			address,
 			expiresAt: expiresAt.toISOString(),
 			url: this._encode({
 				code,
 				fingerprint: identity.fingerprint,
-				rendezvous,
+				address,
 				secret,
 				expiresAt,
 			}),
@@ -303,16 +373,28 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		}
 
 		const existing = await this._peers.findByFingerprint(fingerprint);
+		/*
+		 * The address in the invitation is kept, and it is the only thing that makes a
+		 * first link possible at all.
+		 *
+		 * Two gateways that have never met have no friend in the middle to introduce
+		 * them, so there is nothing else to dial: without this the row would be linked,
+		 * addressless, and would sit unreachable forever while looking accepted. An
+		 * address we already hold wins, because it was learned from a handshake that
+		 * actually succeeded and this one is somebody's setting.
+		 */
 		const peer = await this._peers.save(
 			existing === null
 				? this._peers.create({
 					name: name ?? this._defaultName(fingerprint),
 					fingerprint,
+					address: parsed.address || null,
 					status: PeerStatus.LINKED,
 					trust: PeerTrust.FRIEND,
 				})
 				: Object.assign(existing, {
 					name: name ?? existing.name,
+					address: existing.address ?? (parsed.address || null),
 					status: PeerStatus.LINKED,
 					trust: PeerTrust.FRIEND,
 				}),
@@ -619,6 +701,14 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 			return;
 		}
 
+		// A peer we are not keeping brought one file, not a library. Registering a
+		// service for them would scan a catalogue we are about to forget, leaving rows
+		// and matches behind for a link that closes with the transfer — and putting a
+		// stranger's whole collection in the library screen for as long as it lasted.
+		if (peer.discovered) {
+			return;
+		}
+
 		try {
 			const service = await this._peerService(peer);
 
@@ -759,6 +849,55 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	}
 
 	/**
+	 * Which friends to ask to introduce us to this peer, best first.
+	 *
+	 * **The peer that told us about this one comes first.** It is the obvious answer
+	 * and the one that certainly can: `viaPeerId` is how we know this gateway exists at
+	 * all, so that friend is linked to them by construction and their ceiling has
+	 * already been checked once. For a peer added by fingerprint or met through an
+	 * invitation there is no such friend, and the list simply starts at the next rung.
+	 *
+	 * **When that one is offline, the others are tried**, and that is deliberate rather
+	 * than an afterthought: a friend's gateway being down is the commonest reason a
+	 * link cannot be opened, and giving up there would make the whole ladder depend on
+	 * one household's uptime. The rest are the peers we are linked to right now, as
+	 * `findLinked` orders them, which is by name — a stable order, so a failure is the
+	 * same failure twice rather than a different one each time somebody presses the
+	 * button. Any of them may turn out to know this peer; none of them is known to.
+	 *
+	 * **And the list is short on purpose.** Each ask is a round trip to a household on
+	 * the other side of a consumer uplink while somebody watches a spinner, so
+	 * `MAX_INTRODUCERS_ASKED` of them are asked and no more. A gateway that tried
+	 * twenty friends in turn before reporting failure is a screen that hangs, and the
+	 * twentieth answer tells nobody anything the first three did not.
+	 *
+	 * Peers with no live link are dropped here rather than asked: an introduction is a
+	 * request over an open socket, and a peer we cannot reach cannot answer one.
+	 */
+	public async introducersFor(peer: PeerEntity): Promise<string[]> {
+		const linked = await this._peers.findLinked();
+		const candidates = [
+			...(peer.viaPeerId === null ? [] : [peer.viaPeerId]),
+			...linked.map((one) => one.id),
+		];
+		const ordered: string[] = [];
+
+		for (const id of candidates) {
+			if (id === peer.id || ordered.includes(id) || !this._links.isLinked(id)) {
+				continue;
+			}
+
+			ordered.push(id);
+
+			if (ordered.length >= MAX_INTRODUCERS_ASKED) {
+				break;
+			}
+		}
+
+		return ordered;
+	}
+
+	/**
 	 * Open the link, and say plainly which of the three things happened.
 	 *
 	 * The distinction is the whole reason this is not just `connect`. A peer nobody
@@ -783,8 +922,6 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 			return PeerDialOutcome.REFUSED;
 		}
 
-		const rendezvous = await this._settings.getValue('rendezvousUrl');
-
 		try {
 			const state = await this._links.connect(
 				{
@@ -794,7 +931,7 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 					address: peer.address,
 					publicKey: peer.publicKey,
 				},
-				rendezvous,
+				{ introducers: await this.introducersFor(peer) },
 			);
 
 			await this._peers.setStatus(peer.id, PeerStatus.LINKED, state.mode, state.address);
@@ -904,13 +1041,31 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 			return null;
 		}
 
+		// Read only when there is a token to weigh it against, so an ordinary link
+		// between two friends costs exactly the queries it always did.
+		if (credential.introduction !== null) {
+			const known = await this._peers.findByFingerprint(credential.fingerprint);
+
+			// A token is only consulted for somebody we have no settled link with. A
+			// friend presenting one changes nothing about a relationship that already
+			// exists, and re-reading it on every reconnection would let a third party go
+			// on restating who somebody is long after the two ends stopped needing them.
+			if (known === null || !this._isSettled(known)) {
+				const introduced = await this._admitIntroduced(credential, known);
+
+				if (introduced !== null) {
+					return introduced;
+				}
+			}
+		}
+
 		// Records a stranger, and settles a request of ours they are answering by
 		// connecting. Both are the same fact seen from two sides.
 		await this.requested(credential.fingerprint, '', credential.address);
 
 		const peer = await this._peers.findByFingerprint(credential.fingerprint);
 
-		if (peer === null || (peer.status !== PeerStatus.LINKED && peer.status !== PeerStatus.UNREACHABLE)) {
+		if (peer === null || !this._isSettled(peer)) {
 			// One answer for an unknown fingerprint and for a peer still pending. Telling
 			// them apart would let a stranger learn whether they are known here by
 			// watching what happens.
@@ -918,6 +1073,208 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		}
 
 		return { peerId: peer.id, name: peer.name };
+	}
+
+	/**
+	 * Somebody we have never met, carrying a token from a gateway we are linked to.
+	 *
+	 * This is the receiving half of the feature, and the whole of the security surface
+	 * on this side. Nothing here asks anybody for permission, and that is the settled
+	 * design: being reachable at this distance *is* the agreement, recorded in
+	 * `peerMaxDepth` and in the introducer's own `maxDepth`. What is checked is that the
+	 * token really is theirs, that it was minted for this gateway and for the key on the
+	 * other end of this socket, and that the distance it states is one we accept.
+	 *
+	 * The order matters. The signature is checked against the key *we* hold for the
+	 * introducer — never one the token carries, which would be a token vouching for
+	 * itself — and a signer who is not a peer of ours vouches for nobody here, however
+	 * well-formed their signature is.
+	 *
+	 * Every refusal answers null and writes one line in our own log. The far end is told
+	 * nothing but that the link was refused: a stranger able to tell "your signer is not
+	 * my friend" from "you are further than I allow" could map out this gateway's
+	 * friends and its reach by trying.
+	 */
+	private async _admitIntroduced(
+		credential: PeerCredential,
+		known: PeerEntity | null,
+	): Promise<PeerAdmission | null> {
+		const token = credential.introduction ?? '';
+		const claim = this._introductions.read(token);
+
+		if (claim === null) {
+			return this._refuseIntroduction(IntroductionRefusal.MALFORMED, credential);
+		}
+
+		// The token names who may present it and which gateway it opens. Without the
+		// first, a token lifted off the wire would work for anybody; without the second,
+		// a token minted to reach us would open a link to every other peer the
+		// introducer has.
+		if (claim.subject !== credential.fingerprint || claim.holder !== this._links.fingerprint) {
+			return this._refuseIntroduction(IntroductionRefusal.NOT_ADDRESSED, credential);
+		}
+
+		// A ban is refused before anything else is read. An introduction is a route in,
+		// and the whole point of the ban list is that it survives every route.
+		if (await this._bans.isBanned(credential.fingerprint)) {
+			return null;
+		}
+
+		const introducer = await this._peers.findByFingerprint(claim.introducer);
+
+		if (introducer === null || !this._isSettled(introducer)) {
+			return this._refuseIntroduction(IntroductionRefusal.UNKNOWN_INTRODUCER, credential);
+		}
+
+		const withKey = await this._peers.findWithPublicKey(introducer.id);
+
+		if (withKey?.publicKey == null) {
+			// A peer whose key we never learned cannot vouch for anybody: there is
+			// nothing to check the signature against, and an unchecked introduction is
+			// an open door with a token taped to it.
+			return this._refuseIntroduction(IntroductionRefusal.UNKNOWN_INTRODUCER, credential);
+		}
+
+		const checked = this._introductions.verify(token, withKey.publicKey);
+
+		if (!checked.ok) {
+			return this._refuseIntroduction(checked.refusal, credential);
+		}
+
+		const settings = await this._settings.get();
+		// Never shorter than the truth. The claim is the introducer's arithmetic and the
+		// second term is ours; taking the larger is what stops a chain being made to look
+		// direct by a gateway that states a smaller number than it counted.
+		const depth = Math.max(claim.depth, introducer.depth + 1);
+		/*
+		 * The reach, which is the consent and not a lookup setting.
+		 *
+		 * `peerMaxDepth` says how far an introduction may travel, and since a friend of
+		 * a friend reaches this gateway by opening a link straight to it, that is the
+		 * same sentence as how far away somebody may be and still connect here. The
+		 * introducer's own `maxDepth` narrows it further for their circle alone. Anybody
+		 * lowering either one to save bandwidth is narrowing who can reach them — which
+		 * is exactly what happens on the line below.
+		 */
+		const allowed = Math.min(settings.peerMaxDepth, introducer.maxDepth ?? settings.peerMaxDepth);
+
+		if (depth > allowed) {
+			return this._refuseIntroduction(IntroductionRefusal.TOO_FAR, credential);
+		}
+
+		const keep = settings.keepDiscoveredPeers;
+		const peer = await this._peers.save(
+			known === null
+				? this._peers.create({
+					name: this._defaultName(credential.fingerprint),
+					fingerprint: credential.fingerprint,
+					address: credential.address,
+					status: PeerStatus.LINKED,
+					direction: null,
+					trust: PeerTrust.FRIEND_OF_FRIEND,
+					depth,
+					viaPeerId: introducer.id,
+					// Temporary unless somebody asked for these to be kept. The flag is
+					// what the sweep and the closing link read, and it is only ever set
+					// on a row this admission created: a row somebody made deliberately —
+					// a request of ours they are now answering — is never turned into
+					// something that deletes itself.
+					discovered: !keep,
+				})
+				: Object.assign(known, {
+					status: PeerStatus.LINKED,
+					direction: null,
+					address: credential.address ?? known.address,
+					trust: known.trust === PeerTrust.FRIEND ? known.trust : PeerTrust.FRIEND_OF_FRIEND,
+					viaPeerId: known.viaPeerId ?? introducer.id,
+					discovered: known.discovered && !keep,
+				}),
+		);
+
+		this._emit(peer);
+		this._logger.log(
+			`${peer.name} was introduced by ${introducer.name}, ${depth} hops away` +
+				`${peer.discovered ? ', for this transfer only' : ''}`,
+		);
+
+		return { peerId: peer.id, name: peer.name };
+	}
+
+	/** One line for us, and nothing at all for the far end. */
+	private _refuseIntroduction(
+		refusal: IntroductionRefusal,
+		credential: PeerCredential,
+	): null {
+		this._logger.warn(
+			`Refused an introduction for ${credential.fingerprint.slice(0, 16)}…: ${refusal}`,
+		);
+
+		return null;
+	}
+
+	/**
+	 * A peer whose link is agreed, whether or not we can reach them this minute.
+	 *
+	 * `UNREACHABLE` sits beside `LINKED` because it means *we* failed to reach *them*,
+	 * which says nothing about whether they are a friend — refusing them would make a
+	 * gateway that went offline once unable to ever call back in.
+	 */
+	private _isSettled(peer: PeerEntity): boolean {
+		return peer.status === PeerStatus.LINKED || peer.status === PeerStatus.UNREACHABLE;
+	}
+
+	/**
+	 * Their link ended, and for a peer we were not asked to keep that is the end of them.
+	 *
+	 * Called by the inbound endpoint when a session closes. A peer met through an
+	 * introduction was created to move one file: leaving the row behind would put a
+	 * gateway nobody invited in somebody's peer list, dialled at every restart, with no
+	 * word on screen for where it came from. `Settings.keepDiscoveredPeers` is what
+	 * makes it a peer instead, and it is read when the link opens rather than here —
+	 * somebody turning the setting on mid-transfer means it for the next one.
+	 */
+	public released(peerId: string): void {
+		void this._forgetIfDiscovered(peerId);
+	}
+
+	/**
+	 * Drop a peer that only existed for a transfer. True when there was one.
+	 *
+	 * The answer is what the caller needs: the two things that happen when a link ends
+	 * — forget them, or schedule a retry — are mutually exclusive, and a caller that had
+	 * to ask the database a second time to tell them apart would sometimes get a
+	 * different answer than this one did.
+	 */
+	public async forget(peerId: string): Promise<boolean> {
+		return this._forgetIfDiscovered(peerId);
+	}
+
+	private async _forgetIfDiscovered(peerId: string): Promise<boolean> {
+		try {
+			const peer = await this._peers.findOne({ where: { id: peerId } });
+
+			if (peer === null || !peer.discovered) {
+				return false;
+			}
+
+			// Both ends may hold a socket: they dialled us, and we may have dialled them
+			// for a pull of our own. Forgetting the row while our own link is still open
+			// would cut a transfer that is still running, so the last link out is what
+			// ends the relationship.
+			if (this._links.isLinked(peerId)) {
+				return false;
+			}
+
+			this._logger.log(`${peer.name} finished, and was not one to keep`);
+
+			await this.remove(peer.id);
+
+			return true;
+		} catch (error) {
+			this._logger.warn(`Could not forget ${peerId} after its link closed: ${String(error)}`);
+
+			return false;
+		}
 	}
 
 	/**
@@ -979,13 +1336,13 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	private _encode(invite: {
 		code: string;
 		fingerprint: string;
-		rendezvous: string;
+		address: string;
 		secret: string;
 		expiresAt: Date;
 	}): string {
 		const query = new URLSearchParams({
 			fingerprint: invite.fingerprint,
-			rendezvous: invite.rendezvous,
+			address: invite.address,
 			secret: invite.secret,
 			exp: invite.expiresAt.toISOString(),
 		});
@@ -1003,14 +1360,14 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	private _decode(invite: string): {
 		code: string;
 		fingerprint: string | null;
-		rendezvous: string | null;
+		address: string | null;
 		secret: string | null;
 		expiresAt: Date | null;
 	} {
 		const trimmed = invite.trim();
 
 		if (!trimmed.startsWith(INVITE_SCHEME)) {
-			return { code: trimmed, fingerprint: null, rendezvous: null, secret: null, expiresAt: null };
+			return { code: trimmed, fingerprint: null, address: null, secret: null, expiresAt: null };
 		}
 
 		const [path, query] = trimmed.slice(INVITE_SCHEME.length).split('?');
@@ -1021,7 +1378,8 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		return {
 			code: path,
 			fingerprint: parameters.get('fingerprint'),
-			rendezvous: parameters.get('rendezvous'),
+			address:
+				parameters.get('address') ?? parameters.get(LEGACY_INVITE_ADDRESS_PARAM),
 			secret: parameters.get('secret'),
 			expiresAt: parsedExpiry !== null && !Number.isNaN(parsedExpiry.getTime()) ? parsedExpiry : null,
 		};

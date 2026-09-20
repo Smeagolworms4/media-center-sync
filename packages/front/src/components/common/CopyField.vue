@@ -4,7 +4,7 @@
 
 	/**
 	 * A value that only exists to be handed to somebody else — a fingerprint, an
-	 * invitation URL, a rendezvous address.
+	 * invitation URL, this gateway's own address.
 	 *
 	 * It stays selectable text as well as a button: the clipboard API is refused
 	 * outside a secure context, and a gateway reached over plain HTTP on a home

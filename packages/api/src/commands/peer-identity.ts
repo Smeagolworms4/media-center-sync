@@ -32,7 +32,6 @@ runCommand(async (app) => {
 		[
 			`name         ${identity.name}`,
 			`fingerprint  ${identity.fingerprint}`,
-			`rendezvous   ${identity.rendezvous}`,
 			`direct       ${identity.directAddress ?? 'none'}${identity.directReachable ? '' : ' (relay only)'}`,
 		].join('\n') + '\n',
 	);

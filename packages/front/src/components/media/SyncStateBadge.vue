@@ -11,11 +11,15 @@
 	 * the same vocabulary — same colours, same icons, from the same descriptor —
 	 * rendered as a solid badge that sits on the corner of the tile.
 	 *
-	 * `missing` and `outdated` carry their word as well as their icon. They are the
-	 * two people scan a wall for, and they are the two that must not depend on
-	 * telling blue from amber at a glance; the other five are self-evident once one
-	 * of those has caught the eye, and labelling all seven would put a word on every
-	 * tile of a library that is mostly in sync.
+	 * Four states carry their word as well as their icon. `missing` and `outdated`
+	 * are what people scan a wall for, and they must not depend on telling blue from
+	 * amber at a glance. The two landed states are labelled for a different reason:
+	 * they are the ones somebody has never seen before, they occupy the place a
+	 * `missing` badge sat five minutes ago, and an unlabelled icon there reads as
+	 * "still missing, different colour" — which is the misreading the whole state
+	 * exists to prevent. The rest are self-evident once one of those has caught the
+	 * eye, and labelling all of them would put a word on every tile of a library that
+	 * is mostly in sync.
 	 */
 	const props = withDefaults(defineProps<{
 		state?: SyncState | null;
@@ -30,7 +34,7 @@
 
 	const descriptor = computed(() => describeSyncState(props.state));
 
-	const LOUD_STATES = new Set(['missing', 'outdated']);
+	const LOUD_STATES = new Set(['missing', 'outdated', 'awaiting_index', 'not_indexed']);
 	const labelled = computed(() => props.withLabel || LOUD_STATES.has(descriptor.value.state));
 </script>
 

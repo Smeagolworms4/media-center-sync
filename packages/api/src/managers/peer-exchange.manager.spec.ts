@@ -1,6 +1,7 @@
 import {
 	ErrorKey,
 	MediaKind,
+	PeerStatus,
 	PeerTrust,
 	ShareVisibility,
 	SyncState,
@@ -13,11 +14,12 @@ import type {
 	MediaServiceRepository,
 	PeerRepository,
 } from '@/repositories';
-import { BandwidthService } from '@/services';
+import { BandwidthService, PeerIntroductionService } from '@/services';
 import type {
 	CataloguePolicy,
 	HandlerRegistry,
 	PeerCatalogueService,
+	PeerLinkService,
 	SettingsService,
 } from '@/services';
 import { PeerExchangeManager } from './peer-exchange.manager';
@@ -74,14 +76,17 @@ const policy = (overrides: Partial<CataloguePolicy> = {}): CataloguePolicy => ({
 	...overrides,
 });
 
+const OUR_FINGERPRINT = 'f'.repeat(64);
+
 interface Fakes {
 	items: { find: jest.Mock; findOne: jest.Mock; count: jest.Mock };
 	shares: { visiblePolicies: jest.Mock };
-	peers: { findOne: jest.Mock; findLinked: jest.Mock };
+	peers: { findOne: jest.Mock; findLinked: jest.Mock; findByFingerprint: jest.Mock };
 	catalogue: { findHolders: jest.Mock };
 	libraries: { find: jest.Mock };
 	openStream: jest.Mock;
 	getItem: jest.Mock;
+	introductions: PeerIntroductionService;
 }
 
 const build = (
@@ -105,12 +110,22 @@ const build = (
 				viaPeerId: null,
 			} as Peer),
 			findLinked: jest.fn().mockResolvedValue([]),
+			findByFingerprint: jest.fn().mockResolvedValue(null),
 		},
 		catalogue: { findHolders: jest.fn().mockResolvedValue([]) },
 		libraries: { find: jest.fn().mockResolvedValue([]) },
 		openStream: jest.fn().mockResolvedValue({ stream: null, contentLength: 1, totalLength: 1 }),
 		getItem: jest.fn().mockResolvedValue(null),
+		introductions: undefined as unknown as PeerIntroductionService,
 	};
+
+	// The real token service over a fake key pair: a test that asserted a signature
+	// against a stub would pin the stub, and the one thing worth knowing about an
+	// introduction is that the token is the one this gateway really signs.
+	const introductions = new PeerIntroductionService({
+		fingerprint: OUR_FINGERPRINT,
+		sign: (payload: string) => Buffer.from(`signed:${payload}`).toString('base64'),
+	} as unknown as PeerLinkService);
 
 	const manager = new PeerExchangeManager(
 		fakes.peers as unknown as PeerRepository,
@@ -123,6 +138,10 @@ const build = (
 		} as unknown as MediaServiceRepository,
 		fakes.shares as unknown as ShareManager,
 		fakes.catalogue as unknown as PeerCatalogueService,
+		// The real token service over a fake key pair: a test that asserted a signature
+		// against a stub would pin the stub, and the one thing worth knowing about an
+		// introduction is that the token is really the one this gateway signs.
+		introductions,
 		{
 			get: jest.fn(() => ({ openStream: fakes.openStream, getItem: fakes.getItem })),
 		} as unknown as HandlerRegistry,
@@ -136,6 +155,8 @@ const build = (
 		// anything noticing.
 		new BandwidthService(),
 	);
+
+	fakes.introductions = introductions;
 
 	return { manager, fakes };
 };
@@ -276,6 +297,158 @@ describe('PeerExchangeManager', () => {
 	 * like from here, and the claim is that *no* path decides visibility a second way
 	 * — so every one of them has to be exercised, not the catalogue alone.
 	 */
+	describe('introducing two of our friends', () => {
+		const CALLER = 'a'.repeat(64);
+		const HOLDER = 'c'.repeat(64);
+
+		const world = (
+			{ peerMaxDepth = 3, caller = {}, holder = {} }: {
+				peerMaxDepth?: number;
+				caller?: Partial<Peer>;
+				holder?: Partial<Peer>;
+			} = {},
+		): ReturnType<typeof build> => {
+			const built = build({ peerMaxDepth });
+			const rows: Record<string, Peer> = {
+				'peer-1': {
+					id: 'peer-1',
+					name: 'Alice',
+					fingerprint: CALLER,
+					status: PeerStatus.LINKED,
+					depth: 1,
+					maxDepth: null,
+					readingForbidden: false,
+					trust: PeerTrust.FRIEND,
+					viaPeerId: null,
+					...caller,
+				} as Peer,
+				'peer-2': {
+					id: 'peer-2',
+					name: 'Chris',
+					fingerprint: HOLDER,
+					status: PeerStatus.LINKED,
+					depth: 1,
+					maxDepth: null,
+					readingForbidden: false,
+					trust: PeerTrust.FRIEND,
+					viaPeerId: null,
+					address: '203.0.113.4:4200',
+					...holder,
+				} as Peer,
+			};
+
+			built.fakes.peers.findOne.mockImplementation((options: { where: { id: string } }) =>
+				Promise.resolve(rows[options.where.id] ?? null),
+			);
+			built.fakes.peers.findByFingerprint.mockImplementation((fingerprint: string) =>
+				Promise.resolve(
+					Object.values(rows).find((row) => row.fingerprint === fingerprint) ?? null,
+				),
+			);
+
+			return built;
+		};
+
+		it('signs a token naming who may present it and which gateway it opens', async () => {
+			// The two ends then talk to each other. Nothing in this answer is a byte of
+			// anybody's film, and that is the whole of the feature.
+			const { manager, fakes } = world();
+			const answer = await manager.introduce('peer-1', { holderId: 'peer-2' });
+
+			expect(answer).toMatchObject({ fingerprint: HOLDER, address: '203.0.113.4:4200', depth: 2 });
+			expect(fakes.introductions.read(answer.token)).toMatchObject({
+				introducer: OUR_FINGERPRINT,
+				subject: CALLER,
+				holder: HOLDER,
+				depth: 2,
+			});
+		});
+
+		it('never puts a media in the token, so this gateway cannot know what was wanted', async () => {
+			const { manager, fakes } = world();
+			const answer = await manager.introduce('peer-1', { holderId: 'peer-2' });
+
+			expect(Object.keys(fakes.introductions.read(answer.token) ?? {})).not.toContain('media');
+			expect(JSON.stringify(answer)).not.toContain('item');
+		});
+
+		it('refuses when the two ends would be further apart than the reach allows', async () => {
+			// One hop is direct friends only, which is somebody saying that nobody
+			// further away may reach them — and it is read here, not only on arrival.
+			const { manager } = world({ peerMaxDepth: 1 });
+
+			await expect(manager.introduce('peer-1', { holderId: 'peer-2' })).rejects.toThrow(
+				ErrorKey.PEER_INTRODUCTION_REFUSED,
+			);
+		});
+
+		it("stops at the holder's own shorter reach, whatever the gateway ceiling says", async () => {
+			const { manager } = world({ peerMaxDepth: 6, holder: { maxDepth: 1 } });
+
+			await expect(manager.introduce('peer-1', { holderId: 'peer-2' })).rejects.toThrow(
+				ErrorKey.PEER_INTRODUCTION_REFUSED,
+			);
+		});
+
+		it('counts a chain from both sides, so introducing in steps does not defeat the limit', async () => {
+			// A caller who is themselves two hops away is three from a friend of ours.
+			const { manager } = world({ peerMaxDepth: 2, caller: { depth: 2 } });
+
+			await expect(manager.introduce('peer-1', { holderId: 'peer-2' })).rejects.toThrow(
+				ErrorKey.PEER_INTRODUCTION_REFUSED,
+			);
+		});
+
+		it('refuses to introduce somebody to themselves, or to a gateway we are not linked to', async () => {
+			const { manager } = world({ holder: { status: PeerStatus.PENDING } });
+
+			await expect(manager.introduce('peer-1', { holderId: 'peer-2' })).rejects.toThrow(
+				ErrorKey.PEER_INTRODUCTION_REFUSED,
+			);
+			await expect(manager.introduce('peer-1', { holderId: 'peer-1' })).rejects.toThrow(
+				ErrorKey.PEER_INTRODUCTION_REFUSED,
+			);
+		});
+
+		it('introduces to a friend we merely cannot reach ourselves', async () => {
+			// Our own connectivity is not their consent: they may be perfectly reachable
+			// from where the caller is sitting, which is half the reason this beats
+			// relaying in the first place.
+			const { manager } = world({ holder: { status: PeerStatus.UNREACHABLE } });
+
+			await expect(manager.introduce('peer-1', { holderId: 'peer-2' })).resolves.toMatchObject({
+				fingerprint: HOLDER,
+			});
+		});
+
+		it('answers the same introduction when the holder is named by fingerprint', async () => {
+			// The dial ladder has no other name for a gateway it already knows: a row
+			// identifier is the introducer's, and a fingerprint is what a peer *is*.
+			// Refusing this form would mean a second way to be introduced beside this one.
+			const { manager, fakes } = world();
+			const answer = await manager.introduce('peer-1', { fingerprint: HOLDER });
+
+			expect(answer).toMatchObject({ fingerprint: HOLDER, depth: 2 });
+			expect(fakes.introductions.read(answer.token)).toMatchObject({ holder: HOLDER });
+		});
+
+		it('refuses a holder named by neither name', async () => {
+			const { manager } = world();
+
+			await expect(manager.introduce('peer-1', {})).rejects.toThrow(
+				ErrorKey.PEER_INTRODUCTION_REFUSED,
+			);
+		});
+
+		it('introduces nobody who is served nothing of ours', async () => {
+			const { manager } = world({ caller: { readingForbidden: true } });
+
+			await expect(manager.introduce('peer-1', { holderId: 'peer-2' })).rejects.toThrow(
+				ErrorKey.PEER_INTRODUCTION_REFUSED,
+			);
+		});
+	});
+
 	describe('a peer who may see no library at all', () => {
 		const nothing = (): ReturnType<typeof build> => {
 			const built = build();

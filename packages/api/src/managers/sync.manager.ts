@@ -6,6 +6,7 @@ import {
 	MediaKind,
 	MediaServiceMode,
 	NotificationEvent,
+	PlacedBy,
 	SyncJobItemState,
 	SyncJobState,
 	SyncState,
@@ -16,7 +17,7 @@ import {
 	UNCONFIGURED_PLACEMENTS,
 	type CompanionPullResult,
 	type CreateSyncPlanRequest,
-	type PlacedBy,
+	type HistoryView,
 	type ResultList,
 	type RunSyncRequest,
 	type SyncEstimate,
@@ -142,7 +143,15 @@ interface EffectiveRequest {
 	planId: string | null;
 	scope: SyncScope;
 	sourceServiceIds: string[];
-	targetLibraryId: string | null;
+	/** The plan's preference, or what this one run asked for instead. May be neither. */
+	preferredLibraryId: string | null;
+	/**
+	 * Which of those two it was, so the line can record it as itself.
+	 *
+	 * A plan's preference and a run's request send somebody to two different screens
+	 * when they ask why a file is where it is, so they are not the same answer.
+	 */
+	preferredBy: PlacedBy.PLAN_PREFERENCE | PlacedBy.REQUESTED;
 	filter: SyncFilter;
 	ceilings: RunCeilings;
 }
@@ -261,6 +270,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const enabled = request.enabled ?? true;
 
 		this._refuseBlindSchedule(scope, enabled, request.acknowledgeUnbounded === true);
+		await this._checkPreferred(request.preferredLibraryId ?? null);
 
 		const plan = await this._plans.save(
 			this._plans.create({
@@ -268,7 +278,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				trigger: request.trigger,
 				schedule: request.schedule ?? null,
 				sourceServiceIds: request.sourceServiceIds ?? [],
-				targetLibraryId: request.targetLibraryId ?? null,
+				preferredLibraryId: request.preferredLibraryId ?? null,
 				scope,
 				filter: request.filter ?? {},
 				maxItemsPerRun: request.maxItemsPerRun ?? null,
@@ -289,8 +299,13 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		plan.trigger = patch.trigger ?? plan.trigger;
 		plan.schedule = patch.schedule === undefined ? plan.schedule : patch.schedule;
 		plan.sourceServiceIds = patch.sourceServiceIds ?? plan.sourceServiceIds;
-		plan.targetLibraryId =
-			patch.targetLibraryId === undefined ? plan.targetLibraryId : patch.targetLibraryId;
+
+		if (patch.preferredLibraryId !== undefined) {
+			await this._checkPreferred(patch.preferredLibraryId);
+
+			plan.preferredLibraryId = patch.preferredLibraryId;
+		}
+
 		plan.scope = patch.scope ?? plan.scope;
 		plan.filter = patch.filter ?? plan.filter;
 		plan.maxItemsPerRun =
@@ -339,6 +354,51 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	private _refuseBlindSchedule(scope: SyncScope, enabled: boolean, acknowledged: boolean): void {
 		if (enabled && isUnbounded(scope) && !acknowledged) {
 			throw new ConflictException(ErrorKey.SYNC_SCOPE_UNBOUNDED);
+		}
+	}
+
+	/**
+	 * A plan may only prefer a library this gateway can actually write into.
+	 *
+	 * The same rule the queue applies when a transfer is re-pointed, and for the same
+	 * reason: a destination on a peer's server, or on one of ours whose files we do not
+	 * hold, accepts everything and produces nothing anybody can watch. Refusing it here
+	 * costs one query at the moment somebody chooses; discovering it at run time costs
+	 * whoever was waiting for the files a night.
+	 *
+	 * The disk is deliberately **not** probed, which is the one place this is laxer than
+	 * `TransferManager._requireDestination`. A plan is a standing intent that may not run
+	 * for a week, and refusing to save it because a NAS happens to be asleep this evening
+	 * would be a refusal about the wrong moment entirely. A preference that cannot be
+	 * written into when the run comes is simply passed over by placement, which is what
+	 * the rest of the rule is for; a preference naming somebody else's server can never
+	 * be right at any moment, and that is what is checked.
+	 *
+	 * Null clears it, and clearing is always allowed.
+	 */
+	private async _checkPreferred(libraryId: string | null): Promise<void> {
+		if (libraryId === null) {
+			return;
+		}
+
+		const library = await this._libraries.findOne({ where: { id: libraryId } });
+
+		if (library === null) {
+			throw new NotFoundException(ErrorKey.LIBRARY_NOT_FOUND);
+		}
+
+		const service = await this._services.findOne({ where: { id: library.serviceId } });
+
+		// The mount and not the sharing switch: what decides a destination is whether
+		// this gateway reaches the files, and offering a service's libraries to peers
+		// puts no file anywhere. `serviceMode` also keeps a peer-backed row out, which
+		// no column test on its own would.
+		if (
+			service === null
+			|| serviceMode(service) !== MediaServiceMode.LOCAL
+			|| !library.localPath
+		) {
+			throw new ConflictException(ErrorKey.TRANSFER_DESTINATION_INVALID);
 		}
 	}
 
@@ -941,17 +1001,25 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		return result;
 	}
 
+	/**
+	 * One page of the run history.
+	 *
+	 * `view` is not defaulted here. The screens that want the live half ask for it, and
+	 * a route that quietly dropped finished rows would have taken the dashboard's own
+	 * reporting with it — that page reads failed work out of exactly this list.
+	 */
 	public async jobs(query: {
 		page?: number;
 		limit?: number;
 		state?: SyncJobState;
+		view?: HistoryView;
 	}): Promise<ResultList<SyncJob>> {
 		const { page, limit } = pageBounds(query.page, query.limit);
-		const [jobs, total] = await this._jobs.findAndCount({
-			where: query.state === undefined ? {} : { state: query.state },
-			order: { createdAt: 'DESC' },
-			skip: (page - 1) * limit,
-			take: limit,
+		const [jobs, total] = await this._jobs.pageOf({
+			page,
+			limit,
+			state: query.state,
+			view: query.view,
 		});
 
 		const names = await this._planNames(jobs);
@@ -1225,7 +1293,8 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				disambiguate: (relativeName, attempt) =>
 					this._naming.disambiguate(relativeName, marks, attempt),
 				reserved: claimed,
-				preferredLibraryId: effective.targetLibraryId,
+				preferredLibraryId: effective.preferredLibraryId,
+				preferredBy: effective.preferredBy,
 				requiredBytes: entry.item.file?.size ?? 0,
 			});
 
@@ -1329,10 +1398,17 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			planId: plan?.id ?? null,
 			scope: request.scope ?? plan?.scope ?? {},
 			sourceServiceIds: request.sourceServiceIds ?? plan?.sourceServiceIds ?? [],
-			targetLibraryId:
+			preferredLibraryId:
 				request.targetLibraryId === undefined
-					? (plan?.targetLibraryId ?? null)
+					? (plan?.preferredLibraryId ?? null)
 					: request.targetLibraryId,
+			// A request that named a library named it for this run alone, and the line
+			// has to say so: somebody reading it next month must not be sent to edit a
+			// plan whose preference had nothing to do with where that file went.
+			preferredBy:
+				request.targetLibraryId === undefined
+					? PlacedBy.PLAN_PREFERENCE
+					: PlacedBy.REQUESTED,
 			filter: request.filter ?? plan?.filter ?? {},
 			ceilings: {
 				maxItems:

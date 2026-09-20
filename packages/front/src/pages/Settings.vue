@@ -7,8 +7,7 @@
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import FormMainError from '@/components/FormMainError.vue';
-	import CategoryList from '@/components/library/CategoryList.vue';
-	import CategoryTargetsTable from '@/components/settings/CategoryTargetsTable.vue';
+	import CategoryMapping from '@/components/settings/CategoryMapping.vue';
 	import DestinationLibraryField from '@/components/settings/DestinationLibraryField.vue';
 	import NamingOrderField from '@/components/settings/NamingOrderField.vue';
 	import NotificationChannels from '@/components/settings/NotificationChannels.vue';
@@ -61,13 +60,14 @@
 		uploadRateLimit: '',
 		matchThreshold: 0.8,
 		peerMaxDepth: DEFAULT_PEER_MAX_DEPTH,
+		keepDiscoveredPeers: false,
 		allowSwarm: true,
 		defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
-		rendezvousUrl: '',
 		instanceName: '',
 		publicUrl: '',
 		defaultTargetPath: '',
 		transferHistoryDays: 30,
+		failedHistoryDays: 180,
 		refreshIntervalMinutes: 15,
 		fullScanCron: '',
 		cacheTtlSeconds: 60,
@@ -102,9 +102,9 @@
 		model.uploadRateLimit = toByteSizeInput(settings.uploadRateLimit);
 		model.matchThreshold = settings.matchThreshold;
 		model.peerMaxDepth = settings.peerMaxDepth;
+		model.keepDiscoveredPeers = settings.keepDiscoveredPeers;
 		model.allowSwarm = settings.allowSwarm;
 		model.defaultShareVisibility = settings.defaultShareVisibility;
-		model.rendezvousUrl = settings.rendezvousUrl ?? '';
 		// Offered, never assumed. The browser reached this gateway somehow and that
 		// address is almost always the right answer — but a gateway administered over
 		// http://192.168.0.12:4200 and reached by friends over a domain name would
@@ -116,6 +116,7 @@
 		model.publicUrl = settings.publicUrl ?? browserOrigin;
 		model.defaultTargetPath = settings.defaultTargetPath ?? '';
 		model.transferHistoryDays = settings.transferHistoryDays;
+		model.failedHistoryDays = settings.failedHistoryDays;
 		model.refreshIntervalMinutes = settings.refreshIntervalMinutes;
 		model.fullScanCron = settings.fullScanCron ?? '';
 		model.cacheTtlSeconds = settings.cacheTtlSeconds;
@@ -131,6 +132,10 @@
 				// page does not require: a failure leaves their block empty rather
 				// than refusing the settings somebody came here to change.
 				librariesStore.loadCategories().catch(() => undefined),
+				// The names plugged into each category, which is the other half of the
+				// same answer: without them the mapping card can show what folded but
+				// not what folded it, and so offers nothing to undo.
+				librariesStore.loadKeywords().catch(() => undefined),
 				// The destination menus are built from these two: a library is only
 				// offerable when it is writable and sits on a service of ours, and
 				// neither fact is on the category.
@@ -167,10 +172,11 @@
 	}
 
 	/**
-	 * What a category with no entry of its own actually does, named.
+	 * What a category with no destination of its own actually does, named.
 	 *
-	 * A blank cell in a table of destinations reads as broken, so every row says where
-	 * its media goes — and that is never "nowhere": it is the next step of the rule.
+	 * An empty select with nothing under it reads as broken, so every category says
+	 * where its media goes — and that is never "nowhere": it is the next step of the
+	 * rule.
 	 */
 	const fallbackTarget = computed(() => {
 		const library = destinations.value.find(one => one.id === model.defaultTargetLibraryId);
@@ -213,7 +219,6 @@
 			downloadRateLimit: { rules: [validators.byteSize()] },
 			uploadRateLimit: { rules: [validators.byteSize()] },
 			matchThreshold: { rules: [validators.range({ min: 0, max: 1 })] },
-			rendezvousUrl: { rules: [validators.url()] },
 			// The same wording the API answers with, so accepting the value on this side
 			// and having it refused on the other cannot say two different things.
 			publicUrl: {
@@ -230,6 +235,7 @@
 			},
 			defaultTargetPath: { rules: [validators.absolutePath()] },
 			transferHistoryDays: { rules: [validators.range({ min: 0, max: 3650 })] },
+			failedHistoryDays: { rules: [validators.range({ min: 0, max: 3650 })] },
 			refreshIntervalMinutes: { rules: [validators.range({ min: 1, max: 1440 })] },
 			fullScanCron: { rules: [validators.cron()] },
 			cacheTtlSeconds: { rules: [validators.range({ min: 0, max: 86_400 })] },
@@ -257,15 +263,16 @@
 				uploadRateLimit: parseByteSize(model.uploadRateLimit) ?? 0,
 				matchThreshold: Number(model.matchThreshold),
 				peerMaxDepth: Number(model.peerMaxDepth),
+				keepDiscoveredPeers: model.keepDiscoveredPeers,
 				allowSwarm: model.allowSwarm,
 				defaultShareVisibility: model.defaultShareVisibility,
-				rendezvousUrl: model.rendezvousUrl || null,
 				// An emptied box is a setting being cleared, which the API spells null.
 				// Empty means "no name of my own", and the hostname stands again.
 				instanceName: model.instanceName || null,
 				publicUrl: model.publicUrl || null,
 				defaultTargetPath: model.defaultTargetPath || null,
 				transferHistoryDays: Number(model.transferHistoryDays),
+				failedHistoryDays: Number(model.failedHistoryDays),
 				refreshIntervalMinutes: Number(model.refreshIntervalMinutes),
 				fullScanCron: model.fullScanCron || null,
 				cacheTtlSeconds: Number(model.cacheTtlSeconds),
@@ -304,7 +311,7 @@
 				'writeNfo',
 			],
 		},
-		{ key: 'gateway', fields: ['instanceName', 'publicUrl', 'rendezvousUrl'] },
+		{ key: 'gateway', fields: ['instanceName', 'publicUrl'] },
 		{
 			key: 'transfers',
 			fields: [
@@ -315,6 +322,7 @@
 				'uploadRateLimit',
 				'diskReserveBytes',
 				'transferHistoryDays',
+				'failedHistoryDays',
 			],
 		},
 		/*
@@ -327,7 +335,10 @@
 		 * open.
 		 */
 		{ key: 'notifications', fields: [] },
-		{ key: 'peers', fields: ['peerMaxDepth', 'allowSwarm', 'defaultShareVisibility'] },
+		{
+			key: 'peers',
+			fields: ['peerMaxDepth', 'keepDiscoveredPeers', 'allowSwarm', 'defaultShareVisibility'],
+		},
 		{
 			key: 'index',
 			fields: ['refreshIntervalMinutes', 'cacheTtlSeconds', 'fullScanCron', 'matchThreshold'],
@@ -425,6 +436,16 @@
 									{{ $t('settings.destination.rule_existing') }}
 								</li>
 
+								<!--
+									Not a setting on this page, and listed anyway: leaving it
+									out would describe an order the gateway does not follow, on
+									the one screen people open to find out why a file went
+									where it did.
+								-->
+								<li data-test="settings-placement-rule-plan">
+									{{ $t('settings.destination.rule_plan') }}
+								</li>
+
 								<li>{{ $t('settings.destination.rule_category') }}</li>
 								<li>{{ $t('settings.destination.rule_global') }}</li>
 								<li>{{ $t('settings.destination.rule_fallback') }}</li>
@@ -468,23 +489,6 @@
 							:destinations="destinations"
 							:field="form.field('defaultTargetLibraryId')"
 							:loading="loading"
-						/>
-
-						<p class="text-body-2 font-weight-medium mb-1">
-							{{ $t('settings.destination.table_title') }}
-						</p>
-
-						<p class="text-caption text-medium-emphasis">
-							{{ $t('settings.destination.table_help') }}
-						</p>
-
-						<CategoryTargetsTable
-							v-model="model.categoryTargets"
-							:categories="librariesStore.orderedCategories"
-							:destinations="destinations"
-							:fallback="fallbackTarget"
-							:loading="loading"
-							:rejected="rejected"
 						/>
 
 						<v-text-field
@@ -576,23 +580,19 @@
 					<v-card-title class="text-subtitle-1">{{ $t('settings.group.categories') }}</v-card-title>
 
 					<v-card-text>
-						<p class="text-body-2 text-medium-emphasis">{{ $t('settings.categories_help') }}</p>
+						<p class="text-body-2 text-medium-emphasis">
+							{{ $t('settings.categories_mapping_help') }}
+						</p>
 
-						<CategoryList
+						<CategoryMapping
+							v-model="model.categoryTargets"
 							:categories="librariesStore.orderedCategories"
+							:destinations="destinations"
+							:fallback="fallbackTarget"
+							:keywords="librariesStore.keywords"
 							:loading="loading"
+							:rejected="rejected"
 						/>
-
-						<v-btn
-							class="mt-2"
-							data-test="settings-categories-services"
-							prepend-icon="mdi-server-network"
-							size="small"
-							:to="{ name: 'services' }"
-							variant="text"
-						>
-							{{ $t('settings.categories_edit') }}
-						</v-btn>
 					</v-card-text>
 				</v-card>
 
@@ -726,6 +726,23 @@
 									type="number"
 								/>
 							</v-col>
+
+							<v-col cols="12" sm="6">
+								<!--
+									Its own window, and much longer. A transfer that failed three
+									weeks ago is the answer to "why is this series incomplete",
+									and the same window as a success would destroy the answer
+									before anybody thought to ask the question.
+								-->
+								<v-text-field
+									v-model.number="model.failedHistoryDays"
+									v-bind="form.field('failedHistoryDays')"
+									:hint="$t('settings.failed_history_days_help')"
+									:label="$t('settings.failed_history_days')"
+									persistent-hint
+									type="number"
+								/>
+							</v-col>
 						</v-row>
 					</v-card-text>
 				</v-card>
@@ -769,7 +786,20 @@
 							type="number"
 						/>
 
+						<!--
+							Said here and nowhere else, because this is where somebody
+							changes it. The number is a consent, not a search radius:
+							being reachable at that distance *is* the agreement, so
+							lowering it narrows who can open a link to this gateway rather
+							than narrowing what it looks through. It is also the only reach
+							control there is — there is no address in the middle to point
+							at, and nothing else to fill in.
+						-->
 						<p class="text-caption text-medium-emphasis mt-2">
+							{{ $t('settings.peer_max_depth_consent') }}
+						</p>
+
+						<p class="text-caption text-medium-emphasis mt-1">
 							{{ $t('settings.peer_max_depth_per_peer') }}
 						</p>
 
@@ -798,6 +828,25 @@
 							{{ $t('settings.default_share_note') }}
 						</p>
 
+						<!--
+							Sits beside the reach, because the two are the same subject read
+							twice: the reach decides how far somebody may be and still open a
+							link here, and this decides whether the link survives the file it
+							was opened for.
+						-->
+						<v-switch
+							v-model="model.keepDiscoveredPeers"
+							color="primary"
+							data-test="settings-keep-discovered"
+							density="compact"
+							hide-details
+							:label="$t('settings.keep_discovered_peers')"
+						/>
+
+						<p class="text-caption text-medium-emphasis mb-4">
+							{{ $t('settings.keep_discovered_peers_help') }}
+						</p>
+
 						<v-switch
 							v-model="model.allowSwarm"
 							color="primary"
@@ -807,14 +856,6 @@
 						/>
 
 						<p class="text-caption text-medium-emphasis">{{ $t('settings.swarm_help') }}</p>
-
-						<v-text-field
-							v-model="model.rendezvousUrl"
-							v-bind="form.field('rendezvousUrl')"
-							:hint="$t('settings.rendezvous_help')"
-							:label="$t('settings.rendezvous')"
-							persistent-hint
-						/>
 					</v-card-text>
 				</v-card>
 
@@ -923,9 +964,26 @@
 			padding: 12px 16px;
 		}
 
+		// Stuck to the bottom of the viewport rather than sitting at the end of the
+		// page. These panes are long — the placement one runs to a dozen controls and
+		// the categories list grows with every library anybody registers — so the save
+		// button spent most of its life below the fold. Somebody who changes a select
+		// halfway down, sees no way to confirm it and navigates away loses the change
+		// silently, which is the worst outcome a settings screen has available.
+		//
+		// The background is not decoration: without it the content scrolls visibly
+		// underneath the button and the bar reads as part of the page rather than as
+		// a fixed control.
 		&_actions {
 			display: flex;
+			position: sticky;
+			bottom: 0;
+			z-index: 2;
 			justify-content: flex-end;
+			margin-inline: -16px;
+			padding: 12px 16px;
+			border-top: 1px solid rgba(var(--v-border-color), 0.2);
+			background: rgb(var(--v-theme-surface));
 		}
 	}
 </style>

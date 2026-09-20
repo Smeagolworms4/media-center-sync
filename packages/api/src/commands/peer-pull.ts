@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { PeerCapability, PeerStatus, type CatalogueEntry } from '@mcs/shared';
 import { PeerRepository } from '@/repositories';
-import { PeerLinkService, SettingsService } from '@/services';
+import { PeerLinkService } from '@/services';
 import { runCommand } from './context';
 
 /**
@@ -31,7 +31,6 @@ runCommand(async (app) => {
 	const [wanted, itemId] = process.argv.slice(2);
 	const peers = app.get(PeerRepository);
 	const links = app.get(PeerLinkService);
-	const settings = app.get(SettingsService);
 
 	const candidates = await peers.findLinked();
 	const peer =
@@ -55,16 +54,16 @@ runCommand(async (app) => {
 	}
 
 	const withKey = await peers.findWithPublicKey(peer.id);
-	const state = await links.connect(
-		{
-			id: peer.id,
-			name: peer.name,
-			fingerprint: peer.fingerprint,
-			address: peer.address,
-			publicKey: withKey?.publicKey ?? null,
-		},
-		await settings.getValue('rendezvousUrl'),
-	);
+	// No introducers, and that is what this command is for: it dials the address, over
+	// the wire, with nobody in the middle. A friend asked to introduce us would make a
+	// failure here ambiguous between the two machines and the third one.
+	const state = await links.connect({
+		id: peer.id,
+		name: peer.name,
+		fingerprint: peer.fingerprint,
+		address: peer.address,
+		publicKey: withKey?.publicKey ?? null,
+	});
 
 	process.stdout.write(
 		[

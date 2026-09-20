@@ -6,7 +6,7 @@ import type { PlacementRequest, PlacementTarget } from './placement.service';
 /** Everything the question needs, and nothing a caller has to go and fetch. */
 export type PlacedByRequest = Pick<
 	PlacementRequest,
-	'settings' | 'categoryKey' | 'preferredLibraryId'
+	'settings' | 'categoryKey' | 'preferredLibraryId' | 'preferredBy'
 >;
 
 export type PlacedByTarget = Pick<PlacementTarget, 'libraryId' | 'path' | 'strategy'>;
@@ -25,9 +25,18 @@ export type PlacedByTarget = Pick<PlacementTarget, 'libraryId' | 'path' | 'strat
  * ones this whole feature has to tell apart.
  *
  * So the step is worked out from what the settings actually said, against the library
- * that answered. The order below is the rule itself, top to bottom, and it has to stay
- * that way: reading the default library before the category would report `Animés` as
- * unconfigured on every gateway whose category happens to point at the default.
+ * that answered. The order below is the rule itself, top to bottom, and it mirrors
+ * `PlacementService._candidates` step for step — the two orders have to stay in step
+ * or a file would be reported as placed by a rule that never ran. Reading the default
+ * library before the category, for instance, would report `Animés` as unconfigured on
+ * every gateway whose category happens to point at the default.
+ *
+ * The existing copy is read before the preference for exactly the reason placement
+ * tries it first: when a plan prefers the shelf a show already lives on, both rules
+ * name the same library and the honest answer is the one that would still have
+ * applied with no preference set at all. Saying `PLAN_PREFERENCE` there would credit
+ * the preference with a decision it did not make, and somebody clearing it would be
+ * surprised to find nothing moves.
  *
  * The fallback folder is recognised by containment rather than by identity, because
  * it is a path and may well belong to no library at all — that is the case it exists
@@ -36,15 +45,18 @@ export type PlacedByTarget = Pick<PlacementTarget, 'libraryId' | 'path' | 'strat
 export function placedByFor(target: PlacedByTarget, request: PlacedByRequest): PlacedBy {
 	const { settings } = request;
 
-	// An explicit choice outranks everything, including a strategy that would have
-	// given the same answer: somebody typed it for this run, so nothing about it is
-	// unconfigured even when the library underneath is also the fallback.
-	if (request.preferredLibraryId && request.preferredLibraryId === target.libraryId) {
-		return PlacedBy.REQUESTED;
-	}
-
 	if (target.strategy === PlacementStrategy.BESIDE_EXISTING) {
 		return PlacedBy.EXISTING_COPY;
+	}
+
+	// An explicit choice outranks the settings, including a strategy that would have
+	// given the same answer: somebody named it for this pull, so nothing about it is
+	// unconfigured even when the library underneath is also the fallback. Which of the
+	// two kinds of choice it was comes from the caller — see `PlacementRequest.
+	// preferredBy` — because a plan's preference and a run's request are fixed in
+	// different places and the screen has to send people to the right one.
+	if (request.preferredLibraryId && request.preferredLibraryId === target.libraryId) {
+		return request.preferredBy ?? PlacedBy.REQUESTED;
 	}
 
 	if (target.strategy === PlacementStrategy.FIXED_PATH) {

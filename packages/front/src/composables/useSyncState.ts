@@ -10,6 +10,11 @@ import { SYNC_STATE_COLOR } from '@/plugins/vuetify';
 export const SYNC_STATE_ICON: Record<SyncState, string> = {
 	[SyncState.LOCAL_ONLY]: 'mdi-home-outline',
 	[SyncState.MISSING]: 'mdi-cloud-download-outline',
+	// An hourglass rather than another cloud or disk: the thing being waited for is
+	// time passing on somebody else's scanner, and a shape nobody else in this set
+	// uses is what keeps it from reading as a variation on "missing".
+	[SyncState.AWAITING_INDEX]: 'mdi-timer-sand',
+	[SyncState.NOT_INDEXED]: 'mdi-database-alert-outline',
 	[SyncState.IN_SYNC]: 'mdi-check-circle-outline',
 	[SyncState.OUTDATED]: 'mdi-arrow-up-bold-circle-outline',
 	[SyncState.CONFLICT]: 'mdi-alert-circle-outline',

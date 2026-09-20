@@ -431,20 +431,24 @@ describe('PATCH /api/settings — a destination that also names the category', (
 		const after = await categories();
 		const shows = after.find((category) => category.key === 'shows');
 
-		// Fourteen and twenty-four, under one name, from the two libraries that are
-		// ours. This is the whole point: the mapping said Séries is Shows here, and the
-		// library screen now reads that way instead of showing two shelves for one.
-		expect(shows).toMatchObject({ name: 'Shows', itemCount: 38 });
-		expect(shows?.libraryIds.sort()).toEqual([seriesId, showsId].sort());
+		// Fourteen, twenty-four and the friend's seven, under one name. This is the
+		// whole point: the mapping said Séries is Shows here, and the library screen now
+		// reads that way instead of showing three shelves for one thing.
+		expect(shows).toMatchObject({ name: 'Shows', itemCount: 45 });
+		expect(shows?.libraryIds.sort()).toEqual([seriesId, showsId, theirSeriesId].sort());
 		expect((await library(seriesId)).alias).toBe('Shows');
 	});
 
-	it('leaves the friend’s library in its own category, under its own name', async () => {
+	it('folds the friend’s library in under our name too, and leaves their server alone', async () => {
+		// The alias is local. Renaming their shelf on their server is not ours to do,
+		// which is exactly why the name we use for it is kept here — and why refusing to
+		// set one left the same series in two categories with no control anywhere that
+		// could join them. `name` is still what their service reports.
 		const after = await categories();
-		const series = after.find((category) => category.key === 'series');
 
-		expect(series).toMatchObject({ itemCount: 7, libraryIds: [theirSeriesId] });
-		expect((await library(theirSeriesId)).alias).toBeNull();
+		expect(after.map((category) => category.key)).toEqual(['shows']);
+		expect((await library(theirSeriesId)).alias).toBe('Shows');
+		expect((await library(theirSeriesId)).name).toBe('Séries');
 	});
 
 	it('keeps the name when the destination is cleared, and still stops placing there', async () => {
@@ -456,7 +460,7 @@ describe('PATCH /api/settings — a destination that also names the category', (
 
 		const after = await categories();
 
-		expect(after.find((category) => category.key === 'shows')).toMatchObject({ itemCount: 38 });
+		expect(after.find((category) => category.key === 'shows')).toMatchObject({ itemCount: 45 });
 		expect((await library(seriesId)).alias).toBe('Shows');
 	});
 

@@ -1,5 +1,8 @@
+import { createPrivateKey, generateKeyPairSync, sign as signBytes } from 'node:crypto';
 import request from 'supertest';
 import {
+	INTRODUCTION_TTL_MS,
+	INTRODUCTION_VERSION,
 	MAX_PEER_MAX_DEPTH,
 	PeerDirection,
 	PeerLinkMode,
@@ -18,7 +21,8 @@ import {
 	MediaServiceRepository,
 	PeerRepository,
 } from '@/repositories';
-import { PeerLinkService } from '@/services';
+import { PeerManager } from '@/managers';
+import { PeerLinkService, type PeerCredential } from '@/services';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
 
 /** An identifier that is a valid UUID and belongs to nobody. */
@@ -310,8 +314,9 @@ describe('Peers', () => {
 
 	describe('connecting', () => {
 		it('answers unreachable, with the key that says so, when there is nowhere to go', async () => {
-			// No address and no rendezvous configured: the only honest answer, and the one
-			// the interface renders as "could not be reached" rather than as an error.
+			// No address, and no friend in the middle to ask: the only honest answer, and
+			// the one the interface renders as "could not be reached" rather than as an
+			// error, with the forwarded port named as the fix.
 			const id = await seed({ address: null });
 
 			const response = await post(`/${id}/connect`).expect(503);
@@ -679,7 +684,7 @@ describe('Peers', () => {
 		it('refuses one that has gone stale, and says which of the two it is', async () => {
 			const stale = new URLSearchParams({
 				fingerprint: 'fingerprint-from-a-friend',
-				rendezvous: '',
+				address: '',
 				secret: 'whatever',
 				exp: new Date(Date.now() - 60_000).toISOString(),
 			});
@@ -820,6 +825,356 @@ describe('Peers', () => {
 		it('refuses a reader the ban list changes, and lets them read it', async () => {
 			await get('/bans', user).expect(200);
 			await post('/bans', { fingerprint: fingerprint() }, user).expect(403);
+		});
+	});
+
+	/**
+	 * Pulling from a friend of a friend, which is the one thing the middle gateway
+	 * never carries.
+	 *
+	 * Driven through the real application over seeded rows and never over a socket. The
+	 * admission is the whole security surface on this side, and it is a decision made
+	 * against the database — which is exactly what this can show and a unit test cannot:
+	 * the token is checked against the key really stored for the introducer, and the
+	 * reach really is read from the stored settings.
+	 */
+	describe('being introduced by a friend', () => {
+		/** A gateway with a key pair of its own, standing in for somebody real. */
+		const gateway = () => {
+			const pair = generateKeyPairSync('ed25519', {
+				privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+				publicKeyEncoding: { type: 'spki', format: 'pem' },
+			});
+
+			return {
+				...pair,
+				sign: (payload: string): string =>
+					signBytes(null, Buffer.from(payload), createPrivateKey(pair.privateKey)).toString(
+						'base64',
+					),
+			};
+		};
+
+		/** A token exactly as the gateway in the middle would sign it. */
+		const token = (
+			introducer: ReturnType<typeof gateway>,
+			claim: Record<string, unknown>,
+		): string => {
+			const payload = Buffer.from(JSON.stringify(claim)).toString('base64url');
+
+			return `${payload}.${Buffer.from(introducer.sign(payload), 'base64').toString('base64url')}`;
+		};
+
+		const setting = (patch: Record<string, unknown>): request.Test =>
+			request(context.app.getHttpServer())
+				.patch('/api/settings')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send(patch);
+
+		/**
+		 * A stranger knocking with a token from one of our peers.
+		 *
+		 * The credential is genuinely signed, because `admit` checks it before it looks
+		 * at anything else: a test that faked the signature would be testing the refusal
+		 * and never the admission.
+		 */
+		const knock = async (
+			{ depth = 2, holder, introducerDepth = 1, maxDepth = null as number | null }:
+			{ depth?: number; holder?: string; introducerDepth?: number; maxDepth?: number | null } = {},
+		): Promise<{ credential: PeerCredential; stranger: ReturnType<typeof gateway> }> => {
+			const links = context.app.get(PeerLinkService);
+			const middle = gateway();
+			const stranger = gateway();
+
+			await peers.save(
+				peers.create({
+					name: 'Bob in the middle',
+					fingerprint: links.fingerprintOf(middle.publicKey),
+					publicKey: middle.publicKey,
+					status: PeerStatus.LINKED,
+					trust: PeerTrust.FRIEND,
+					depth: introducerDepth,
+					maxDepth,
+				}),
+			);
+
+			const issuedAt = Date.now();
+			const challenge = `${links.fingerprintOf(stranger.publicKey)}:${issuedAt}`;
+
+			return {
+				stranger,
+				credential: {
+					fingerprint: links.fingerprintOf(stranger.publicKey),
+					publicKey: stranger.publicKey,
+					challenge,
+					signature: stranger.sign(challenge),
+					introduction: token(middle, {
+						v: INTRODUCTION_VERSION,
+						introducer: links.fingerprintOf(middle.publicKey),
+						subject: links.fingerprintOf(stranger.publicKey),
+						holder: holder ?? links.fingerprint,
+						depth,
+						issuedAt,
+						expiresAt: issuedAt + INTRODUCTION_TTL_MS,
+					}),
+					address: '203.0.113.30',
+				},
+			};
+		};
+
+		afterEach(async () => {
+			await setting({ keepDiscoveredPeers: false, peerMaxDepth: 3 }).expect(200);
+		});
+
+		it('admits a gateway it has never met, and says on screen how it arrived', async () => {
+			const { credential } = await knock();
+			const admission = await context.app.get(PeerManager).admit(credential);
+
+			expect(admission).not.toBeNull();
+
+			const peer = ((await get('').expect(200)).body as Peer[]).find(
+				(candidate) => candidate.id === admission?.peerId,
+			);
+
+			expect(peer).toMatchObject({
+				trust: PeerTrust.FRIEND_OF_FRIEND,
+				status: PeerStatus.LINKED,
+				depth: 2,
+				discovered: true,
+				viaPeerName: 'Bob in the middle',
+			});
+		});
+
+		it('forgets them when the link closes, and keeps them when asked to', async () => {
+			const introductions = context.app.get(PeerManager);
+			const temporary = await introductions.admit((await knock()).credential);
+
+			expect(await introductions.forget(temporary!.peerId)).toBe(true);
+			await request(context.app.getHttpServer())
+				.get(`/api/peers/${temporary?.peerId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(404);
+
+			await setting({ keepDiscoveredPeers: true }).expect(200);
+
+			const kept = await introductions.admit((await knock()).credential);
+
+			expect(await introductions.forget(kept!.peerId)).toBe(false);
+			await request(context.app.getHttpServer())
+				.get(`/api/peers/${kept?.peerId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+		});
+
+		it('never admits a gateway beyond the hop limit this deployment allows', async () => {
+			// The reach is the consent: somebody who set it to one hop is saying that
+			// nobody further away may reach them, and no token can say otherwise.
+			await setting({ peerMaxDepth: 1 }).expect(200);
+
+			const { credential } = await knock();
+
+			await expect(context.app.get(PeerManager).admit(credential)).resolves.toBeNull();
+		});
+
+		it("stops at the introducer's own shorter reach", async () => {
+			const { credential } = await knock({ maxDepth: 1 });
+
+			await expect(context.app.get(PeerManager).admit(credential)).resolves.toBeNull();
+		});
+
+		it('refuses a token minted for another gateway', async () => {
+			const { credential } = await knock({ holder: 'somebody-else' });
+
+			await expect(context.app.get(PeerManager).admit(credential)).resolves.toBeNull();
+		});
+
+		it('refuses a token whose payload was edited after signing', async () => {
+			const { credential } = await knock();
+			const [payload, signature] = credential.introduction!.split('.');
+			const claim = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
+				depth: number;
+			};
+
+			claim.depth = 1;
+
+			await expect(
+				context.app.get(PeerManager).admit({
+					...credential,
+					introduction: `${Buffer.from(JSON.stringify(claim)).toString('base64url')}.${signature}`,
+				}),
+			).resolves.toBeNull();
+		});
+
+		it('refuses a token that has run out', async () => {
+			const links = context.app.get(PeerLinkService);
+			const middle = gateway();
+			const stranger = gateway();
+
+			await peers.save(
+				peers.create({
+					name: 'Bob in the middle',
+					fingerprint: links.fingerprintOf(middle.publicKey),
+					publicKey: middle.publicKey,
+					status: PeerStatus.LINKED,
+					trust: PeerTrust.FRIEND,
+				}),
+			);
+
+			const stale = Date.now() - 60 * 60_000;
+			const challenge = `${links.fingerprintOf(stranger.publicKey)}:${Date.now()}`;
+
+			await expect(
+				context.app.get(PeerManager).admit({
+					fingerprint: links.fingerprintOf(stranger.publicKey),
+					publicKey: stranger.publicKey,
+					challenge,
+					signature: stranger.sign(challenge),
+					introduction: token(middle, {
+						v: INTRODUCTION_VERSION,
+						introducer: links.fingerprintOf(middle.publicKey),
+						subject: links.fingerprintOf(stranger.publicKey),
+						holder: links.fingerprint,
+						depth: 2,
+						issuedAt: stale,
+						expiresAt: stale + INTRODUCTION_TTL_MS,
+					}),
+					address: '203.0.113.31',
+				}),
+			).resolves.toBeNull();
+		});
+
+		it('refuses a token signed by a gateway that is not a peer of ours', async () => {
+			// However well formed the signature is: whoever signed it vouches for nobody
+			// here, because there is no relationship behind it.
+			const links = context.app.get(PeerLinkService);
+			const stranger = gateway();
+			const outsider = gateway();
+			const issuedAt = Date.now();
+			const challenge = `${links.fingerprintOf(stranger.publicKey)}:${issuedAt}`;
+
+			await expect(
+				context.app.get(PeerManager).admit({
+					fingerprint: links.fingerprintOf(stranger.publicKey),
+					publicKey: stranger.publicKey,
+					challenge,
+					signature: stranger.sign(challenge),
+					introduction: token(outsider, {
+						v: INTRODUCTION_VERSION,
+						introducer: links.fingerprintOf(outsider.publicKey),
+						subject: links.fingerprintOf(stranger.publicKey),
+						holder: links.fingerprint,
+						depth: 2,
+						issuedAt,
+						expiresAt: issuedAt + INTRODUCTION_TTL_MS,
+					}),
+					address: '203.0.113.32',
+				}),
+			).resolves.toBeNull();
+		});
+	});
+
+	/**
+	 * The asking side, over the real routes.
+	 *
+	 * The link is faked on the real service rather than replaced — no test opens a
+	 * socket to a peer — so everything above it is what production runs: the route, the
+	 * rights guard, the validation pipe, the row that is written and the row that is
+	 * taken away again.
+	 */
+	describe('asking a friend for an introduction', () => {
+		afterEach(() => {
+			jest.restoreAllMocks();
+		});
+
+		const middleMan = async (mode = PeerLinkMode.DIRECT): Promise<string> => {
+			const links = context.app.get(PeerLinkService);
+			const holder = `holder-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+			jest.spyOn(links, 'isLinked').mockReturnValue(true);
+			jest.spyOn(links, 'supports').mockReturnValue(true);
+			jest.spyOn(links, 'request').mockResolvedValue({
+				token: 'a-token-from-them',
+				fingerprint: holder,
+				address: '203.0.113.40:4200',
+				expiresAt: new Date(Date.now() + INTRODUCTION_TTL_MS).toISOString(),
+				depth: 2,
+			} as never);
+			jest.spyOn(links, 'connect').mockResolvedValue({
+				peerId: 'unused',
+				mode,
+				address: '203.0.113.40:4200',
+				connected: true,
+				since: new Date().toISOString(),
+				protocol: 1,
+				capabilities: [],
+				nodeId: 'node-holder',
+			});
+
+			return seed({ name: 'Bob in the middle' });
+		};
+
+		it('links straight to the holder and closes it again when the transfer is done', async () => {
+			const via = await middleMan();
+			const peer = (await post(`/${via}/introductions`, { holderId: 'their-row-42' }).expect(200))
+				.body as Peer;
+
+			expect(peer).toMatchObject({
+				status: PeerStatus.LINKED,
+				trust: PeerTrust.FRIEND_OF_FRIEND,
+				linkMode: PeerLinkMode.DIRECT,
+				discovered: true,
+				depth: 2,
+			});
+
+			await post(`/${peer.id}/release`).expect(204);
+			await get(`/${peer.id}`).expect(404);
+		});
+
+		it('falls back to a relay through the same friend when no direct link opens, and says so', async () => {
+			// Nothing else changes: the same token, the same ladder, one more rung. The
+			// mode is recorded because the friend in the middle then carries the bytes,
+			// and the peer card says that in one line rather than leaving it to be
+			// assumed.
+			const via = await middleMan(PeerLinkMode.RELAY);
+			const peer = (await post(`/${via}/introductions`, { holderId: 'their-row-42' }).expect(200))
+				.body as Peer;
+
+			expect(peer.linkMode).toBe(PeerLinkMode.RELAY);
+		});
+
+		it('keeps the peer when the gateway was told to keep the ones it meets', async () => {
+			await request(context.app.getHttpServer())
+				.patch('/api/settings')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ keepDiscoveredPeers: true })
+				.expect(200);
+
+			const via = await middleMan();
+			const peer = (await post(`/${via}/introductions`, { holderId: 'their-row-42' }).expect(200))
+				.body as Peer;
+
+			expect(peer.discovered).toBe(false);
+
+			await post(`/${peer.id}/release`).expect(204);
+			await get(`/${peer.id}`).expect(200);
+
+			await request(context.app.getHttpServer())
+				.patch('/api/settings')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ keepDiscoveredPeers: false })
+				.expect(200);
+		});
+
+		it('refuses a body with no holder in it', async () => {
+			const via = await middleMan();
+
+			await post(`/${via}/introductions`, {}).expect(400);
+		});
+
+		it('is a management action, not something a reader may do', async () => {
+			const via = await middleMan();
+
+			await post(`/${via}/introductions`, { holderId: 'x' }, user).expect(403);
 		});
 	});
 

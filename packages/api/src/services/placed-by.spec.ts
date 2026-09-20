@@ -43,10 +43,52 @@ describe('placedByFor', () => {
 		expect(answer).toBe(PlacedBy.REQUESTED);
 	});
 
+	/**
+	 * A plan's preference and a run's request are two answers, not one.
+	 *
+	 * They send somebody to two different screens when they ask why a file is where it
+	 * is: one is a standing field on a plan that will decide the same way again next
+	 * week, the other died with the run that carried it. Reporting both as `requested`
+	 * would make the first of those unfindable.
+	 */
+	it('tells a plan that prefers a library apart from a run that asked for one', () => {
+		const base = request({
+			preferredLibraryId: 'lib-shows',
+			settings: settings({ defaultTargetLibraryId: 'lib-shows' }),
+		});
+
+		expect(
+			placedByFor(target(), { ...base, preferredBy: PlacedBy.PLAN_PREFERENCE }),
+		).toBe(PlacedBy.PLAN_PREFERENCE);
+		expect(placedByFor(target(), { ...base, preferredBy: PlacedBy.REQUESTED })).toBe(
+			PlacedBy.REQUESTED,
+		);
+	});
+
 	it('names the copy we already hold', () => {
 		const answer = placedByFor(
 			target({ strategy: PlacementStrategy.BESIDE_EXISTING }),
 			request(),
+		);
+
+		expect(answer).toBe(PlacedBy.EXISTING_COPY);
+	});
+
+	/**
+	 * The one case where two rules name the same library, and only one of them decided.
+	 *
+	 * A plan pointed at the shelf a show already lives on: placement gets there by the
+	 * existing copy, which is tried first, and would have got there with no preference
+	 * set at all. Crediting the preference would mislead the person who clears it and
+	 * finds that nothing moves.
+	 */
+	it('credits the existing copy, not the preference, when both name the same shelf', () => {
+		const answer = placedByFor(
+			target({ strategy: PlacementStrategy.BESIDE_EXISTING }),
+			request({
+				preferredLibraryId: 'lib-shows',
+				preferredBy: PlacedBy.PLAN_PREFERENCE,
+			}),
 		);
 
 		expect(answer).toBe(PlacedBy.EXISTING_COPY);
@@ -97,6 +139,37 @@ describe('placedByFor', () => {
 		);
 
 		expect(answer).toBe(PlacedBy.DEFAULT_LIBRARY);
+	});
+
+	it('reports a guess when the stored entry names a category this item is not in', () => {
+		/*
+		 * The aftermath of a table whose key went stale.
+		 *
+		 * A category key is folded from the name people read, so renaming the libraries
+		 * of a category moves it — and an entry left behind under the old key names a
+		 * category nothing answers to. Placement then finds nothing for the item, falls
+		 * back to the default library, and the file lands in a folder nobody chose. It
+		 * has to read as a guess and not as a destination somebody set, because the
+		 * unconfigured-placements zone is the only thing that will ever mention it.
+		 *
+		 * `SettingsManager._followCategoryTargets` moves the entry so this does not
+		 * happen from a mapping. It can still happen from a rename typed afterwards,
+		 * which is why the step is decided from what the settings say about *this*
+		 * category rather than from the table being non-empty.
+		 */
+		const answer = placedByFor(
+			target({ libraryId: 'lib-shows' }),
+			request({
+				categoryKey: 'animes',
+				settings: settings({
+					categoryTargets: { 'the-old-name': 'lib-shows' },
+					defaultTargetLibraryId: 'lib-shows',
+				}),
+			}),
+		);
+
+		expect(answer).toBe(PlacedBy.DEFAULT_LIBRARY);
+		expect(UNCONFIGURED_PLACEMENTS).toContain(answer);
 	});
 
 	it('names the fixed path while that setting still exists', () => {
@@ -162,11 +235,15 @@ describe('placedByFor', () => {
 		 * A run that named its destination and a series filed beside its own episodes
 		 * are both where they belong; listing them would bury the ones that are not.
 		 */
-		it.each([PlacedBy.REQUESTED, PlacedBy.EXISTING_COPY, PlacedBy.CATEGORY, PlacedBy.FIXED_PATH])(
-			'%s is not',
-			(step) => {
-				expect(UNCONFIGURED_PLACEMENTS).not.toContain(step);
-			},
-		);
+		it.each([
+			PlacedBy.REQUESTED,
+			PlacedBy.PLAN_PREFERENCE,
+			PlacedBy.CHOSEN_BY_HAND,
+			PlacedBy.EXISTING_COPY,
+			PlacedBy.CATEGORY,
+			PlacedBy.FIXED_PATH,
+		])('%s is not', (step) => {
+			expect(UNCONFIGURED_PLACEMENTS).not.toContain(step);
+		});
 	});
 });

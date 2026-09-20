@@ -11,17 +11,18 @@ import { CacheService } from '../cache.service';
 import { normalizeTitle, parseTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
 import { buildUrl, relativeTo, requestJson, requestStream } from './handler.http';
-import type {
-	ByteRange,
-	ExternalIdentity,
-	LibraryRefresh,
-	LibraryScanOptions,
-	MediaItemRef,
-	MediaServiceHandler,
-	MediaStream,
-	NormalisedLibrary,
-	NormalisedMediaItem,
-	ServiceConnection,
+import {
+	RescanOutcome,
+	type ByteRange,
+	type ExternalIdentity,
+	type LibraryRefresh,
+	type LibraryScanOptions,
+	type MediaItemRef,
+	type MediaServiceHandler,
+	type MediaStream,
+	type NormalisedLibrary,
+	type NormalisedMediaItem,
+	type ServiceConnection,
 } from './media-handler.interface';
 import { asNumber, asRecord, asRecordArray, asString, firstOf, pick, type Payload } from './payload';
 
@@ -275,6 +276,37 @@ export class PlexHandler implements MediaServiceHandler {
 			items,
 			cursor: String(newest > 0 ? newest : Math.floor(Date.now() / 1000)),
 		};
+	}
+
+	/**
+	 * Tell Plex to re-read a section we have just written into.
+	 *
+	 * `GET /library/sections/{key}/refresh` and not a POST, which looks wrong and is
+	 * what Plex actually exposes — its whole API is verbs over GET. It answers an empty
+	 * body, which `requestJson` degrades to an empty object rather than choking on.
+	 *
+	 * A section is always addressable when we hold one, so the server-wide form has no
+	 * counterpart worth reaching for here: `/library/sections/all/refresh` walks every
+	 * section on the server, which on the deployment this exists for — a file dropped
+	 * in a folder outside every registered library — would re-read terabytes to find
+	 * something no section contains. Saying the refresh could not be aimed is the more
+	 * useful answer, and the landing simply waits.
+	 */
+	public async requestRescan(
+		connection: ServiceConnection,
+		library: NormalisedLibrary | null,
+	): Promise<RescanOutcome> {
+		if (library === null || library.externalId === '') {
+			return RescanOutcome.UNSUPPORTED;
+		}
+
+		await requestJson<Payload>(
+			connection.baseUrl,
+			`/library/sections/${library.externalId}/refresh`,
+			{ headers: this._headers(connection), timeoutMs: connection.timeoutMs },
+		);
+
+		return RescanOutcome.LIBRARY;
 	}
 
 	public async getItem(

@@ -12,6 +12,41 @@ const SORTABLE = {
 } as const;
 
 /**
+ * Episodes come out in broadcast order, not alphabetical order.
+ *
+ * Sorting a season by title puts episode 10 before episode 2, and puts an episode
+ * called "Pilot" in the middle of the season. It is the ordering a person opening a
+ * show is least able to work around, because there is no control on the screen that
+ * would undo it.
+ *
+ * Applied before the requested column rather than instead of it, so it costs nothing
+ * anywhere else: a film has no season and no episode, every row collapses to the same
+ * key, and the list is ordered by what was actually asked for.
+ *
+ * The sentinel is there because the two engines disagree about where a NULL sorts —
+ * SQLite puts it first ascending, PostgreSQL puts it last — and an episode the
+ * service numbered nothing would otherwise land at opposite ends of the season
+ * depending on which database somebody chose. Last, on both, and deliberately: a row
+ * with no number is the odd one out and belongs after the ones that have one.
+ */
+const EPISODE_ORDER = [
+	'COALESCE(item.seasonNumber, 999999)',
+	'COALESCE(item.episodeNumber, 999999)',
+] as const;
+
+/**
+ * The column to order by, for a sort that may be anything at all.
+ *
+ * A name that is not in the table falls back to the title rather than reaching the
+ * query: `SORTABLE[unknown]` is `undefined`, and handing that to the builder used to
+ * clear the ordering instead of raising — so a mistyped sort silently returned rows
+ * in whatever order the engine felt like, page by page, which is a paginated list
+ * that shows the same row twice and never shows another.
+ */
+const sortColumn = (sort: string | undefined): string =>
+	SORTABLE[(sort ?? 'title') as keyof typeof SORTABLE] ?? SORTABLE.title;
+
+/**
  * How many identifiers go into one `IN (…)`.
  *
  * SQLite refuses a statement past its variable ceiling, and the grouped routes build
@@ -185,8 +220,12 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			});
 		}
 
+		const direction = query.direction === 'desc' ? 'DESC' : 'ASC';
+
+		builder.orderBy(EPISODE_ORDER[0], direction).addOrderBy(EPISODE_ORDER[1], direction);
+
 		return builder
-			.orderBy(SORTABLE[query.sort ?? 'title'], query.direction === 'desc' ? 'DESC' : 'ASC')
+			.addOrderBy(sortColumn(query.sort), direction)
 			.skip((page - 1) * limit)
 			.take(limit)
 			.getManyAndCount();
@@ -374,8 +413,11 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			});
 		}
 
+		const direction = query.direction === 'desc' ? 'DESC' : 'ASC';
 		const rows = await builder
-			.orderBy(SORTABLE[query.sort ?? 'title'], query.direction === 'desc' ? 'DESC' : 'ASC')
+			.orderBy(EPISODE_ORDER[0], direction)
+			.addOrderBy(EPISODE_ORDER[1], direction)
+			.addOrderBy(sortColumn(query.sort), direction)
 			.addOrderBy('item.id', 'ASC')
 			.getRawMany<MediaItemDigest>();
 
@@ -402,6 +444,34 @@ export class MediaItemRepository extends Repository<MediaItem> {
 					.getRawMany<MediaItemDigest>(),
 			),
 		);
+	}
+
+	/**
+	 * Rows whose stored file blob contains a piece of text, as a prefilter and nothing
+	 * more.
+	 *
+	 * `file` is a `simple-json` column, which both engines hold as text, so the only
+	 * thing available without a dialect-specific JSON operator is a substring test.
+	 * That is enough for what it is for — narrowing tens of thousands of rows to the
+	 * handful worth deserialising when looking for the item a downloaded file became.
+	 *
+	 * **It is never the answer.** A substring can match another field, another row's
+	 * path, or nothing at all when a value happened to need JSON escaping; the caller
+	 * re-reads the deserialised blob and compares properly. Treating this result as a
+	 * match would file a media under whichever row happened to share a filename.
+	 *
+	 * Capped, because an unlucky hint — a common episode name, an empty string — must
+	 * cost a page of rows rather than the whole index.
+	 */
+	public findByFileHint(hint: string): Promise<MediaItem[]> {
+		if (hint === '') {
+			return Promise.resolve([]);
+		}
+
+		return this.createQueryBuilder('item')
+			.where('item.file LIKE :hint', { hint: `%${hint}%` })
+			.take(100)
+			.getMany();
 	}
 
 	/** Full rows, for the one page a grouped listing actually renders. */

@@ -1,4 +1,5 @@
 import {
+	HistoryView,
 	Right,
 	SyncJobState,
 	type ResultList,
@@ -71,6 +72,18 @@ class SyncJobQueryDto extends PageQueryDto {
 	@IsOptional()
 	@IsEnum(SyncJobState)
 	public state?: SyncJobState;
+
+	/**
+	 * Which half of the history to answer with. Everything, unless asked otherwise.
+	 *
+	 * Not defaulted to `live`, although that is what the sync screen wants: the home
+	 * screen reads this same route for the last few runs whatever state they are in,
+	 * and a default that dropped them would have emptied it without a word.
+	 */
+	@ApiPropertyOptional({ enum: HistoryView, default: HistoryView.ALL })
+	@IsOptional()
+	@IsEnum(HistoryView)
+	public view?: HistoryView;
 }
 
 /**

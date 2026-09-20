@@ -1,4 +1,4 @@
-import type { Library, LibraryCheck, MediaCategory, MediaService } from '@mcs/shared';
+import type { Library, LibraryCheck, MediaService } from '@mcs/shared';
 import {
 	LibraryKind,
 	MediaServiceMode,
@@ -6,8 +6,6 @@ import {
 	MediaServiceType,
 } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
-import { nextTick } from 'vue';
-import CategoryTargetsTable from '@/components/settings/CategoryTargetsTable.vue';
 import DestinationLibraryField from '@/components/settings/DestinationLibraryField.vue';
 import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
 import { useLibrariesStore } from '@/stores/libraries';
@@ -71,152 +69,20 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 	};
 }
 
-function category (overrides: Partial<MediaCategory> = {}): MediaCategory {
-	return {
-		key: 'movies',
-		name: 'Movies',
-		kind: LibraryKind.MOVIES,
-		position: 0,
-		libraryIds: ['l1'],
-		serviceIds: ['s1'],
-		itemCount: 12,
-		local: true,
-		...overrides,
-	};
-}
-
 const DESTINATIONS = [
 	{ id: 'l1', name: 'Movies', serviceName: 'Jellyfin (mine)', path: '/media/movies' },
 	{ id: 'l2', name: 'Shows', serviceName: 'Plex (mine)', path: '/media/shows' },
 ];
 
-const CATEGORIES = [
-	category(),
-	category({ key: 'shows', name: 'Shows', kind: LibraryKind.SHOWS, libraryIds: ['l2', 'l3'] }),
-];
-
-describe('components/settings/CategoryTargetsTable', () => {
-	const mountTable = (props: Record<string, unknown> = {}) => mountWithApp(CategoryTargetsTable, {
-		props: {
-			categories: CATEGORIES,
-			destinations: DESTINATIONS,
-			fallback: 'Movies',
-			modelValue: {},
-			...props,
-		},
-	});
-
-	it('gives every category a row, configured or not', () => {
-		// A category missing from a table of destinations reads as one the gateway has
-		// forgotten about, so the rows are the categories and nothing filters them.
-		const { wrapper } = mountTable();
-
-		expect(wrapper.findAll('[data-test="category-target-row"]')).toHaveLength(2);
-		expect(wrapper.find('[data-category="movies"]').exists()).toBe(true);
-		expect(wrapper.find('[data-category="shows"]').exists()).toBe(true);
-	});
-
-	it('names the library a configured category sends its media to', () => {
-		// Pointed deliberately at the library of the other category, so that the name on
-		// screen can only have come from the answer and not from the row's own heading.
-		const { wrapper } = mountTable({ modelValue: { movies: 'l2' } });
-		const row = wrapper.find('[data-category="movies"]');
-
-		expect(row.attributes('data-configured')).toBe('true');
-		expect(row.find('.v-select__selection').text()).toBe('Shows');
-		// And it stops offering the fallback, because it no longer falls back.
-		expect(row.find('[data-test="category-target-fallback"]').exists()).toBe(false);
-	});
-
-	it('reads an unconfigured row as falling back, never as nothing', () => {
-		// A blank cell in a table of destinations reads as broken. The row has an
-		// answer — the next step of the rule — and says which.
-		const { wrapper } = mountTable({ fallback: 'Movies' });
-		const row = wrapper.find('[data-category="shows"]');
-
-		expect(row.attributes('data-configured')).toBe('false');
-		expect(row.find('[data-test="category-target-fallback"]').text()).toContain('Movies');
-	});
-
-	it('offers only the libraries handed to it as destinations', () => {
-		const { wrapper } = mountTable();
-		const items = wrapper.findAllComponents({ name: 'VSelect' })[0].props('items') as { value: string }[];
-
-		expect(items.map(one => one.value)).toEqual(['l1', 'l2']);
-	});
-
-	it('says why a library of the category cannot be offered, rather than dropping it', () => {
-		// The name simply going missing sends somebody hunting for a fault in the wrong
-		// place: the library is there, it just cannot be written into.
-		const { wrapper } = mountTable({
-			rejected: [{ id: 'l3', name: 'Séries', serviceName: 'Lab (a friend)', reason: 'not_ours' }],
-		});
-
-		const rejected = wrapper.find('[data-category="shows"] [data-test="category-target-rejected"]');
-		expect(rejected.text()).toContain('Séries');
-		expect(rejected.text()).toContain('Lab (a friend)');
-		// And it belongs to the category holding that library, not to every row.
-		expect(wrapper.find('[data-category="movies"] [data-test="category-target-rejected"]').exists())
-			.toBe(false);
-	});
-
-	it('puts a chosen library into the map under its category key', async () => {
-		const { wrapper } = mountTable({ modelValue: { movies: 'l1' } });
-
-		wrapper.findAllComponents({ name: 'VSelect' })[1].vm.$emit('update:modelValue', 'l2');
-		await nextTick();
-
-		// Replaced rather than mutated, and the categories already answered are kept.
-		expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ movies: 'l1', shows: 'l2' });
-	});
-
-	it('drops the key when a row is cleared, rather than storing an empty answer', async () => {
-		const { wrapper } = mountTable({ modelValue: { movies: 'l1', shows: 'l2' } });
-
-		wrapper.findAllComponents({ name: 'VSelect' })[0].vm.$emit('update:modelValue', null);
-		await nextTick();
-
-		expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ shows: 'l2' });
-	});
-
-	it('says on the row what choosing a destination will do, before it is chosen', () => {
-		// The interface fault this fixes: "goes to" reads as "is filed under", somebody
-		// mapped a category expecting one category in the library view, and got two with
-		// no hint anywhere that the two things were separate. Said on the row rather
-		// than in a tooltip, because a tooltip is read after the choice or never.
-		const { wrapper } = mountTable();
-		const note = wrapper.find('[data-category="movies"] [data-test="category-target-merges"]');
-
-		expect(note.exists()).toBe(true);
-		expect(note.text()).toContain('one category');
-	});
-
-	it('keeps saying it once the row is answered, since the consequence stands', () => {
-		const { wrapper } = mountTable({ modelValue: { movies: 'l2' } });
-
-		expect(wrapper.find('[data-category="movies"] [data-test="category-target-merges"]').exists())
-			.toBe(true);
-	});
-
-	it('promises no merge for a category whose folders this gateway does not reach', () => {
-		// The gateway will not rename a library it cannot write into, so the row must
-		// not say it will: a promise the API deliberately refuses is worse than none.
-		const { wrapper } = mountTable({
-			categories: [category({ key: 'series', name: 'Séries', local: false })],
-		});
-
-		const note = wrapper.find('[data-category="series"] [data-test="category-target-merges"]');
-
-		expect(note.text()).toContain('does not reach');
-		expect(note.text()).not.toContain('one category');
-	});
-
-	it('says there is no category rather than showing an empty table', () => {
-		const { wrapper } = mountTable({ categories: [] });
-
-		expect(wrapper.find('[data-test="category-targets-empty"]').exists()).toBe(true);
-	});
-});
+/*
+ * The per-category destination table used to live here.
+ *
+ * It is gone: a local category now owns its destination beside its keywords, in
+ * `CategoryMapping`, because one category in two places on one pane is the same
+ * sentence said twice — and the table repeated the merge explanation under every one
+ * of its selects, three identical paragraphs in one viewport. Every claim it made is
+ * asserted against the new control in `components.category-mapping.spec.ts`.
+ */
 
 describe('components/settings/DestinationLibraryField', () => {
 	it('offers the destinations it was given, with the service each one is on', () => {

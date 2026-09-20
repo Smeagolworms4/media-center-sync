@@ -103,3 +103,69 @@ export interface MediaCategory {
 	/** True when at least one of the merged libraries is one we can write into. */
 	local: boolean;
 }
+
+/**
+ * The folded form two library names are compared on.
+ *
+ * One function, used for the key of a merged category and for matching a keyword
+ * against a library name, because those two readings of a name have to agree: a
+ * keyword stored under one folding and looked up under another matches nothing and
+ * reports no error, which looks exactly like a keyword nobody saved.
+ *
+ * Case, accents, punctuation and runs of whitespace all collapse, so `Series TV`,
+ * `Séries TV` and `series-tv` are one shelf — which is what they are to a person.
+ * The folding stops there on purpose: no stemming, no distance, no fuzzy score. A
+ * near-match that fires wrongly files somebody's `Films d'animation` into `Films`
+ * and there is nothing on screen that says why, whereas a keyword that does not
+ * fire is visible the moment they look at the pool.
+ *
+ * The result is safe in a URL, which is what lets a category key be a query
+ * parameter without being escaped.
+ */
+export const categoryKeyOf = (name: string): string =>
+	name
+		.normalize('NFD')
+		.replace(/[̀-ͯ]/g, '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '') || 'library';
+
+/**
+ * A library name that files itself into one of our categories.
+ *
+ * The problem it solves: a friend's gateway brings twenty shelves called `Séries`,
+ * `Series TV`, `TV` and `Émissions TV`, and folding each of them into our `Shows`
+ * meant opening the libraries screen and typing the same alias once per library,
+ * again for every peer that ever appears. A keyword is that sentence written once:
+ * any library whose name folds to `normalized` is read as part of the category,
+ * whoever's server it sits on, the moment it is discovered.
+ *
+ * The row is anchored on a library rather than on `MediaCategory.key`, and that is
+ * the one structural decision here. A category is derived from library names, so
+ * its key changes the instant somebody renames the library it was named after — a
+ * list stored under `shows` would be orphaned by the rename it is meant to survive.
+ * A library identifier survives both a rename and a rescan, because a rescan
+ * matches rows on `(serviceId, externalId)` and updates them in place.
+ */
+export interface CategoryKeyword {
+	id: string;
+	/** The category it currently files into, as `MediaCategory.key` reads today. */
+	categoryKey: string;
+	/** That category's name, so a keyword can be shown away from its row. */
+	categoryName: string;
+	/** What somebody typed or dropped, kept as they wrote it. */
+	keyword: string;
+	/** The folded form actually compared against a library name. */
+	normalized: string;
+	/** The libraries this keyword files right now, by identifier. */
+	libraryIds: string[];
+}
+
+export interface AddCategoryKeywordRequest {
+	keyword: string;
+}
+
+export interface MoveCategoryKeywordRequest {
+	/** The category it should file into from now on. */
+	categoryKey: string;
+}

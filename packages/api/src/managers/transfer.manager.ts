@@ -9,6 +9,7 @@ import {
 } from '@mcs/shared';
 import type {
 	ChangeDestinationRequest,
+	HistoryView,
 	ResultList,
 	Revalidation,
 	Transfer,
@@ -39,6 +40,7 @@ import {
 	VerificationService,
 	isInside,
 } from '@/services';
+import { LandingManager } from './landing.manager';
 import { LibraryManager } from './library.manager';
 import {
 	pageBounds,
@@ -96,6 +98,19 @@ export class TransferManager {
 		 * here would name a different category than the one the settings were saved under.
 		 */
 		private readonly _libraryManager: LibraryManager,
+		/**
+		 * Told when a file moves, because the record of where it landed is keyed on a path.
+		 *
+		 * `media_landings` holds one row per file the gateway has put in a library and no
+		 * media server has indexed yet, and the reconciliation resolves it by content and
+		 * then by path. Moving the bytes and leaving that row alone is the one interaction
+		 * here that fails silently and badly: the next pass stats the old path, finds
+		 * nothing, concludes the file has been deleted and forgets the landing — so the
+		 * media goes back to reading `missing`, with a perfectly good copy on the disk, and
+		 * the interface offers a download of it. Re-recording is also what asks the *new*
+		 * library's media server to look, which nothing else would do.
+		 */
+		private readonly _landings: LandingManager,
 		private readonly _settings: SettingsService,
 		private readonly _mover: FileMoveService,
 		private readonly _engine: TransferEngineService,
@@ -103,17 +118,26 @@ export class TransferManager {
 		private readonly _events: EventGatewayService,
 	) {}
 
+	/**
+	 * One page of the queue.
+	 *
+	 * `view` is not defaulted. The queue screen asks for the live half, and the
+	 * dashboard deliberately does not: it reads the failed transfers it reports out of
+	 * this very list, and a route that had started hiding finished rows on its own
+	 * would have silenced the only place the home screen says a pull went wrong.
+	 */
 	public async list(query: {
 		page?: number;
 		limit?: number;
 		state?: TransferState;
+		view?: HistoryView;
 	}): Promise<ResultList<Transfer>> {
 		const { page, limit } = pageBounds(query.page, query.limit);
-		const [transfers, total] = await this._transfers.findAndCount({
-			where: query.state === undefined ? {} : { state: query.state },
-			order: { createdAt: 'DESC' },
-			skip: (page - 1) * limit,
-			take: limit,
+		const [transfers, total] = await this._transfers.pageOf({
+			page,
+			limit,
+			state: query.state,
+			view: query.view,
 		});
 
 		return paginate(await this._present(transfers), total, page, limit);
@@ -411,9 +435,17 @@ export class TransferManager {
 	 *   bytes, usually across two filesystems, which is why it goes through the mover
 	 *   and reports progress on the same channel the download used.
 	 *
-	 * A transfer the engine is placing right now is refused rather than queued: the
-	 * engine is copying to the old path at that exact moment, and rewriting the row
-	 * underneath it would leave the copy landing somewhere the row no longer names.
+	 * A transfer the engine is placing right now is refused rather than queued, and the
+	 * alternative was built out on paper before being dropped. The mover can be aborted
+	 * with `FILE_MOVE_CANCEL` and resumed, so cancelling the copy in flight and
+	 * restarting it towards the new library is buildable — but between the abort being
+	 * requested and being observed, the partial on the old path and the bytes already
+	 * written are two halves of one film in two libraries, and a crash inside that
+	 * window leaves them there with the row naming only the second. A half-moved file is
+	 * the outcome this whole area is designed against. Refusing costs somebody the wait
+	 * for a copy that was already running, which they can see on the bar, and the answer
+	 * has a key of its own — `TRANSFER_BEING_PLACED` — so the screen can say "in a
+	 * moment" rather than "no".
 	 */
 	public async changeDestination(
 		id: string,
@@ -431,7 +463,7 @@ export class TransferManager {
 		}
 
 		if (transfer.state === TransferState.PLACING) {
-			throw new ConflictException(ErrorKey.TRANSFER_NOT_RESUMABLE);
+			throw new ConflictException(ErrorKey.TRANSFER_BEING_PLACED);
 		}
 
 		if ((await this._libraryManager.probe(path)).exists) {
@@ -440,11 +472,33 @@ export class TransferManager {
 			throw new ConflictException(ErrorKey.TRANSFER_TARGET_OCCUPIED);
 		}
 
-		if (transfer.state === TransferState.DONE) {
+		const landed = transfer.state === TransferState.DONE;
+
+		if (landed) {
 			await this._moveInPlace(transfer, path);
 		}
 
 		await this._retarget(transfer, library, path);
+
+		if (landed) {
+			/*
+			 * The bytes are somewhere else now, so the record of where they are has to
+			 * say so — and it is re-recorded rather than patched in place on purpose.
+			 *
+			 * `LandingManager.record` writes the path and the library, restarts the grace
+			 * period and asks the destination's media server to rescan. All three are
+			 * right here: the file is at a path nothing has indexed, the clock on "no
+			 * server has taken this" starts again because it is a different folder, and
+			 * the server that owns the new library has never been told anything about it.
+			 * Rewriting two columns by hand would have kept the first and lost the other
+			 * two, and the failure would have been a file sitting unseen in the library
+			 * somebody moved it to precisely so it would be seen.
+			 *
+			 * It runs after `_retarget` because it reads the transfer's new path and
+			 * library off the row this has just saved.
+			 */
+			await this._landings.record(transfer);
+		}
 
 		return this.read(id);
 	}
@@ -517,8 +571,11 @@ export class TransferManager {
 		transfer.targetPath = path;
 		transfer.targetLibraryId = library.id;
 		// Somebody chose this one by hand, so it is no longer a destination nobody
-		// picked — whatever step the plan had originally reached.
-		transfer.placedBy = PlacedBy.REQUESTED;
+		// picked — whatever step the plan had originally reached. Its own value rather
+		// than `REQUESTED`: a run that asked for a library asked for all of its items,
+		// while this is a correction to one file and no rule underneath it moved, so the
+		// next episode of the same show will still land wherever the rules send it.
+		transfer.placedBy = PlacedBy.CHOSEN_BY_HAND;
 
 		await this._transfers.save(transfer);
 
@@ -528,7 +585,7 @@ export class TransferManager {
 			if (line !== null) {
 				line.targetPath = path;
 				line.targetLibraryId = library.id;
-				line.placedBy = PlacedBy.REQUESTED;
+				line.placedBy = PlacedBy.CHOSEN_BY_HAND;
 
 				await this._lines.save(line);
 			}

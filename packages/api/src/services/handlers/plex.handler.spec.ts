@@ -782,4 +782,23 @@ describe('PlexHandler', () => {
 			expect(items).toEqual([]);
 		});
 	});
+
+	describe('requestRescan', () => {
+		it('asks the section to re-read itself, over GET as Plex expects', async () => {
+			const fetchMock = stubFetch(() => ({}));
+
+			await expect(handler.requestRescan(connection, library)).resolves.toBe('library');
+			expect(String(fetchMock.mock.calls[0][0])).toContain('/library/sections/2/refresh');
+		});
+
+		it('says it cannot aim a refresh at a file outside every section', async () => {
+			// Answering `unsupported` rather than walking every section of the server:
+			// a file in the fallback folder belongs to no section, so a full sweep would
+			// re-read terabytes to find something none of them contains.
+			const fetchMock = stubFetch(() => ({}));
+
+			await expect(handler.requestRescan(connection, null)).resolves.toBe('unsupported');
+			expect(fetchMock).not.toHaveBeenCalled();
+		});
+	});
 });

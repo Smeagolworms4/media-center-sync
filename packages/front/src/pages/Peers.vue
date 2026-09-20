@@ -268,13 +268,6 @@
 				<CopyField :label="$t('peer.identity.fingerprint')" :value="identity.fingerprint" wrap />
 
 				<CopyField
-					class="mt-3"
-					:label="$t('peer.identity.rendezvous')"
-					:value="identity.rendezvous"
-					wrap
-				/>
-
-				<CopyField
 					v-if="identity.directAddress"
 					class="mt-3"
 					:label="$t('peer.identity.direct_address')"

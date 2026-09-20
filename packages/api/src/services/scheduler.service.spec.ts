@@ -1,6 +1,6 @@
 import type { SchedulerRegistry } from '@nestjs/schedule';
 import type { Settings } from '@mcs/shared';
-import { SchedulerService, type SchedulablePlan } from './scheduler.service';
+import { SchedulerHook, SchedulerService, type SchedulablePlan } from './scheduler.service';
 import { DEFAULT_SETTINGS, type SettingsService } from './settings.service';
 
 interface FakeJob {
@@ -168,6 +168,38 @@ describe('SchedulerService', () => {
 		await expect(Promise.resolve(handle._onTimeout?.())).resolves.toBeUndefined();
 	});
 
+	/**
+	 * The guard that the whole rework exists for.
+	 *
+	 * Three of these hooks had no subscriber anywhere in the application for the life
+	 * of the product: the refresh, the full scan and the retention cleanup were
+	 * scheduled at every boot and fired into nothing. A hook added to the enum and
+	 * never subscribed now fails here and in the functional suite, where the real
+	 * container is the one being asked.
+	 */
+	describe('subscriptions', () => {
+		it('reports every hook as unsubscribed when nobody has claimed one', () => {
+			expect(service.unsubscribedHooks()).toEqual(Object.values(SchedulerHook));
+		});
+
+		it('reports none once all four are claimed', () => {
+			service.onRefresh(jest.fn());
+			service.onFullScan(jest.fn());
+			service.onCleanup(jest.fn());
+			service.onPlan(jest.fn());
+
+			expect(service.unsubscribedHooks()).toEqual([]);
+		});
+
+		it('names exactly the hook that was forgotten', () => {
+			service.onRefresh(jest.fn());
+			service.onFullScan(jest.fn());
+			service.onPlan(jest.fn());
+
+			expect(service.unsubscribedHooks()).toEqual([SchedulerHook.CLEANUP]);
+		});
+	});
+
 	it('answers nothing for the next run of a plan it does not hold', () => {
 		expect(service.nextRunAt('unknown')).toBeNull();
 	});
@@ -204,9 +236,11 @@ describe('SchedulerService', () => {
 			expect(fullScan).toHaveBeenCalledTimes(1);
 		});
 
-		it('runs the cleanup with the retention the settings carry', async () => {
-			// The number belongs to the settings and is read when the job is registered,
-			// so changing it and reloading is what makes a new retention take effect.
+		it('runs the cleanup, and tells it nothing about the retention', async () => {
+			// The retention used to be read here and handed over when the job was
+			// registered, which froze it until the next reload — and nothing reloads on
+			// that field. The subscriber reads the settings when the tick arrives, so a
+			// number saved at noon is in force that night.
 			const cleanup = jest.fn(async () => undefined);
 
 			settings.transferHistoryDays = 7;
@@ -214,7 +248,21 @@ describe('SchedulerService', () => {
 			await service.reload();
 			await fire('mcs:cleanup');
 
-			expect(cleanup).toHaveBeenCalledWith(7);
+			expect(cleanup).toHaveBeenCalledTimes(1);
+			expect(cleanup).toHaveBeenCalledWith();
+		});
+
+		it('runs the refresh that was handed in', async () => {
+			const refresh = jest.fn(async () => undefined);
+
+			service.onRefresh(refresh);
+			await service.reload();
+
+			const handle = intervals.get('mcs:refresh') as NodeJS.Timeout & { _onTimeout?: () => void };
+
+			await handle._onTimeout?.();
+
+			expect(refresh).toHaveBeenCalledTimes(1);
 		});
 
 		it('runs the plan the job is named after, and no other', async () => {

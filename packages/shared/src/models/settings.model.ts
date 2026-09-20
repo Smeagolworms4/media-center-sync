@@ -194,12 +194,31 @@ export interface Settings {
 	 * smallest budget any hop allowed — so lowering this is always safe and raising
 	 * it never overrules somebody else's choice.
 	 *
+	 * **It is a consent, not a lookup setting.** Since a friend of a friend is reached
+	 * by being introduced to them — the middle gateway hands out a token and steps out
+	 * of the way — this number is also how far away somebody may be and still open a
+	 * link to this gateway. Lowering it to save bandwidth does not narrow a search: it
+	 * narrows who can reach you, and nobody beyond it is ever introduced.
+	 *
 	 * See `DEFAULT_PEER_MAX_DEPTH` and `MAX_PEER_MAX_DEPTH`.
 	 */
 	peerMaxDepth: number;
+	/**
+	 * Keep a peer met while pulling from a friend of a friend. Off by default.
+	 *
+	 * Pulling something a friend's friend holds opens a real link between the two
+	 * gateways — they are introduced and then talk directly, with nobody in the middle.
+	 * The question this answers is what happens to that link afterwards: off, it closes
+	 * with the transfer and the row goes with it; on, the peer joins the list like any
+	 * other and their catalogue is imported.
+	 *
+	 * Off, because a gateway that quietly accumulated a peer for every file it ever
+	 * pulled would end up linked to a circle nobody chose, each of them dialled at every
+	 * restart. Keeping one is a decision, and it is one click.
+	 */
+	keepDiscoveredPeers: boolean;
 	/** Use the encapsulated swarm when several peers hold the same file. */
 	allowSwarm: boolean;
-	rendezvousUrl: string | null;
 
 	/**
 	 * What a library of ours is visible to before anybody configures it.
@@ -266,8 +285,35 @@ export interface Settings {
 	 * failing at the end of a completed download.
 	 */
 	defaultTargetPath: string | null;
-	/** Keep finished transfers in the list for this many days. */
+	/**
+	 * How long finished work that succeeded is kept, in days.
+	 *
+	 * It governs finished sync runs as well as finished transfers, deliberately as one
+	 * number rather than two. A run and the transfers it created are one piece of
+	 * history: two windows would eventually delete a run whose transfers are still
+	 * listed, or leave a run pointing at transfers that no longer exist, and neither is
+	 * a state anybody could read. The name is kept because it is what is already stored
+	 * and shown; what it covers is what this comment says.
+	 *
+	 * Zero means never keep them — the daily cleanup then removes anything already
+	 * finished. That is a real choice on a gateway somebody watches live, not an
+	 * accident, so it is allowed.
+	 */
 	transferHistoryDays: number;
+
+	/**
+	 * How long finished work that failed or was cancelled is kept, in days.
+	 *
+	 * Its own window, and a much longer default, because a failure is evidence. A
+	 * transfer that failed three weeks ago is the answer to "why is this series
+	 * incomplete", and a retention that treated it like a success would have destroyed
+	 * the answer before anybody thought to ask the question. Successes carry no such
+	 * information: the file is in the library, which says everything the row did.
+	 *
+	 * Independent of `transferHistoryDays` and not clamped against it. Setting this
+	 * lower is somebody saying they do not want the evidence, which is theirs to say.
+	 */
+	failedHistoryDays: number;
 
 	/**
 	 * How often the gateway asks a service what changed, in minutes.

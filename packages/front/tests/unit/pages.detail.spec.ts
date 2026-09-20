@@ -589,7 +589,7 @@ describe('pages/SyncPlan', () => {
 		trigger: SyncTrigger.SCHEDULE,
 		schedule: '0 4 * * *',
 		sourceServiceIds: ['s1'],
-		targetLibraryId: 'l1',
+		preferredLibraryId: 'l1',
 		scope: {},
 		maxItemsPerRun: null,
 		maxBytesPerRun: null,
@@ -618,6 +618,8 @@ describe('pages/SyncPlan', () => {
 		await settle();
 
 		const preview = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/preview'));
+		// The preference goes in as the run's destination: a preview that ignored it
+		// would promise one shelf and the run would deliver another.
 		expect(JSON.parse(String(preview?.[1]?.body))).toMatchObject({
 			planId: 'pl1',
 			sourceServiceIds: ['s1'],

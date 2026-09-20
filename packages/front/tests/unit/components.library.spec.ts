@@ -33,6 +33,7 @@ function peer (overrides: Partial<Peer> = {}): Peer {
 		depth: 1,
 		maxDepth: null,
 		readingForbidden: false,
+		discovered: false,
 		linkMode: null,
 		address: null,
 		viaPeerId: null,
@@ -148,14 +149,36 @@ describe('components/media/SyncStateBadge', () => {
 			.toBe(SyncState.UNKNOWN);
 	});
 
-	/** The two states people scan a wall for cannot depend on telling two hues apart. */
-	it.each([SyncState.MISSING, SyncState.OUTDATED])('spells %s out in words too', state => {
+	/**
+	 * The states a wall is scanned for cannot depend on telling two hues apart.
+	 *
+	 * The two landed ones are labelled for a second reason: they sit exactly where a
+	 * `missing` badge sat a moment earlier, and an unlabelled icon there reads as
+	 * "still missing, different colour" — the misreading the state exists to prevent.
+	 */
+	it.each([
+		SyncState.MISSING,
+		SyncState.OUTDATED,
+		SyncState.AWAITING_INDEX,
+		SyncState.NOT_INDEXED,
+	])('spells %s out in words too', state => {
 		const { wrapper } = mountWithApp(SyncStateBadge, {
 			props: { state },
 			global: { stubs: tooltipStub },
 		});
 
 		expect(wrapper.find('.sync-state-badge_label').exists()).toBe(true);
+	});
+
+	it('says in words that a downloaded file is waiting to be indexed', () => {
+		const { wrapper } = mountWithApp(SyncStateBadge, {
+			props: { state: SyncState.AWAITING_INDEX },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('.sync-state-badge_label').text()).toBe('Downloaded — resyncing');
+		// And the tooltip says why it cannot be played yet, which the badge cannot.
+		expect(wrapper.text()).toContain('has not indexed it yet');
 	});
 
 	it('leaves a library that is in sync unlabelled, so the odd one stands out', () => {

@@ -212,10 +212,18 @@ describe('stores/media', () => {
 		});
 		expect(store.items[0].sync).toBe(SyncState.SYNCING);
 
+		/*
+		 * A finished transfer means the file is on the disk, and nothing more.
+		 *
+		 * `in_sync` here would claim the media server holds it, which it does not
+		 * until it has scanned — and the next reload from the API would contradict
+		 * this row. `awaiting_index` is what the gateway has recorded, so the
+		 * optimistic patch and the reload say the same thing.
+		 */
 		emitServerEvent(EventName.TRANSFER_STATE, {
 			id: 't1', itemId: 'm1', state: TransferState.DONE,
 		});
-		expect(store.items[0].sync).toBe(SyncState.IN_SYNC);
+		expect(store.items[0].sync).toBe(SyncState.AWAITING_INDEX);
 	});
 
 	it('ignores a transfer for an item this list does not hold', async () => {

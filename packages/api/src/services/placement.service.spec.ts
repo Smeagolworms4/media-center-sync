@@ -1,7 +1,14 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ErrorKey, LibraryKind, MediaKind, PlacementStrategy, type Settings } from '@mcs/shared';
+import {
+	ErrorKey,
+	LibraryKind,
+	MediaKind,
+	PlacedBy,
+	PlacementStrategy,
+	type Settings,
+} from '@mcs/shared';
 import { DEFAULT_SETTINGS } from './settings.service';
 import { PlacementService, type PlacementLibrary } from './placement.service';
 
@@ -152,6 +159,82 @@ describe('PlacementService', () => {
 		});
 
 		expect(target.libraryId).toBe('lib-movies');
+	});
+
+	/**
+	 * Where the plan's preference sits in the rule, which is the whole design of it.
+	 *
+	 * It decides where something *new* goes and never where a show we already hold
+	 * goes. The two tests below are the two halves of that sentence, and they are the
+	 * reason a preference is not simply tried first: a plan pointed at the anime shelf
+	 * would otherwise file the fourth season of a show into it while the first three
+	 * stayed on the shows shelf, and neither media server shows that as one series.
+	 * Landing somewhere unexpected is recoverable in one move; a split show is a thing
+	 * nobody notices until they go looking for an episode.
+	 */
+	describe('a plan that prefers a library', () => {
+		it('keeps a series we already hold in its own folder, preference or not', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings({ placement: PlacementStrategy.DEFAULT_LIBRARY }),
+				libraries: [
+					library(),
+					library({ id: 'lib-anime', kind: LibraryKind.SHOWS, localPath: anime }),
+				],
+				relativeName: 'The Expanse/S01E02.mkv',
+				existingPath: join(shows, 'The Expanse', 'S01E01.mkv'),
+				preferredLibraryId: 'lib-anime',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.path).toBe(join(shows, 'The Expanse', 'S01E02.mkv'));
+			expect(target.placedBy).toBe(PlacedBy.EXISTING_COPY);
+		});
+
+		it('takes everything genuinely new, ahead of the category and the default', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings({
+					placement: PlacementStrategy.DEFAULT_LIBRARY,
+					categoryTargets: { shows: 'lib-shows' },
+					defaultTargetLibraryId: 'lib-shows',
+				}),
+				categoryKey: 'shows',
+				libraries: [
+					library(),
+					library({ id: 'lib-anime', kind: LibraryKind.SHOWS, localPath: anime }),
+				],
+				relativeName: 'Frieren/S01E01.mkv',
+				existingPath: null,
+				preferredLibraryId: 'lib-anime',
+				preferredBy: PlacedBy.PLAN_PREFERENCE,
+			});
+
+			expect(target.libraryId).toBe('lib-anime');
+			expect(target.placedBy).toBe(PlacedBy.PLAN_PREFERENCE);
+		});
+
+		it('is passed over rather than obeyed when it names a library nothing can use', async () => {
+			// A preference only ever appends a candidate, so a disk that has been
+			// unplugged since somebody chose it hands the question to the next rule
+			// instead of failing a download that has already finished.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings({
+					placement: PlacementStrategy.DEFAULT_LIBRARY,
+					defaultTargetLibraryId: 'lib-shows',
+				}),
+				libraries: [
+					library(),
+					library({ id: 'lib-locked', localPath: readOnly, writable: false }),
+				],
+				relativeName: 'Frieren/S01E01.mkv',
+				preferredLibraryId: 'lib-locked',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.placedBy).toBe(PlacedBy.DEFAULT_LIBRARY);
+		});
 	});
 
 	it('skips a library that is not writable and says why', async () => {

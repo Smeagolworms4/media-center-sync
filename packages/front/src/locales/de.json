@@ -118,6 +118,20 @@
 	"general": {
 		"byte_unit": "B"
 	},
+	"history": {
+		"view": {
+			"live": "Laufend",
+			"finished": "Abgeschlossen",
+			"all": "Alle"
+		},
+		"see_finished": "Abgeschlossene anzeigen",
+		"hint_transfers": "Es wird nur angezeigt, was sich noch bewegt. Abgeschlossene Übertragungen stehen unter Abgeschlossen.",
+		"hint_runs": "Es werden nur laufende Durchläufe angezeigt. Abgeschlossene Durchläufe stehen unter Abgeschlossen.",
+		"empty_live_title": "Nichts ist in Bewegung",
+		"empty_live_text": "Zurzeit läuft, wartet oder pausiert keine Übertragung. Alles bereits Abgeschlossene ist weiterhin da, unter Abgeschlossen.",
+		"empty_live_runs_title": "Kein Durchlauf aktiv",
+		"empty_live_runs_text": "Derzeit läuft keine Synchronisierung. Bereits abgeschlossene Durchläufe sind weiterhin da, unter Abgeschlossen."
+	},
 	"cron": {
 		"describe": {
 			"every_minute": "Jede Minute.",
@@ -147,6 +161,7 @@
 		"services_all_online": "Alle antworten",
 		"missing": "Fehlt hier",
 		"missing_hint": "Anderswo bekannt, hier nicht vorhanden",
+		"awaiting_index": "{count} heruntergeladen, warten auf das erneute Einlesen der Mediathek",
 		"active_transfers": "Laufende Übertragungen",
 		"queued": "{count} in der Warteschlange",
 		"peers": "Peers",
@@ -161,6 +176,7 @@
 		"all_jobs": "Alle Durchläufe ansehen",
 		"problem": {
 			"library_not_writable": "{name} ist nicht beschreibbar — Übertragungen würden dort landen, wo Ihr Server nie hinsieht",
+			"not_indexed": "{count} heruntergeladene Dateien, die Ihr Medienserver nie indiziert hat",
 			"service_offline": "{name} antwortet nicht",
 			"service_unauthorized": "{name} hat das Gateway abgewiesen — prüfen Sie den Token",
 			"peer_unreachable": "{name} ist nicht erreichbar",
@@ -181,7 +197,7 @@
 		"section_count": "kein Element | {count} Element | {count} Elemente",
 		"section_empty": "Nichts in dieser Kategorie passt zu diesen Filtern.",
 		"section_latest": "neueste Zugänge",
-		"section_local": "Bei uns",
+		"section_local": "Dateien hier",
 		"everything": "Über alle Kategorien",
 		"categories": "Ihre Bibliotheken",
 		"categories_hint": "Bibliotheken gleichen Namens, auf allen Servern, als eine gesehen.",
@@ -224,8 +240,21 @@
 	},
 	"category": {
 		"empty": "Noch keine Kategorie. Registrieren Sie einen Mediendienst und scannen Sie ihn; seine Bibliotheken erscheinen hier.",
-		"local": "Bei uns",
-		"libraries": "keine Bibliothek | {count} Bibliothek | {count} Bibliotheken"
+		"local": "Dateien hier",
+		"libraries": "keine Bibliothek | {count} Bibliothek | {count} Bibliotheken",
+		"mapping": {
+			"pool_title": "Noch nirgends einsortiert",
+			"unfile": "Wieder nach oben legen",
+			"pool_empty": "Nichts übrig — alles ist einsortiert.",
+			"map_to": "Einsortieren in",
+			"move_to": "Verschieben",
+			"add_keyword": "Ein weiterer Name für diese Kategorie",
+			"no_keyword": "Noch kein Name hinterlegt.",
+			"no_local": "Noch keine eigene Kategorie. Registrieren Sie einen Mediendienst, den dieses Gateway erreicht, und lesen Sie ihn ein.",
+			"applied": "„{keyword}“ wird ab jetzt hier einsortiert.",
+			"undo": "Rückgängig",
+			"order_title": "Reihenfolge, Umbenennen und Sortieren"
+		}
 	},
 	"media": {
 		"children": "Inhalt",
@@ -436,7 +465,9 @@
 		"empty_text": "Fügen Sie den Fingerabdruck eines Freundes ein oder geben Sie ihm eine Einladung — beides verbindet die beiden Gateways.",
 		"shares": "{services} Dienste · {items} geteilte Elemente",
 		"last_seen": "zuletzt gesehen",
-		"relay_hint": "Diese Verbindung läuft über das Rendezvous, dessen Bandbreite sich alle teilen, die es nutzen.",
+		"relay_hint": "Diese Verbindung trägt der Freund, der die beiden Gateways vermittelt hat: Seine Maschine bewegt die Daten, auf Kosten seines Uploads.",
+		"discovered_chip": "Vorübergehend",
+		"discovered_hint": "Beim Holen einer Datei vom Freund eines Freundes kennengelernt. Die beiden Gateways sind direkt verbunden, und diese Verbindung endet mit der Übertragung — wer sie behalten will, schaltet in den Einstellungen das Behalten gefundener Peers ein.",
 		"remove_title": "Diesen Peer entfernen?",
 		"remove_confirm": "Die Verbindung mit {name} wird gelöst. Was bereits von dort geholt wurde, bleibt, und der Peer darf erneut anfragen — um seinen Schlüssel dauerhaft abzulehnen, sperren Sie ihn.",
 		"connecting": "Es wird jetzt versucht, den Peer zu erreichen…",
@@ -464,7 +495,7 @@
 			"fingerprint": "Sein Fingerabdruck",
 			"fingerprint_hint": "So, wie sein eigenes Gateway ihn unter „Dieses Gateway“ anzeigt.",
 			"address": "Seine Adresse",
-			"address_hint": "Optional. Wird zuerst versucht, wenn Sie sie kennen; sonst findet das Rendezvous ihn.",
+			"address_hint": "Optional. Wird zuerst versucht, wenn Sie sie kennen; sonst kann ein Freund, den Sie beide haben, Sie vermitteln.",
 			"action": "Anfrage senden"
 		},
 		"status": {
@@ -486,10 +517,9 @@
 			"node_id": "Knoten-Kennung",
 			"node_id_help": "Der beständige Name dieses Gateways im gemeinsamen Netz. Einmal erzeugt und bewusst nicht der Fingerabdruck: Ein Schlüsselwechsel darf dieses Gateway nicht wie einen neuen Teilnehmer aussehen lassen. Sie ist das, was man nennt, wenn eine Ankündigung von einem Freundesfreund im Kreis läuft.",
 			"fingerprint": "Fingerabdruck",
-			"rendezvous": "Rendezvous",
 			"direct_address": "Direkte Adresse",
 			"direct_ok": "Direkte Verbindungen sind möglich, Übertragungen laufen also nicht über das Relay.",
-			"relay_only": "Dieses Gateway ist von außen nicht erreichbar. Freunde können es deshalb nicht direkt anwählen, und jede Übertragung läuft über das Rendezvous, dessen Bandbreite sich alle teilen, die es gerade nutzen. Den Port der Oberfläche im Router weiterzuleiten behebt das. Einen zweiten Port gibt es nicht: Eine Peer-Verbindung ist ein WebSocket-Upgrade auf genau diesem Port."
+			"relay_only": "Dieses Gateway ist von außen nicht erreichbar. Freunde können es deshalb nicht direkt anwählen, und eine Verbindung hängt dann an einem Freund, den Sie beide schon haben — etwas anderes gibt es nicht. Den Port der Oberfläche im Router weiterzuleiten behebt das. Einen zweiten Port gibt es nicht: Eine Peer-Verbindung ist ein WebSocket-Upgrade auf genau diesem Port."
 		},
 		"invite": {
 			"open": "Gateway verbinden",
@@ -547,6 +577,7 @@
 		},
 		"connect_hint": "Dieses Gateway verbindet sich beim Start und versucht es nach einem Abbruch von selbst erneut, mit immer längeren Pausen. Dies versucht es sofort.",
 		"unreachable_hint": "Derzeit nicht erreichbar. Das Gateway versucht es von selbst weiter und wartet dazwischen immer länger.",
+		"unreachable_port_hint": "Wenn keines der beiden Gateways erreichbar ist und Sie keinen gemeinsamen Freund haben, bleibt nichts mehr zu versuchen: Den Port der Oberfläche in einem der beiden Router weiterzuleiten öffnet die Verbindung.",
 		"reading_forbidden_chip": "Sieht nichts",
 		"reading_forbidden_hint": "Lesen verboten: Die Verbindung bleibt, und dieses Gateway liest weiter aus seiner Bibliothek — aber alles, was er hier anfragt, wird leer beantwortet.",
 		"forbid_reading_title": "Diesem Peer das Lesen verbieten?",
@@ -705,24 +736,21 @@
 		"destination": {
 			"rule_title": "Wie das Gateway entscheidet, wohin eine Datei geht",
 			"rule_existing": "Eine Serie, die Sie schon haben, behält ihren eigenen Ordner. Eine neue Folge wird neben ihre Geschwister gelegt, in der Staffelordner-Schreibweise genau dieser Bibliothek — „Saison 1“ bleibt „Saison 1“.",
-			"rule_category": "Sonst die Bibliothek, die in der Tabelle unten für diese Kategorie eingetragen ist.",
+			"rule_plan": "Ein Synchronisationsplan kann eine Bibliothek bevorzugen: Alles Neue, das er holt, geht dorthin — noch vor der Tabelle unten.",
+			"rule_category": "Sonst die Mediathek, auf die diese Kategorie zeigt, unter Kategorien weiter unten.",
 			"rule_global": "Sonst die Standard-Zielbibliothek.",
 			"rule_fallback": "Sonst der Ausweichordner.",
 			"rule_fixed": "Der erste Schritt ist keine Einstellung und lässt sich nicht abschalten. Eine Staffel auf zwei Ordner zu verteilen ist schlimmer als jede der beiden Antworten für sich, deshalb behält eine Serie, die schon ein Zuhause hat, es auch.",
 			"global": "Standard-Zielbibliothek",
 			"global_help": "Wohin alles kommt, das keine Kategorie benennt. Stellen Sie diese eine ein, und Sie müssen die Tabelle nie öffnen.",
 			"none": "Keine Bibliothek hier kann Dateien aufnehmen. Ein Ziel muss eine Bibliothek auf einem Ihrer eigenen Dienste sein, in die dieses Gateway schreiben kann.",
-			"table_title": "Ausnahmen je Kategorie",
-			"table_help": "Eine Zeile je Kategorie. Eine Zeile, die Sie in Ruhe lassen, benutzt das Standardziel oben.",
-			"category_header": "Kategorie",
 			"target_header": "Geht nach",
 			"falls_back": "Fällt zurück auf {target}",
 			"merges": "Ein Ziel zu wählen ordnet diese Kategorie auch dem Namen dieser Bibliothek zu: In der Bibliotheksansicht erscheinen beide danach als eine Kategorie und nicht als zwei.",
-			"merges_foreign": "Dieses Gateway erreicht die Ordner dieser Bibliotheken nicht, deshalb bleiben ihre Namen wie sie sind und diese Kategorie wird weiterhin für sich angezeigt. Nur wo neue Dateien landen, ändert sich.",
 			"fallback_unset": "irgendeine Bibliothek, die sie aufnehmen kann — oben ist nichts eingestellt",
 			"rejected": {
-				"not_ours": "{library} auf {service} kann nicht angeboten werden: Dieses Gateway erreicht die Ordner dieses Servers nicht, dort Geschriebenes würde nie darin auftauchen.",
-				"not_writable": "{library} auf {service} kann nicht angeboten werden: Dieses Gateway kann nicht in ihren Ordner schreiben."
+				"not_ours": "dieses Gateway erreicht die Ordner dieses Servers nicht",
+				"not_writable": "dieses Gateway kann nicht in seinen Ordner schreiben"
 			},
 			"fixed_path_active": "Derzeit geht alles nach {path}, ganz gleich was es ist — eine alte Einstellung, die diese ganze Seite übergeht. Nichts von oben gilt, solange sie nicht gelöscht ist.",
 			"fixed_path_clear": "Stattdessen die Regel oben verwenden"
@@ -768,13 +796,14 @@
 		"rate_limit_help": "Etwa 10M. Leer bedeutet keine Grenze.",
 		"upload_rate_limit_help": "Etwa 10M. Leer bedeutet keine Grenze. Sie drosselt alles, was dieses Gateway sendet, auch Peers, die von ihm holen.",
 		"categories_help": "Bibliotheken gleichen Namens sind eine Kategorie, und dies ist die Reihenfolge, in der sie erscheinen. Umbenannt oder umsortiert wird eine Bibliothek auf dem Dienst, der sie hält.",
+		"categories_mapping_help": "Geben Sie jeder Ihrer Kategorien die Namen, unter denen die Mediatheken anderer auftauchen. Eine Mediathek mit passendem Namen wird von selbst Teil der Kategorie — auch eine, die erst später auf einem noch unbekannten Gateway erscheint.",
 		"categories_edit": "Bibliothek umbenennen oder umsortieren",
-		"history_days": "Abgeschlossene Übertragungen behalten",
-		"history_days_help": "In Tagen. Danach verlassen sie die Warteschlange.",
+		"history_days": "Erfolgreiches aufbewahren für",
+		"history_days_help": "In Tagen. Gilt für Übertragungen und Synchronisierungsdurchläufe, die durchgelaufen sind. Null bewahrt keine davon auf.",
 		"swarm": "Schwarm zulassen",
 		"swarm_help": "Mehrere Peers, die dieselbe Datei haben, können eine Übertragung gemeinsam speisen.",
-		"rendezvous": "Rendezvous",
-		"rendezvous_help": "Der Server, der zwei Gateways einander vorstellt, damit sie eine direkte Verbindung öffnen können.",
+		"keep_discovered_peers": "Beim Herunterladen gefundene Peers behalten",
+		"keep_discovered_peers_help": "Wenn Sie eine Datei vom Freund eines Freundes holen, verbinden sich die beiden Gateways direkt; behalten Sie ihn in Ihrer Liste, oder lassen Sie die Verbindung mit der Übertragung enden.",
 		"match_threshold": "Korrelationsschwelle",
 		"match_threshold_help": "Unterhalb dieses Wertes wird ein Treffer vorgeschlagen statt angewendet.",
 		"refresh_interval": "Aktualisieren alle (Minuten)",
@@ -790,11 +819,14 @@
 		"peer_max_depth_help": "Erlaubte Schritte von hier: 1 nur Freunde, 2 deren Freunde und so weiter.",
 		"peer_max_depth_pinned": "Durch die Umgebung dieser Installation festgelegt und hier nicht änderbar.",
 		"peer_max_depth_per_peer": "Eine Obergrenze für das ganze Gateway. Jeder Peer kann auf seiner Zeile kürzer gehalten werden, und keine Einstellung hier reicht über das hinaus, was jemand anderes erlaubt hat.",
+		"peer_max_depth_consent": "Das ist eine Zustimmung und keine Sucheinstellung: In dieser Entfernung erreichbar zu sein ist die Vereinbarung selbst, ein kleinerer Wert schränkt also ein, wer eine Verbindung zu diesem Gateway öffnen kann. Es ist die einzige Reichweiteneinstellung, die es gibt.",
 		"write_nfo": "Eine .nfo schreiben, wenn die Quelle keine hat",
 		"write_nfo_help": "Eine Quelle hält ihre Metadaten oft in der eigenen Datenbank und nichts auf der Festplatte: Kopieren liefert die Datei und keine der Angaben, und Ihr Medienserver identifiziert die Folge dann anhand des Dateinamens neu. Ersetzt nie ein Dokument, das Sie bereits haben.",
 		"default_share": "Neue Bibliotheken teilen mit",
 		"default_share_help": "Gilt, sobald ein Scan eine Bibliothek findet, damit ein Freund, der sich verbindet, nicht auf ein leeres Regal stößt.",
-		"default_share_note": "Gilt für jede Bibliothek auf einem Server, dessen Freigabe eingeschaltet ist — auch für eine, deren Dateien dieses Gateway nicht hat: Sie wird dann von jenem Server gelesen und auf Kosten dieser Verbindung weitergereicht. Was ein Peer mit uns teilt, wird niemals weitergereicht."
+		"default_share_note": "Gilt für jede Bibliothek auf einem Server, dessen Freigabe eingeschaltet ist — auch für eine, deren Dateien dieses Gateway nicht hat: Sie wird dann von jenem Server gelesen und auf Kosten dieser Verbindung weitergereicht. Was ein Peer mit uns teilt, wird niemals weitergereicht.",
+		"failed_history_days": "Fehlschläge aufbewahren für",
+		"failed_history_days_help": "In Tagen, und absichtlich länger: eine fehlgeschlagene Übertragung ist der Beleg dafür, warum etwas nie angekommen ist."
 	},
 	"sync": {
 		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",
@@ -811,6 +843,8 @@
 		"state": {
 			"local_only": "Nur lokal",
 			"missing": "Fehlt hier",
+			"awaiting_index": "Heruntergeladen — wird neu eingelesen",
+			"not_indexed": "Nie indiziert",
 			"in_sync": "Synchron",
 			"outdated": "Veraltet",
 			"conflict": "Konflikt",
@@ -820,6 +854,8 @@
 		"state_help": {
 			"local_only": "Hier vorhanden und auf keinem anderen Dienst, den wir kennen.",
 			"missing": "Ein anderer Dienst hat es, dieser nicht. Eine Synchronisierung füllt die Lücke.",
+			"awaiting_index": "Die Datei liegt auf Ihrer Festplatte. Der Medienserver wurde zum erneuten Einlesen aufgefordert und hat sie noch nicht indiziert.",
+			"not_indexed": "Die Datei liegt seit Stunden auf Ihrer Festplatte und kein Medienserver hat sie indiziert. Prüfen Sie, ob das Verzeichnis, in das das Gateway schreibt, dasselbe ist, das Ihr Server einliest.",
 			"in_sync": "Auf beiden Seiten vorhanden, dieselbe Fassung.",
 			"outdated": "Hier vorhanden, aber anderswo gibt es eine bessere Fassung.",
 			"conflict": "Zwei Fassungen, die sich nicht ordnen lassen — verschiedene Schnitte oder Sprachen.",
@@ -863,8 +899,8 @@
 			"sources_default": "Keine Quelle festgelegt: Der Plan folgt der Dienst-Priorität aus den Einstellungen, und das ist, was die meisten wollen.",
 			"sources_ordered": "In dieser Reihenfolge befragt.",
 			"add_source": "Quelle hinzufügen",
-			"target": "Zielbibliothek",
-			"target_hint": "Leer bedeutet: neben unsere eigene Kopie oder in das Standardziel für diese Art.",
+			"target": "Bevorzugte Bibliothek",
+			"target_hint": "Wohin dieser Plan alles Neue ablegt. Eine Serie, die Sie schon haben, behält trotzdem ihren eigenen Ordner. Leer: Es entscheiden die Regeln unten.",
 			"root": "Wurzelelement",
 			"root_hint": "Optional. Die Kennung einer Serie oder Sammlung, um den Plan auf diesen Teilbaum zu beschränken.",
 			"filters": "Filter",
@@ -974,7 +1010,7 @@
 		"transport": {
 			"http_range": "HTTP-Bereichsabruf beim Dienst",
 			"peer_direct": "Direkte Verbindung zum Peer",
-			"peer_relay": "Über das Rendezvous weitergeleitet",
+			"peer_relay": "Über einen Freund weitergeleitet",
 			"swarm": "Schwarm — mehrere Peers speisen gemeinsam"
 		},
 		"stats": {
@@ -1058,10 +1094,14 @@
 			"cancel": "Abbrechen"
 		},
 		"retarget": {
-			"title": "Woandershin holen",
-			"hint": "Das Element wird erneut in die Bibliothek eingeplant, die Sie wählen. Angeboten werden nur Bibliotheken, in die das Gateway schreiben kann.",
+			"title": "In eine andere Bibliothek schicken",
+			"hint_repoint": "Es ist noch nichts abgelegt worden, das ändert also nur das Ziel. Der Download läuft weiter, und es wird kein Byte kopiert.",
+			"hint_move": "Diese Datei liegt bereits in einer Bibliothek. Eine andere zu wählen verschiebt sie wirklich, was bei einer großen Datei dauert — die Warteschlange zeigt den Fortschritt.",
 			"library": "Zielbibliothek",
-			"confirm": "Dorthin holen"
+			"confirm": "Dorthin schicken",
+			"confirm_move": "Dorthin verschieben",
+			"repointed": "Sie geht stattdessen dorthin.",
+			"moved": "Verschoben. Die Datei liegt jetzt in dieser Bibliothek."
 		},
 		"revalidation": {
 			"title": "Warum diese Übertragung es sich anders überlegt hat",
@@ -1159,7 +1199,11 @@
 		"library": {
 			"not_found": "Diese Bibliothek gibt es nicht mehr.",
 			"path_unreadable": "Das Gateway kann diesen Pfad nicht lesen.",
-			"path_not_writable": "Das Gateway kann in diesen Pfad nicht schreiben."
+			"path_not_writable": "Das Gateway kann in diesen Pfad nicht schreiben.",
+			"category_not_found": "Diese Kategorie ergibt hier nichts mehr. Laden Sie die Seite neu: Die Mediatheken dahinter wurden womöglich umbenannt oder entfernt.",
+			"keyword_not_found": "Dieser Name ist nirgends mehr hinterlegt. Laden Sie die Seite neu.",
+			"keyword_invalid": "Damit lässt sich nichts abgleichen. Verwenden Sie mindestens einen Buchstaben oder eine Ziffer.",
+			"keyword_taken": "Eine andere Kategorie sortiert diesen Namen bereits ein. Verschieben Sie ihn von dort, statt ihn zweimal anzulegen."
 		},
 		"media": {
 			"not_found": "Dieses Medienelement gibt es nicht mehr."
@@ -1174,7 +1218,8 @@
 			"protocol_unsupported": "Dieser Peer spricht eine Version des Protokolls, die dieses Gateway nicht kennt.",
 			"method_unsupported": "Dieser Peer hat etwas angefordert, das dieses Gateway nicht implementiert.",
 			"banned": "Dieser Fingerabdruck steht auf der Sperrliste. Heben Sie die Sperre auf, bevor Sie sich erneut verbinden.",
-			"ban_not_found": "Kein Eintrag der Sperrliste passt zu diesem Fingerabdruck."
+			"ban_not_found": "Kein Eintrag der Sperrliste passt zu diesem Fingerabdruck.",
+			"introduction_refused": "Dieses Gateway ist über diesen Freund nicht erreichbar."
 		},
 		"sync": {
 			"plan_not_found": "Diesen Sync-Plan gibt es nicht mehr.",
@@ -1188,6 +1233,7 @@
 		"transfer": {
 			"not_found": "Diese Übertragung gibt es nicht mehr.",
 			"not_resumable": "Diese Übertragung lässt sich nicht fortsetzen und muss von vorn beginnen.",
+			"being_placed": "Diese Datei wird gerade in ihre Bibliothek verschoben. Versuchen Sie es erneut, sobald das abgeschlossen ist.",
 			"no_space": "Nicht genug freier Speicher in der Zielbibliothek.",
 			"checksum_mismatch": "Die heruntergeladene Datei stimmt nicht mit ihrer Prüfsumme überein.",
 			"destination_full": "Das Ziel ist vollgelaufen, während die Datei dorthin verschoben wurde. Nichts ist verloren: Geben Sie Speicher frei und setzen Sie fort, dann läuft der Vorgang dort weiter, wo er stehen geblieben ist.",

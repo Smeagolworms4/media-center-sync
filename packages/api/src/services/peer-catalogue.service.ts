@@ -241,6 +241,12 @@ export class PeerCatalogueService {
 	 * friend runs a gateway for a household and another for a club of forty, and
 	 * widening the reach for the first should not widen it for the second.
 	 *
+	 * Both numbers are a consent rather than a search setting, and that is worth
+	 * knowing before anybody trims one to save bandwidth: a holder found this way is
+	 * reached by being introduced to them — the two gateways then connect directly —
+	 * so the reach is also how far away somebody may be and still open a link to them.
+	 * Shortening it makes fewer people able to reach that circle, not fewer questions.
+	 *
 	 * The budget sent is one less than the limit, because the friend being asked is
 	 * already the first hop. Sending the limit itself is the obvious off-by-one here,
 	 * and it is invisible in testing — it simply reaches one circle further than

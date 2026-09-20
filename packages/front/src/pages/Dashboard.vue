@@ -40,6 +40,10 @@
 	const loading = ref(true);
 	const failed = ref(false);
 	const missingCount = ref<number | null>(null);
+	/** Downloaded, on the disk, and not yet in any media server's index. */
+	const awaitingCount = ref<number | null>(null);
+	/** On the disk long enough that no ordinary scan schedule explains it any more. */
+	const notIndexedCount = ref<number | null>(null);
 
 	async function load (): Promise<void> {
 		loading.value = true;
@@ -55,11 +59,22 @@
 				transfersStore.loadStats(),
 				transfersStore.loadUnconfigured(),
 				syncStore.loadJobs({ page: 1, limit: 5 }),
-				// One row is enough: the count lives in the pagination, and pulling a
-				// page of forty thousand missing episodes to count them would not.
-				mediaStore.search({ states: [SyncState.MISSING], page: 1, limit: 1 })
-					.then(result => {
-						missingCount.value = result.pagination?.total ?? 0;
+				// Counted rather than searched: the answer lives in the pagination, and
+				// pulling a page of forty thousand missing episodes to count them would
+				// not. Three separate questions on purpose — what is still to fetch, what
+				// has been fetched and is waiting, and what a server never took — because
+				// only the first is a list anybody can act on by downloading.
+				mediaStore.count([SyncState.MISSING])
+					.then(total => {
+						missingCount.value = total;
+					}),
+				mediaStore.count([SyncState.AWAITING_INDEX])
+					.then(total => {
+						awaitingCount.value = total;
+					}),
+				mediaStore.count([SyncState.NOT_INDEXED])
+					.then(total => {
+						notIndexedCount.value = total;
 					}),
 			]);
 		} catch {
@@ -91,6 +106,24 @@
 
 	/** Everything that needs somebody to do something, in one place. */
 	const problems = computed(() => [
+		/*
+		 * A file on the disk that no media server ever took.
+		 *
+		 * It belongs here and not on a tile because it is never normal and it is always
+		 * a misconfiguration somebody has to go and fix — the library the gateway writes
+		 * into is not the directory the server scans, or that server's scanner is off.
+		 * Nothing else reports it: the transfer succeeded, so there is no failure, no
+		 * error and no log line anybody would go looking for.
+		 */
+		...((notIndexedCount.value ?? 0) > 0
+			? [{
+				key: 'not-indexed',
+				icon: 'mdi-database-alert-outline',
+				text: 'dashboard.problem.not_indexed',
+				params: { count: notIndexedCount.value as number },
+				to: { name: 'library', query: { states: SyncState.NOT_INDEXED } },
+			}]
+			: []),
 		...unwritable.value.map(check => ({
 			key: `library-${check.libraryId}`,
 			icon: 'mdi-folder-alert-outline',
@@ -214,7 +247,27 @@
 						:title="$t('dashboard.missing')"
 						:to="{ name: 'library', query: { states: SyncState.MISSING } }"
 						:value="missingCount"
-					/>
+					>
+						<!--
+							Under the missing figure rather than beside it: it is the same
+							question — what am I short of — with the answer "nothing, wait a
+							moment". Somebody who has just watched a download finish looks
+							here first, and a tile that only counted what is still absent
+							would tell them it is still absent.
+						-->
+						<p
+							v-if="(awaitingCount ?? 0) > 0"
+							class="text-caption mb-0"
+							data-test="tile-awaiting"
+						>
+							<router-link
+								class="dashboard_awaiting"
+								:to="{ name: 'library', query: { states: SyncState.AWAITING_INDEX } }"
+							>
+								{{ $t('dashboard.awaiting_index', { count: awaitingCount }) }}
+							</router-link>
+						</p>
+					</StatTile>
 				</v-col>
 
 				<v-col cols="12" md="3" sm="6">
@@ -353,6 +406,11 @@
 	.dashboard {
 		&_card {
 			height: 100%;
+		}
+
+		&_awaiting {
+			color: rgb(var(--v-theme-state-awaiting-index));
+			text-decoration: none;
 		}
 
 		&_categories {

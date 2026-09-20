@@ -16,12 +16,14 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { MediaItem as MediaItemEntity, MediaMatch as MediaMatchEntity } from '@/entities';
 import {
 	MediaItemRepository,
+	MediaLandingRepository,
 	MediaMatchRepository,
 	MediaServiceRepository,
 } from '@/repositories';
 import {
 	CacheService,
 	HandlerRegistry,
+	landingSyncState,
 	MatchingService,
 	applyOverride,
 	normalizeTitle,
@@ -47,6 +49,13 @@ interface CorrelationContext {
 	local: Set<string>;
 	everything: MediaItemEntity[];
 	byContent: Map<string, MediaItemEntity[]>;
+	/**
+	 * Items whose file the gateway has already put on the disk, and the state that
+	 * makes. Read once per pass rather than per item — the table holds one row per
+	 * download nobody has indexed yet, which is tens, and a query per item would be
+	 * tens of thousands of them to answer a question that is almost always "no".
+	 */
+	landed: Map<string, SyncState>;
 }
 
 /** Artwork, once fetched: bytes rather than a stream, because it is cached. */
@@ -86,6 +95,16 @@ export class MediaManager {
 		private readonly _items: MediaItemRepository,
 		private readonly _matches: MediaMatchRepository,
 		private readonly _services: MediaServiceRepository,
+		/**
+		 * What the gateway put on the disk and no media server has indexed yet.
+		 *
+		 * Read here because this is the one place an item's state is written, and it
+		 * writes it from scratch every pass. Without this the very first scan after a
+		 * download would recompute `missing` over a file sitting in the library folder —
+		 * the bug, restored on a timer, and harder to see the second time because
+		 * something had briefly shown the right answer.
+		 */
+		private readonly _landings: MediaLandingRepository,
 		private readonly _matching: MatchingService,
 		private readonly _settings: SettingsService,
 		private readonly _cache: CacheService,
@@ -115,7 +134,13 @@ export class MediaManager {
 		);
 		const everything = await this._items.find();
 		const byContent = this._indexByContent(everything);
-		const context = { threshold, peers, local, everything, byContent };
+		const landed = new Map(
+			(await this._landings.findOpen()).map((landing) => [
+				landing.itemId,
+				landingSyncState(landing.state),
+			]),
+		);
+		const context = { threshold, peers, local, everything, byContent, landed };
 
 		const mine = everything.filter((item) => item.serviceId === serviceId);
 		const touched = new Set<string>();
@@ -196,7 +221,11 @@ export class MediaManager {
 			written += 1;
 		}
 
-		const state = this._matching.deriveItemState(proposals, context.local.has(item.serviceId));
+		const state = this._landed(
+			item,
+			this._matching.deriveItemState(proposals, context.local.has(item.serviceId)),
+			context,
+		);
 
 		if (state !== item.syncState) {
 			await this._items.setSyncState([item.id], state);
@@ -426,6 +455,33 @@ export class MediaManager {
 		}
 
 		return Buffer.concat(chunks);
+	}
+
+	/**
+	 * The state a media gets when its bytes are already here and the server is not.
+	 *
+	 * Applied only over `missing`, and that narrowness is the point. `missing` is the
+	 * only derived state the landing contradicts: it means nothing local holds this,
+	 * and a file we moved into a library folder an hour ago makes that false. Every
+	 * other state — outdated, conflict, in sync — was reached by comparing real copies
+	 * and knows more than a landing does; overwriting one of them would replace a fact
+	 * with a note about a download.
+	 */
+	private _landed(
+		item: MediaItemEntity,
+		derived: SyncState,
+		context: CorrelationContext,
+	): SyncState {
+		// A copy on one of our own services is already held and already says something
+		// true about a file that plays; a pull from one of our servers into another is
+		// ordinary, and painting its source "waiting for an index" would take a good
+		// state off a good copy. `LandingManager` draws the same line, for the same
+		// reason, when it writes the state at the moment the file lands.
+		if (derived !== SyncState.MISSING || context.local.has(item.serviceId)) {
+			return derived;
+		}
+
+		return context.landed.get(item.id) ?? derived;
 	}
 
 	/**

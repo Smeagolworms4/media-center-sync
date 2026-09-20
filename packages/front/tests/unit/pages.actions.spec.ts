@@ -179,7 +179,7 @@ describe('pages/Services actions', () => {
 describe('pages/Peers actions', () => {
 	const routes = {
 		'/api/peers/identity': {
-			body: { fingerprint: 'AB', name: 'me', rendezvous: 'wss://r', directAddress: '1.2.3.4:4210', directReachable: true },
+			body: { fingerprint: 'AB', name: 'me', directAddress: '1.2.3.4:4210', directReachable: true },
 		},
 		'/api/peers/p1/connect': { body: peer },
 		'/api/peers/p1/reading': { body: { ...peer, readingForbidden: true } },
@@ -313,7 +313,7 @@ describe('pages/Sync actions', () => {
 		trigger: SyncTrigger.SCHEDULE,
 		schedule: '0 4 * * *',
 		sourceServiceIds: ['s1'],
-		targetLibraryId: 'l1',
+		preferredLibraryId: 'l1',
 		scope: {},
 		maxItemsPerRun: null,
 		maxBytesPerRun: null,
@@ -492,8 +492,8 @@ describe('pages/Settings saving', () => {
 		matchThreshold: 0.8,
 		peerMaxDepth: 3,
 		allowSwarm: true,
-		rendezvousUrl: null,
 		transferHistoryDays: 30,
+		failedHistoryDays: 180,
 		refreshIntervalMinutes: 15,
 		fullScanCron: '0 4 * * *',
 		cacheTtlSeconds: 60,
@@ -583,17 +583,25 @@ describe('pages/Settings saving', () => {
 		},
 	};
 
-	it('sends where each category goes, chosen from the table, with everything else', async () => {
-		// The whole point of the section: a choice made in the table has to reach the
+	it('sends where each category goes, chosen beside its keywords, with everything else', async () => {
+		// The whole point of the section: a choice made on the category has to reach the
 		// gateway, or the screen is a picture of a setting rather than the setting.
+		// Chosen on the category itself now — the separate table of destinations is
+		// gone, because one category in two places on one pane is the same sentence
+		// said twice.
 		const stub = stubFetchRoutes({ '/api/settings': { body: settings }, ...placementRoutes });
 		const { wrapper } = mountWithApp(Settings, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
 		});
 		await settle();
 
-		const table = wrapper.findComponent({ name: 'CategoryTargetsTable' });
-		table.findAllComponents({ name: 'VSelect' })[1].vm.$emit('update:modelValue', 'l2');
+		// Addressed by the category it belongs to rather than by position: a select
+		// picked out of a list by index silently follows whatever is added above it.
+		const select = wrapper
+			.findAllComponents({ name: 'VSelect' })
+			.find(one => one.attributes('data-test') === 'category-target-shows');
+
+		select?.vm.$emit('update:modelValue', 'l2');
 		await settle();
 
 		(wrapper.vm as any).model.defaultTargetLibraryId = 'l1';
@@ -608,6 +616,41 @@ describe('pages/Settings saving', () => {
 		// Alongside, not instead of: one form saves the whole page.
 		expect(body.namingOrder).toEqual([NamingScheme.SOURCE, NamingScheme.STANDARD]);
 		expect(body.cacheTtlSeconds).toBe(60);
+	});
+
+	it('offers nothing to fill in for a server in the middle, and never saves one', async () => {
+		// The field asked an unanswerable question: the project ships no such server
+		// and there is no public one. The reach the pane is left with is the depth,
+		// which is now the only one there is.
+		const stub = stubFetchRoutes({ '/api/settings': { body: settings } });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await (wrapper.vm as any).form.handle();
+		await settle();
+
+		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+		const body = JSON.parse(String(patch?.[1]?.body));
+
+		expect(body).not.toHaveProperty('rendezvousUrl');
+		expect(wrapper.html()).not.toContain('rendezvous');
+		expect(body.peerMaxDepth).toBe(3);
+	});
+
+	it('says what lowering the reach actually does, where somebody changes it', async () => {
+		// It is a consent, not a lookup knob: being reachable at that distance is the
+		// agreement, so a smaller number narrows who can open a link here.
+		stubFetchRoutes({ '/api/settings': { body: settings } });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		expect(wrapper.find('[data-test="settings-peer-depth"]').exists()).toBe(true);
+		expect(wrapper.text()).toContain('narrows who can open a link to this gateway');
+		expect(wrapper.text()).toContain('only reach control there is');
 	});
 
 	/**
@@ -879,18 +922,32 @@ describe('pages/Transfers repairing', () => {
 		'/api/sync/run': { body: { id: 'j1' } },
 	};
 
-	/** The full-disk case: the fitting action asks where to put it instead. */
-	it('asks which library to pull into, then plans the item again there', async () => {
+	async function openQueue (transfer: Record<string, unknown>) {
 		const stub = stubFetchRoutes({
 			...base,
 			'/api/transfers': {
-				body: { items: [transferRow()], pagination: { page: 1, limit: 20, total: 1, pages: 1 } },
+				body: { items: [transfer], pagination: { page: 1, limit: 20, total: 1, pages: 1 } },
 			},
+			'/api/transfers/t1/destination': { body: { ...transfer, targetLibraryId: 'l1' } },
 		});
 		const { wrapper } = mountWithApp(Transfers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
 		});
 		await settle();
+
+		return { wrapper, stub };
+	}
+
+	/**
+	 * The full-disk case, and the correction it used to make.
+	 *
+	 * This button planned the item again, which starts it over from its sources: a
+	 * season three quarters downloaded into the wrong library was fetched from the top
+	 * to end up in the right one. It re-points the transfer where it stands instead,
+	 * which is one row write while the bytes are still in the scratch directory.
+	 */
+	it('asks which library to send it to, then re-points the transfer itself', async () => {
+		const { wrapper, stub } = await openQueue(transferRow());
 
 		await wrapper.find('[data-test="transfer-another_target"]').trigger('click');
 		await settle(2);
@@ -900,9 +957,85 @@ describe('pages/Transfers repairing', () => {
 		await (wrapper.vm as any).confirmRetarget();
 		await settle();
 
-		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
-		expect(JSON.parse(String(run?.[1]?.body)))
-			.toEqual({ scope: { itemIds: ['m1'] }, targetLibraryId: 'l1' });
+		const call = stub.mock.calls.find(
+			one => String(one[0]).includes('/api/transfers/t1/destination'));
+
+		expect(JSON.parse(String(call?.[1]?.body))).toEqual({ libraryId: 'l1' });
+		// Nothing is re-planned: the item is not fetched again.
+		expect(stub.mock.calls.some(one => String(one[0]).includes('/api/sync/run'))).toBe(false);
+	});
+
+	/**
+	 * A library the gateway cannot write into is never offered.
+	 *
+	 * `l2` sits on a friend's server. Writing there reports success and produces
+	 * nothing anybody can watch, so it is left out — and said to be left out, because a
+	 * shelf that simply vanishes from a list reads as a bug.
+	 */
+	it('offers only the libraries a pull can land in, and says why the others are not', async () => {
+		stubFetchRoutes({
+			...base,
+			'/api/libraries': {
+				body: [
+					library,
+					{ ...library, id: 'l2', name: 'Their shows', serviceId: 's2', localPath: '/media/theirs' },
+				],
+			},
+			'/api/services': {
+				body: [service, { ...service, id: 's2', name: 'A friend', filesMounted: false }],
+			},
+			'/api/transfers': {
+				body: {
+					items: [transferRow()],
+					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
+				},
+			},
+		});
+		const { wrapper } = mountWithApp(Transfers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="transfer-another_target"]').trigger('click');
+		await settle(2);
+
+		expect((wrapper.vm as any).destinationItems.map((one: { value: string }) => one.value))
+			.toEqual(['l1']);
+		expect(wrapper.find('[data-test="retarget-rejected"]').text()).toContain('Their shows');
+		expect(wrapper.find('[data-test="retarget-rejected"]').text())
+			.toContain('does not reach that server');
+	});
+
+	/**
+	 * The two operations wear different words, which is the confirmation.
+	 *
+	 * A transfer still downloading is re-pointed and nothing is copied; one that has
+	 * landed is moved between two real filesystems and can take three quarters of an
+	 * hour. Offering both under one unqualified "move" is how somebody starts forty
+	 * gigabytes of disk traffic believing they corrected a form field.
+	 */
+	it('says plainly when pressing the button will move bytes rather than a row', async () => {
+		const { wrapper } = await openQueue(
+			transferRow({ state: TransferState.DONE, error: null, errorKind: null }));
+
+		await wrapper.find('[data-test="transfer-retarget"]').trigger('click');
+		await settle(2);
+
+		expect((wrapper.vm as any).movesBytes).toBe(true);
+		expect(wrapper.find('[data-test="retarget-hint"]').text()).toContain('really moves it');
+		expect(wrapper.find('[data-test="retarget-confirm"]').text()).toContain('Move it there');
+	});
+
+	it('says the opposite while the file is still being downloaded', async () => {
+		const { wrapper } = await openQueue(
+			transferRow({ state: TransferState.DOWNLOADING, error: null, errorKind: null }));
+
+		await wrapper.find('[data-test="transfer-retarget"]').trigger('click');
+		await settle(2);
+
+		expect((wrapper.vm as any).movesBytes).toBe(false);
+		expect(wrapper.find('[data-test="retarget-hint"]').text()).toContain('not a byte is copied');
+		expect(wrapper.find('[data-test="retarget-confirm"]').text()).toContain('Send it there');
 	});
 
 	it('sends somebody to the service whose credentials were refused', async () => {

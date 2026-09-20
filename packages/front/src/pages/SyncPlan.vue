@@ -95,7 +95,6 @@
 			<v-card-text>
 				<PlanForm
 					:key="plan?.id ?? 'new'"
-					:libraries="librariesStore.libraries"
 					:plan="plan"
 					:services="servicesStore.services"
 					@cancel="router.push({ name: 'sync' })"

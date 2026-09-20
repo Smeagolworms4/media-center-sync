@@ -1,5 +1,6 @@
 import type { Router } from 'vue-router';
 import {
+	HistoryView,
 	LibraryKind,
 	MediaKind,
 	MediaOrigin,
@@ -8,6 +9,7 @@ import {
 	MediaServiceType,
 	NamingScheme,
 	PeerDirection,
+	PeerLinkMode,
 	PeerStatus,
 	PeerTrust,
 	PlacementStrategy,
@@ -245,6 +247,66 @@ describe('pages/Dashboard', () => {
 		expect(mediaCall).toContain('states=missing');
 		expect(mediaCall).toContain('limit=1');
 		expect(wrapper.find('[data-test="tile-missing"]').text()).toContain('137');
+	});
+
+	/**
+	 * The figure somebody looks for straight after a download finishes.
+	 *
+	 * Folding it into the missing count would be wrong twice over: it would say there
+	 * is something to fetch when there is not, and it would put a number on that tile
+	 * that nothing anybody does can bring down.
+	 */
+	it('counts what has landed and is waiting for the library, beside what is missing', async () => {
+		stubFetchRoutes({
+			...healthy,
+			'/api/media?states=missing': {
+				body: { items: [], pagination: { page: 1, limit: 1, total: 4, pages: 4 } },
+			},
+			'/api/media?states=awaiting_index': {
+				body: { items: [], pagination: { page: 1, limit: 1, total: 2, pages: 2 } },
+			},
+		});
+		const { wrapper } = mountWithApp(Dashboard, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const tile = wrapper.find('[data-test="tile-missing"]');
+
+		expect(tile.text()).toContain('4');
+		expect(wrapper.find('[data-test="tile-awaiting"]').text()).toContain('2');
+		expect(wrapper.find('[data-test="tile-awaiting"] a').attributes('href'))
+			.toContain('states=awaiting_index');
+	});
+
+	it('says nothing about waiting when nothing is waiting', async () => {
+		stubFetchRoutes(healthy);
+		const { wrapper } = mountWithApp(Dashboard, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="tile-awaiting"]').exists()).toBe(false);
+	});
+
+	/**
+	 * A download that succeeded and a media server that never took the file.
+	 *
+	 * Nothing else reports it anywhere: the transfer finished, so there is no failure,
+	 * no error and no log line anybody would go looking for — only a file on the disk
+	 * that no server will ever play.
+	 */
+	it('names files the media server never indexed as something to deal with', async () => {
+		stubFetchRoutes({
+			...healthy,
+			'/api/media?states=not_indexed': {
+				body: { items: [], pagination: { page: 1, limit: 1, total: 3, pages: 3 } },
+			},
+		});
+		const { wrapper } = mountWithApp(Dashboard, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const problems = wrapper.findAll('[data-test="dashboard-problem"]');
+
+		expect(problems).toHaveLength(1);
+		expect(problems[0].text()).toContain('3');
+		expect(problems[0].attributes('href')).toContain('states=not_indexed');
 	});
 
 	it('offers a retry instead of a blank frame when the gateway is down', async () => {
@@ -838,6 +900,82 @@ describe('pages/Transfers', () => {
 		expect(wrapper.find('[data-test="transfer-resume-all"]').exists()).toBe(true);
 	});
 
+	/**
+	 * The complaint this answers: a transfer that ended thirty seconds ago sitting on
+	 * top of the one that is running, on a page where the first screenful is a month
+	 * of completed work.
+	 */
+	describe('what it opens on', () => {
+		/** The query strings this page asked the queue route for, in order. */
+		const queueCalls = (stub: { mock: { calls: unknown[][] } }): string[] =>
+			stub.mock.calls
+				.map(call => String(typeof call[0] === 'string' ? call[0] : (call[0] as any)?.url ?? ''))
+				.filter(url => url.includes('/api/transfers?') || /\/api\/transfers$/.test(url));
+
+		it('asks for the live half, not for everything', async () => {
+			const stub = stubFetchRoutes(base);
+			mountWithApp(Transfers, { global: { stubs: tooltipStub } });
+			await settle();
+
+			expect(queueCalls(stub as any).at(-1)).toContain(`view=${HistoryView.LIVE}`);
+		});
+
+		it('says where the finished work went rather than leaving it to be guessed', async () => {
+			// Somebody who believes their history was destroyed will not trust the next
+			// screen either, so the way back is on the screen.
+			stubFetchRoutes(base);
+			const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
+			await settle();
+
+			expect(wrapper.find('[data-test="transfer-see-finished"]').exists()).toBe(true);
+		});
+
+		it('reaches the finished ones when they are asked for', async () => {
+			const stub = stubFetchRoutes(base);
+			const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
+			await settle();
+
+			await wrapper.find('[data-test="transfer-see-finished"]').trigger('click');
+			await settle();
+
+			expect(queueCalls(stub as any).at(-1)).toContain(`view=${HistoryView.FINISHED}`);
+		});
+
+		it('does not answer "no failures" to somebody who asked for the failures', async () => {
+			// Live and failed describe no transfer at all. The gateway answers that
+			// honestly with an empty page; the screen widens the view instead.
+			const stub = stubFetchRoutes(base);
+			const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
+			await settle();
+
+			const filter = wrapper.findComponent<any>('[data-test="transfer-state-filter"]');
+
+			filter.vm.$emit('update:modelValue', TransferState.FAILED);
+			await settle();
+
+			const last = queueCalls(stub as any).at(-1) ?? '';
+
+			expect(last).toContain(`state=${TransferState.FAILED}`);
+			expect(last).toContain(`view=${HistoryView.ALL}`);
+		});
+
+		it('tells a non-empty live list that the rest is elsewhere', async () => {
+			stubFetchRoutes({
+				...base,
+				'/api/transfers': {
+					body: {
+						items: [transfer({ state: TransferState.DOWNLOADING })],
+						pagination: { page: 1, limit: 20, total: 1, pages: 1 },
+					},
+				},
+			});
+			const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
+			await settle();
+
+			expect(wrapper.find('[data-test="transfer-history-hint"]').exists()).toBe(true);
+		});
+	});
+
 	it('says how many sources are feeding one file without being expanded', async () => {
 		stubFetchRoutes({
 			...base,
@@ -873,6 +1011,43 @@ describe('pages/Sync', () => {
 		await settle();
 
 		expect(wrapper.find('[data-test="plan-list"] [data-test="empty-state"]').exists()).toBe(true);
+	});
+
+	describe('the run history', () => {
+		const base = {
+			'/api/sync/plans': { body: [] },
+			'/api/sync/jobs': EMPTY_LIST,
+			'/api/services': { body: [] },
+			'/api/libraries': { body: [] },
+		};
+
+		const jobCalls = (stub: { mock: { calls: unknown[][] } }): string[] =>
+			stub.mock.calls
+				.map(call => String(typeof call[0] === 'string' ? call[0] : (call[0] as any)?.url ?? ''))
+				.filter(url => url.includes('/api/sync/jobs'));
+
+		it('opens on the runs that are still going', async () => {
+			const stub = stubFetchRoutes(base);
+			mountWithApp(Sync, { global: { stubs: tooltipStub } });
+			await settle();
+
+			expect(jobCalls(stub as any).at(-1)).toContain(`view=${HistoryView.LIVE}`);
+		});
+
+		it('offers the finished ones, and asks for them when told to', async () => {
+			const stub = stubFetchRoutes(base);
+			const { wrapper } = mountWithApp(Sync, { global: { stubs: tooltipStub } });
+			await settle();
+
+			const button = wrapper.find('[data-test="job-see-finished"]');
+
+			expect(button.exists()).toBe(true);
+
+			await button.trigger('click');
+			await settle();
+
+			expect(jobCalls(stub as any).at(-1)).toContain(`view=${HistoryView.FINISHED}`);
+		});
 	});
 
 	it('says a plan with no source pinned follows the configured priority', async () => {
@@ -915,7 +1090,6 @@ describe('pages/Peers', () => {
 				body: {
 					fingerprint: 'AB:CD',
 					name: 'me',
-					rendezvous: 'wss://rendezvous',
 					directAddress: null,
 					directReachable: false,
 				},
@@ -929,11 +1103,13 @@ describe('pages/Peers', () => {
 
 		// The owner read the old wording and could not tell what to do about it, which
 		// is the whole reason this is pinned: the cause, the cost, the fix, and why
-		// there is no second port to forward.
+		// there is no second port to forward. What it must never name again is a
+		// server in the middle somebody could have run — there is none.
 		expect(warning).toContain('not reachable from outside');
-		expect(warning).toContain('rendezvous');
+		expect(warning).toContain('friend you both already have');
 		expect(warning).toContain('router');
 		expect(warning).toContain('no second port');
+		expect(warning).not.toContain('rendezvous');
 		expect(wrapper.find('[data-test="peer-identity"]').text()).toContain('AB:CD');
 	});
 
@@ -961,7 +1137,7 @@ describe('pages/Peers', () => {
 
 	const withPeers = (rows: Record<string, unknown>[]): Record<string, { body: unknown }> => ({
 		'/api/peers/identity': {
-			body: { fingerprint: 'AB', name: 'me', rendezvous: 'wss://r', directAddress: null, directReachable: true },
+			body: { fingerprint: 'AB', name: 'me', directAddress: null, directReachable: true },
 		},
 		'/api/peers': { body: rows },
 	});
@@ -1010,7 +1186,7 @@ describe('pages/Peers', () => {
 	it('shows a friend of a friend as one, and through whom', async () => {
 		stubFetchRoutes({
 			'/api/peers/identity': {
-				body: { fingerprint: 'AB', name: 'me', rendezvous: 'wss://r', directAddress: null, directReachable: true },
+				body: { fingerprint: 'AB', name: 'me', directAddress: null, directReachable: true },
 			},
 			'/api/peers': {
 				body: [{
@@ -1038,6 +1214,69 @@ describe('pages/Peers', () => {
 		expect(wrapper.find('[data-test="peer-trust"]').text()).toContain('Bob');
 	});
 
+	it('says in one line that a relayed link is carried by the friend in the middle', async () => {
+		// Nothing here is encrypted above the transport, so "relayed" has to say what it
+		// means: the friend who introduced the two ends moves the bytes, on their own
+		// upload. Stated, not alarming — and never left to be assumed from a one-word
+		// chip.
+		stubFetchRoutes(withPeers([linkedPeer({ linkMode: PeerLinkMode.RELAY })]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const hint = wrapper.find('[data-test="peer-relay-hint"]').text();
+
+		expect(wrapper.find('[data-test="peer-link-mode"]').text()).toContain('relay');
+		expect(hint).toContain('friend who introduced the two gateways');
+		expect(hint).toContain('moves the bytes');
+	});
+
+	it('says what to do about a peer that cannot be reached at all', async () => {
+		// The stated limit, on the row it belongs to: two gateways behind two routers
+		// with no friend in common cannot be connected, and there is no longer a field
+		// anybody could have filled in. A row that never links has to say why.
+		stubFetchRoutes(withPeers([linkedPeer({ status: PeerStatus.UNREACHABLE, linkMode: null })]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const hint = wrapper.find('[data-test="peer-unreachable-port-hint"]').text();
+
+		expect(hint).toContain('no friend in common');
+		expect(hint).toContain('interface\'s port');
+	});
+
+	it('says nothing of the sort about a direct link', async () => {
+		stubFetchRoutes(withPeers([linkedPeer({ linkMode: PeerLinkMode.DIRECT })]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="peer-link-mode"]').text()).toContain('Direct');
+		expect(wrapper.find('[data-test="peer-relay-hint"]').exists()).toBe(false);
+	});
+
+	it('marks a peer met while pulling as temporary, and says when it goes', async () => {
+		// The row really is in the list for the length of a transfer. A gateway nobody
+		// invited appearing and then disappearing with nothing to explain it reads as a
+		// bug rather than as the setting doing what it says.
+		stubFetchRoutes(withPeers([
+			linkedPeer({ discovered: true, trust: PeerTrust.FRIEND_OF_FRIEND, viaPeerName: 'Bob' }),
+		]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="peer-discovered"]').text()).toContain('Temporary');
+		expect(wrapper.find('[data-test="peer-discovered-hint"]').text())
+			.toContain('closes when the transfer ends');
+	});
+
+	it('says nothing about being temporary on a peer that is being kept', async () => {
+		stubFetchRoutes(withPeers([linkedPeer({ discovered: false })]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="peer-discovered"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="peer-discovered-hint"]').exists()).toBe(false);
+	});
+
 	function pendingPeer (direction: PeerDirection, overrides: Record<string, unknown> = {}) {
 		return {
 			id: 'p1',
@@ -1061,7 +1300,7 @@ describe('pages/Peers', () => {
 
 	const identity = {
 		'/api/peers/identity': {
-			body: { fingerprint: 'AB', name: 'me', rendezvous: 'wss://r', directAddress: null, directReachable: true },
+			body: { fingerprint: 'AB', name: 'me', directAddress: null, directReachable: true },
 		},
 	};
 
@@ -1248,11 +1487,11 @@ describe('pages/Settings', () => {
 		matchThreshold: 0.8,
 		peerMaxDepth: 3,
 		allowSwarm: true,
-		rendezvousUrl: null,
 		publicUrl: null,
 		peerAddress: null,
 		defaultTargetPath: null,
 		transferHistoryDays: 30,
+		failedHistoryDays: 180,
 		refreshIntervalMinutes: 15,
 		fullScanCron: '0 4 * * *',
 		cacheTtlSeconds: 60,
@@ -1271,6 +1510,18 @@ describe('pages/Settings', () => {
 
 	const valueOf = (wrapper: ReturnType<typeof mountWithApp>['wrapper'], test: string) =>
 		(wrapper.find(`[data-test="${test}"] input`).element as HTMLInputElement).value;
+
+	it('offers to keep a peer met while pulling, and says what the alternative is', async () => {
+		// The setting only means something now that a friend of a friend is reached by
+		// connecting to them: it decides whether that link outlives the file it was
+		// opened for, so the wording has to state both halves rather than name a flag.
+		const { wrapper } = await openSettings({ keepDiscoveredPeers: true });
+		const pane = wrapper.find('[data-test="settings-keep-discovered"]');
+
+		expect((pane.find('input').element as HTMLInputElement).checked).toBe(true);
+		expect(wrapper.text()).toContain('Keep peers discovered while downloading');
+		expect(wrapper.text()).toContain('the two gateways connect directly');
+	});
 
 	it('offers the reach as a number of hops, not as a yes or no', async () => {
 		// The switch it replaces could only write one hop or the default: there was no
@@ -1327,31 +1578,59 @@ describe('pages/Settings', () => {
 		expect(wrapper.find('[data-test="settings-fixed-path-active"]').exists()).toBe(false);
 	});
 
-	it('gives every category a row, on the section that decides where files land', async () => {
+	it('gives every one of our categories a destination, beside its keywords', async () => {
+		// One place. The table of "Category → Goes to" that used to sit higher up this
+		// same pane made one category two subjects, and printed the merge explanation
+		// under every one of its selects.
 		const { wrapper } = await openSettings();
 
-		expect(wrapper.findAll('[data-test="category-target-row"]')).toHaveLength(2);
+		expect(wrapper.find('[data-test="category-mapping"]').exists()).toBe(true);
+
+		// Ours gets a destination. The friend's shelf gets no destination and is not
+		// dropped either: it sits in the pool, waiting to be filed into one of ours,
+		// which is the only thing that can be done with it.
+		const rows = wrapper.findAll('[data-test="category-mapping-row"]');
+
+		expect(rows.map(one => one.attributes('data-category'))).toEqual(['movies']);
+		expect(
+			wrapper.findAll('[data-test="category-pool-entry"]').map(one => one.attributes('data-category')),
+		).toEqual(['shows']);
+
+		// Said once for the screen, not once per category.
+		expect(wrapper.findAll('[data-test="category-target-merges"]')).toHaveLength(1);
 	});
 
 	it('reads a category nobody configured as falling back, never as blank', async () => {
 		const { wrapper } = await openSettings({ defaultTargetLibraryId: 'l1' });
-		const row = wrapper.find('[data-category="shows"]');
+		const row = wrapper.find('[data-test="category-mapping-row"][data-category="movies"]');
 
 		expect(row.attributes('data-configured')).toBe('false');
 		expect(row.find('[data-test="category-target-fallback"]').text()).toContain('Movies');
 	});
 
-	it('never offers a library on a friend’s gateway, and says why on the row', async () => {
+	it('never offers a library on a friend’s gateway, and says why where it is chosen', async () => {
 		// Choosing one would queue transfers onto a disk this gateway cannot write to,
-		// and nothing anywhere would report it.
+		// and nothing anywhere would report it. It stays in the menu, unselectable, with
+		// the reason: a name that simply vanishes sends somebody hunting for a fault in
+		// the wrong place.
 		const { wrapper } = await openSettings();
 		const select = wrapper
 			.findComponent({ name: 'DestinationLibraryField' })
 			.findComponent({ name: 'VSelect' });
 
 		expect((select.props('items') as { value: string }[]).map(one => one.value)).toEqual(['l1']);
-		expect(wrapper.find('[data-category="shows"] [data-test="category-target-rejected"]').text())
-			.toContain('Séries');
+
+		const perCategory = wrapper
+			.findAllComponents({ name: 'VSelect' })
+			.find(one => one.attributes('data-test') === 'category-target-movies');
+		const refused = (perCategory?.props('items') as {
+			title: string;
+			subtitle: string;
+			props?: { disabled?: boolean };
+		}[]).find(one => one.title === 'Séries');
+
+		expect(refused?.props?.disabled).toBe(true);
+		expect(refused?.subtitle).toContain('does not reach');
 	});
 
 	it('offers the browser’s own origin when no public address has been set', async () => {

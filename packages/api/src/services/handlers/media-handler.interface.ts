@@ -103,6 +103,26 @@ export interface LibraryRefresh {
 	cursor: string | null;
 }
 
+/**
+ * What came of asking a service to re-read a library.
+ *
+ * Three answers and not a boolean, because the three lead somewhere different. A
+ * library was asked, so the file should appear within a scan; the whole server was
+ * asked because the library could not be addressed, which is coarser and slower but
+ * still an answer; or the service cannot be asked at all, and the only thing left is
+ * to wait for whatever it does on its own. The last one is a legitimate answer and
+ * never an error — a handler that had to throw would make "this kind of server has no
+ * refresh endpoint" indistinguishable from "the server is down".
+ */
+export enum RescanOutcome {
+	/** That one library was asked to re-read itself. */
+	LIBRARY = 'library',
+	/** The library could not be addressed, so the whole server was asked. */
+	SERVER = 'server',
+	/** This service cannot be told to scan. Waiting is the only option. */
+	UNSUPPORTED = 'unsupported',
+}
+
 /** Half-open byte range, inclusive on both ends like HTTP says. */
 export interface ByteRange {
 	start: number;
@@ -188,6 +208,29 @@ export interface MediaServiceHandler {
 		library: NormalisedLibrary,
 		cursor: string | null,
 	): Promise<LibraryRefresh>;
+
+	/**
+	 * Ask the service to re-read a library, because we have just put a file in it.
+	 *
+	 * On the interface rather than on the two handlers that happen to have an endpoint
+	 * for it, and that is the rule this project is built on: a service type is added by
+	 * writing one class, and nothing else changes. A refresh that only Jellyfin could
+	 * perform would have to be reached through a test on the service type somewhere
+	 * above, which is the leak. So every handler answers, and `UNSUPPORTED` is a real
+	 * answer — the gateway simply waits longer, which it is already able to do.
+	 *
+	 * Per library where the service can address one, because a household library is
+	 * measured in tens of thousands of files and a full-server scan to notice one new
+	 * episode is a cost the media server pays for minutes.
+	 *
+	 * It reports rather than throws for the same reason `probe` does: a server that is
+	 * asleep is an ordinary thing for this call to meet, and the landing it was asked
+	 * about is recorded either way.
+	 */
+	requestRescan(
+		connection: ServiceConnection,
+		library: NormalisedLibrary | null,
+	): Promise<RescanOutcome>;
 
 	/** Null when the service no longer holds it — which is an answer, not a failure. */
 	getItem(

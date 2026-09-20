@@ -2,8 +2,10 @@ import { constants } from 'node:fs';
 import { access, statfs } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import {
+	categoryKeyOf,
 	ErrorKey,
 	MediaServiceMode,
+	type CategoryKeyword,
 	type Library,
 	type LibraryCheck,
 	type MediaCategory,
@@ -16,8 +18,16 @@ import {
 	Logger,
 	NotFoundException,
 } from '@nestjs/common';
-import type { Library as LibraryEntity, MediaService as MediaServiceEntity } from '@/entities';
-import { LibraryRepository, MediaServiceRepository } from '@/repositories';
+import type {
+	CategoryKeyword as CategoryKeywordEntity,
+	Library as LibraryEntity,
+	MediaService as MediaServiceEntity,
+} from '@/entities';
+import {
+	CategoryKeywordRepository,
+	LibraryRepository,
+	MediaServiceRepository,
+} from '@/repositories';
 import {
 	derivedLocalPath,
 	reachesFiles,
@@ -46,6 +56,7 @@ export class LibraryManager {
 	public constructor(
 		private readonly _libraries: LibraryRepository,
 		private readonly _services: MediaServiceRepository,
+		private readonly _keywords: CategoryKeywordRepository,
 	) {}
 
 	public async list(serviceId?: string): Promise<Library[]> {
@@ -140,14 +151,33 @@ export class LibraryManager {
 	 * name they chose — compared without case or accents, because `Animes` and `animés`
 	 * are not two categories.
 	 *
+	 * Then the keywords, which is what makes a peer's twenty shelves file themselves.
+	 * A library whose folded name is a keyword of one of our categories is read as part
+	 * of that category, wherever it sits — our machine, a friend's Jellyfin, a gateway
+	 * two hops away. Nothing is written when that happens: the fold is recomputed from
+	 * the table on every call, which is what makes a keyword somebody regrets undoable
+	 * by deleting it. Writing an `alias` into the rows instead would have been one line
+	 * shorter and irreversible, because the value it overwrote is gone and the only way
+	 * back would be typing eleven aliases by hand.
+	 *
+	 * **An alias somebody typed always wins over a keyword.** The rename on the
+	 * libraries screen is the repair for a mapping that filed something wrongly, so a
+	 * keyword that could override it would make that repair last until the next request.
+	 *
+	 * A folded library takes the anchor's name, kind and position rather than its own,
+	 * so the answer does not depend on which row the database returned first: a friend's
+	 * `TV` at position 100 must not be able to name our `Shows` category `TV` by being
+	 * read before it.
+	 *
 	 * The position is the lowest of the merged ones. That decides the order categories
 	 * appear in, and it is also the answer to which category wins when the same media
 	 * is filed in two of them: the first one.
 	 */
 	public async categories(): Promise<MediaCategory[]> {
-		const [libraries, services] = await Promise.all([
+		const [libraries, services, keywords] = await Promise.all([
 			this._libraries.find(),
 			this._services.find(),
+			this._keywords.findAllOrdered(),
 		]);
 		// `serviceMode` and not the mount column alone: a peer-backed service is
 		// somebody else's machine however its row reads, and a category counting one of
@@ -157,10 +187,14 @@ export class LibraryManager {
 				.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
 				.map((service) => service.id),
 		);
+		const filed = this._filedByKeyword(libraries, keywords);
 		const merged = new Map<string, MediaCategory>();
 
 		for (const library of libraries) {
-			const name = library.alias?.trim() || library.name;
+			const mapped = this._keywordMatch(library, filed);
+			const name = mapped?.name ?? (library.alias?.trim() || library.name);
+			const kind = mapped?.kind ?? library.kind;
+			const position = mapped?.position ?? library.position;
 			const key = categoryKeyOf(name);
 			const existing = merged.get(key);
 
@@ -168,8 +202,8 @@ export class LibraryManager {
 				merged.set(key, {
 					key,
 					name,
-					kind: library.kind,
-					position: library.position,
+					kind,
+					position,
 					libraryIds: [library.id],
 					serviceIds: [library.serviceId],
 					itemCount: library.itemCount,
@@ -187,19 +221,137 @@ export class LibraryManager {
 				existing.serviceIds.push(library.serviceId);
 			}
 
-			if (library.position < existing.position) {
+			if (position < existing.position) {
 				// The lowest position wins the whole category, including the name and the
 				// kind it is shown with: whichever library somebody put first is the one
 				// they meant this category to be.
-				existing.position = library.position;
+				existing.position = position;
 				existing.name = name;
-				existing.kind = library.kind;
+				existing.kind = kind;
 			}
 		}
 
 		return [...merged.values()].sort(
 			(left, right) => left.position - right.position || left.name.localeCompare(right.name),
 		);
+	}
+
+	/**
+	 * The keywords, each with the category it files into today and what it catches.
+	 *
+	 * `categoryKey` is computed rather than stored — see the note on the entity. The
+	 * row remembers a library; which category that library reads as is a question with
+	 * a different answer after every rename, and storing the answer is how a list ends
+	 * up pointing at a category nobody has any more.
+	 */
+	public async keywords(): Promise<CategoryKeyword[]> {
+		const [rows, libraries, categories] = await Promise.all([
+			this._keywords.findAllOrdered(),
+			this._libraries.find(),
+			this.categories(),
+		]);
+		const keyByLibrary = new Map<string, MediaCategory>();
+
+		for (const category of categories) {
+			for (const libraryId of category.libraryIds) {
+				keyByLibrary.set(libraryId, category);
+			}
+		}
+
+		return rows.flatMap((row) => {
+			const category = keyByLibrary.get(row.libraryId);
+
+			// A row whose anchor is gone answers nothing rather than an empty category.
+			// The cascade removes them, so this only ever fires in the window between a
+			// service being unregistered and this request reading the tables.
+			if (category === undefined) {
+				return [];
+			}
+
+			return [{
+				id: row.id,
+				categoryKey: category.key,
+				categoryName: category.name,
+				keyword: row.keyword,
+				normalized: row.normalized,
+				libraryIds: libraries
+					.filter((library) => this._foldsTo(library, row.normalized))
+					.map((library) => library.id),
+			}];
+		});
+	}
+
+	/**
+	 * Plug a name into a category, for every library that ever carries it.
+	 *
+	 * Refused rather than stored when the name folds to nothing: the folded form is
+	 * what matching compares, and an empty one would match every library whose name is
+	 * also punctuation — none today, and whichever one somebody adds tomorrow.
+	 *
+	 * Adding the same keyword to the category that already has it answers the existing
+	 * row instead of failing, so a second drop of a shelf that is already mapped is a
+	 * no-op rather than an error somebody has to read. Claiming one another category
+	 * holds is refused: see `LIBRARY_KEYWORD_TAKEN`.
+	 */
+	public async addKeyword(categoryKey: string, keyword: string): Promise<CategoryKeyword> {
+		const normalized = this._normalizeKeyword(keyword);
+		const category = await this._requireCategory(categoryKey);
+		const existing = await this._keywords.findByNormalized(normalized);
+
+		if (existing !== null) {
+			if (category.libraryIds.includes(existing.libraryId)) {
+				return this._oneKeyword(existing.id);
+			}
+
+			throw new ConflictException(ErrorKey.LIBRARY_KEYWORD_TAKEN);
+		}
+
+		const saved = await this._keywords.save(
+			this._keywords.create({
+				libraryId: await this._anchorOf(category),
+				keyword: keyword.trim(),
+				normalized,
+			}),
+		);
+
+		this._logger.log(`Libraries named ${normalized} now file into ${category.name}`);
+
+		return this._oneKeyword(saved.id);
+	}
+
+	/**
+	 * Move a keyword to another category.
+	 *
+	 * Re-anchored rather than deleted and recreated, so the identifier a screen is
+	 * holding stays valid — which is what lets the same undo work for a move as for an
+	 * addition.
+	 */
+	public async moveKeyword(id: string, categoryKey: string): Promise<CategoryKeyword> {
+		const row = await this._requireKeyword(id);
+		const category = await this._requireCategory(categoryKey);
+
+		row.libraryId = await this._anchorOf(category);
+
+		await this._keywords.save(row);
+
+		this._logger.log(`Libraries named ${row.normalized} now file into ${category.name}`);
+
+		return this._oneKeyword(row.id);
+	}
+
+	/**
+	 * Unplug a keyword.
+	 *
+	 * This is the undo, and it is exact because nothing was written when the keyword was
+	 * added: the libraries it was folding go straight back to reading as their own
+	 * names, in the same request.
+	 */
+	public async removeKeyword(id: string): Promise<void> {
+		const row = await this._requireKeyword(id);
+
+		await this._keywords.delete({ id: row.id });
+
+		this._logger.log(`Libraries named ${row.normalized} file on their own name again`);
 	}
 
 	/**
@@ -220,13 +372,20 @@ export class LibraryManager {
 	 *   string, and an empty alias is a category with no name rather than no alias;
 	 * - a destination already in the category being mapped, which would alias a thing
 	 *   to itself and rewrite every row for nothing;
-	 * - **any library on a service that is not ours.** The alias is local, but folding
-	 *   a friend's shelf into one of ours is not a naming choice, it is claiming their
-	 *   media as filed in our library — and their items would then be counted in a
-	 *   category whose destination they can never be. `check()` and the destination
-	 *   list already draw the line at `MediaServiceMode.LOCAL`; this draws it in the
-	 *   same place. The same test on the destination, for the mirror image: a
-	 *   destination on somebody else's server would fold *our* shelf into theirs.
+	 * - a destination the gateway cannot write into. A category target says where a
+	 *   new pull lands, and a library on a server whose files we do not hold cannot
+	 *   receive one, so the mapping that triggered this had no meaning to act on.
+	 *
+	 * **Every library of the category is renamed, including the ones on servers that
+	 * are not ours.** That is the whole purpose of the alias and it is worth stating,
+	 * because it was once refused here on the reasoning that folding a friend's shelf
+	 * into ours claims their media as filed in our library. It does not. The alias is
+	 * local, never leaves this gateway, and changes no one's server — and the category
+	 * is what somebody browses, not where anything is written. Saying a friend's `TV`
+	 * is our `Séries` is exactly the sentence the field exists to write; where a new
+	 * episode of it lands is the destination's answer and is decided, separately, by
+	 * the mount. Refusing it left the two shelves side by side with the same media
+	 * under two names and no control anywhere that could join them.
 	 *
 	 * Returns the name the libraries now read as, or null when nothing was touched.
 	 */
@@ -261,7 +420,7 @@ export class LibraryManager {
 		let renamed = 0;
 
 		for (const library of libraries) {
-			if (library.id === destinationLibraryId || !ours.has(library.serviceId)) {
+			if (library.id === destinationLibraryId) {
 				continue;
 			}
 
@@ -463,6 +622,129 @@ export class LibraryManager {
 	}
 
 	/**
+	 * What each keyword folds a library into, keyed by the folded form.
+	 *
+	 * Resolved through the anchor library's own reading of itself — its alias when it
+	 * has one — and never through the anchor's own keywords. One hop, deliberately: a
+	 * chain would need a cycle check, and two keywords pointing at each other is a
+	 * thing somebody can write.
+	 */
+	private _filedByKeyword(
+		libraries: LibraryEntity[],
+		keywords: CategoryKeywordEntity[],
+	): Map<string, FiledCategory> {
+		const byId = new Map(libraries.map((library) => [library.id, library]));
+		const filed = new Map<string, FiledCategory>();
+
+		for (const keyword of keywords) {
+			const anchor = byId.get(keyword.libraryId);
+
+			if (anchor === undefined) {
+				continue;
+			}
+
+			filed.set(keyword.normalized, {
+				name: anchor.alias?.trim() || anchor.name,
+				kind: anchor.kind,
+				position: anchor.position,
+			});
+		}
+
+		return filed;
+	}
+
+	/** What a keyword makes of this library, or nothing when none applies. */
+	private _keywordMatch(
+		library: LibraryEntity,
+		filed: Map<string, FiledCategory>,
+	): FiledCategory | undefined {
+		return library.alias?.trim() ? undefined : filed.get(categoryKeyOf(library.name));
+	}
+
+	/** Whether this library is one the given keyword currently files. */
+	private _foldsTo(library: LibraryEntity, normalized: string): boolean {
+		return !library.alias?.trim() && categoryKeyOf(library.name) === normalized;
+	}
+
+	/**
+	 * The folded form a keyword is stored and compared under.
+	 *
+	 * `categoryKeyOf` answers `library` for a name that folds to nothing, which is a
+	 * reasonable key for a category with an unreadable name and a terrible keyword: it
+	 * would silently claim every such library. So the fold is checked for content
+	 * before the fallback can apply.
+	 */
+	private _normalizeKeyword(keyword: string): string {
+		const stripped = keyword.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+		if (!/[a-z\d]/i.test(stripped)) {
+			throw new BadRequestException(ErrorKey.LIBRARY_KEYWORD_INVALID);
+		}
+
+		return categoryKeyOf(keyword);
+	}
+
+	/**
+	 * Which library a category's keywords hang off.
+	 *
+	 * One of ours first, because that is the shelf that is still here next month: a
+	 * peer's library is reachable while the link is, and anchoring a household's
+	 * mapping on a friend's row would take the whole list away with the friend. Then
+	 * the lowest position — the library somebody put first is the one they meant the
+	 * category to be — and the identifier last, so the choice cannot change between two
+	 * identical requests.
+	 */
+	private async _anchorOf(category: MediaCategory): Promise<string> {
+		const ours = await this._ourServiceIds();
+		const libraries = await this._libraries.findByIds(category.libraryIds);
+		const [anchor] = [...libraries].sort(
+			(left, right) =>
+				Number(ours.has(right.serviceId)) - Number(ours.has(left.serviceId))
+				|| left.position - right.position
+				|| left.id.localeCompare(right.id),
+		);
+
+		if (anchor === undefined) {
+			// A category with no library behind it cannot be read, which is what the
+			// caller would otherwise discover as a foreign key failure.
+			throw new NotFoundException(ErrorKey.LIBRARY_CATEGORY_NOT_FOUND);
+		}
+
+		return anchor.id;
+	}
+
+	private async _requireCategory(key: string): Promise<MediaCategory> {
+		const category = (await this.categories()).find((one) => one.key === key);
+
+		if (category === undefined) {
+			throw new NotFoundException(ErrorKey.LIBRARY_CATEGORY_NOT_FOUND);
+		}
+
+		return category;
+	}
+
+	private async _requireKeyword(id: string): Promise<CategoryKeywordEntity> {
+		const row = await this._keywords.findOne({ where: { id } });
+
+		if (row === null) {
+			throw new NotFoundException(ErrorKey.LIBRARY_KEYWORD_NOT_FOUND);
+		}
+
+		return row;
+	}
+
+	/** One keyword read back the way the list reads them, never built by hand. */
+	private async _oneKeyword(id: string): Promise<CategoryKeyword> {
+		const found = (await this.keywords()).find((one) => one.id === id);
+
+		if (found === undefined) {
+			throw new NotFoundException(ErrorKey.LIBRARY_KEYWORD_NOT_FOUND);
+		}
+
+		return found;
+	}
+
+	/**
 	 * The services whose libraries are ours to write into and to rename.
 	 *
 	 * `serviceMode` rather than the mount column alone, because a service reached
@@ -551,16 +833,9 @@ export class LibraryManager {
 	}
 }
 
-/**
- * A stable key for a merged category, from the name people read.
- *
- * Case and accents are folded because `Animes` and `animés` are one category, and
- * everything else becomes a hyphen so the key can sit in a URL without being escaped.
- */
-const categoryKeyOf = (name: string): string =>
-	name
-		.normalize('NFD')
-		.replace(/[\u0300-\u036f]/g, '')
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '') || 'library';
+/** What a keyword makes a library read as: the anchor category's own identity. */
+interface FiledCategory {
+	name: string;
+	kind: LibraryEntity['kind'];
+	position: number;
+}

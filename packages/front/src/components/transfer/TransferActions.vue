@@ -37,6 +37,12 @@
 		TransferState.CANCELLED,
 	]);
 
+	/** The two states a destination cannot be changed in. See `retargetable`. */
+	const UNREACHABLE: Set<TransferState> = new Set([
+		TransferState.PLACING,
+		TransferState.CANCELLED,
+	]);
+
 	const running = computed(() => RUNNING.has(props.transfer.state));
 	const paused = computed(() => props.transfer.state === TransferState.PAUSED);
 	const failed = computed(() => props.transfer.state === TransferState.FAILED);
@@ -45,6 +51,28 @@
 	/** Only a failure has a kind, and only a failure gets the tailored offer. */
 	const descriptor = computed(
 		() => (failed.value ? describeTransferError(props.transfer.errorKind) : null));
+
+	/**
+	 * When somebody may still say where this one is going.
+	 *
+	 * Offered on almost everything, because the question is worth answering at both
+	 * ends of a pull: while a season is downloading it costs one row write, and once it
+	 * has landed it is a move the gateway knows how to make. The two exceptions are not
+	 * arbitrary —
+	 *
+	 * - `placing` is the second in which the file is being copied into the library, and
+	 *   the gateway refuses to re-point it then rather than leave half a film in each of
+	 *   two places. Showing a button that can only answer "not now" is worse than not
+	 *   showing one.
+	 * - `cancelled` threw its partial away. There are no bytes to send anywhere and
+	 *   nothing is going to fetch them again without a retry first.
+	 */
+	const retargetable = computed(() => !UNREACHABLE.has(props.transfer.state));
+
+	// A failure that already offers it from its own list must not offer it twice: the
+	// disk-full row would grow two identical buttons side by side.
+	const offeredByFailure = computed(
+		() => descriptor.value?.actions.includes(TransferAction.ANOTHER_TARGET) ?? false);
 
 	const ICONS: Record<TransferAction, string> = {
 		[TransferAction.PAUSE]: 'mdi-pause',
@@ -119,6 +147,19 @@
 				{{ $t(`transfer.action.${action}`) }}
 			</v-btn>
 		</template>
+
+		<v-btn
+			v-if="retargetable && !offeredByFailure"
+			data-test="transfer-retarget"
+			:disabled="busy"
+			:icon="compact ? ICONS[TransferAction.ANOTHER_TARGET] : undefined"
+			:prepend-icon="compact ? undefined : ICONS[TransferAction.ANOTHER_TARGET]"
+			size="small"
+			variant="text"
+			@click="emit('action', TransferAction.ANOTHER_TARGET)"
+		>
+			<template v-if="!compact">{{ $t('transfer.action.another_target') }}</template>
+		</v-btn>
 
 		<v-btn
 			v-if="!terminal && !failed"

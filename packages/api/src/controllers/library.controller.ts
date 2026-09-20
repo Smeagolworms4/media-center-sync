@@ -1,20 +1,32 @@
 import {
 	Right,
+	type CategoryKeyword,
 	type Library,
 	type LibraryCheck,
 	type MediaCategory,
 } from '@mcs/shared';
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch } from '@nestjs/common';
+import {
+	Body,
+	Controller,
+	Delete,
+	Get,
+	HttpCode,
+	Param,
+	ParseUUIDPipe,
+	Patch,
+	Post,
+} from '@nestjs/common';
 import {
 	ApiBearerAuth,
 	ApiConflictResponse,
+	ApiNoContentResponse,
 	ApiOkResponse,
 	ApiOperation,
 	ApiTags,
 } from '@nestjs/swagger';
 import { Granted } from '@/decorators';
 import { LibraryManager } from '@/managers';
-import { UpdateLibraryDto } from '@/models';
+import { AddCategoryKeywordDto, MoveCategoryKeywordDto, UpdateLibraryDto } from '@/models';
 
 @ApiTags('libraries')
 @ApiBearerAuth()
@@ -57,6 +69,72 @@ export class LibraryController {
 	@ApiOkResponse({ description: 'LibraryCheck[]' })
 	public check(): Promise<LibraryCheck[]> {
 		return this._libraries.check();
+	}
+
+	/**
+	 * Declared before `:id` for the same reason `check` and `categories` are.
+	 *
+	 * Read with `LIBRARY_READ` and not `LIBRARY_MANAGE`: a guest browsing the wall sees
+	 * the categories the keywords produced, and a screen that cannot say why two
+	 * shelves are one band is a screen that looks broken.
+	 */
+	@Get('keywords')
+	@Granted(Right.LIBRARY_READ)
+	@ApiOperation({
+		summary: 'The names plugged into each category',
+		description:
+			'A library whose name matches one of these is read as part of that category, on '
+			+ "whoever's server it sits — which is how a newly discovered peer's shelves file "
+			+ 'themselves with nobody touching anything.',
+	})
+	@ApiOkResponse({ description: 'CategoryKeyword[]' })
+	public keywords(): Promise<CategoryKeyword[]> {
+		return this._libraries.keywords();
+	}
+
+	@Post('categories/:key/keywords')
+	@Granted(Right.LIBRARY_MANAGE)
+	@ApiOperation({
+		summary: 'Plug a name into a category',
+		description:
+			'Applies to every library there is and every library there will be. Answers the '
+			+ 'existing keyword when this category already has it, and refuses one another '
+			+ 'category holds — two categories claiming the same name would file a shelf into '
+			+ 'whichever row came back first.',
+	})
+	@ApiOkResponse({ description: 'CategoryKeyword' })
+	@ApiConflictResponse({ description: 'error.library.keyword_taken' })
+	public addKeyword(
+		@Param('key') key: string,
+		@Body() body: AddCategoryKeywordDto,
+	): Promise<CategoryKeyword> {
+		return this._libraries.addKeyword(key, body.keyword);
+	}
+
+	@Patch('keywords/:id')
+	@Granted(Right.LIBRARY_MANAGE)
+	@ApiOperation({ summary: 'File this name into another category from now on' })
+	@ApiOkResponse({ description: 'CategoryKeyword' })
+	public moveKeyword(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: MoveCategoryKeywordDto,
+	): Promise<CategoryKeyword> {
+		return this._libraries.moveKeyword(id, body.categoryKey);
+	}
+
+	/**
+	 * The undo.
+	 *
+	 * Exact, because adding a keyword wrote nothing on the libraries it folded: they go
+	 * back to reading as their own names in the very next request.
+	 */
+	@Delete('keywords/:id')
+	@HttpCode(204)
+	@Granted(Right.LIBRARY_MANAGE)
+	@ApiOperation({ summary: 'Unplug a name from its category' })
+	@ApiNoContentResponse({ description: 'Unplugged' })
+	public removeKeyword(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+		return this._libraries.removeKeyword(id);
 	}
 
 	@Get(':id')

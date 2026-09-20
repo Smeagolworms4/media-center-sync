@@ -36,7 +36,7 @@ export class AcceptPeerInviteDto {
 /**
  * Linking by fingerprint.
  *
- * The address is optional because the rendezvous can find a peer by fingerprint;
+ * The address is optional because a friend in the middle can introduce them instead;
  * given, it is tried first, since a direct address is faster and involves nobody else.
  */
 export class AddPeerDto {
@@ -146,4 +146,20 @@ export class PeerMaxDepthDto {
 	@Min(1)
 	@Max(MAX_PEER_MAX_DEPTH)
 	public maxDepth!: number | null;
+}
+
+/**
+ * Ask a friend to introduce us to somebody behind them.
+ *
+ * `holderId` is the identifier *they* used for that gateway, which is what an
+ * announcement already carries. It is opaque here and is handed back untouched: a
+ * second kind of name for a gateway would be a name that travels, and nothing needs
+ * one.
+ */
+export class RequestIntroductionDto {
+	@ApiProperty({ description: 'The holder, as the peer in the middle named them.' })
+	@IsString()
+	@IsNotEmpty()
+	@MaxLength(64)
+	public holderId!: string;
 }

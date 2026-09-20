@@ -79,15 +79,15 @@ Three states are used:
 | One-shot expiring invitations | built |
 | Inbound peer endpoint, on the HTTP port — no second port | built |
 | Outbound link, direct | built |
-| Relayed link through the rendezvous | built |
+| Relayed link through the friend who introduced the two ends | built |
 | Versioned handshake, with capabilities stored on the peer | built |
 | Friend-of-a-friend discovery | built |
 | Sharing per library, with allow and deny lists | built |
 | Per-library bandwidth caps | built |
 | Audit: what would this peer see of me | built |
 | **A peer's catalogue imported as services and items on our side** | **absent** — the link answers `catalogue.list`, nothing calls it |
-| **WebRTC for two ends both behind NAT** | **absent** — such a pair falls back to the relay |
-| **The rendezvous server itself** | **not included** — the gateway is a client of one |
+| **WebRTC for two ends both behind NAT** | **absent** — with a friend in common such a pair can be relayed, without one it cannot be linked |
+| **A server in the middle** | **removed** — peers are introduced by the intermediaries they already have |
 
 Both gateways of a link speak the same wire whichever way the socket was opened, and
 the protocol grows by capability rather than by version: an unknown field is ignored,

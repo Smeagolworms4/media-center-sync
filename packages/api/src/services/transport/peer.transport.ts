@@ -24,8 +24,8 @@ interface RemoteDescription {
  * A relayed link is somebody else's bandwidth in the middle.
  *
  * Fewer connections through it, not because the protocol cannot take more but
- * because the rendezvous is doing us a favour and four transfers each opening four
- * relayed sockets is how that favour stops being offered.
+ * because the friend in the middle is doing us a favour, and four transfers each
+ * opening four relayed sockets is how that favour stops being offered.
  */
 const MAX_DIRECT_CONNECTIONS = 4;
 const MAX_RELAYED_CONNECTIONS = 2;

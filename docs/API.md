@@ -135,6 +135,10 @@ the network and therefore answered both questions wrongly at once.
 | PATCH | `/libraries/:id` | `UpdateLibraryDto` | `Library` | `LIBRARY_MANAGE` |
 | GET | `/libraries/categories` | — | `MediaCategory[]` | `LIBRARY_READ` |
 | GET | `/libraries/check` | — | `LibraryCheck[]` | `LIBRARY_READ` |
+| GET | `/libraries/keywords` | — | `CategoryKeyword[]` | `LIBRARY_READ` |
+| POST | `/libraries/categories/:key/keywords` | `AddCategoryKeywordDto` | `CategoryKeyword` | `LIBRARY_MANAGE` |
+| PATCH | `/libraries/keywords/:id` | `MoveCategoryKeywordDto` | `CategoryKeyword` | `LIBRARY_MANAGE` |
+| DELETE | `/libraries/keywords/:id` | — | `204` | `LIBRARY_MANAGE` |
 
 **Categories are what a library screen is built from.** A household with two servers
 has two libraries called `Shows`, and a friend makes a third; they are one category to
@@ -148,6 +152,37 @@ The lowest `position` among the merged libraries decides the order categories ap
 in, and answers which category wins when the same media is filed in two of them.
 `MediaGroupQuery.categoryKey` filters a browse to one category; `libraryId` still
 names exactly one library, which is a different question and worth keeping.
+
+**A keyword is a name plugged into one of our categories.** A friend's gateway brings
+twenty shelves — `Séries`, `Series TV`, `TV`, `Émissions TV` — and folding each of them
+into our `Shows` meant typing the same alias once per library, again for every peer that
+ever appears. A keyword says it once: any library whose name folds to it is read as part
+of that category, on whoever's server it sits, from the moment it is discovered.
+
+Matching is an exact comparison of the folded form and nothing more. Case, accents,
+punctuation and runs of whitespace collapse, so `Series TV`, `Séries TV` and `series-tv`
+are one shelf; `Animes - Films` and `Films` are not. There is no stemming, no distance
+and no score, deliberately: a near-match that fires wrongly files somebody's media under
+a name they never chose with nothing on screen saying why, whereas a keyword that does
+not fire is visible the moment they look at the screen. A keyword that folds to nothing
+is refused with `error.library.keyword_invalid`, and one another category already holds
+with `error.library.keyword_taken` — two categories claiming `tv` would file a shelf
+into whichever row came back first, an answer that differs between two identical
+requests.
+
+**Nothing is written on a library when a keyword catches it.** The fold is recomputed on
+every read, so `DELETE /libraries/keywords/:id` is an exact undo: the shelves go back to
+reading as their own names in the very next request, with no alias to guess at. That is
+also why **an `alias` somebody typed always wins over a keyword** — `PATCH
+/libraries/:id` is the repair for a mapping that filed something wrongly, and a keyword
+able to override it would make the repair last one request.
+
+A keyword row is anchored on a **library**, not on a `MediaCategory.key`. A category is
+derived from the names libraries read as, so its key moves the instant one is renamed; a
+list stored under `shows` would be orphaned by exactly the rename it exists to survive.
+A library identifier survives a rename and survives a rescan, which matches rows on
+`(serviceId, externalId)` and updates them in place. `CategoryKeyword.categoryKey` is
+therefore computed at read time, and the row is removed with its library.
 
 `/libraries/check` probes each declared `localPath`: does it exist, can it be read,
 can it be written, how much room is left. This is the answer to the failure that
@@ -233,7 +268,7 @@ Confirming or deleting a match is how a human overrules the scoring. Both are re
 | POST | `/sync/preview` | `RunSyncDto` | `SyncPreview` | `SYNC_READ` |
 | POST | `/sync/run` | `RunSyncDto` | `SyncJob` | `SYNC_RUN` |
 | POST | `/sync/companions` | `PullCompanionsDto` | `CompanionPullResult[]` | `SYNC_RUN` |
-| GET | `/sync/jobs` | page, limit, state (query) | `ResultList<SyncJob>` | `SYNC_READ` |
+| GET | `/sync/jobs` | page, limit, state, view (query) | `ResultList<SyncJob>` | `SYNC_READ` |
 | GET | `/sync/jobs/:id` | — | `SyncJob` | `SYNC_READ` |
 | GET | `/sync/jobs/:id/items` | page, limit (query) | `ResultList<SyncJobItem>` | `SYNC_READ` |
 | POST | `/sync/jobs/:id/cancel` | — | `SyncJob` | `SYNC_RUN` |
@@ -270,6 +305,37 @@ placement per item, which is not something a list of plans should pay for on eve
 `SyncPlan.estimate` is therefore `null` everywhere else — an estimate stored against a
 plan would not go stale, it would be believed.
 
+### Where a plan prefers to file things
+
+A plan carries a `preferredLibraryId`. It is a preference and not a target, and the
+difference is where it sits in the placement rule: **below** the folder a series we
+already hold lives in, and **above** the category's library and the global default. A
+preference that outranked the existing copy would file the fourth season of a show into
+the preferred shelf while the first three stayed where they were, and no media server
+shows a series split across two folders as one series — a worse outcome than landing
+somewhere unexpected, which is at least whole. So it decides where anything genuinely
+new goes, and never splits a show.
+
+It lives on the plan rather than on a run because a run is one execution of a standing
+intent: a destination attached to a single run is a decision with nowhere to live
+afterwards, and the next run would quietly go back to the old shelf with nothing
+connecting the two. `RunSyncRequest.targetLibraryId` still overrides it for one run and
+is stored nowhere; somebody wanting one file elsewhere re-points that transfer.
+
+A library that is not one of this gateway's own, or whose files it does not hold, is
+refused when the plan is saved — `409 error.transfer.destination_invalid`, `404
+error.library.not_found` for one nobody has — rather than at four in the morning when
+the schedule fires. The disk itself is deliberately not probed: a plan may not run for a
+week, and refusing to save it because a NAS is asleep this evening is a refusal about
+the wrong moment. A preference that cannot be written into when the run comes is simply
+passed over, which is what the rest of the rule is for. Clearing it is always allowed.
+
+Each planned line records which step decided, in `PlacedBy`: `plan_preference` for the
+plan's, `requested` for a run that named one, `chosen_by_hand` for a transfer somebody
+re-pointed afterwards. Three values rather than one because the thing to do about each
+is different — the first is changed on the plan, the second died with its run, and the
+third touched no rule at all.
+
 ### Room on the destination
 
 `SyncPreview` and `SyncJob` both carry a `TargetSpace` per destination: what it has, what
@@ -297,6 +363,25 @@ run — and set `stoppedBy`. They stop at the first item that does not fit rathe
 packing the remaining room with smaller ones, so the order the plan chose is kept and
 tomorrow's run continues where today's ended.
 
+### Half a list, and what happens to the other half
+
+Both list routes take `view`: `live`, `finished`, or `all`, which is the default. A
+run or a transfer is *finished* once it is done, failed or cancelled; everything else
+— including a paused transfer, which somebody stopped and will resume — is live.
+
+`all` is the default deliberately, although the sync and queue screens both ask for
+`live`. The home screen reads the same two routes for recent activity and for the
+failed transfers it reports, and a default that had started dropping finished rows
+would have emptied that panel with nothing anywhere saying so.
+
+Finished rows are eventually deleted rather than archived, by a cleanup that runs once
+a day. Two windows govern it, both in the settings: `transferHistoryDays` (thirty days
+by default) for work that succeeded, `failedHistoryDays` (a hundred and eighty) for
+what failed or was cancelled. The split is the whole point — a transfer that failed
+three weeks ago is the answer to "why is this series incomplete", and a success is
+already described by the file it produced. Nothing that has not finished is ever
+removed, whatever the windows say.
+
 ### The lines of a run
 
 `/sync/jobs/:id/items` serves a run line by line. A job that reports "412 of 900" and
@@ -310,7 +395,7 @@ afterwards.
 
 | Method | Path | Body | Answers | Right |
 |---|---|---|---|---|
-| GET | `/transfers` | page, limit, state (query) | `ResultList<Transfer>` | `TRANSFER_READ` |
+| GET | `/transfers` | page, limit, state, view (query) | `ResultList<Transfer>` | `TRANSFER_READ` |
 | GET | `/transfers/stats` | — | `TransferQueueStats` | `TRANSFER_READ` |
 | GET | `/transfers/unconfigured` | — | `UnconfiguredPlacement[]` | `TRANSFER_READ` |
 | GET | `/transfers/:id` | — | `Transfer` | `TRANSFER_READ` |
@@ -350,6 +435,23 @@ runs. The body takes a library identifier and never a path: a destination has to
 library on one of this gateway's own services, because a folder nothing scans accepts
 the file, reports success and shows it to nobody.
 
+Two consequences of the second case are worth stating. A transfer the engine is placing
+at that exact second is refused with `409 error.transfer.being_placed` rather than
+queued: the mover can be cancelled and resumed, so interrupting it was buildable, but
+between the abort being asked for and being observed both destinations hold part of the
+file, and a crash in that window leaves half a film in each with the row naming only
+one. A half-moved file is the outcome this whole area is designed against, and waiting
+for a copy already running is the cheaper price. And the landing recorded in
+`media_landings` follows the file: it is resolved by path, so a move that left it naming
+the old one would have the next reconciliation decide the file had been deleted, put the
+media back to `missing` with a perfectly good copy on disk, and offer a download of it.
+Re-recording it also asks the *new* library's media server to look, which nothing else
+would do.
+
+A destination somebody sets by hand this way is recorded as `PlacedBy.chosen_by_hand`,
+which is deliberately not `requested`: it is a correction to one file, no rule underneath
+it moved, and the next episode of the same show still goes wherever the rules send it.
+
 ## Peers
 
 | Method | Path | Body | Answers | Right |
@@ -370,6 +472,8 @@ the file, reports success and shows it to nobody.
 | POST | `/peers/bans` | `BanFingerprintDto` | `BannedPeer` | `PEER_MANAGE` |
 | DELETE | `/peers/bans/:fingerprint` | — | `204` | `PEER_MANAGE` |
 | POST | `/peers/:id/connect` | — | `Peer` | `PEER_MANAGE` |
+| POST | `/peers/:id/introductions` | `RequestIntroductionDto` | `Peer` | `PEER_MANAGE` |
+| POST | `/peers/:id/release` | — | `204` | `PEER_MANAGE` |
 | GET | `/peers/:id/services` | — | `MediaService[]` | `PEER_READ` |
 
 **Three ways to withdraw from a peer, and they do not overlap.**
@@ -404,6 +508,46 @@ indistinguishable from one trying to get in. `POST /peers/:id/connect` therefore
 "try now rather than wait for the next attempt" rather than "connect"; it answers `503
 error.peer.unreachable` when the attempt fails, whichever way it failed.
 
+**A friend of a friend is introduced, never relayed.** `POST /peers/:id/introductions`
+asks the peer in the middle for a signed token naming the gateway they told us about —
+`holderId` is their own identifier for it, as an announcement already carries — and the
+gateway then opens a link straight to that holder, presenting the token as a header on
+the upgrade. The holder checks it against the public key it already holds for its own
+peer, which is why it needs to know nothing about us in advance. The token lives two
+minutes, names who may present it and which gateway it opens, and never names a media:
+the introducer is not to be holding the sentence "A wanted this film". Nobody is asked
+to approve it — how far introductions travel is the agreement, and `peerMaxDepth` with
+each peer's `maxDepth` is where it is written down; both ends enforce it, so a gateway
+beyond the limit is never introduced and never admitted. It answers `404
+error.peer.introduction_refused` for every reason it can be refused, deliberately: a
+caller able to tell "not my peer" from "further than I allow" could map out somebody's
+friends and their reach by asking.
+
+**The dial ladder has three rungs and nothing to configure**: the last known address,
+then an introduction from a friend both ends have, then that same friend carrying the
+bytes. Which friends are asked is decided by `PeerManager.introducersFor` — the peer
+that told us about this one first, since that is how we know it exists, then the other
+linked peers, and at most `MAX_INTRODUCERS_ASKED` of them, because a gateway that asked
+twenty friends in turn before reporting failure is a screen that hangs. An introduction
+is asked for by fingerprint on the ladder and by holder identifier when a
+`catalogue.holders` answer named one; both reach the same `peer.introduce`.
+
+The last rung is only taken when the friend in the middle advertises
+`PeerCapability.RELAY`, which this gateway deliberately never does. Nothing is
+encrypted above the transport, so on a relayed link that friend's machine really does
+carry the bytes, and the interface says so in one line. **Two gateways behind two
+routers with no friend in common therefore cannot be connected**, which is a stated
+limit rather than a setting: the peers screen says so on the row and names the
+forwarded port as the fix. Relaying stays the whole arrangement for a remote Jellyfin
+or Plex somebody shares: that server does not speak this protocol and has never heard
+of the friend, so standing in front of it is the point rather than a fallback.
+
+`POST /peers/:id/release` lets go of a peer met that way. Whether it survives the
+transfer is `keepDiscoveredPeers`, off by default: off, the row carries `discovered`
+and goes with the link — including on the holder's side, when their session closes, and
+at boot for a gateway that stopped mid-transfer; on, it joins the list like any other
+peer and release does nothing to it.
+
 **There are two ways to link, and the code is the convenience rather than the rule.**
 `POST /peers` takes a fingerprint: you paste your friend's, they get a request showing
 yours, they approve it. Nothing secret travels, nothing expires, and the person
@@ -416,10 +560,17 @@ error.peer.rejected` on one we made ourselves. Approving our own would declare a
 the far end never agreed to, and the first pull would then fail with an authentication
 error rather than with the honest answer, which is that they have not answered yet.
 
-`/peers/identity` is what you hand to somebody so they can find you: the fingerprint,
-the rendezvous, and whether a direct connection is possible at all. The last one is
-worth showing — a gateway whose port is not forwarded works, but every transfer goes
-through a relay and it is better to know that before wondering why it is slow.
+`/peers/identity` is what you hand to somebody so they can find you: the node
+identifier, the fingerprint, and whether a direct connection is possible at all. The
+last one is worth showing — a gateway whose port is not forwarded works, but only for
+as long as somebody in the middle is willing to introduce it, and it is better to know
+that before wondering why a link never opens.
+
+`/peers/invites` mints the one address the design still carries, and it is the issuing
+gateway's own `publicUrl`. The URL spells it `address=`; an invitation minted before
+the rename spells it `rendezvous=` and is still read, since one lives in somebody's
+chat window for an hour. It is not a third party's directory: two gateways that have
+never met have nobody in the middle by definition, and this is the case that covers.
 
 `/peers/accept` takes the whole `mcs://invite/…` URL. The bare code parses, but it
 carries neither the secret that proves the invitation nor the fingerprint that says who
@@ -547,14 +698,33 @@ at the `Shows` library says that Séries *is* Shows on this gateway, so the writ
 gives every library of that category the destination category's name as its `alias` —
 which is what `GET /libraries/categories` merges on. Without it the setting moved
 placement only, the library screen went on showing two categories, and nothing said
-why. Four cases write no alias: a destination whose category cannot be read, a
-destination already in that category, a library on a service that is not ours, and a
-destination on one — a friend's shelf is not ours to fold into one of ours, in either
-direction. **Clearing a mapping keeps the alias**: it is indistinguishable from one
-somebody typed on the libraries screen, and emptying a destination must not destroy a
-name. `PATCH /libraries/:id` with `alias: null` is how a category is split again.
+why. Every library of the category is renamed, **including the ones on servers that are
+not ours**: the alias is local, never leaves this gateway and changes nobody's server,
+so saying a friend's `TV` is our `Séries` is exactly the sentence the field exists to
+write. Three cases write no alias: a destination whose category cannot be read, a
+destination already in that category, and a destination the gateway cannot write into.
+**Clearing a mapping keeps the alias**: it is indistinguishable from one somebody typed
+on the libraries screen, and emptying a destination must not destroy a name. `PATCH
+/libraries/:id` with `alias: null` is how a category is split again.
 
-These four refusals answer `400` with `{ key, field }` rather than a plain key: they are
+**The entry moves with the rename it causes.** A category key is folded from the name
+people read, so renaming the libraries of `series` to `Shows` makes the category `shows`
+— and an entry left under `series` then named a category that no longer existed.
+Placement looked it up, found nothing, fell back to the default library and filed the
+episode in a folder nobody chose, with no error and nothing on screen; from the outside
+that reads as files landing unpredictably. So the answer comes back re-keyed, and a
+`PATCH /settings` sending `{ "series": "<library>" }` may well answer
+`{ "shows": "<library>" }`. An entry already standing at the merged key wins over the
+one being moved: it is either the same answer or a choice made in the same patch.
+
+An entry whose key no category answers to is warned about rather than deleted —
+categories vanish while a service is offline, and dropping the row would lose a
+deliberate choice to a temporary outage. What it files still lands, in the default
+library, recorded with a `PlacedBy` in `UNCONFIGURED_PLACEMENTS`, which is what puts it
+in the zone that offers to file it properly.
+
+The four field refusals above — `publicUrl`, `peerAddress`, `defaultTargetPath` and
+`categoryTargets` — answer `400` with `{ key, field }` rather than a plain key: they are
 saved from one form, and without the field the interface can only say that something was
 refused.
 
@@ -605,9 +775,9 @@ The first frame either end sends is `peer.hello`, and nothing else is served bef
 ```
 
 The answer's signature is over *their* challenge, which is what proves the machine
-that answered holds the private key behind the fingerprint that was asked for — the
-address came from a rendezvous nobody controls, so that proof happens before a single
-catalogue row crosses.
+that answered holds the private key behind the fingerprint that was asked for — on the
+middle rung the address came from an introducer that chose it, so that proof happens
+before a single catalogue row crosses.
 
 `PeerHello` carries `nodeId`, `fingerprint`, `name`, `protocol` and `capabilities`. A
 `protocol` not in `SUPPORTED_PROTOCOL_VERSIONS` is answered with

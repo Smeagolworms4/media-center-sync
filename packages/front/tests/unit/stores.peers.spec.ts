@@ -18,6 +18,7 @@ function peer (overrides: Partial<Peer> = {}): Peer {
 		depth: 1,
 		maxDepth: null,
 		readingForbidden: false,
+		discovered: false,
 		linkMode: PeerLinkMode.DIRECT,
 		address: '203.0.113.9:4210',
 		viaPeerId: null,
@@ -41,7 +42,7 @@ describe('stores/peers', () => {
 	it('loads the peers and our own identity', async () => {
 		stubFetch([
 			{ body: [peer()] },
-			{ body: { fingerprint: 'FF:EE', name: 'me', rendezvous: 'wss://r', directAddress: null, directReachable: false } },
+			{ body: { fingerprint: 'FF:EE', name: 'me', directAddress: null, directReachable: false } },
 		]);
 		const store = usePeersStore();
 

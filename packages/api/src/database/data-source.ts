@@ -5,8 +5,10 @@ import { configuration } from '@/config';
 import { MIGRATIONS } from './migrations';
 import {
 	BannedPeer,
+	CategoryKeyword,
 	Library,
 	MediaItem,
+	MediaLanding,
 	MediaMatch,
 	MediaService,
 	NotificationChannel,
@@ -33,8 +35,10 @@ import { applyPostgresCompatibility } from './postgres-compat';
  */
 export const ENTITIES = [
 	BannedPeer,
+	CategoryKeyword,
 	Library,
 	MediaItem,
+	MediaLanding,
 	MediaMatch,
 	MediaService,
 	NotificationChannel,

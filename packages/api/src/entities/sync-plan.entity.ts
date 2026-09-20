@@ -38,10 +38,16 @@ export class SyncPlan extends Timestampable {
 	@Column({ type: 'simple-json', default: '[]' })
 	public sourceServiceIds!: string[];
 
-	/** Empty means: beside our own copy, or into the default library for the kind. */
+	/**
+	 * The library this plan would rather its files went to.
+	 *
+	 * A preference and not a target, which is why it is not called one: it is consulted
+	 * *inside* the placement rules, below the folder a series we already hold lives in
+	 * and above the category's library. Null means the rules decide on their own.
+	 */
 	@ApiProperty({ nullable: true })
 	@Column({ type: 'uuid', nullable: true })
-	public targetLibraryId!: string | null;
+	public preferredLibraryId!: string | null;
 
 	/**
 	 * What this plan covers, stated rather than implied.

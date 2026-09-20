@@ -55,6 +55,26 @@ export const ErrorKey = {
 	LIBRARY_NOT_FOUND: 'error.library.not_found',
 	LIBRARY_PATH_UNREADABLE: 'error.library.path_unreadable',
 	LIBRARY_PATH_NOT_WRITABLE: 'error.library.path_not_writable',
+	/** A category key that no library answers to any more — a stale screen, usually. */
+	LIBRARY_CATEGORY_NOT_FOUND: 'error.library.category_not_found',
+	LIBRARY_KEYWORD_NOT_FOUND: 'error.library.keyword_not_found',
+	/**
+	 * A keyword that folds to nothing: punctuation, spaces, or an empty box.
+	 *
+	 * Refused rather than stored, because the folded form is what matching compares
+	 * and an empty one matches every library whose name is also punctuation — which
+	 * is none today and whichever one somebody adds tomorrow.
+	 */
+	LIBRARY_KEYWORD_INVALID: 'error.library.keyword_invalid',
+	/**
+	 * The same keyword already files into another category.
+	 *
+	 * One keyword, one category, enforced rather than resolved: two categories
+	 * claiming `tv` would file a shelf into whichever row the database handed back
+	 * first, and that answer changes between two identical requests. Moving it is a
+	 * deliberate act and has its own route.
+	 */
+	LIBRARY_KEYWORD_TAKEN: 'error.library.keyword_taken',
 
 	MEDIA_NOT_FOUND: 'error.media.not_found',
 
@@ -103,6 +123,16 @@ export const ErrorKey = {
 	 * their own outgoing request. A false "they refused you" is worse than no message.
 	 */
 	PEER_AWAITING_THEM: 'error.peer.awaiting_them',
+	/**
+	 * No introduction to that gateway, from us, now.
+	 *
+	 * One key for every reason, and that is deliberate on the wire: a caller who could
+	 * tell "I do not know them" from "they are further than my limit allows" could map
+	 * out somebody's friends and their reach by asking. It reaches a person only on
+	 * this side of the link, where the honest reading is "that route is not available",
+	 * not "something went wrong".
+	 */
+	PEER_INTRODUCTION_REFUSED: 'error.peer.introduction_refused',
 
 	SYNC_PLAN_NOT_FOUND: 'error.sync.plan_not_found',
 	SYNC_JOB_NOT_FOUND: 'error.sync.job_not_found',
@@ -169,6 +199,20 @@ export const ErrorKey = {
 	 * somebody to start a forty gigabyte download again for no reason.
 	 */
 	TRANSFER_DESTINATION_FULL: 'error.transfer.destination_full',
+	/**
+	 * The file is being moved into the library at this exact moment. Ask again after.
+	 *
+	 * A refusal and not a queued request, and the alternative was weighed: the mover
+	 * can be aborted with `FILE_MOVE_CANCEL` and resumed, so cancelling the move in
+	 * flight and starting another one towards the new library is buildable. It was
+	 * rejected because the two destinations would both hold part of the file for as
+	 * long as the cancellation takes to land — the partial on the old path is only
+	 * removed after the abort is observed — and a crash inside that window leaves half
+	 * a film in one library and half in another, with the row naming the second. A half
+	 * moved file is the outcome this whole area is designed against, and the price of
+	 * refusing is that somebody waits for a copy that was already running.
+	 */
+	TRANSFER_BEING_PLACED: 'error.transfer.being_placed',
 
 	USER_NOT_FOUND: 'error.user.not_found',
 	USER_LAST_ADMIN: 'error.user.last_admin',

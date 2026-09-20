@@ -1,4 +1,4 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
@@ -44,4 +44,29 @@ export class UpdateLibraryDto {
 	@Min(0)
 	@Max(9999)
 	public position?: number;
+}
+
+/**
+ * A name plugged into a category, so that libraries carrying it file themselves.
+ *
+ * Length-capped at the same 120 as an alias, because the two are read against each
+ * other: a keyword nobody could ever type as a library name would never match.
+ */
+export class AddCategoryKeywordDto {
+	@ApiProperty({
+		description:
+			'A library name to file into this category — `Series TV`, `TV`, `Émissions TV`. '
+			+ 'Compared without case, accents or punctuation, and never fuzzily.',
+	})
+	@IsString()
+	@MaxLength(120)
+	public keyword!: string;
+}
+
+/** Where a keyword should file from now on. */
+export class MoveCategoryKeywordDto {
+	@ApiProperty({ description: 'The key of the category it moves to.' })
+	@IsString()
+	@MaxLength(120)
+	public categoryKey!: string;
 }

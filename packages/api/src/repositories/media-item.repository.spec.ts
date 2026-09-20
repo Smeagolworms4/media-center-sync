@@ -197,6 +197,51 @@ describe('MediaItemRepository', () => {
 		});
 
 		expect(unknownSort).toHaveLength(2);
+		// And it still comes back ordered. An unknown sort used to clear the ordering
+		// altogether, which on a paginated list means a row on two pages and a row on
+		// none — a worse failure than the wrong column, and a silent one.
+		expect(unknownSort.map((item) => item.title)).toEqual(['A', 'B']);
+	});
+
+	it('puts a season’s episodes in broadcast order, not alphabetical order', async () => {
+		// Numbered out of order on purpose: inserting them in sequence would pass on
+		// the insertion order alone and prove nothing.
+		await anItem({ title: 'The Gathering', seasonNumber: 1, episodeNumber: 10 });
+		await anItem({ title: 'Absolution', seasonNumber: 1, episodeNumber: 2 });
+		await anItem({ title: 'Pilot', seasonNumber: 1, episodeNumber: 1 });
+		await anItem({ title: 'Aftermath', seasonNumber: 2, episodeNumber: 1 });
+
+		const [ordered] = await items.search({});
+
+		expect(ordered.map((item) => [item.seasonNumber, item.episodeNumber])).toEqual([
+			[1, 1],
+			[1, 2],
+			[1, 10],
+			[2, 1],
+		]);
+	});
+
+	it('sends an episode the service numbered nothing to the end, on either engine', async () => {
+		// SQLite sorts a NULL first ascending and PostgreSQL sorts it last, so without
+		// the sentinel this row lands at opposite ends of the season depending on which
+		// database somebody picked — the same screen, two orders.
+		await anItem({ title: 'Special', seasonNumber: 1, episodeNumber: null });
+		await anItem({ title: 'Pilot', seasonNumber: 1, episodeNumber: 1 });
+
+		const [ordered] = await items.search({});
+
+		expect(ordered.map((item) => item.title)).toEqual(['Pilot', 'Special']);
+	});
+
+	it('leaves a film list ordered by what was asked for', async () => {
+		// Every row collapses to the same episode key, so the coordinates cost nothing
+		// where they mean nothing.
+		await anItem({ title: 'Z', year: 1969 });
+		await anItem({ title: 'A', year: 2001 });
+
+		const [byTitle] = await items.search({});
+
+		expect(byTitle.map((item) => item.title)).toEqual(['A', 'Z']);
 	});
 
 	it('narrows correlation candidates to the same title and episode coordinates', async () => {

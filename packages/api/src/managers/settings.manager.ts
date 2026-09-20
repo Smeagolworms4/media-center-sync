@@ -1,4 +1,5 @@
 import {
+	categoryKeyOf,
 	ErrorKey,
 	type Settings,
 	type SettingsView,
@@ -79,10 +80,16 @@ export class SettingsManager {
 				? null
 				: (await this._settings.get()).categoryTargets;
 
-		const settings = await this._settings.update(patch);
+		let settings = await this._settings.update(patch);
 
 		if (before !== null) {
-			await this._followCategoryTargets(before, settings.categoryTargets);
+			const rekeyed = await this._followCategoryTargets(before, settings.categoryTargets);
+
+			if (rekeyed !== null) {
+				settings = await this._settings.update({ categoryTargets: rekeyed });
+			}
+
+			await this._reportStaleCategoryTargets(settings.categoryTargets);
 		}
 
 		if (patch.refreshIntervalMinutes !== undefined || patch.fullScanCron !== undefined) {
@@ -128,11 +135,31 @@ export class SettingsManager {
 	 * gone for good. Leaving it costs a stale grouping that one rename on the libraries
 	 * screen undoes; destroying a name costs the name. Emptying the destination stops
 	 * new files going there, which is exactly what the field says it does.
+	 *
+	 * **The entry moves with the rename it causes**, and that is the half that was
+	 * missing. A category key is folded from the name people read, so renaming the
+	 * libraries of `series` to `Shows` makes the category `shows` — and the entry that
+	 * had just been saved under `series` then named a category that no longer existed.
+	 * Placement looked it up, found nothing and fell back to the default library: no
+	 * error, no screen saying anything, and a file in a folder nobody chose. From the
+	 * outside that is "where the files land is not reliable at all", which is how it
+	 * was reported.
+	 *
+	 * Moved rather than copied. Leaving the old key would keep a row naming a category
+	 * nothing answers to, and a table that accumulates those is a table nobody can
+	 * read. An entry already standing at the merged key wins over the one being moved:
+	 * it is either the same answer or a choice made in this very patch, and neither is
+	 * ours to overwrite from a side effect.
+	 *
+	 * Returns the corrected table, or null when nothing moved and the stored one stands.
 	 */
 	private async _followCategoryTargets(
 		before: Record<string, string>,
 		after: Record<string, string>,
-	): Promise<void> {
+	): Promise<Record<string, string> | null> {
+		const rekeyed = { ...after };
+		let moved = false;
+
 		for (const [key, libraryId] of Object.entries(after)) {
 			if (before[key] === libraryId) {
 				continue;
@@ -140,9 +167,59 @@ export class SettingsManager {
 
 			const name = await this._libraries.mergeCategoryInto(key, libraryId);
 
-			if (name !== null) {
-				this._logger.log(`Category ${key} now reads as ${name}, from its destination`);
+			if (name === null) {
+				continue;
 			}
+
+			this._logger.log(`Category ${key} now reads as ${name}, from its destination`);
+
+			const merged = categoryKeyOf(name);
+
+			if (merged === key) {
+				continue;
+			}
+
+			if (rekeyed[merged] === undefined) {
+				rekeyed[merged] = libraryId;
+			} else {
+				this._logger.warn(
+					`Destination stored for ${key} dropped: ${merged} already names one, which stands`,
+				);
+			}
+
+			delete rekeyed[key];
+			moved = true;
+
+			this._logger.log(`Destination for ${key} now stands under ${merged}, its merged name`);
+		}
+
+		return moved ? rekeyed : null;
+	}
+
+	/**
+	 * Say so when a stored destination names a category nothing answers to.
+	 *
+	 * A dead entry is silent by construction: placement finds no target for the item's
+	 * category, falls back to the default library, and the file lands somewhere nobody
+	 * chose. The file itself is already accounted for — that fallback is a `PlacedBy`
+	 * in `UNCONFIGURED_PLACEMENTS`, so it surfaces in the zone built for exactly this —
+	 * but nothing anywhere named the *entry* that stopped working, which is the thing
+	 * somebody has to go and fix.
+	 *
+	 * A warning and not a deletion. Categories are derived from library names, so one
+	 * disappears the moment a service is offline; dropping the row would lose a
+	 * deliberate choice to a temporary outage, and the category would come back with no
+	 * destination once the service answered again.
+	 */
+	private async _reportStaleCategoryTargets(targets: Record<string, string>): Promise<void> {
+		const live = new Set((await this._libraries.categories()).map((category) => category.key));
+		const stale = Object.keys(targets).filter((key) => !live.has(key));
+
+		if (stale.length > 0) {
+			this._logger.warn(
+				`Destinations stored for categories nothing reads as: ${stale.join(', ')}. `
+					+ 'Anything filed under them lands in the default library instead.',
+			);
 		}
 	}
 

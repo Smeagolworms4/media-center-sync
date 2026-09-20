@@ -64,7 +64,7 @@ export class TransportRegistry implements OnModuleInit {
 	/**
 	 * Direct and relayed are the same transport.
 	 *
-	 * Whether a peer link goes straight there or through the rendezvous is decided
+	 * Whether a peer link goes straight there or through a friend is decided
 	 * when the link is established, can change under a running transfer, and makes no
 	 * difference at all to how a range is asked for. The two enum values exist so the
 	 * interface can say which one is in use, not so there can be two implementations.

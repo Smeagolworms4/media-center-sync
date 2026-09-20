@@ -2,9 +2,12 @@ import { Readable } from 'node:stream';
 import {
 	ErrorKey,
 	LibraryKind,
+	PEER_INTRODUCE_METHOD,
+	PeerStatus,
 	PeerTrust,
 	type CatalogueEntry,
 	type MediaFileInfo,
+	type PeerIntroduction,
 	type PeerLibrary,
 } from '@mcs/shared';
 import {
@@ -25,6 +28,7 @@ import {
 	BandwidthService,
 	HandlerRegistry,
 	PeerCatalogueService,
+	PeerIntroductionService,
 	PeerMethodKind,
 	SettingsService,
 	TokenBucket,
@@ -55,6 +59,7 @@ const PEER_METHODS: Readonly<Record<string, PeerMethodKindValue>> = Object.freez
 	'catalogue.list': PeerMethodKind.VALUE,
 	'catalogue.libraries': PeerMethodKind.VALUE,
 	'catalogue.holders': PeerMethodKind.VALUE,
+	[PEER_INTRODUCE_METHOD]: PeerMethodKind.VALUE,
 	'media.describe': PeerMethodKind.VALUE,
 	'media.revalidate': PeerMethodKind.VALUE,
 	'media.range': PeerMethodKind.STREAM,
@@ -117,6 +122,7 @@ export class PeerExchangeManager implements PeerMethodHandler {
 		private readonly _services: MediaServiceRepository,
 		private readonly _shares: ShareManager,
 		private readonly _catalogue: PeerCatalogueService,
+		private readonly _introductions: PeerIntroductionService,
 		private readonly _handlers: HandlerRegistry,
 		private readonly _settings: SettingsService,
 		private readonly _bandwidth: BandwidthService,
@@ -160,6 +166,12 @@ export class PeerExchangeManager implements PeerMethodHandler {
 						this._number(params.depth) ?? 0,
 					),
 				};
+
+			case PEER_INTRODUCE_METHOD:
+				return this.introduce(peerId, {
+					holderId: this._string(params.holderId) ?? null,
+					fingerprint: this._string(params.fingerprint) ?? null,
+				});
 
 			case 'media.describe': {
 				const entry = await this.describe(peerId, this._itemId(params));
@@ -250,6 +262,135 @@ export class PeerExchangeManager implements PeerMethodHandler {
 			}));
 
 		return [...self, ...answer.holders];
+	}
+
+	/**
+	 * Hand this peer a token that opens a link to another gateway we are linked to.
+	 *
+	 * This is the whole feature, and what it deliberately does not do is carry bytes.
+	 * The caller found out that somebody behind us holds a file — we answered that when
+	 * they asked `catalogue.holders` — and the two plausible endings are that we fetch
+	 * it and pass it on, or that we introduce them and get out of the way. Passing it on
+	 * would spend our upload for the length of a film on a transfer that is not ours,
+	 * make us a bottleneck between two connections that may both be faster, and put
+	 * every title the caller asks for in our logs. Introducing costs one signed string.
+	 *
+	 * **Nobody is asked to approve it, and there is nothing here that could ask.** The
+	 * holder is not prompted and the caller is not left pending: being reachable at that
+	 * distance is the agreement, and the two numbers below are where it is recorded.
+	 *
+	 * The answer carries no public key. The holder proves which key it holds during the
+	 * handshake, as it does on any other link — shipping one here would invite the
+	 * caller to trust a key handed to it by a third party, which is exactly the
+	 * substitution that handshake exists to refuse.
+	 *
+	 * One refusal for every reason, and the same one a gateway we have never heard of
+	 * gets. A caller able to tell "not my peer" from "further than I allow" could map
+	 * out this gateway's friends and its limits by asking, which is more than an
+	 * introduction is worth.
+	 *
+	 * **The holder may be named two ways, and both are the same request.** A caller who
+	 * has just been told which of our peers hold a content identifier names one by the
+	 * row identifier that answer used — ours, opaque to them, meaningless anywhere else.
+	 * A caller trying to reopen a link to a gateway it already knows has no such
+	 * identifier and never could: it holds a fingerprint, which is what a peer *is* and
+	 * the only name for a gateway that means the same thing on both sides. Refusing the
+	 * second form would mean inventing a second way to be introduced beside this one,
+	 * for the case the dial ladder needs most.
+	 *
+	 * What the fingerprint form reveals, to somebody who already holds that fingerprint
+	 * and is already a peer of ours, is that we are linked to that key. The ceiling
+	 * below still governs, `readingForbidden` still refuses outright, and the refusal is
+	 * still the same flat one — so it buys a caller nothing about anybody they cannot
+	 * already name.
+	 */
+	public async introduce(
+		peerId: string,
+		wanted: { holderId?: string | null; fingerprint?: string | null },
+	): Promise<PeerIntroduction> {
+		const caller = await this._requirePeer(peerId);
+		const holder = await this._findHolder(wanted);
+
+		if (holder === null || holder.id === caller.id || !this._isLinked(holder)) {
+			throw new NotFoundException(ErrorKey.PEER_INTRODUCTION_REFUSED);
+		}
+
+		// Somebody served nothing of ours is served nothing of our friends' either. The
+		// flag says this peer gets nothing from this gateway, and an introduction is
+		// something: a route they did not have before, opened by us.
+		if (caller.readingForbidden) {
+			throw new NotFoundException(ErrorKey.PEER_INTRODUCTION_REFUSED);
+		}
+
+		const settings = await this._settings.get();
+		// How far apart the two ends are once introduced: each one's distance from here,
+		// added. Two direct friends are two hops apart, and a chain grows the same way —
+		// which is what stops the limit being defeated by introducing in steps.
+		const depth = caller.depth + holder.depth;
+		/*
+		 * The reach, and it is a consent rather than a tuning knob.
+		 *
+		 * `peerMaxDepth` and a peer's own `maxDepth` decide how far an introduction may
+		 * travel — and since a friend of a friend now reaches the holder by opening a
+		 * link straight to them, that is the same sentence as how far away somebody may
+		 * be and still connect to that gateway. Lowering either one to save bandwidth
+		 * narrows who can reach them; it does not narrow a search. The smallest budget
+		 * along the chain wins, so nothing decided here can overrule a shorter reach
+		 * chosen by the friend whose circle it is.
+		 */
+		const allowed = Math.min(
+			settings.peerMaxDepth,
+			holder.maxDepth ?? settings.peerMaxDepth,
+			caller.maxDepth ?? settings.peerMaxDepth,
+		);
+
+		if (depth > allowed) {
+			throw new NotFoundException(ErrorKey.PEER_INTRODUCTION_REFUSED);
+		}
+
+		const { token, claim } = this._introductions.issue(
+			caller.fingerprint,
+			holder.fingerprint,
+			depth,
+		);
+
+		this._logger.log(`Introduced ${caller.name} to ${holder.name}, ${depth} hops apart`);
+
+		return {
+			token,
+			fingerprint: holder.fingerprint,
+			// A hint, and null is a perfectly good answer: we may know this friend only
+			// through a link they opened to us, which is exactly the case for a gateway
+			// behind a router that forwards nothing.
+			address: holder.address,
+			expiresAt: new Date(claim.expiresAt).toISOString(),
+			depth,
+		};
+	}
+
+	/** The holder a caller named, by our row identifier or by their fingerprint. */
+	private async _findHolder(wanted: {
+		holderId?: string | null;
+		fingerprint?: string | null;
+	}): Promise<PeerEntity | null> {
+		if (wanted.holderId) {
+			return this._peers.findOne({ where: { id: wanted.holderId } });
+		}
+
+		return wanted.fingerprint ? this._peers.findByFingerprint(wanted.fingerprint) : null;
+	}
+
+	/**
+	 * Linked, or linked and unreachable right now — which is the same relationship.
+	 *
+	 * `UNREACHABLE` means we failed to reach them and says nothing about whether they
+	 * are a friend. Refusing to introduce somebody to a peer that happens to be offline
+	 * for us would read our own connectivity as their consent, and they may be perfectly
+	 * reachable from where the caller is sitting — which is half the reason introducing
+	 * beats relaying.
+	 */
+	private _isLinked(peer: PeerEntity): boolean {
+		return peer.status === PeerStatus.LINKED || peer.status === PeerStatus.UNREACHABLE;
 	}
 
 	/**
@@ -482,6 +623,11 @@ export class PeerExchangeManager implements PeerMethodHandler {
 		// for ten hops is asking us to spend our friends' connections walking a network
 		// we decided not to walk — our limit is a limit on what we relay, not only on
 		// what we accept, or it protects nothing.
+		//
+		// And it is a consent, not a tuning knob: what this number really bounds is how
+		// far away somebody may be and still be introduced to one of our friends, so
+		// lowering it to save bandwidth is narrowing who may reach them. See
+		// `introduce`, where the same two numbers decide whether a token is issued.
 		const reach = Math.min(Math.max(0, Math.trunc(budget)), settings.peerMaxDepth - 1);
 		const holders =
 			reach > 0

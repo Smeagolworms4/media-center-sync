@@ -14,6 +14,8 @@ import ServiceForm from '@/components/service/ServiceForm.vue';
 import JobRow from '@/components/sync/JobRow.vue';
 import PlanForm from '@/components/sync/PlanForm.vue';
 import SyncPreviewDialog from '@/components/sync/SyncPreviewDialog.vue';
+import { useLibrariesStore } from '@/stores/libraries';
+import { useServicesStore } from '@/stores/services';
 import { dialogStub, mountWithApp, stubFetchRoutes, tooltipStub } from './helpers';
 
 async function settle (times = 6): Promise<void> {
@@ -397,7 +399,7 @@ describe('components/sync/PlanForm', () => {
 		trigger: SyncTrigger.SCHEDULE,
 		schedule: '0 4 * * *',
 		sourceServiceIds: ['s1', 's2'],
-		targetLibraryId: null,
+		preferredLibraryId: null,
 		scope: {},
 		maxItemsPerRun: null,
 		maxBytesPerRun: null,
@@ -413,7 +415,7 @@ describe('components/sync/PlanForm', () => {
 
 	it('says an empty source list means the configured priority', () => {
 		const { wrapper } = mountWithApp(PlanForm, {
-			props: { services, libraries: [library] },
+			props: { services },
 			global: { stubs: tooltipStub },
 		});
 
@@ -423,7 +425,7 @@ describe('components/sync/PlanForm', () => {
 
 	it('keeps the sources in the order they will be consulted, and lets it change', async () => {
 		const { wrapper } = mountWithApp(PlanForm, {
-			props: { plan, services, libraries: [library] },
+			props: { plan, services },
 			global: { stubs: tooltipStub },
 		});
 
@@ -439,7 +441,7 @@ describe('components/sync/PlanForm', () => {
 
 	it('turns the cron field into a sentence while it is being typed', async () => {
 		const { wrapper } = mountWithApp(PlanForm, {
-			props: { plan, services, libraries: [library] },
+			props: { plan, services },
 			global: { stubs: tooltipStub },
 		});
 
@@ -451,9 +453,89 @@ describe('components/sync/PlanForm', () => {
 		expect(wrapper.find('[data-test="cron-hint"]').text()).toContain('30 minutes');
 	});
 
+	/**
+	 * The destination a plan keeps between runs, and the refusals it never offers.
+	 *
+	 * The list used to be every library the gateway knows, which put a friend's shelf
+	 * in a menu the API would refuse — and, before the API refused it, stored a
+	 * preference that was silently passed over on every run for ever. The libraries
+	 * come from the same composable the queue uses, so the two screens cannot disagree
+	 * about what a destination is.
+	 */
+	describe('the library a plan prefers', () => {
+		function seedLibraries (): void {
+			const libraries = useLibrariesStore();
+			const servicesStore = useServicesStore();
+
+			servicesStore.services = [
+				service(),
+				service({ id: 's2', name: 'A friend', filesMounted: false, mode: MediaServiceMode.PEER }),
+			];
+			libraries.libraries = [
+				library,
+				{ ...library, id: 'l2', name: 'Their shows', serviceId: 's2' },
+			];
+		}
+
+		it('offers only the libraries a pull can land in, and names the others', async () => {
+			const { wrapper } = mountWithApp(PlanForm, {
+				props: { plan, services },
+				global: { stubs: tooltipStub },
+			});
+
+			seedLibraries();
+			await nextTick();
+
+			expect((wrapper.vm as any).destinationItems.map((one: { value: string }) => one.value))
+				.toEqual(['l1']);
+			expect(wrapper.find('[data-test="plan-target-rejected"]').text())
+				.toContain('Their shows');
+		});
+
+		it('sends it under its own name, as a preference rather than a target', async () => {
+			const stub = stubFetchRoutes({ '/api/sync/plans/pl1': { body: plan } });
+			const { wrapper } = mountWithApp(PlanForm, {
+				props: { plan, services },
+				global: { stubs: tooltipStub },
+			});
+
+			seedLibraries();
+			(wrapper.vm as any).model.preferredLibraryId = 'l1';
+			await nextTick();
+			await (wrapper.vm as any).form.handle();
+			await nextTick();
+
+			const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+
+			expect(JSON.parse(String(patch?.[1]?.body)))
+				.toMatchObject({ preferredLibraryId: 'l1' });
+		});
+
+		/**
+		 * The preview has to be what a run would do, including where it would write.
+		 *
+		 * A preview that ignored the preference would promise one shelf and deliver
+		 * another, which is the one thing this form must never do.
+		 */
+		it('previews with the preference the plan would run with', async () => {
+			const { wrapper } = mountWithApp(PlanForm, {
+				props: { plan, services },
+				global: { stubs: tooltipStub },
+			});
+
+			seedLibraries();
+			(wrapper.vm as any).model.preferredLibraryId = 'l1';
+			await nextTick();
+			await wrapper.find('[data-test="plan-preview"]').trigger('click');
+
+			expect(wrapper.emitted('preview')?.[0]?.[0])
+				.toMatchObject({ targetLibraryId: 'l1' });
+		});
+	});
+
 	it('hands the preview the body a run would take', async () => {
 		const { wrapper } = mountWithApp(PlanForm, {
-			props: { plan, services, libraries: [library] },
+			props: { plan, services },
 			global: { stubs: tooltipStub },
 		});
 
@@ -468,7 +550,7 @@ describe('components/sync/PlanForm', () => {
 	it('reads a size typed as 8G rather than asking for a byte count', async () => {
 		stubFetchRoutes({ '/api/sync/plans/pl1': { body: plan } });
 		const { wrapper } = mountWithApp(PlanForm, {
-			props: { plan, services, libraries: [library] },
+			props: { plan, services },
 			global: { stubs: tooltipStub },
 		});
 
@@ -605,7 +687,6 @@ describe('components/peer/InviteDialog', () => {
 				body: {
 					code: 'CODE-1',
 					fingerprint: 'AB',
-					rendezvous: 'wss://r',
 					expiresAt: '2030-01-01T00:00:00.000Z',
 					url: 'mcs://invite/CODE-1',
 				},

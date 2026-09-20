@@ -1,4 +1,5 @@
 import {
+	HistoryView,
 	Right,
 	TransferState,
 	type ResultList,
@@ -55,6 +56,17 @@ class TransferQueryDto {
 	@IsOptional()
 	@IsEnum(TransferState)
 	public state?: TransferState;
+
+	/**
+	 * Which half of the queue to answer with. Everything, unless asked otherwise.
+	 *
+	 * A paused transfer counts as live: somebody stopped it and it resumes when they
+	 * say so, and a queue view that filed it under history would lose it.
+	 */
+	@ApiPropertyOptional({ enum: HistoryView, default: HistoryView.ALL })
+	@IsOptional()
+	@IsEnum(HistoryView)
+	public view?: HistoryView;
 }
 
 /**
