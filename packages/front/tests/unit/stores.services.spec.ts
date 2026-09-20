@@ -2,7 +2,6 @@ import type { MediaService } from '@mcs/shared';
 import {
 	EventName,
 	MediaServiceMode,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -14,7 +13,8 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		id: 's1',
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
+		shared: true,
+		filesMounted: true,
 		mode: MediaServiceMode.LOCAL,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
@@ -93,7 +93,6 @@ describe('stores/services', () => {
 		await store.create({
 			name: 'New',
 			type: MediaServiceType.JELLYFIN,
-			scope: MediaServiceScope.LOCAL,
 			baseUrl: 'http://10.0.0.4:8096',
 		});
 

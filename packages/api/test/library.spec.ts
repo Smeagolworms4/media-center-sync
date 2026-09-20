@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import request from 'supertest';
 import {
 	LibraryKind,
-	MediaServiceScope,
 	MediaServiceType,
 	UserRole,
 	type Library,
@@ -50,7 +49,7 @@ describe('Libraries', () => {
 			services.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:41',
 			}),
 		);
@@ -59,7 +58,7 @@ describe('Libraries', () => {
 			services.create({
 				name: 'Attic',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.REMOTE,
+				filesMounted: false,
 				baseUrl: 'http://127.0.0.1:42',
 			}),
 		);

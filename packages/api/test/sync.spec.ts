@@ -5,7 +5,6 @@ import request from 'supertest';
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	SpaceVerdict,
 	SyncState,
@@ -50,7 +49,7 @@ describe('Syncing', () => {
 			services.create({
 				name: 'A friend',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.REMOTE,
+				filesMounted: false,
 				baseUrl: 'http://127.0.0.1:31',
 				priority: 10,
 			}),
@@ -62,7 +61,7 @@ describe('Syncing', () => {
 			services.create({
 				name: 'Ours',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:32',
 				priority: 20,
 			}),
@@ -576,9 +575,7 @@ describe('Syncing', () => {
 
 			const services = context.app.get(MediaServiceRepository);
 			const libraries = context.app.get(LibraryRepository);
-			const local = (await services.find()).find(
-				(candidate) => candidate.scope === MediaServiceScope.LOCAL,
-			);
+			const local = (await services.findLocal())[0];
 
 			// A second library of ours, and deliberately not the default target for
 			// anything: the whole claim is that the category sends the file here and the
@@ -688,7 +685,7 @@ describe('Syncing', () => {
 				services.create({
 					name: 'Another friend',
 					type: MediaServiceType.PLEX,
-					scope: MediaServiceScope.REMOTE,
+					filesMounted: false,
 					baseUrl: 'http://127.0.0.1:33',
 					priority: 30,
 				}),

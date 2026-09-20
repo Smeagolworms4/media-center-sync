@@ -162,8 +162,6 @@ function policy (overrides: Partial<SharePolicy> = {}): SharePolicy {
 		overridden: true,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
-		relays: false,
-		relay: false,
 		rateLimit: 0,
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		...overrides,

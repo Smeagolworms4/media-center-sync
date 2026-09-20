@@ -4,7 +4,7 @@ import {
 	ErrorKey,
 	EventName,
 	MediaKind,
-	MediaServiceScope,
+	MediaServiceMode,
 	NotificationEvent,
 	SyncJobItemState,
 	SyncJobState,
@@ -73,6 +73,7 @@ import {
 	editionOf,
 	needsAcknowledgement,
 	refusesRun,
+	serviceMode,
 	targetSpace,
 	toLocalPath,
 	versionIdOf,
@@ -1725,7 +1726,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		}
 
 		const localServices = (await this._services.find())
-			.filter((service) => service.scope === MediaServiceScope.LOCAL)
+			.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
 			.map((service) => service.id);
 
 		if (localServices.length === 0) {

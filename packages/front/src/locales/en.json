@@ -376,14 +376,16 @@
 			"offline": "Not answering",
 			"unauthorized": "Refused"
 		},
-		"scope": {
-			"local": "Local — can receive files",
-			"remote": "Remote — read only"
+		"sharing": {
+			"on": "Shared",
+			"off": "Not shared"
 		},
 		"field": {
 			"name": "Name",
 			"type": "Kind",
-			"scope": "Scope",
+			"shared": "Share this server’s libraries",
+			"shared_hint": "Every peer will see these libraries, at “{level}”.",
+			"shared_hint_relayed": "Every peer will see these libraries, at “{level}”. This gateway does not hold their files, so they are read from the server and passed on through this connection, which spends its bandwidth.",
 			"base_url": "Address",
 			"base_url_hint": "Including the port, such as http://192.168.0.10:8096",
 			"token": "API token",
@@ -412,18 +414,20 @@
 		"action": {
 			"probe": "Check",
 			"scan": "Full scan",
-			"refresh": "Refresh"
+			"refresh": "Refresh",
+			"open_peer": "Open the peer"
 		},
 		"mode": {
-			"local": "Mine",
-			"remote": "Somebody else’s servers",
+			"local": "Files here",
+			"remote": "Reached over the network",
 			"peer": "Peers"
 		},
 		"mode_hint": {
-			"local": "The gateway can write into these, so they are the only possible destinations.",
-			"remote": "Servers you have an account on. Read-only: it is somebody else’s disk.",
+			"local": "This gateway reaches their folders on disk, so they are the only possible destinations for a pull.",
+			"remote": "Yours or somebody else’s — this gateway only talks to them over HTTP. It can read them and share them on; it can write into none of them until somebody maps their folders.",
 			"peer": "Friends’ gateways. They show what their owner chose to share, and nothing more."
-		}
+		},
+		"peer_note": "Configured on its own page: name, hop limit, and whether it may read from you."
 	},
 	"peer": {
 		"subtitle": "The other gateways this one is linked to.",
@@ -652,11 +656,9 @@
 		},
 		"origin": {
 			"default": "Gateway default",
-			"default_hint": "Nobody has decided about this library, so it follows the gateway default. Change that default and this library moves with it.",
+			"default_hint": "Nobody has decided about this library, so it follows its server’s sharing switch and the gateway default behind it. Change either and this library moves with it.",
 			"set": "Set here",
-			"set_hint": "Somebody chose this for this library alone. The gateway default no longer moves it.",
-			"not_ours": "Not ours to share",
-			"not_ours_hint": "This library lives on a service that is not ours, so it stays private whatever the default says. Sharing it would mean relaying somebody else's server, and that is agreed to one library at a time."
+			"set_hint": "Somebody chose this for this library alone. The gateway default no longer moves it."
 		},
 		"audit": {
 			"title": "What a peer would see",
@@ -716,10 +718,10 @@
 			"target_header": "Goes to",
 			"falls_back": "Falls back to {target}",
 			"merges": "Choosing a destination also files this category under that library’s name: in the library view the two are then shown as one category, not two.",
-			"merges_foreign": "These libraries are on somebody else’s server, so the name stays theirs and this category is still shown on its own. Only where new files land changes.",
+			"merges_foreign": "This gateway does not reach these libraries’ folders, so their names stay as they are and this category is still shown on its own. Only where new files land changes.",
 			"fallback_unset": "whatever library can take it — nothing is set above",
 			"rejected": {
-				"not_ours": "{library} on {service} cannot be offered: it is on somebody else's server, and this gateway cannot write there.",
+				"not_ours": "{library} on {service} cannot be offered: this gateway does not reach that server’s folders, so nothing written there would ever appear in it.",
 				"not_writable": "{library} on {service} cannot be offered: this gateway cannot write into its folder."
 			},
 			"fixed_path_active": "Everything is currently going to {path}, whatever it is — an older setting that overrules everything on this page. Nothing above applies until it is cleared.",
@@ -792,7 +794,7 @@
 		"write_nfo_help": "A source often keeps its metadata in its own database and nothing on disk, so copying gives the file and none of the facts — and your media server then re-identifies the episode from its filename. Never replaces a document you already have.",
 		"default_share": "Share new libraries with",
 		"default_share_help": "Applies the moment a scan finds a library, so a friend who links to this gateway is not met with an empty shelf.",
-		"default_share_scope": "Only libraries on your own services. One on somebody else’s server stays private whatever this says — sharing it on would spend your bandwidth on an access granted to you, not to the people you would hand it to."
+		"default_share_note": "Applies to every library on a server whose sharing is switched on — including one whose files this gateway does not hold, which is then read from that server and passed on at the cost of this connection. What a peer shares with us is never passed on further."
 	},
 	"sync": {
 		"subtitle": "Standing intents, and what they have actually done.",
@@ -1151,7 +1153,8 @@
 			"unauthorized": "The gateway was refused by this media service. Check its token.",
 			"duplicate": "This media service is already registered.",
 			"handler_unknown": "This kind of media service is not supported.",
-			"auth_unsupported": "A peer cannot sign anyone in; choose a media server instead."
+			"auth_unsupported": "A peer cannot sign anyone in; choose a media server instead.",
+			"peer_not_editable": "A peer’s registration follows the peer itself and cannot be edited here. Its name, its hop limit and whether it may read from you are all on that peer’s page."
 		},
 		"library": {
 			"not_found": "This library no longer exists.",
@@ -1201,9 +1204,6 @@
 		"user": {
 			"not_found": "This account no longer exists.",
 			"last_admin": "This is the last administrator. Give the role to somebody else first."
-		},
-		"share": {
-			"relay_not_agreed": "A library held on another gateway can only be shared by relaying it. Allow relaying on this share first."
 		},
 		"filesystem": {
 			"path_outside_root": "That folder is outside the directories this gateway may browse.",

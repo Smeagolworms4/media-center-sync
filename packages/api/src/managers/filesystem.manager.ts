@@ -3,6 +3,7 @@ import { ErrorKey, type DirectoryListing } from '@mcs/shared';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { MediaConfig } from '@/config';
+import { LibraryRepository, MediaServiceRepository } from '@/repositories';
 import {
 	FilesystemService,
 	isInside,
@@ -34,6 +35,18 @@ import {
  */
 const ALLOWED_ROOT_KEYS = ['root', 'transferRoot'] as const satisfies readonly (keyof MediaConfig)[];
 
+/**
+ * Extra roots this deployment allows, comma separated.
+ *
+ * `MCS_MEDIA_ROOT` is right when the gateway runs in its own container, where the
+ * libraries are mounted at one place by construction. Run it straight on a host —
+ * which is what a development stack does, and what somebody without Docker will do —
+ * and the media are wherever that machine keeps them, so the browser opens on a
+ * directory holding none of what is being looked for. This is the way out that does
+ * not involve widening the boundary for everybody.
+ */
+const EXTRA_ROOTS = 'MCS_BROWSE_ROOTS';
+
 export interface BrowseRequest {
 	/** Empty or absent starts at the first allowed root. */
 	path?: string;
@@ -47,10 +60,41 @@ export class FilesystemManager {
 	public constructor(
 		config: ConfigService,
 		private readonly _filesystem: FilesystemService,
+		private readonly _services: MediaServiceRepository,
+		private readonly _libraries: LibraryRepository,
 	) {
 		const media = config.getOrThrow<MediaConfig>('media');
+		const extra = (config.get<string>(EXTRA_ROOTS) ?? '')
+			.split(',')
+			.map((root) => root.trim());
 
-		this._roots = ALLOWED_ROOT_KEYS.map((key) => media[key]).filter((root) => root !== '');
+		this._roots = [...ALLOWED_ROOT_KEYS.map((key) => media[key]), ...extra].filter(
+			(root) => root !== '',
+		);
+	}
+
+	/**
+	 * Every root a browse may reach: the configured ones, plus the directories this
+	 * gateway has already been pointed at.
+	 *
+	 * The second half closes an inconsistency rather than opening a door. A service's
+	 * `localRoot` and a library's `localPath` are directories somebody configured and
+	 * that the gateway **writes into** — refusing to *list* them protected nothing,
+	 * and it left the picker unable to reach the only places a local path is ever
+	 * going to name. Nothing is reachable here that the gateway was not already told
+	 * about and already modifies.
+	 *
+	 * Read per request rather than cached: a root added a minute ago has to be
+	 * browsable now, and a picker that needed a restart to see a directory somebody
+	 * had just configured would be blamed on the directory.
+	 */
+	private async _allowedRoots(): Promise<string[]> {
+		const configured = [
+			...(await this._services.find()).map((service) => service.localRoot),
+			...(await this._libraries.find()).map((library) => library.localPath),
+		].filter((root): root is string => typeof root === 'string' && root !== '');
+
+		return [...new Set([...this._roots, ...configured])];
 	}
 
 	/**
@@ -63,10 +107,11 @@ export class FilesystemManager {
 	 * two are fixed in different places — a typo against a permission or a mount.
 	 */
 	public async browse(request: BrowseRequest = {}): Promise<DirectoryListing> {
-		const roots = await resolveRoots(this._roots);
+		const allowed = await this._allowedRoots();
+		const roots = await resolveRoots(allowed);
 		const asked = request.path?.trim() ?? '';
 		const wanted = asked === '' ? (roots[0] ?? '/') : asked;
-		const resolved = await resolveWithinRoots(wanted, this._roots);
+		const resolved = await resolveWithinRoots(wanted, allowed);
 
 		if (resolved.verdict === PathVerdict.OUTSIDE) {
 			throw new ForbiddenException(ErrorKey.FILESYSTEM_PATH_OUTSIDE_ROOT);

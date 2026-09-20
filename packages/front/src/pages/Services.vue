@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { MediaService } from '@mcs/shared';
-	import { MediaServiceMode, MediaServiceScope, MediaServiceType } from '@mcs/shared';
+	import { MediaServiceMode, MediaServiceType } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -59,7 +59,10 @@
 	 * is to notice that a count no longer adds up.
 	 *
 	 * So the answer is total: `mode` when it is there, and the same distinction
-	 * rebuilt from `type` and `scope` when it is not.
+	 * rebuilt from `type` and the mount when it is not. The mount and never the
+	 * sharing switch — whether these libraries are offered to peers says nothing about
+	 * whether this gateway can write into their folders, and reading one for the other
+	 * is what put somebody's own Jellyfin in the wrong band to begin with.
 	 */
 	function bandOf (service: MediaService): MediaServiceMode {
 		if (service.mode) {
@@ -68,9 +71,7 @@
 		if (service.type === MediaServiceType.PEER) {
 			return MediaServiceMode.PEER;
 		}
-		return service.scope === MediaServiceScope.LOCAL
-			? MediaServiceMode.LOCAL
-			: MediaServiceMode.REMOTE;
+		return service.filesMounted ? MediaServiceMode.LOCAL : MediaServiceMode.REMOTE;
 	}
 
 	// Empty bands are dropped rather than shown empty: a heading over nothing is a
@@ -250,8 +251,17 @@
 
 								<ServiceStatusChip class="ml-2" :status="service.status" />
 
-								<v-chip class="ml-2" label size="small" variant="tonal">
-									{{ $t(`service.scope.${service.scope}`) }}
+								<v-chip
+									v-if="service.mode !== MediaServiceMode.PEER"
+									class="ml-2"
+									:color="service.shared ? 'state-in-sync' : 'state-unknown'"
+									:data-shared="service.shared"
+									data-test="service-sharing"
+									label
+									size="small"
+									variant="tonal"
+								>
+									{{ service.shared ? $t('service.sharing.on') : $t('service.sharing.off') }}
 								</v-chip>
 
 								<v-chip class="ml-2" label size="small" variant="tonal">{{ service.type }}</v-chip>
@@ -268,6 +278,19 @@
 							<v-list-item-subtitle>
 								{{ $t('service.last_scan') }} <RelativeDate :date="service.lastScanAt" />
 								· {{ $t('service.last_probe') }} <RelativeDate :date="service.lastProbeAt" />
+							</v-list-item-subtitle>
+
+							<!--
+								A peer row has no pencil, so it says where its settings are
+								instead. Losing the affordance in silence would read as "a peer
+								cannot be configured", when in fact all of it — the name, the hop
+								limit, whether it may read from us — is on the peer's own page.
+							-->
+							<v-list-item-subtitle
+								v-if="bandOf(service) === MediaServiceMode.PEER"
+								data-test="service-peer-note"
+							>
+								{{ $t('service.peer_note') }}
 							</v-list-item-subtitle>
 
 							<v-progress-linear
@@ -312,7 +335,30 @@
 										{{ $t('service.action.refresh') }}
 									</v-btn>
 
+									<!--
+										A peer row sends you to the peer instead of opening this
+										form. Nothing the form asks applies to one: there is no
+										folder of ours behind their files, no token — the link
+										authenticates by fingerprint — and no address anybody
+										types, since it is `peer://<uuid>`. A form reduced to the
+										one field that survives would be worse than none: somebody
+										who came to change the hop limit or to stop serving them
+										would find a single box and conclude a peer cannot be
+										configured. Those decisions all live on the peer's own
+										screen, so the row says so and goes there.
+									-->
 									<v-btn
+										v-if="bandOf(service) === MediaServiceMode.PEER && service.peerId"
+										data-test="service-peer-link"
+										size="small"
+										:to="{ name: 'peer', params: { id: service.peerId } }"
+										variant="text"
+									>
+										{{ $t('service.action.open_peer') }}
+									</v-btn>
+
+									<v-btn
+										v-else
 										data-test="service-edit"
 										icon="mdi-pencil-outline"
 										size="small"

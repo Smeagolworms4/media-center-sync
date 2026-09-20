@@ -428,9 +428,11 @@ describe('Peers', () => {
 
 			expect(service).toMatchObject({
 				name: 'The cottage',
-				// Remote, always: we cannot write into somebody else's disk, and a
-				// peer-backed row is never offered as a destination.
-				scope: 'remote',
+				// Never shared onward, and never a destination: we cannot write into
+				// somebody else's disk, and their libraries reach further by introduction
+				// rather than by us carrying the bytes.
+				shared: false,
+				filesMounted: false,
 				type: 'peer',
 				peerId: id,
 			});
@@ -440,6 +442,28 @@ describe('Peers', () => {
 			expect(registered.map((library) => library.name).sort()).toEqual(['Films', 'Shows']);
 			// No path, so nothing can ever mark one writable and plan a transfer into it.
 			expect(registered.every((library) => library.paths.length === 0)).toBe(true);
+		});
+
+		it('refuses to let that registration be edited, over HTTP and by name', async () => {
+			// The screen offers no form for one, and this is the half that does not
+			// depend on the screen: a root mapping stored for a peer would look
+			// configured and never resolve, which is worse than a refusal.
+			const id = await seed({ status: PeerStatus.PENDING, direction: PeerDirection.INCOMING });
+
+			await post(`/${id}/approve`).expect(200);
+
+			const [service] = await services.findByPeer(id);
+			const response = await request(context.app.getHttpServer())
+				.patch(`/api/services/${service.id}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ remoteRoot: '/media', localRoot: '/mnt/nas' })
+				.expect(409);
+
+			expect(response.body).toMatchObject({ message: 'error.service.peer_not_editable' });
+			await expect(services.findOne({ where: { id: service.id } })).resolves.toMatchObject({
+				remoteRoot: null,
+				localRoot: null,
+			});
 		});
 
 		it('indexes their rows, so everything downstream sees ordinary items', async () => {
@@ -548,7 +572,7 @@ describe('Peers', () => {
 				services.create({
 					name: 'Ours',
 					type: 'jellyfin' as never,
-					scope: 'local' as never,
+					filesMounted: true,
 					baseUrl: `http://ours-${Date.now()}.test`,
 				}),
 			);

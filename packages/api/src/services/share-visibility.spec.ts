@@ -6,18 +6,20 @@ const library = { id: 'library-1', serviceId: 'service-1' };
 const subject = (overrides: Partial<ShareSubject> = {}): ShareSubject => ({
 	library,
 	policy: null,
-	local: true,
+	shared: true,
 	settings: { defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS },
 	...overrides,
 });
 
 describe('effectiveVisibility', () => {
 	describe('with no policy row', () => {
-		it('gives a library of ours the gateway default', () => {
+		it('gives a library on a shared service the gateway default', () => {
 			expect(effectiveVisibility(subject())).toBe(ShareVisibility.FRIENDS_OF_FRIENDS);
 		});
 
 		it('follows the default wherever it is set, which is the point of resolving late', () => {
+			// The switch grants a level rather than copying one: somebody who moves the
+			// setting months later moves every library nobody has overridden with it.
 			expect(
 				effectiveVisibility(
 					subject({ settings: { defaultShareVisibility: ShareVisibility.FRIENDS } }),
@@ -31,28 +33,35 @@ describe('effectiveVisibility', () => {
 			).toBe(ShareVisibility.PRIVATE);
 		});
 
-		it('keeps a library that is not ours private whatever the default says', () => {
-			// Sharing it would make us the conduit for somebody else's disk: our
-			// bandwidth, and an access granted to us rather than to our friends. That is
-			// the relay consent, and a default is not consent.
+		it('keeps a library on a service nobody shares private whatever the default says', () => {
 			for (const fallback of Object.values(ShareVisibility)) {
 				expect(
 					effectiveVisibility(
-						subject({ local: false, settings: { defaultShareVisibility: fallback } }),
+						subject({ shared: false, settings: { defaultShareVisibility: fallback } }),
 					),
 				).toBe(ShareVisibility.PRIVATE);
 			}
 		});
+
+		it('reads the switch and not the mount, which is the whole correction', () => {
+			// A Jellyfin whose folders nobody has mapped is shared when somebody said
+			// so. We serve it by reading the media server over HTTP and passing the
+			// bytes on, which works; refusing it used to make the commonest case of all
+			// silently private with no control anywhere that could change it.
+			expect(effectiveVisibility(subject({ shared: true }))).toBe(
+				ShareVisibility.FRIENDS_OF_FRIENDS,
+			);
+		});
 	});
 
 	describe('with a policy row', () => {
-		it('takes what the row says on a library of ours', () => {
+		it('takes what the row says on a shared service', () => {
 			expect(
 				effectiveVisibility(subject({ policy: { visibility: ShareVisibility.FRIENDS } })),
 			).toBe(ShareVisibility.FRIENDS);
 		});
 
-		it('keeps an explicit private on a library of ours private', () => {
+		it('keeps an explicit private on a shared service private', () => {
 			// The case the default must never win: an override to private is a decision,
 			// and a decision outranks a setting somebody changed months later.
 			expect(
@@ -60,20 +69,20 @@ describe('effectiveVisibility', () => {
 			).toBe(ShareVisibility.PRIVATE);
 		});
 
-		it('takes what the row says on a library that is not ours', () => {
-			// Relaying was agreed to when the row was written — the manager refuses to
-			// save this combination otherwise — so the row is the answer here too.
+		it('takes what the row says on a service nobody shares', () => {
+			// The override wins in both directions. One library of an otherwise private
+			// service is a decision as much as one private library of a shared one.
 			expect(
 				effectiveVisibility(
-					subject({ local: false, policy: { visibility: ShareVisibility.FRIENDS } }),
+					subject({ shared: false, policy: { visibility: ShareVisibility.FRIENDS } }),
 				),
 			).toBe(ShareVisibility.FRIENDS);
 		});
 
-		it('keeps an explicit private on a library that is not ours private', () => {
+		it('keeps an explicit private on a service nobody shares private', () => {
 			expect(
 				effectiveVisibility(
-					subject({ local: false, policy: { visibility: ShareVisibility.PRIVATE } }),
+					subject({ shared: false, policy: { visibility: ShareVisibility.PRIVATE } }),
 				),
 			).toBe(ShareVisibility.PRIVATE);
 		});

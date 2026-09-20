@@ -1,6 +1,5 @@
 import type { DataSource } from 'typeorm';
 import {
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	PeerStatus,
@@ -23,12 +22,12 @@ describe('MediaServiceRepository', () => {
 		await dataSource.destroy();
 	});
 
-	const aService = (name: string, scope: MediaServiceScope, priority: number) =>
+	const aService = (name: string, filesMounted: boolean, priority: number) =>
 		services.save(
 			services.create({
 				name,
 				type: MediaServiceType.JELLYFIN,
-				scope,
+				filesMounted,
 				baseUrl: `http://${name}.test`,
 				priority,
 				token: `${name}-token`,
@@ -36,7 +35,7 @@ describe('MediaServiceRepository', () => {
 		);
 
 	it('keeps the credentials out of an ordinary read', async () => {
-		const saved = await aService('home', MediaServiceScope.LOCAL, 10);
+		const saved = await aService('home', true, 10);
 
 		const read = await services.findOne({ where: { id: saved.id } });
 
@@ -46,7 +45,7 @@ describe('MediaServiceRepository', () => {
 	});
 
 	it('brings the credentials back only when they are asked for', async () => {
-		const saved = await aService('home', MediaServiceScope.LOCAL, 10);
+		const saved = await aService('home', true, 10);
 
 		await expect(services.findWithSecrets(saved.id)).resolves.toMatchObject({
 			token: 'home-token',
@@ -58,17 +57,17 @@ describe('MediaServiceRepository', () => {
 	});
 
 	it('separates the services it can write into from the ones it only reads', async () => {
-		await aService('home', MediaServiceScope.LOCAL, 10);
-		await aService('friend', MediaServiceScope.REMOTE, 20);
+		await aService('home', true, 10);
+		await aService('friend', false, 20);
 
 		await expect(services.findLocal()).resolves.toHaveLength(1);
 		await expect(services.findRemote()).resolves.toHaveLength(1);
 	});
 
 	it('lists services lowest priority first, which is the order a sync consults them', async () => {
-		await aService('third', MediaServiceScope.REMOTE, 30);
-		await aService('first', MediaServiceScope.LOCAL, 10);
-		await aService('second', MediaServiceScope.REMOTE, 20);
+		await aService('third', false, 30);
+		await aService('first', true, 10);
+		await aService('second', false, 20);
 
 		const ordered = await services.findByPriority();
 
@@ -79,8 +78,8 @@ describe('MediaServiceRepository', () => {
 		/*
 		 * The files are on somebody else's disk.
 		 *
-		 * The scope is written `local` here on purpose, because that is the only way
-		 * this can go wrong: a row that arrived local by a bug or by a hand on the
+		 * The row is written mounted here on purpose, because that is the only way
+		 * this can go wrong: a row that arrived mounted by a bug or by a hand on the
 		 * database. Planning a transfer onto it would write to a path that does not
 		 * exist on this machine, and the failure would arrive at the end of a completed
 		 * download rather than before it started.
@@ -94,12 +93,12 @@ describe('MediaServiceRepository', () => {
 			}),
 		);
 
-		await aService('home', MediaServiceScope.LOCAL, 10);
+		await aService('home', true, 10);
 		await services.save(
 			services.create({
 				name: 'Alice',
 				type: MediaServiceType.PEER,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: `peer://${peer.id}`,
 				peerId: peer.id,
 				priority: 500,
@@ -114,7 +113,7 @@ describe('MediaServiceRepository', () => {
 	});
 
 	it('records a probe result', async () => {
-		const saved = await aService('home', MediaServiceScope.LOCAL, 10);
+		const saved = await aService('home', true, 10);
 
 		await services.setStatus(saved.id, MediaServiceStatus.ONLINE, '10.9.0');
 

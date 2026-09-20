@@ -90,7 +90,8 @@ export const toMediaService = (
 	id: service.id,
 	name: service.name,
 	type: service.type,
-	scope: service.scope,
+	shared: service.shared,
+	filesMounted: service.filesMounted,
 	mode: serviceMode(service),
 	remoteRoot: service.remoteRoot,
 	localRoot: service.localRoot,
@@ -387,14 +388,6 @@ export const toSharePolicy = (
 	/** The stored row, or null when nothing was ever written for this library. */
 	policy: SharePolicy | null,
 	visibility: ShareVisibility,
-	/**
-	 * Whether this library sits on a service of ours.
-	 *
-	 * Passed in rather than read here, because a mapper that queries is a mapper that
-	 * surprises somebody in a loop. Unknown is treated as remote: assuming a library is
-	 * ours is the assumption that quietly turns somebody into a relay.
-	 */
-	local = false,
 ): SharePolicyModel => ({
 	// Empty when no row exists. Minting an identifier for something unwritten would
 	// hand a caller a handle to a row it cannot fetch and cannot delete, and the one
@@ -408,10 +401,6 @@ export const toSharePolicy = (
 	allowedPeerIds: policy?.allowedPeerIds ?? [],
 	deniedPeerIds: policy?.deniedPeerIds ?? [],
 	rateLimit: bytes(policy?.rateLimit),
-	relays: !local,
-	// Coalesced rather than passed through: a flag that is missing must never read as
-	// consent to pass somebody else's server on to our friends.
-	relay: policy?.relay === true,
 	// Empty for a library nobody has written a policy for, for the same reason as the
 	// identifier: a date would claim somebody decided this at a moment in time.
 	updatedAt: policy?.updatedAt.toISOString() ?? '',

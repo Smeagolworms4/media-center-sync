@@ -281,9 +281,9 @@ describe('PeerManager', () => {
 				expect.objectContaining({
 					name: 'Alice',
 					type: 'peer',
-					// We cannot write into somebody else's disk, so it is never local and
-					// never a destination.
-					scope: 'remote',
+					// Never shared onward: what a friend's friend holds will be reached by
+					// introducing the two ends, not by carrying their bytes through us.
+					shared: false,
 					baseUrl: 'peer://peer-1',
 					peerId: 'peer-1',
 				}),

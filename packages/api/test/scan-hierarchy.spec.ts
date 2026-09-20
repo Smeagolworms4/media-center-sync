@@ -2,7 +2,6 @@ import request from 'supertest';
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	UserRole,
@@ -171,7 +170,7 @@ describe('Scanning a service that lists children before their parents', () => {
 			services.create({
 				name,
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				// Nothing listens here, and nothing needs to: the registered handler is
 				// what a scan talks to.
 				baseUrl: `http://127.0.0.1:9/${name}`,

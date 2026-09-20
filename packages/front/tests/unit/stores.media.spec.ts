@@ -1,5 +1,5 @@
 import type { MediaGroup, MediaItem } from '@mcs/shared';
-import { EventName, MediaKind, MediaServiceScope, MediaServiceType, SyncState, TransferState } from '@mcs/shared';
+import { EventName, MediaKind, MediaServiceType, SyncState, TransferState } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { buildMediaQuery, useMediaStore } from '@/stores/media';
 import { useTokenStore } from '@/stores/token';
@@ -176,7 +176,6 @@ describe('stores/media', () => {
 						serviceId: 's1',
 						serviceName: 'Living room',
 						serviceType: MediaServiceType.JELLYFIN,
-						scope: MediaServiceScope.LOCAL,
 						peerId: null,
 						peerName: null,
 						quality: null,

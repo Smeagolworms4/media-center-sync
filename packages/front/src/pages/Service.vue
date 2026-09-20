@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 	import type { MediaService } from '@mcs/shared';
+	import { MediaServiceMode } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -132,8 +133,15 @@
 				<v-card-text class="service_details">
 					<ServiceStatusChip :status="service.status" />
 
-					<v-chip label size="small" variant="tonal">
-						{{ $t(`service.scope.${service.scope}`) }}
+					<v-chip
+						v-if="service.mode !== MediaServiceMode.PEER"
+						:color="service.shared ? 'state-in-sync' : 'state-unknown'"
+						data-test="service-sharing"
+						label
+						size="small"
+						variant="tonal"
+					>
+						{{ service.shared ? $t('service.sharing.on') : $t('service.sharing.off') }}
 					</v-chip>
 
 					<v-chip label size="small" variant="tonal">{{ service.type }}</v-chip>

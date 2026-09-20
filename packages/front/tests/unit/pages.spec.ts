@@ -4,7 +4,6 @@ import {
 	MediaKind,
 	MediaOrigin,
 	MediaServiceMode,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	NamingScheme,
@@ -67,7 +66,8 @@ function service (overrides: Record<string, unknown> = {}) {
 		id: 's1',
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
+		shared: true,
+		filesMounted: true,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: null,
@@ -636,14 +636,16 @@ describe('pages/Services', () => {
 						id: 'theirs',
 						name: 'Their Plex',
 						mode: MediaServiceMode.REMOTE,
-						scope: MediaServiceScope.REMOTE,
+						shared: true,
+						filesMounted: false,
 					}),
 					service({
 						id: 'friend',
 						name: 'The cottage',
 						mode: MediaServiceMode.PEER,
 						type: MediaServiceType.PEER,
-						scope: MediaServiceScope.REMOTE,
+						shared: true,
+						filesMounted: false,
 					}),
 				],
 			},
@@ -654,6 +656,88 @@ describe('pages/Services', () => {
 		expect(wrapper.findAll('[data-test="service-row"]')).toHaveLength(3);
 		expect(wrapper.findAll('[data-test="service-band"]').map(band => band.attributes('data-mode')))
 			.toEqual([MediaServiceMode.LOCAL, MediaServiceMode.REMOTE, MediaServiceMode.PEER]);
+	});
+
+	/**
+	 * The banding follows the mounts, and the chip follows the switch.
+	 *
+	 * They used to be one field. A service registered `remote` because it sits at the
+	 * other end of the house landed in the wrong band *and* stopped being shared, and
+	 * neither screen said the word "scope" had done either of those things.
+	 */
+	it('bands by the mount and not by whether the libraries are shared', async () => {
+		stubFetchRoutes({
+			'/api/services': {
+				body: [
+					// Shared and unmounted: an ordinary Jellyfin nobody has mapped folders
+					// for. It belongs with the servers we read over HTTP.
+					service({ id: 'shared', name: 'JellyProd', mode: undefined, shared: true, filesMounted: false }),
+					// Not shared and mounted: ours to write into all the same.
+					service({ id: 'quiet', name: 'The NAS', mode: undefined, shared: false, filesMounted: true }),
+				],
+			},
+		});
+		const { wrapper } = mountWithApp(Services, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const bands = wrapper.findAll('[data-test="service-band"]');
+
+		expect(bands.map(band => band.attributes('data-mode')))
+			.toEqual([MediaServiceMode.LOCAL, MediaServiceMode.REMOTE]);
+		expect(bands[0].text()).toContain('The NAS');
+		expect(bands[1].text()).toContain('JellyProd');
+	});
+
+	it('says on each row whether its libraries are offered to peers', async () => {
+		stubFetchRoutes({
+			'/api/services': {
+				body: [
+					service({ id: 'shared', name: 'JellyProd', mode: MediaServiceMode.REMOTE, shared: true, filesMounted: false }),
+					service({ id: 'quiet', name: 'The NAS', mode: MediaServiceMode.LOCAL, shared: false }),
+				],
+			},
+		});
+		const { wrapper } = mountWithApp(Services, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const chips = wrapper.findAll('[data-test="service-sharing"]');
+
+		expect(chips).toHaveLength(2);
+		// In band order: the mounted server first, whose switch is off, then the one we
+		// only reach over HTTP, whose switch is on. The two answers are independent.
+		expect(chips.map(chip => `${chip.attributes('data-shared')}:${chip.text()}`))
+			.toEqual(['false:Not shared', 'true:Shared']);
+	});
+
+	it('offers no editor for a peer, and says where its settings are instead', async () => {
+		// Nothing the service form asks applies to a peer: no folder of ours behind
+		// their files, no token — the link authenticates by fingerprint — and an
+		// address nobody types. Losing the pencil in silence would read as "a peer
+		// cannot be configured", so the row points at the page where it is.
+		stubFetchRoutes({
+			'/api/services': {
+				body: [
+					service({
+						id: 'friend',
+						name: 'The cottage',
+						type: MediaServiceType.PEER,
+						mode: MediaServiceMode.PEER,
+						peerId: 'peer-1',
+						shared: false,
+						filesMounted: false,
+					}),
+				],
+			},
+		});
+		const { wrapper } = mountWithApp(Services, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="service-edit"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="service-peer-note"]').text()).toContain('its own page');
+		expect(wrapper.find('[data-test="service-peer-link"]').attributes('href'))
+			.toContain('/peers/peer-1');
+		// And no sharing chip either: a peer's libraries are never passed on.
+		expect(wrapper.find('[data-test="service-sharing"]').exists()).toBe(false);
 	});
 
 	it('never drops a row whose mode it cannot read', async () => {
@@ -1127,7 +1211,8 @@ const PLACEMENT_ROUTES = {
 				id: 's1',
 				name: 'Jellyfin (mine)',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				shared: true,
+				filesMounted: true,
 				mode: MediaServiceMode.LOCAL,
 				baseUrl: 'https://jellyfin.local',
 				status: MediaServiceStatus.ONLINE,
@@ -1136,7 +1221,8 @@ const PLACEMENT_ROUTES = {
 				id: 's2',
 				name: 'Lab (a friend)',
 				type: MediaServiceType.PEER,
-				scope: MediaServiceScope.REMOTE,
+				shared: true,
+				filesMounted: false,
 				mode: MediaServiceMode.PEER,
 				baseUrl: 'https://lab.local',
 				status: MediaServiceStatus.ONLINE,

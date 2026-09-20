@@ -26,6 +26,20 @@ export const ErrorKey = {
 	SERVICE_RESOURCE_NOT_FOUND: 'error.service.resource_not_found',
 	SERVICE_UNAUTHORIZED: 'error.service.unauthorized',
 	SERVICE_DUPLICATE: 'error.service.duplicate',
+	/**
+	 * A registration that stands for a linked peer was asked to be edited.
+	 *
+	 * Refused whole rather than field by field, because none of what a registration
+	 * carries means anything for a peer: their files are on their disk so no root
+	 * mapping here could ever resolve, the link authenticates by key fingerprint so
+	 * there is no token to type, and the address is `peer://<uuid>` rather than
+	 * something anybody enters. A mapping stored for one would look configured and
+	 * never resolve, which is worse than being told no.
+	 *
+	 * Everything that *is* decidable about a peer — its local name, the hop limit,
+	 * forbidding it from reading, removing it, banning it — lives on the peer routes.
+	 */
+	SERVICE_PEER_NOT_EDITABLE: 'error.service.peer_not_editable',
 	SERVICE_HANDLER_UNKNOWN: 'error.service.handler_unknown',
 	/**
 	 * This kind of service cannot sign anybody in, and never will.
@@ -158,8 +172,6 @@ export const ErrorKey = {
 
 	USER_NOT_FOUND: 'error.user.not_found',
 	USER_LAST_ADMIN: 'error.user.last_admin',
-
-	SHARE_RELAY_NOT_AGREED: 'error.share.relay_not_agreed',
 
 	PEER_PROTOCOL_UNSUPPORTED: 'error.peer.protocol_unsupported',
 	/**

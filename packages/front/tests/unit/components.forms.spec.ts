@@ -2,7 +2,6 @@ import type { Library, MediaService, SyncPlan } from '@mcs/shared';
 import {
 	LibraryKind,
 	MediaServiceMode,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	SyncTrigger } from '@mcs/shared';
@@ -31,7 +30,8 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		id: 's1',
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
+		shared: true,
+		filesMounted: true,
 		mode: MediaServiceMode.LOCAL,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
@@ -213,6 +213,127 @@ describe('components/service/ServiceForm', () => {
 		expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
 			remoteRoot: null,
 			localRoot: null,
+		});
+	});
+
+	/**
+	 * The one decision about sharing somebody declares.
+	 *
+	 * It replaces a select labelled "Scope" whose values were `local` and `remote` —
+	 * words that read as a position on a network, so the owner's own Jellyfin on their
+	 * own LAN was registered `remote` and its libraries went private, with the
+	 * consequence three screens away from the word that caused it.
+	 */
+	describe('the sharing switch', () => {
+		it('starts on for a new registration, with the consequence stated', async () => {
+			stubFetchRoutes({
+				'/api/settings': { body: { defaultShareVisibility: 'friends_of_friends', pinned: [] } },
+			});
+			const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+			await settle();
+
+			expect(
+				(wrapper.find('[data-test="service-shared"] input').element as HTMLInputElement).checked,
+			).toBe(true);
+
+			const hint = wrapper.find('[data-test="service-shared-hint"]');
+
+			expect(hint.exists()).toBe(true);
+			// The level is read from the gateway setting rather than spelled out, so
+			// somebody reads what will actually apply before they agree to it.
+			expect(hint.text()).toContain('My peers and theirs');
+		});
+
+		it('says the bytes come through this connection when the files are not here', async () => {
+			stubFetchRoutes({
+				'/api/settings': { body: { defaultShareVisibility: 'friends', pinned: [] } },
+			});
+			const { wrapper } = mountWithApp(ServiceForm, {
+				props: { service: service({ mode: MediaServiceMode.REMOTE, filesMounted: false }) },
+				global: { stubs: tooltipStub },
+			});
+			await settle();
+
+			const hint = wrapper.find('[data-test="service-shared-hint"]');
+
+			expect(hint.text()).toContain('My peers');
+			expect(hint.text()).toContain('bandwidth');
+		});
+
+		it('drops the warning as soon as a local root is typed', async () => {
+			const { wrapper } = mountWithApp(ServiceForm, {
+				props: { service: service({ mode: MediaServiceMode.REMOTE, filesMounted: false }) },
+				global: { stubs: tooltipStub },
+			});
+			await settle();
+
+			expect(wrapper.find('[data-test="service-shared-hint"]').text()).toContain('bandwidth');
+
+			await wrapper.find('[data-test="service-local-root"] input').setValue('/mnt/nas');
+			await settle();
+
+			expect(wrapper.find('[data-test="service-shared-hint"]').text()).not.toContain('bandwidth');
+		});
+
+		it('says nothing underneath while it is off', async () => {
+			const { wrapper } = mountWithApp(ServiceForm, {
+				props: { service: service({ shared: false }) },
+				global: { stubs: tooltipStub },
+			});
+			await settle();
+
+			expect(
+				(wrapper.find('[data-test="service-shared"] input').element as HTMLInputElement).checked,
+			).toBe(false);
+			// A consequence of something somebody has not done is noise.
+			expect(wrapper.find('[data-test="service-shared-hint"]').exists()).toBe(false);
+		});
+
+		it('keeps an edited service on whatever it already said', async () => {
+			// The default is for registrations. An edit made to correct a port must not
+			// switch sharing back on for something somebody deliberately turned off.
+			const { wrapper } = mountWithApp(ServiceForm, {
+				props: { service: service({ shared: false }) },
+				global: { stubs: tooltipStub },
+			});
+			await settle();
+
+			expect(
+				(wrapper.find('[data-test="service-shared"] input').element as HTMLInputElement).checked,
+			).toBe(false);
+		});
+
+		it('is absent for a peer, whose libraries this gateway never passes on', async () => {
+			// Not off by default: absent. Reaching what a friend's friend holds will be
+			// an introduction between the two ends, so a control offering to carry the
+			// bytes would describe something the product does not do.
+			const { wrapper } = mountWithApp(ServiceForm, {
+				props: { service: service({ type: MediaServiceType.PEER, mode: MediaServiceMode.PEER }) },
+				global: { stubs: tooltipStub },
+			});
+			await settle();
+
+			expect(wrapper.find('[data-test="service-shared"]').exists()).toBe(false);
+		});
+
+		it('sends the switch with the registration', async () => {
+			const stub = stubFetchRoutes({
+				'/api/services/probe': { body: probeOk },
+				'/api/services': { body: service({ id: 'new' }) },
+			});
+			const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+			await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+			await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+			await wrapper.find('[data-test="service-shared"] input').setValue(false);
+			await wrapper.find('form').trigger('submit');
+			await settle();
+
+			const post = stub.mock.calls.find(
+				call => call[1]?.method === 'POST' && String(call[0]).endsWith('/api/services'),
+			);
+
+			expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({ shared: false });
 		});
 	});
 

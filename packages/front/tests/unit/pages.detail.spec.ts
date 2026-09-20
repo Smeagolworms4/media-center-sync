@@ -1,7 +1,6 @@
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	PeerStatus,
@@ -32,7 +31,8 @@ const service = {
 	id: 's1',
 	name: 'Bob’s Jellyfin',
 	type: MediaServiceType.JELLYFIN,
-	scope: MediaServiceScope.REMOTE,
+	shared: true,
+	filesMounted: false,
 	baseUrl: 'http://10.0.0.9:8096',
 	status: MediaServiceStatus.ONLINE,
 	version: '10.9',
@@ -109,7 +109,8 @@ function mediaGroup (overrides: Record<string, unknown> = {}) {
 			serviceId: 's1',
 			serviceName: 'Bob\u2019s Jellyfin',
 			serviceType: MediaServiceType.JELLYFIN,
-			scope: MediaServiceScope.REMOTE,
+			shared: true,
+			filesMounted: false,
 			peerId: 'p1',
 			peerName: 'Bob',
 			quality: null,
@@ -210,7 +211,8 @@ describe('pages/LibraryItem', () => {
 					serviceId: 's1',
 					serviceName: 'Bob\u2019s Jellyfin',
 					serviceType: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.REMOTE,
+					shared: true,
+					filesMounted: false,
 					peerId: 'p1',
 					peerName: 'Bob',
 					quality: null,
@@ -226,7 +228,8 @@ describe('pages/LibraryItem', () => {
 					serviceId: 's1',
 					serviceName: 'Bob\u2019s Jellyfin',
 					serviceType: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.REMOTE,
+					shared: true,
+					filesMounted: false,
 					peerId: 'p1',
 					peerName: 'Bob',
 					quality: null,
@@ -338,7 +341,8 @@ describe('pages/LibraryItem', () => {
 						serviceId: 's1',
 						serviceName: 'Bob\u2019s Jellyfin',
 						serviceType: MediaServiceType.JELLYFIN,
-						scope: MediaServiceScope.REMOTE,
+						shared: true,
+						filesMounted: false,
 						peerId: null,
 						peerName: null,
 						quality: null,
@@ -648,8 +652,6 @@ describe('pages/SettingsShares', () => {
 		overridden: true,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
-		relays: false,
-		relay: false,
 		rateLimit: 0,
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		...overrides,
@@ -704,20 +706,21 @@ describe('pages/SettingsShares', () => {
 	});
 
 	/**
-	 * A library on a service that is not ours is not "following the default" — no
-	 * default reaches it, and saying otherwise would promise that changing the default
-	 * shares it, which it never will.
+	 * A library reading "nobody" with no row behind it is following its server, not
+	 * refused. The screen used to carry a third state, "not ours to share", for a
+	 * library whose files this gateway does not hold — that is one switch on the server
+	 * now, and no library is out of the default's reach any more.
 	 */
-	it('says plainly when a library is not ours to share', async () => {
+	it('says a private library nobody set is following the default', async () => {
 		const { wrapper } = screen([
-			sharePolicy({ id: '', visibility: 'private', overridden: false, relays: true, updatedAt: '' }),
+			sharePolicy({ id: '', visibility: 'private', overridden: false, updatedAt: '' }),
 		]);
 		await settle();
 
 		const chip = wrapper.find('[data-test="share-origin-chip"]');
 
-		expect(chip.attributes('data-origin')).toBe('not_ours');
-		expect(chip.text()).toContain('Not ours to share');
+		expect(chip.attributes('data-origin')).toBe('default');
+		expect(chip.text()).toContain('Gateway default');
 	});
 
 	it('lists a library nobody has configured, which is most of them on a new gateway', async () => {

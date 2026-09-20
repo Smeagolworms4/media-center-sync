@@ -5,7 +5,6 @@ import {
 	ErrorKey,
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	PROTOCOL_VERSION,
 	PeerCapability,
@@ -92,7 +91,7 @@ describe('The peer link endpoint', () => {
 			services.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				// Port 9 is the discard service: refused at once rather than hanging.
 				baseUrl: 'http://127.0.0.1:9',
 			}),
@@ -143,7 +142,6 @@ describe('The peer link endpoint', () => {
 				visibility: ShareVisibility.FRIENDS,
 				allowedPeerIds: [],
 				deniedPeerIds: [],
-				relay: false,
 				rateLimit: 0,
 			}),
 		);

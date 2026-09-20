@@ -2,7 +2,6 @@ import type { MediaGroup, MediaGroupSource, Peer } from '@mcs/shared';
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	PeerStatus,
 	PeerTrust,
@@ -53,7 +52,6 @@ function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 		serviceId: 's1',
 		serviceName: 'Living room',
 		serviceType: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
 		peerId: null,
 		peerName: null,
 		quality: null,

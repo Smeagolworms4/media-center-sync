@@ -3,7 +3,7 @@ import {
 	ChunkState,
 	ErrorKey,
 	EventName,
-	MediaServiceScope,
+	MediaServiceMode,
 	PlacedBy,
 	TransferState,
 } from '@mcs/shared';
@@ -33,6 +33,7 @@ import {
 	EventGatewayService,
 	FileMoveError,
 	FileMoveService,
+	serviceMode,
 	SettingsService,
 	TransferEngineService,
 	VerificationService,
@@ -559,7 +560,15 @@ export class TransferManager {
 
 		const service = await this._services.findOne({ where: { id: library.serviceId } });
 
-		if (service === null || service.scope !== MediaServiceScope.LOCAL || !library.localPath) {
+		// The mount and not the sharing switch: a destination has to be a path the media
+		// server actually scans, and whether its libraries are offered to peers says
+		// nothing about that. `serviceMode` also keeps a peer-backed row out, which no
+		// column test on its own would.
+		if (
+			service === null
+			|| serviceMode(service) !== MediaServiceMode.LOCAL
+			|| !library.localPath
+		) {
 			throw new ConflictException(ErrorKey.TRANSFER_DESTINATION_INVALID);
 		}
 

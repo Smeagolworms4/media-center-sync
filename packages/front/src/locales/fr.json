@@ -376,14 +376,16 @@
 			"offline": "Ne répond pas",
 			"unauthorized": "Refusé"
 		},
-		"scope": {
-			"local": "Local — peut recevoir des fichiers",
-			"remote": "Distant — lecture seule"
+		"sharing": {
+			"on": "Partagé",
+			"off": "Non partagé"
 		},
 		"field": {
 			"name": "Nom",
 			"type": "Type",
-			"scope": "Portée",
+			"shared": "Partager les bibliothèques de ce serveur",
+			"shared_hint": "Tous vos pairs verront ces bibliothèques, en « {level} ».",
+			"shared_hint_relayed": "Tous vos pairs verront ces bibliothèques, en « {level} ». Cette passerelle n’a pas les fichiers : ils sont lus sur le serveur et retransmis par cette connexion, aux dépens de sa bande passante.",
 			"base_url": "Adresse",
 			"base_url_hint": "Avec le port, par exemple http://192.168.0.10:8096",
 			"token": "Jeton d'API",
@@ -412,18 +414,20 @@
 		"action": {
 			"probe": "Vérifier",
 			"scan": "Analyse complète",
-			"refresh": "Rafraîchir"
+			"refresh": "Rafraîchir",
+			"open_peer": "Ouvrir le pair"
 		},
 		"mode": {
-			"local": "À moi",
-			"remote": "Serveurs de quelqu'un d'autre",
+			"local": "Fichiers ici",
+			"remote": "Joints par le réseau",
 			"peer": "Pairs"
 		},
 		"mode_hint": {
-			"local": "La passerelle peut y écrire : ce sont les seules destinations possibles.",
-			"remote": "Serveurs sur lesquels vous avez un compte. En lecture seule : c'est le disque d'un autre.",
+			"local": "Cette passerelle atteint leurs dossiers sur disque : ce sont les seules destinations possibles pour une récupération.",
+			"remote": "Les vôtres ou ceux d’autrui — cette passerelle ne leur parle qu’en HTTP. Elle peut les lire et les partager ; elle ne peut écrire dans aucun tant que personne n’a indiqué leurs dossiers.",
 			"peer": "Passerelles d'amis. Elles montrent ce que leur propriétaire a choisi de partager, rien de plus."
-		}
+		},
+		"peer_note": "Se configure sur sa propre page : nom, portée en sauts, et droit de vous lire."
 	},
 	"peer": {
 		"subtitle": "Les autres passerelles auxquelles celle-ci est liée.",
@@ -652,11 +656,9 @@
 		},
 		"origin": {
 			"default": "Défaut de la passerelle",
-			"default_hint": "Personne n'a décidé pour cette bibliothèque : elle suit la valeur par défaut de la passerelle. Changez cette valeur et la bibliothèque suivra.",
+			"default_hint": "Personne n’a décidé pour cette bibliothèque : elle suit l’interrupteur de partage de son serveur, et la valeur par défaut de la passerelle derrière. Changez l’un ou l’autre et la bibliothèque suivra.",
 			"set": "Défini ici",
-			"set_hint": "Quelqu'un a choisi cette règle pour cette bibliothèque seule. La valeur par défaut de la passerelle ne la déplace plus.",
-			"not_ours": "Pas à nous de la partager",
-			"not_ours_hint": "Cette bibliothèque est sur un service qui n'est pas le nôtre : elle reste privée quelle que soit la valeur par défaut. La partager reviendrait à relayer le serveur de quelqu'un d'autre, ce qui s'accepte bibliothèque par bibliothèque."
+			"set_hint": "Quelqu'un a choisi cette règle pour cette bibliothèque seule. La valeur par défaut de la passerelle ne la déplace plus."
 		},
 		"audit": {
 			"title": "Ce qu'un pair verrait",
@@ -716,10 +718,10 @@
 			"target_header": "Va vers",
 			"falls_back": "Se rabat sur {target}",
 			"merges": "Choisir une destination classe aussi cette catégorie sous le nom de cette bibliothèque : dans la vue des bibliothèques, les deux n’en forment plus qu’une, et non deux.",
-			"merges_foreign": "Ces bibliothèques sont sur le serveur de quelqu’un d’autre : leur nom reste le leur et cette catégorie continue d’apparaître à part. Seule la destination des nouveaux fichiers change.",
+			"merges_foreign": "Cette passerelle n’atteint pas les dossiers de ces bibliothèques : leurs noms restent tels quels et cette catégorie reste affichée à part. Seul l’endroit où arrivent les nouveaux fichiers change.",
 			"fallback_unset": "n’importe quelle bibliothèque capable de l’accueillir — rien n’est défini ci-dessus",
 			"rejected": {
-				"not_ours": "{library} sur {service} ne peut pas être proposée : elle est sur le serveur de quelqu’un d’autre, et cette passerelle ne peut pas y écrire.",
+				"not_ours": "{library} sur {service} ne peut pas être proposée : cette passerelle n’atteint pas les dossiers de ce serveur, donc rien de ce qui y serait écrit n’y apparaîtrait.",
 				"not_writable": "{library} sur {service} ne peut pas être proposée : cette passerelle ne peut pas écrire dans son dossier."
 			},
 			"fixed_path_active": "Tout part actuellement dans {path}, quoi que ce soit — un ancien réglage qui prime sur toute cette page. Rien de ce qui précède ne s’applique tant qu’il n’est pas effacé.",
@@ -792,7 +794,7 @@
 		"write_nfo_help": "Une source garde souvent ses métadonnées dans sa propre base et rien sur le disque : la copie donne le fichier et aucun des faits, et votre serveur de médias ré-identifie alors l'épisode d'après son nom. Ne remplace jamais un document que vous avez déjà.",
 		"default_share": "Partager les nouvelles bibliothèques avec",
 		"default_share_help": "S'applique dès qu'un scan découvre une bibliothèque, pour qu'un ami qui se relie à cette passerelle ne tombe pas sur une étagère vide.",
-		"default_share_scope": "Uniquement les bibliothèques de vos propres services. Celle d'un serveur tiers reste privée quoi qu'en dise ce réglage — la repartager dépenserait votre bande passante pour un accès qui vous a été accordé à vous, pas à ceux à qui vous le transmettriez."
+		"default_share_note": "S’applique à toutes les bibliothèques d’un serveur dont le partage est activé — y compris celles dont cette passerelle n’a pas les fichiers, qui sont alors lues sur ce serveur et retransmises aux dépens de cette connexion. Ce qu’un pair partage avec nous n’est jamais retransmis plus loin."
 	},
 	"sync": {
 		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",
@@ -1151,7 +1153,8 @@
 			"unauthorized": "Le service média a refusé la passerelle. Vérifiez son jeton.",
 			"duplicate": "Ce service média est déjà enregistré.",
 			"handler_unknown": "Ce type de service média n'est pas supporté.",
-			"auth_unsupported": "Un pair ne peut connecter personne ; choisissez plutôt un serveur média."
+			"auth_unsupported": "Un pair ne peut connecter personne ; choisissez plutôt un serveur média.",
+			"peer_not_editable": "L’enregistrement d’un pair suit le pair lui-même et ne se modifie pas ici. Son nom, sa portée en sauts et le droit qu’il a de vous lire sont sur la page de ce pair."
 		},
 		"library": {
 			"not_found": "Cette bibliothèque n'existe plus.",
@@ -1201,9 +1204,6 @@
 		"user": {
 			"not_found": "Ce compte n'existe plus.",
 			"last_admin": "C'est le dernier administrateur. Donnez le rôle à quelqu'un d'autre d'abord."
-		},
-		"share": {
-			"relay_not_agreed": "Une bibliothèque hébergée sur une autre passerelle ne peut être partagée qu'en la relayant. Autorisez le relais sur ce partage d'abord."
 		},
 		"filesystem": {
 			"path_outside_root": "Ce dossier est hors des répertoires que cette passerelle peut parcourir.",

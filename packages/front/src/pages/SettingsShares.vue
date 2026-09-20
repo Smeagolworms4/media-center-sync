@@ -23,10 +23,10 @@
 	 *
 	 * Every library is listed, including the ones nobody has configured — most of
 	 * them on a fresh gateway — and each row says whether what it shows was chosen
-	 * for that library or is the gateway default applying to it. Without that, a
-	 * row reading "nobody" could be a deliberate private, a library on a service
-	 * that is not ours, or a default nobody has looked at, and the three of them
-	 * call for entirely different actions.
+	 * for that library or is following the service it sits on. Without that, a row
+	 * reading "nobody" could be a deliberate private or a service whose switch is
+	 * off, and the two call for entirely different actions: one is a decision to
+	 * leave alone, the other moves the moment somebody flips that switch.
 	 */
 	const sharesStore = useSharesStore();
 	const librariesStore = useLibrariesStore();
@@ -75,20 +75,15 @@
 	}
 
 	/**
-	 * Chosen here, the gateway default, or not ours to give.
+	 * Chosen here, or following the service and the gateway default behind it.
 	 *
-	 * The third is not a softer version of the second: a library on a service that is
-	 * not ours stays private whatever the default says, so telling somebody it is
-	 * "following the default" would promise them that changing the default shares it.
+	 * There used to be a third answer, "not ours to give", for a library whose files
+	 * this gateway does not hold. It is gone with the per-library relay agreement it
+	 * described: sharing such a library is now the same decision as sharing any other,
+	 * taken once on the service.
 	 */
-	function originOf (libraryId: string): 'set' | 'default' | 'not_ours' {
-		const policy = policyOf(libraryId);
-
-		if (policy?.overridden) {
-			return 'set';
-		}
-
-		return policy?.relays ? 'not_ours' : 'default';
+	function originOf (libraryId: string): 'set' | 'default' {
+		return policyOf(libraryId)?.overridden === true ? 'set' : 'default';
 	}
 
 	async function onSaved (): Promise<void> {

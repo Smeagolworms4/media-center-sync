@@ -3,7 +3,6 @@ import {
 	ErrorKey,
 	EventName,
 	MediaKind,
-	MediaServiceScope,
 	PlacedBy,
 	TransferState,
 } from '@mcs/shared';
@@ -182,8 +181,8 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 			findOne: jest.fn(({ where }: { where: { id: string } }) =>
 				Promise.resolve({
 					id: where.id,
-					scope:
-						where.id === 'service-1' ? MediaServiceScope.LOCAL : MediaServiceScope.REMOTE,
+					peerId: null,
+					filesMounted: where.id === 'service-1',
 				}),
 			),
 		} as unknown as MediaServiceRepository,
@@ -488,6 +487,23 @@ describe('TransferManager', () => {
 			const { manager, fakes } = build(TransferState.DOWNLOADING);
 
 			fakes.libraries.findOne.mockResolvedValue({ ...OURS, serviceId: 'peer-service' });
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_DESTINATION_INVALID);
+			expect(fakes.mover.move).not.toHaveBeenCalled();
+		});
+
+		it('refuses one on a service we share but do not hold the files of', async () => {
+			// Sharing and holding are two answers now, and only the second one decides a
+			// destination: a pull has to land on a path the media server actually scans,
+			// and nothing about offering its libraries to peers puts one there.
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			// `service-2` is an ordinary Jellyfin this gateway holds no files of — the
+			// fake above answers `filesMounted` per identifier — and nothing about its
+			// sharing switch enters into this refusal.
+			fakes.libraries.findOne.mockResolvedValue({ ...OURS, serviceId: 'service-2' });
 
 			await expect(
 				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),

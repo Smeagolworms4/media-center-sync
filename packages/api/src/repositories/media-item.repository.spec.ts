@@ -2,7 +2,6 @@ import type { DataSource } from 'typeorm';
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	SyncState,
 } from '@mcs/shared';
@@ -29,7 +28,7 @@ describe('MediaItemRepository', () => {
 			services.create({
 				name: 'home',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://home.test',
 			}),
 		);
@@ -116,7 +115,7 @@ describe('MediaItemRepository', () => {
 				services.create({
 					name: 'friend',
 					type: MediaServiceType.PLEX,
-					scope: MediaServiceScope.REMOTE,
+					filesMounted: false,
 					baseUrl: 'http://friend.test',
 				}),
 			);

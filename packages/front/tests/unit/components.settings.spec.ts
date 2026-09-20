@@ -2,7 +2,6 @@ import type { Library, LibraryCheck, MediaCategory, MediaService } from '@mcs/sh
 import {
 	LibraryKind,
 	MediaServiceMode,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 } from '@mcs/shared';
@@ -51,7 +50,8 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		id: 's1',
 		name: 'Jellyfin (mine)',
 		type: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
+		shared: true,
+		filesMounted: true,
 		baseUrl: 'https://jellyfin.local',
 		status: MediaServiceStatus.ONLINE,
 		version: null,
@@ -198,16 +198,16 @@ describe('components/settings/CategoryTargetsTable', () => {
 			.toBe(true);
 	});
 
-	it('promises no merge for a category that is nobody’s but a friend’s', () => {
-		// The gateway will not rename somebody else's library, so the row must not say
-		// it will: a promise the API deliberately refuses is worse than no promise.
+	it('promises no merge for a category whose folders this gateway does not reach', () => {
+		// The gateway will not rename a library it cannot write into, so the row must
+		// not say it will: a promise the API deliberately refuses is worse than none.
 		const { wrapper } = mountTable({
 			categories: [category({ key: 'series', name: 'Séries', local: false })],
 		});
 
 		const note = wrapper.find('[data-category="series"] [data-test="category-target-merges"]');
 
-		expect(note.text()).toContain('somebody else');
+		expect(note.text()).toContain('does not reach');
 		expect(note.text()).not.toContain('one category');
 	});
 
@@ -272,7 +272,8 @@ describe('composables/useDestinationLibraries', () => {
 				service({
 					id: 's2',
 					name: 'Lab (a friend)',
-					scope: MediaServiceScope.REMOTE,
+					shared: true,
+					filesMounted: false,
 					mode: MediaServiceMode.PEER,
 					type: MediaServiceType.PEER,
 				}),

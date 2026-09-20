@@ -2,7 +2,6 @@ import request from 'supertest';
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	SyncState,
@@ -31,7 +30,7 @@ describe('Browsing the index', () => {
 			services.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:21',
 				status: MediaServiceStatus.ONLINE,
 			}),

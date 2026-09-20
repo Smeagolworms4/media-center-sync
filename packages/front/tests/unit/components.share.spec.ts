@@ -59,8 +59,6 @@ function policy (overrides: Partial<SharePolicy> = {}): SharePolicy {
 		overridden: true,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
-		relays: false,
-		relay: false,
 		rateLimit: 0,
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		...overrides,
@@ -104,11 +102,15 @@ describe('components/share/SharePolicyForm', () => {
 		const note = wrapper.find('[data-test="share-origin-note"]');
 
 		expect(note.attributes('data-origin')).toBe('default');
-		expect(note.text()).toContain('follows the gateway default');
+		expect(note.text()).toContain('sharing switch');
 		expect(wrapper.find('[data-test="share-remove"]').exists()).toBe(false);
 	});
 
-	it('says when the library is not ours to share, which no default can change', () => {
+	it('reads a private library nobody set as following the default, not as refused', () => {
+		// There used to be a third state here, "not ours to share", for a library whose
+		// files this gateway does not hold: it stayed private whatever the default said.
+		// That is one switch on the server now, so a library nobody has decided about has
+		// one answer — it follows, and flipping that switch moves it.
 		const { wrapper } = mountWithApp(SharePolicyForm, {
 			props: {
 				library,
@@ -116,7 +118,6 @@ describe('components/share/SharePolicyForm', () => {
 				policy: policy({
 					id: '',
 					overridden: false,
-					relays: true,
 					visibility: ShareVisibility.PRIVATE,
 					updatedAt: '',
 				}),
@@ -125,8 +126,8 @@ describe('components/share/SharePolicyForm', () => {
 
 		const note = wrapper.find('[data-test="share-origin-note"]');
 
-		expect(note.attributes('data-origin')).toBe('not_ours');
-		expect(note.text()).toContain('not ours');
+		expect(note.attributes('data-origin')).toBe('default');
+		expect(note.text()).toContain('sharing switch');
 	});
 
 	it('says when somebody set this library, and offers to drop that', () => {

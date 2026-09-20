@@ -4,7 +4,6 @@ import { isAbsolute } from 'node:path';
 import {
 	ErrorKey,
 	MediaServiceMode,
-	MediaServiceScope,
 	type Library,
 	type LibraryCheck,
 	type MediaCategory,
@@ -19,7 +18,12 @@ import {
 } from '@nestjs/common';
 import type { Library as LibraryEntity, MediaService as MediaServiceEntity } from '@/entities';
 import { LibraryRepository, MediaServiceRepository } from '@/repositories';
-import { derivedLocalPath, serviceMode, type ServiceRootMapping } from '@/services';
+import {
+	derivedLocalPath,
+	reachesFiles,
+	serviceMode,
+	type ServiceRootMapping,
+} from '@/services';
 import { toLibrary } from './mappers';
 
 /** What probing one declared path found. */
@@ -85,6 +89,7 @@ export class LibraryManager {
 			}
 		}
 
+
 		if (patch.isDefaultTarget !== undefined) {
 			if (patch.isDefaultTarget && !library.writable) {
 				// A default target the gateway cannot write to is the same trap one step
@@ -113,6 +118,15 @@ export class LibraryManager {
 			await this._libraries.clearDefaultTarget(saved.kind, saved.id);
 		}
 
+		// A path typed here can be the only mapping a service has — that is what the
+		// field is for — so setting one makes the service ours and clearing the last
+		// one makes it not. Left out, a service whose only mapping is a library path
+		// would stay remote and refuse every transfer aimed at the path somebody had
+		// just been allowed to save.
+		if (patch.localPath !== undefined) {
+			await this.refreshMount(saved.serviceId);
+		}
+
 		return toLibrary(saved);
 	}
 
@@ -135,9 +149,12 @@ export class LibraryManager {
 			this._libraries.find(),
 			this._services.find(),
 		]);
+		// `serviceMode` and not the mount column alone: a peer-backed service is
+		// somebody else's machine however its row reads, and a category counting one of
+		// their shelves as ours would offer it as a destination one screen later.
 		const local = new Set(
 			services
-				.filter((service) => service.scope === MediaServiceScope.LOCAL)
+				.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
 				.map((service) => service.id),
 		);
 		const merged = new Map<string, MediaCategory>();
@@ -398,13 +415,58 @@ export class LibraryManager {
 		for (const library of await this._libraries.findByService(service.id)) {
 			await this._deriveFor(library, service);
 		}
+
+		await this.refreshMount(service.id);
+	}
+
+	/**
+	 * Write down whether the gateway reaches this service's files.
+	 *
+	 * The derivation itself is `reachesFiles`; this is the one place that stores it, so
+	 * the column cannot be written two ways. Every path that can move the answer ends
+	 * here: registering, probing, changing the root mapping, and setting or clearing a
+	 * library's own path.
+	 *
+	 * Nothing caches it. `serviceMode` reads the row and the row is re-read after every
+	 * one of those writes, which is the whole reason a service registered before its
+	 * mapping flips the moment the mapping lands instead of at the next restart.
+	 *
+	 * Written only when it actually changed, so the ordinary case — a scan re-deriving
+	 * the same paths on a service that was already ours — does not touch `updatedAt` on
+	 * every service on every scan.
+	 */
+	public async refreshMount(serviceId: string): Promise<boolean> {
+		const service = await this._services.findOne({ where: { id: serviceId } });
+
+		if (service === null) {
+			return false;
+		}
+
+		const mounted = reachesFiles(service, await this._libraries.findByService(serviceId));
+
+		if (mounted === service.filesMounted) {
+			return mounted;
+		}
+
+		// A targeted update rather than saving the row back. The credentials are
+		// `select: false`, so the entity in hand does not carry them, and handing a
+		// whole object back to `save` is how a column nobody meant to touch gets
+		// rewritten from a value that was never read.
+		await this._services.update({ id: serviceId }, { filesMounted: mounted });
+
+		this._logger.log(
+			`${service.name} is now ${mounted ? 'ours' : 'reached over HTTP only'}: `
+				+ 'its files were re-derived from the mappings',
+		);
+
+		return mounted;
 	}
 
 	/**
 	 * The services whose libraries are ours to write into and to rename.
 	 *
-	 * `serviceMode` rather than the scope alone, because a service reached through a
-	 * peer is somebody else's machine however its scope happens to read — see the note
+	 * `serviceMode` rather than the mount column alone, because a service reached
+	 * through a peer is somebody else's machine however its row reads — see the note
 	 * there, which is the same reason `check()` refuses to probe them.
 	 */
 	private async _ourServiceIds(): Promise<Set<string>> {

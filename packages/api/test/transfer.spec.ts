@@ -6,7 +6,6 @@ import request from 'supertest';
 import {
 	ChunkState,
 	LibraryKind,
-	MediaServiceScope,
 	MediaServiceType,
 	PlacedBy,
 	TransferState,
@@ -55,7 +54,7 @@ describe('The transfer queue', () => {
 			services.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:41',
 			}),
 		);
@@ -64,7 +63,7 @@ describe('The transfer queue', () => {
 			services.create({
 				name: "A friend's server",
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.REMOTE,
+				filesMounted: false,
 				baseUrl: 'http://127.0.0.1:42',
 			}),
 		);

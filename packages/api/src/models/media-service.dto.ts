@@ -13,7 +13,7 @@ import {
 	Min,
 	ValidateIf,
 } from 'class-validator';
-import { MediaServiceScope, MediaServiceType } from '@mcs/shared';
+import { MediaServiceType } from '@mcs/shared';
 
 /**
  * A path that means the same thing to every process that reads it.
@@ -62,9 +62,18 @@ export class CreateMediaServiceDto {
 	@IsEnum(MediaServiceType)
 	public type!: MediaServiceType;
 
-	@ApiProperty({ enum: MediaServiceScope })
-	@IsEnum(MediaServiceScope)
-	public scope!: MediaServiceScope;
+	/**
+	 * Share this service's libraries. Absent means yes.
+	 *
+	 * Optional rather than required, and the default is the permissive one, for the
+	 * same reason `defaultShareVisibility` ships as a real level: a gateway that shares
+	 * nothing until somebody has been through a second screen shows its friends an
+	 * empty shelf and they conclude the link failed.
+	 */
+	@ApiPropertyOptional({ description: 'Offer this service\'s libraries to peers.' })
+	@IsOptional()
+	@IsBoolean()
+	public shared?: boolean;
 
 	@ApiProperty({ example: 'http://192.168.0.10:8096' })
 	@IsUrl({ require_tld: false, protocols: ['http', 'https'] })
@@ -139,10 +148,10 @@ export class UpdateMediaServiceDto extends CreateMediaServiceDto {
 	@IsEnum(MediaServiceType)
 	public declare type: MediaServiceType;
 
-	@ApiPropertyOptional({ enum: MediaServiceScope })
+	@ApiPropertyOptional()
 	@IsOptional()
-	@IsEnum(MediaServiceScope)
-	public declare scope: MediaServiceScope;
+	@IsBoolean()
+	public declare shared: boolean;
 
 	@ApiPropertyOptional()
 	@IsOptional()

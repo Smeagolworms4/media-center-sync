@@ -795,7 +795,7 @@
 						/>
 
 						<p class="text-caption text-medium-emphasis mt-2 mb-4">
-							{{ $t('settings.default_share_scope') }}
+							{{ $t('settings.default_share_note') }}
 						</p>
 
 						<v-switch

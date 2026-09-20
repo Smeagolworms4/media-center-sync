@@ -2,7 +2,6 @@ import type { Library, MediaService, SyncPlan } from '@mcs/shared';
 import {
 	LibraryKind,
 	MediaServiceMode,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	ShareVisibility,
@@ -42,7 +41,8 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		id: 's1',
 		name: 'First',
 		type: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
+		shared: true,
+		filesMounted: true,
 		mode: MediaServiceMode.LOCAL,
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,

@@ -11,10 +11,10 @@ import { Timestampable } from './timestampable.entity';
  *
  * A row here is an **override**, and only libraries somebody has decided about have
  * one. What a library with no row exposes is resolved at read time by
- * `effectiveVisibility` — the gateway default on one of our own services, private on
- * anything else. Nothing backfills these rows when a scan finds a library, on purpose:
- * a row written by the software would freeze today's default into the library for good
- * and be indistinguishable from a decision somebody made.
+ * `effectiveVisibility` — the gateway default when the service's sharing switch is on,
+ * private when it is off. Nothing backfills these rows when a scan finds a library, on
+ * purpose: a row written by the software would freeze today's default into the library
+ * for good and be indistinguishable from a decision somebody made.
  */
 @Entity('share_policies')
 export class SharePolicy extends Timestampable {
@@ -38,20 +38,6 @@ export class SharePolicy extends Timestampable {
 	@ApiProperty({ type: [String] })
 	@Column({ type: 'simple-json', default: '[]' })
 	public deniedPeerIds!: string[];
-
-	/**
-	 * Agreement to relay a library that is not ours.
-	 *
-	 * Stored rather than inferred, because it is consent and not a property: whether a
-	 * library sits on a remote service is a fact we can read at any moment, whether
-	 * somebody agreed to pass it on is not. Without it, a remote library stays private
-	 * however its visibility is set — which is the safe half of the choice, and the
-	 * only acceptable default for something that spends our bandwidth and re-shares an
-	 * access granted to us rather than to our friends.
-	 */
-	@ApiProperty()
-	@Column({ default: false })
-	public relay!: boolean;
 
 	/** Bytes per second this library will serve. 0 means no cap. */
 	@ApiProperty()

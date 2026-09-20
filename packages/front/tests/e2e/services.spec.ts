@@ -37,7 +37,7 @@ test.describe('media services', () => {
 			data: {
 				name: 'Journey fixture',
 				type: 'jellyfin',
-				scope: 'remote',
+				shared: false,
 				baseUrl: 'http://127.0.0.1:1',
 			},
 		});

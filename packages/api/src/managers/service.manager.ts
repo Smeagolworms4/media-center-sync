@@ -131,7 +131,11 @@ export class ServiceManager {
 			this._services.create({
 				name: request.name,
 				type: request.type,
-				scope: request.scope,
+				// Absent means shared, for the same reason the gateway's default
+				// visibility is a real level rather than silence: a service registered
+				// and quietly invisible shows a friend an empty shelf, and they read
+				// that as a link that failed rather than as a switch nobody flipped.
+				shared: request.shared ?? true,
 				baseUrl,
 				token: request.token ?? null,
 				username: request.username ?? null,
@@ -148,7 +152,11 @@ export class ServiceManager {
 
 		await this._adoptLibraries(service, probe.libraries);
 
-		return this._present(service);
+		// Re-read rather than presented from the row saved above. Adopting the
+		// libraries derives whether we hold the files, and the object in hand still
+		// carries the answer from before that ran — a service registered with its root
+		// mapping would be reported remote in the very response that created it.
+		return this._present(await this._require(service.id));
 	}
 
 	/**
@@ -160,6 +168,22 @@ export class ServiceManager {
 	 */
 	public async update(id: string, patch: UpdateMediaServiceRequest): Promise<MediaService> {
 		const service = await this._requireWithSecrets(id);
+
+		/*
+		 * A peer's registration is not editable, and the refusal lives here rather than
+		 * in the screen that declines to offer the form.
+		 *
+		 * Nothing this shape carries means anything for one: their files are on their
+		 * machine, so a root mapping stored here could never resolve while making the
+		 * service look configured; the link authenticates by key fingerprint, so there
+		 * is no token; and the address is `peer://<uuid>`, not something anybody types.
+		 * Renaming, the hop limit, forbidding reading, removing and banning are all peer
+		 * routes — this row follows the peer rather than being configured beside it.
+		 */
+		if (service.peerId !== null) {
+			throw new ConflictException(ErrorKey.SERVICE_PEER_NOT_EDITABLE);
+		}
+
 		const nextUrl = patch.baseUrl === undefined ? service.baseUrl : this._normaliseUrl(patch.baseUrl);
 
 		if (nextUrl !== service.baseUrl) {
@@ -172,7 +196,9 @@ export class ServiceManager {
 
 		service.name = patch.name ?? service.name;
 		service.type = patch.type ?? service.type;
-		service.scope = patch.scope ?? service.scope;
+		// Never re-defaulted on an edit. A patch sent for an unrelated field must not
+		// start sharing something somebody deliberately turned off.
+		service.shared = patch.shared ?? service.shared;
 		service.baseUrl = nextUrl;
 		service.token = patch.token ?? service.token;
 		service.username = patch.username ?? service.username;
@@ -198,6 +224,9 @@ export class ServiceManager {
 		// thing that would have is a scan somebody may not run for a day. Correcting a
 		// path and seeing the libraries still pointing at the old one is how people
 		// conclude the field does nothing.
+		// Re-derives whether the files are ours, in both directions: a service
+		// registered before anybody mapped its folders becomes a destination here, and
+		// one whose mapping is withdrawn stops being one.
 		if (rootsMoved) {
 			await this._libraryManager.applyRootMapping(saved);
 		}

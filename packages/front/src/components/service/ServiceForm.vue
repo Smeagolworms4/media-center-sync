@@ -5,14 +5,15 @@
 		MediaServiceProbe,
 		ProbeMediaServiceRequest,
 	} from '@mcs/shared';
-	import { MediaServiceScope, MediaServiceType } from '@mcs/shared';
-	import { computed, reactive, ref, watch } from 'vue';
+	import { MediaServiceMode, MediaServiceType, ShareVisibility } from '@mcs/shared';
+	import { computed, onMounted, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
 	import FormMainError from '@/components/FormMainError.vue';
 	import { useForm } from '@/composables/useForm';
 	import { useValidators } from '@/plugins/validators';
 	import { useServicesStore } from '@/stores/services';
+	import { useSettingsStore } from '@/stores/settings';
 
 	/**
 	 * Registering or editing a media service.
@@ -35,6 +36,7 @@
 
 	const { t } = useI18n();
 	const servicesStore = useServicesStore();
+	const settingsStore = useSettingsStore();
 	const validators = useValidators();
 
 	const editing = computed(() => props.service !== null);
@@ -45,7 +47,16 @@
 	const model = reactive<CreateMediaServiceRequest>({
 		name: props.service?.name ?? '',
 		type: props.service?.type ?? MediaServiceType.JELLYFIN,
-		scope: props.service?.scope ?? MediaServiceScope.LOCAL,
+		/*
+		 * A new service is shared; an existing one keeps whatever it already says.
+		 *
+		 * On by default for the same reason the gateway's default visibility is a real
+		 * level rather than silence: a service registered and quietly invisible shows a
+		 * friend an empty shelf, and they read that as a link that failed. Never
+		 * re-defaulted on an edit — a form opened to correct a port must not switch
+		 * sharing back on for something somebody deliberately turned off.
+		 */
+		shared: props.service?.shared ?? true,
 		baseUrl: props.service?.baseUrl ?? '',
 		token: '',
 		authProvider: props.service?.authProvider ?? false,
@@ -66,10 +77,54 @@
 	const typeItems = Object.values(MediaServiceType)
 		.filter(value => value !== MediaServiceType.PEER)
 		.map(value => ({ value, title: value }));
-	const scopeItems = computed(() => Object.values(MediaServiceScope).map(value => ({
-		value,
-		title: t(`service.scope.${value}`),
-	})));
+
+	/**
+	 * A peer-backed service is not offered the sharing switch, and that is the same
+	 * class of decision as its type not being in the list above.
+	 *
+	 * What a friend's friend holds will be reached by introducing the two ends so they
+	 * connect to each other, never by this gateway carrying the bytes through. A control
+	 * offering to carry them would describe something the product does not do — and one
+	 * people had started using would be the wrong path to take away later.
+	 */
+	const sharingOffered = computed(() => props.service?.mode !== MediaServiceMode.PEER);
+
+	/**
+	 * Whether this gateway would be reading the files off disk or over the connection.
+	 *
+	 * Read live from the form rather than from the saved row, so that typing a local
+	 * root makes the warning below disappear as somebody fixes the thing it warns about.
+	 */
+	const filesHere = computed(() =>
+		Boolean(model.localRoot?.trim()) || props.service?.mode === MediaServiceMode.LOCAL);
+
+	/**
+	 * What turning it on actually does, named at the moment somebody does it.
+	 *
+	 * The level comes from the gateway setting rather than being spelled out here: the
+	 * switch grants `defaultShareVisibility`, whatever that is set to, so a sentence
+	 * saying "shared" in the abstract would be true and useless — somebody is entitled
+	 * to read "my peers and theirs" before they agree to it, and that sentence has to
+	 * change when they change the setting.
+	 */
+	const sharingHint = computed(() => {
+		const visibility
+			= settingsStore.settings?.defaultShareVisibility ?? ShareVisibility.FRIENDS_OF_FRIENDS;
+		const level = t(`share.visibility_value.${visibility}`);
+
+		return filesHere.value
+			? t('service.field.shared_hint', { level })
+			: t('service.field.shared_hint_relayed', { level });
+	});
+
+	// The hint names a level held in the settings, so they have to be in hand. Failure
+	// is not fatal: the computed above falls back to what the gateway ships with, which
+	// is what an unreachable settings route would have answered anyway.
+	onMounted(() => {
+		if (!settingsStore.loaded) {
+			void settingsStore.load().catch(() => undefined);
+		}
+	});
 
 	/**
 	 * The folder browser over `localRoot`, which is a directory on *this* gateway.
@@ -90,7 +145,7 @@
 		return {
 			name: model.name,
 			type: model.type,
-			scope: model.scope,
+			shared: model.shared,
 			baseUrl: model.baseUrl,
 			// Secrets are write-only: an edit that leaves the field empty keeps the
 			// token already registered rather than clearing it.
@@ -155,7 +210,6 @@
 		fields: {
 			name: { rules: [validators.required(), validators.maxlength({ max: 120 })] },
 			type: { rules: [validators.required()] },
-			scope: { rules: [validators.required()] },
 			baseUrl: { rules: [validators.required(), validators.urlWithPort()] },
 			token: { rules: [] },
 			priority: { rules: [validators.onlyInteger(), validators.range({ min: 0, max: 999 })] },
@@ -221,7 +275,7 @@
 		/>
 
 		<v-row density="compact">
-			<v-col cols="12" sm="6">
+			<v-col cols="12">
 				<v-select
 					v-model="model.type"
 					v-bind="form.field('type')"
@@ -233,17 +287,6 @@
 				/>
 			</v-col>
 
-			<v-col cols="12" sm="6">
-				<v-select
-					v-model="model.scope"
-					v-bind="form.field('scope')"
-					data-test="service-scope"
-					item-title="title"
-					item-value="value"
-					:items="scopeItems"
-					:label="$t('service.field.scope')"
-				/>
-			</v-col>
 		</v-row>
 
 		<v-text-field
@@ -294,6 +337,31 @@
 				</p>
 			</v-col>
 		</v-row>
+
+		<div v-if="sharingOffered" class="service-form_sharing mt-2">
+			<v-switch
+				v-model="model.shared"
+				color="primary"
+				data-test="service-shared"
+				hide-details
+				:label="$t('service.field.shared')"
+			/>
+
+			<!--
+				Stated, not blocked. Sharing a service whose files this gateway does not
+				hold works — the bytes are read from the media server and passed on — and
+				it costs this connection, which is the one thing nothing else on the
+				screen would say. Shown only while the switch is on, because a consequence
+				of a thing somebody has not done is noise.
+			-->
+			<p
+				v-if="model.shared"
+				class="text-caption text-medium-emphasis"
+				data-test="service-shared-hint"
+			>
+				{{ sharingHint }}
+			</p>
+		</div>
 
 		<div class="service-form_roots mt-4">
 			<p class="text-subtitle-2 mb-0">{{ $t('service.field.roots') }}</p>

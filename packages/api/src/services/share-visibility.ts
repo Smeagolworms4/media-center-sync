@@ -13,8 +13,8 @@ export interface ShareSubject {
 	library: { id: string; serviceId: string };
 	/** The stored policy, or null when nothing was ever written for this library. */
 	policy: { visibility: ShareVisibility } | null;
-	/** Whether the service this library sits on is one of ours to give. */
-	local: boolean;
+	/** Whether somebody turned the sharing switch on for the service this sits on. */
+	shared: boolean;
 	settings: Pick<Settings, 'defaultShareVisibility'>;
 }
 
@@ -30,25 +30,31 @@ export interface ShareSubject {
  * default changes every library nobody has overridden, which is what a default is
  * for.
  *
- * Three rules, in this order:
+ * Two rules, in this order:
  *
- * - **a stored policy always wins**, including an explicit `private` on one of our own
- *   libraries. Somebody choosing private is a decision, and a default that could
- *   overrule a decision would not be a default, it would be a policy;
- * - **no policy on a library of ours means the gateway default.** A gateway whose
- *   libraries are invisible until somebody has visited a screen appears broken to the
- *   friend who linked to it: they see an empty shelf and conclude the link failed,
- *   while the setting says `friends_of_friends`;
- * - **no policy on anything else means private**, whatever the setting says. A library
- *   on a remote Jellyfin or Plex, or on a peer's gateway, is not ours to give: sharing
- *   it makes us the conduit for somebody else's disk, spending our bandwidth and
- *   passing on an access granted to us rather than to the people we would be handing
- *   it to. That is the `SharePolicy.relay` consent, and a default is not consent.
+ * - **a stored policy always wins**, in both directions, including an explicit
+ *   `private` on a service that is shared and an explicit level on one that is not.
+ *   Somebody choosing private is a decision, and a default that could overrule a
+ *   decision would not be a default, it would be a policy;
+ * - **otherwise the service's switch decides**, and the gateway default is the level
+ *   it grants. On means `defaultShareVisibility`, whatever it is set to, so changing
+ *   that setting later still moves every library nobody has overridden. Off means
+ *   private.
+ *
+ * The switch is read here and the mount is not, which is the correction this rule
+ * exists to carry. The two were one thing before: the default reached only libraries
+ * whose files the gateway held, on the reasoning that sharing anything else makes us
+ * the conduit for somebody else's server. That is true and it is also not a reason to
+ * refuse — serving those bytes works, it is `PeerExchangeManager.content()` reading
+ * the media server over HTTP, and it is often exactly what somebody with a good line
+ * wants. What it needed was to be said out loud once, which is what the switch is.
+ * Conflated, the commonest case of all — an ordinary Jellyfin whose folders nobody had
+ * mapped yet — was silently private with no control anywhere that could change it.
  */
 export const effectiveVisibility = (subject: ShareSubject): ShareVisibility => {
 	if (subject.policy !== null) {
 		return subject.policy.visibility;
 	}
 
-	return subject.local ? subject.settings.defaultShareVisibility : ShareVisibility.PRIVATE;
+	return subject.shared ? subject.settings.defaultShareVisibility : ShareVisibility.PRIVATE;
 };

@@ -59,20 +59,16 @@
 	});
 
 	/**
-	 * Which of the three states this library is in.
+	 * Whether what this shows was chosen for this library or is the default applying.
 	 *
-	 * `not_ours` is not a milder `default`: a library on a service that is not ours
-	 * stays private whatever the gateway default says, because sharing it would relay
-	 * somebody else's server. Reading it as "following the default" would tell somebody
-	 * that changing the default will share it, and it never will.
+	 * Two states now rather than three. The third was "not ours to share", a library on
+	 * a service whose files this gateway does not hold: it stayed private whatever the
+	 * default said, and could only be shared by agreeing to relay it one library at a
+	 * time. That is one switch on the service now, so the answer for every library that
+	 * nobody has decided about is the same one — it follows the service, and the
+	 * gateway default behind it.
 	 */
-	const origin = computed(() => {
-		if (props.policy?.overridden) {
-			return 'set';
-		}
-
-		return props.policy?.relays ? 'not_ours' : 'default';
-	});
+	const origin = computed(() => (props.policy?.overridden ? 'set' : 'default'));
 
 	const visibilityItems = computed(() => Object.values(ShareVisibility).map(value => ({
 		value,

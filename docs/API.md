@@ -104,6 +104,28 @@ and both must be absolute, for the reason any path stored here must be: a relati
 designates a different directory in the container, in a development shell and in a
 command. Sending both as null withdraws the mapping.
 
+The mapping also decides `filesMounted`, and through it `mode`. Whether this gateway
+reaches a service's files is **derived**, never declared: it is true once a root is
+stated here or a library under the service carries a path of its own, and it is
+re-derived on every registration, probe, mapping change and library path change. A
+service registered before anybody mapped its folders is `remote` and becomes `local`
+the moment the mapping lands, without being re-registered. Only a `local` service can
+be a destination — a pull has to land where the media server actually scans.
+
+**A registration that stands for a linked peer cannot be updated at all**: `PATCH`
+answers `409 error.service.peer_not_editable`. Their files are on their machine, so a
+root mapping here could never resolve while making the service look configured; the
+link authenticates by key fingerprint, so there is no token; and the address is
+`peer://<uuid>`. The name, the hop limit, forbidding reading, removing and banning are
+all peer routes — the row follows the peer rather than being configured beside it.
+Probing, scanning and refreshing it still work.
+
+`shared` is the other half and is the opposite kind of thing: a decision somebody
+declares, absent means `true`. It says whether this service's libraries are offered to
+peers, and carries no level of its own — see **Sharing**. The two used to be one
+`scope` column with the values `local` and `remote`, which read as a statement about
+the network and therefore answered both questions wrongly at once.
+
 ## Libraries
 
 | Method | Path | Body | Answers | Right |
@@ -418,16 +440,22 @@ different things to do next.
 private. Deleting a policy makes a library private again, which is the same thing as
 never having shared it.
 
-**Sharing a library that is not on one of our own services makes us a relay, and that
-has to be said out loud.** A library on a local service is ours to give: we serve our
-own bytes off our own disk. One on a remote service — a friend's gateway, a Jellyfin we
-merely have an account on — is not, and sharing it means our friends pull *through* us:
-our bandwidth, our connection, and an access somebody granted to us rather than to them.
-That is a real and useful thing to do on purpose, so `relay: true` in the body is the
-agreement, and without it any visibility other than `private` is refused with
-`error.share.relay_not_agreed`. `relays` on the answer is the other half and is
-read-only: it says whether this library *would* make us one, which is a fact about where
-it lives and not something a caller may assert.
+**What a library with no policy exposes is decided on its service, not here.**
+`MediaService.shared` is the switch: on means the gateway's `defaultShareVisibility`
+applies to every library on that service nobody has overridden, off means private. A
+policy written here always wins over it, in both directions.
+
+Whether this gateway holds the files does not enter into it. Serving a library we only
+reach over HTTP works — the content route opens a stream against the media server and
+never looks for a local file — so our friends pull *through* us, at the cost of our
+connection. `ShareAudit.throughUs` says which libraries those are; nothing refuses them.
+The previous shape had a per-library `relay` consent and a `SHARE_RELAY_NOT_AGREED`
+refusal for exactly this case, which gated something that already worked and pointed at
+a control the interface never had. Both are gone, along with the read-only `relays`
+field.
+
+Libraries reached through a linked peer are the one exception and are never offered
+onward, whatever any row says.
 
 `/shares/audit/:peerId` answers the question people actually ask before saving: what
 would *this* peer see of me?

@@ -1,7 +1,7 @@
 import { mkdtemp, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ErrorKey, LibraryKind, MediaServiceScope } from '@mcs/shared';
+import { ErrorKey, LibraryKind } from '@mcs/shared';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import type { Library, MediaService } from '@/entities';
 import type { LibraryRepository, MediaServiceRepository } from '@/repositories';
@@ -37,7 +37,7 @@ interface Fakes {
 		save: jest.Mock;
 		clearDefaultTarget: jest.Mock;
 	};
-	services: { find: jest.Mock; findOne: jest.Mock };
+	services: { find: jest.Mock; findOne: jest.Mock; update: jest.Mock };
 }
 
 const build = (
@@ -60,11 +60,18 @@ const build = (
 			// libraries on our own services, so a service the library does not belong to
 			// would make every row vanish rather than fail an assertion.
 			find: jest.fn().mockResolvedValue([
-				{ id: 'service-1', scope: MediaServiceScope.LOCAL, peerId: null },
+				{ id: 'service-1', filesMounted: true, peerId: null },
 			]),
 			// No mapping by default, so every test that does not talk about roots sees
 			// exactly the behaviour there was before there were any.
-			findOne: jest.fn().mockResolvedValue({ remoteRoot: null, localRoot: null }),
+			findOne: jest.fn().mockResolvedValue({
+				id: 'service-1',
+				name: 'Living room',
+				remoteRoot: null,
+				localRoot: null,
+				filesMounted: false,
+			}),
+			update: jest.fn().mockResolvedValue(undefined),
 		},
 	};
 
@@ -307,6 +314,108 @@ describe('LibraryManager', () => {
 		});
 	});
 
+	/**
+	 * Whether the gateway holds a service's files, which decides `serviceMode`.
+	 *
+	 * Derived and stored rather than asked, because asking produced the wrong answer
+	 * every time: the question read as a statement about the network, and the
+	 * consequences — no destination, no placement, libraries private — surfaced three
+	 * screens later with nothing linking them to the word somebody had picked.
+	 */
+	describe('re-deriving whether the files are ours', () => {
+		it('turns a service ours the moment a root mapping lands', async () => {
+			// The registration that started all this: a Jellyfin on the same network,
+			// registered before anybody mapped its folders. It has to flip here rather
+			// than at the next restart, and nothing may be holding the old answer.
+			const { manager, fakes } = build(library({ paths: ['/media'] }));
+
+			fakes.services.findOne.mockResolvedValue({
+				id: 'service-1',
+				name: 'JellyProd',
+				remoteRoot: '/media',
+				localRoot: writable,
+				filesMounted: false,
+			});
+
+			await expect(manager.refreshMount('service-1')).resolves.toBe(true);
+			expect(fakes.services.update).toHaveBeenCalledWith(
+				{ id: 'service-1' },
+				{ filesMounted: true },
+			);
+		});
+
+		it('takes it back when the last mapping is withdrawn', async () => {
+			const { manager, fakes } = build(library({ localPath: null }));
+
+			fakes.services.findOne.mockResolvedValue({
+				id: 'service-1',
+				name: 'JellyProd',
+				remoteRoot: null,
+				localRoot: null,
+				filesMounted: true,
+			});
+
+			await expect(manager.refreshMount('service-1')).resolves.toBe(false);
+			expect(fakes.services.update).toHaveBeenCalledWith(
+				{ id: 'service-1' },
+				{ filesMounted: false },
+			);
+		});
+
+		it('counts a library path of its own as a mapping', async () => {
+			// The exception the root mapping cannot express is still a mapping: a service
+			// holding only those is not a service we reach over HTTP alone.
+			const { manager, fakes } = build(library({ localPath: '/mnt/one-off' }));
+
+			fakes.services.findOne.mockResolvedValue({
+				id: 'service-1',
+				name: 'Odd one',
+				remoteRoot: null,
+				localRoot: null,
+				filesMounted: false,
+			});
+
+			await expect(manager.refreshMount('service-1')).resolves.toBe(true);
+		});
+
+		it('writes nothing when the answer has not moved', async () => {
+			// Every scan re-derives every path. Saving each time would touch `updatedAt`
+			// on every service on every scan, for an answer nobody changed.
+			const { manager, fakes } = build(library({ localPath: '/mnt/one-off' }));
+
+			fakes.services.findOne.mockResolvedValue({
+				id: 'service-1',
+				name: 'Odd one',
+				remoteRoot: null,
+				localRoot: null,
+				filesMounted: true,
+			});
+
+			await manager.refreshMount('service-1');
+
+			expect(fakes.services.update).not.toHaveBeenCalled();
+		});
+
+		it('re-derives it after a library path is set, not only after a root moves', async () => {
+			const { manager, fakes } = build(library({ paths: ['/media'] }));
+
+			fakes.services.findOne.mockResolvedValue({
+				id: 'service-1',
+				name: 'Odd one',
+				remoteRoot: null,
+				localRoot: null,
+				filesMounted: false,
+			});
+
+			await manager.update('library-1', { localPath: writable });
+
+			expect(fakes.services.update).toHaveBeenCalledWith(
+				{ id: 'service-1' },
+				{ filesMounted: true },
+			);
+		});
+	});
+
 	it('answers a key for a library nobody registered', async () => {
 		const { manager, fakes } = build();
 
@@ -389,7 +498,7 @@ describe('LibraryManager', () => {
 		it('says whether anything in the category is ours to write into', async () => {
 			const { manager, fakes } = build([library({ id: 'a', serviceId: 'remote' })]);
 
-			fakes.services.find.mockResolvedValue([{ id: 'remote', scope: MediaServiceScope.REMOTE }]);
+			fakes.services.find.mockResolvedValue([{ id: 'remote', filesMounted: false }]);
 
 			const [category] = await manager.categories();
 
@@ -406,8 +515,8 @@ describe('LibraryManager', () => {
 		 * cases where acting on that statement would be wrong.
 		 */
 		const ours = [
-			{ id: 'jellyfin', scope: MediaServiceScope.LOCAL, peerId: null },
-			{ id: 'plex', scope: MediaServiceScope.LOCAL, peerId: null },
+			{ id: 'jellyfin', filesMounted: true, peerId: null },
+			{ id: 'plex', filesMounted: true, peerId: null },
 		];
 
 		it('gives the mapped category the destination’s name, so the two become one', async () => {
@@ -458,7 +567,7 @@ describe('LibraryManager', () => {
 
 			fakes.services.find.mockResolvedValue([
 				...ours,
-				{ id: 'friend', scope: MediaServiceScope.REMOTE, peerId: null },
+				{ id: 'friend', filesMounted: false, peerId: null },
 			]);
 
 			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBeNull();
@@ -476,7 +585,7 @@ describe('LibraryManager', () => {
 
 			fakes.services.find.mockResolvedValue([
 				...ours,
-				{ id: 'lab', scope: MediaServiceScope.LOCAL, peerId: 'peer-1' },
+				{ id: 'lab', filesMounted: true, peerId: 'peer-1' },
 			]);
 
 			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBeNull();
@@ -492,7 +601,7 @@ describe('LibraryManager', () => {
 
 			fakes.services.find.mockResolvedValue([
 				...ours,
-				{ id: 'friend', scope: MediaServiceScope.REMOTE, peerId: null },
+				{ id: 'friend', filesMounted: false, peerId: null },
 			]);
 
 			await manager.mergeCategoryInto('series', 'shows');
@@ -510,7 +619,7 @@ describe('LibraryManager', () => {
 
 			fakes.services.find.mockResolvedValue([
 				...ours,
-				{ id: 'friend', scope: MediaServiceScope.REMOTE, peerId: null },
+				{ id: 'friend', filesMounted: false, peerId: null },
 			]);
 
 			await expect(manager.mergeCategoryInto('series', 'theirs')).resolves.toBeNull();

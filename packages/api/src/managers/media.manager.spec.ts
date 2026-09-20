@@ -3,7 +3,6 @@ import {
 	ErrorKey,
 	MatchStrategy,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	SyncState,
 	type MediaFileInfo,
@@ -87,7 +86,7 @@ const mediaService = (overrides: Partial<MediaServiceEntity> = {}): MediaService
 		id: 'service-a',
 		name: 'Living room',
 		type: MediaServiceType.PLEX,
-		scope: MediaServiceScope.LOCAL,
+		filesMounted: true,
 		baseUrl: 'http://plex:32400',
 		token: null,
 		username: null,
@@ -285,8 +284,8 @@ describe('MediaManager', () => {
 			const { manager, fakes } = build({ items: [mine, theirs] });
 
 			fakes.services.find.mockResolvedValue([
-				mediaService({ id: 'service-a', scope: MediaServiceScope.LOCAL }),
-				mediaService({ id: 'service-b', scope: MediaServiceScope.REMOTE, peerId: 'peer-1' }),
+				mediaService({ id: 'service-a', filesMounted: true }),
+				mediaService({ id: 'service-b', filesMounted: false, peerId: 'peer-1' }),
 			]);
 
 			await manager.correlateService('service-a');

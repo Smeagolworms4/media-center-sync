@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import request from 'supertest';
 import {
 	LibraryKind,
-	MediaServiceScope,
 	MediaServiceType,
 	type Library,
 	type LibraryCheck,
@@ -46,7 +45,6 @@ describe('Media services', () => {
 			.send({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: UNREACHABLE,
 				token: 'a-very-secret-api-key',
 			})
@@ -65,7 +63,6 @@ describe('Media services', () => {
 			.send({
 				name: 'Kitchen',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.REMOTE,
 				baseUrl: 'http://127.0.0.1:10',
 				token: 'a-very-secret-api-key',
 			})
@@ -98,7 +95,6 @@ describe('Media services', () => {
 		const body = {
 			name: 'Twice',
 			type: MediaServiceType.JELLYFIN,
-			scope: MediaServiceScope.LOCAL,
 			baseUrl: 'http://127.0.0.1:11',
 		};
 
@@ -112,7 +108,7 @@ describe('Media services', () => {
 	describe('validation', () => {
 		it('rejects a bad body with one message per field', async () => {
 			const response = await authorised()
-				.send({ name: '', type: 'betamax', scope: 'local', baseUrl: 'not a url' })
+				.send({ name: '', type: 'betamax', baseUrl: 'not a url' })
 				.expect(400);
 			const messages = (response.body as { message: string[] }).message;
 
@@ -129,7 +125,6 @@ describe('Media services', () => {
 				.send({
 					name: 'Sneaky',
 					type: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.LOCAL,
 					baseUrl: 'http://127.0.0.1:12',
 					status: 'online',
 				})
@@ -143,7 +138,6 @@ describe('Media services', () => {
 				.send({
 					name: 'By hostname',
 					type: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.LOCAL,
 					baseUrl: 'http://jellyfin:8096',
 				})
 				.expect(201);
@@ -192,7 +186,6 @@ describe('Media services', () => {
 				.send({
 					name: 'Mapped',
 					type: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.LOCAL,
 					baseUrl: 'http://127.0.0.1:14',
 				})
 				.expect(201);
@@ -277,7 +270,6 @@ describe('Media services', () => {
 				.send({
 					name: 'Half',
 					type: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.LOCAL,
 					baseUrl: 'http://127.0.0.1:15',
 					remoteRoot: '/media',
 				})
@@ -291,7 +283,6 @@ describe('Media services', () => {
 				.send({
 					name: 'Relative',
 					type: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.LOCAL,
 					baseUrl: 'http://127.0.0.1:16',
 					remoteRoot: 'media',
 					localRoot: 'mnt/nas',
@@ -306,7 +297,6 @@ describe('Media services', () => {
 				.send({
 					name: 'Unmapped',
 					type: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.LOCAL,
 					baseUrl: 'http://127.0.0.1:17',
 				})
 				.expect(201);
@@ -318,7 +308,6 @@ describe('Media services', () => {
 			.send({
 				name: 'Scannable',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://127.0.0.1:13',
 			})
 			.expect(201);

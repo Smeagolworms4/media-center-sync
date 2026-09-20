@@ -1,7 +1,7 @@
 import {
 	ErrorKey,
 	MediaOrigin,
-	MediaServiceScope,
+	MediaServiceMode,
 	PeerTrust,
 	MediaServiceType,
 	SyncState,
@@ -23,7 +23,13 @@ import {
 	type MatchPair,
 	type MediaItemDigest,
 } from '@/repositories';
-import { editionOf, QualityService, SettingsService, versionIdOf } from '@/services';
+import {
+	editionOf,
+	QualityService,
+	serviceMode,
+	SettingsService,
+	versionIdOf,
+} from '@/services';
 import { LibraryManager } from './library.manager';
 import { pageBounds, paginate } from './mappers';
 
@@ -303,7 +309,7 @@ export class MediaGroupManager {
 			),
 			local: new Set(
 				services
-					.filter((service) => service.scope === MediaServiceScope.LOCAL)
+					.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
 					.map((service) => service.id),
 			),
 		};
@@ -719,7 +725,6 @@ export class MediaGroupManager {
 			// one request. Treating it as an unreachable remote is the honest fallback:
 			// claiming it is local would offer a pull from a disk nobody can write to.
 			serviceType: service?.type ?? MediaServiceType.JELLYFIN,
-			scope: service?.scope ?? MediaServiceScope.REMOTE,
 			peerId,
 			peerName: peerId === null ? null : (context.peerNames.get(peerId) ?? null),
 			// An episode carries a file and no aggregate; a season carries the aggregate

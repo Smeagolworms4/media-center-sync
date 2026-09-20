@@ -3,7 +3,6 @@ import {
 	LibraryKind,
 	MatchStrategy,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	SyncState,
@@ -46,7 +45,7 @@ describe('Browsing the index by media rather than by row', () => {
 			services.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:8096',
 				status: MediaServiceStatus.ONLINE,
 				priority: 100,
@@ -57,7 +56,7 @@ describe('Browsing the index by media rather than by row', () => {
 			services.create({
 				name: 'Cabin',
 				type: MediaServiceType.PLEX,
-				scope: MediaServiceScope.REMOTE,
+				filesMounted: false,
 				baseUrl: 'http://127.0.0.1:32400',
 				status: MediaServiceStatus.ONLINE,
 				priority: 200,

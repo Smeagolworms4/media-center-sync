@@ -13,6 +13,7 @@ import { NotificationChannels1758430000000 } from './1758430000000-NotificationC
 import { PlacementProvenance1758440000000 } from './1758440000000-PlacementProvenance';
 import { ParentExternalId1758450000000 } from './1758450000000-ParentExternalId';
 import { ForbidPeerReading1758460000000 } from './1758460000000-ForbidPeerReading';
+import { ServiceSharingAndMount1758470000000 } from './1758470000000-ServiceSharingAndMount';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -56,6 +57,7 @@ export const MIGRATIONS = [
 	PlacementProvenance1758440000000,
 	ParentExternalId1758450000000,
 	ForbidPeerReading1758460000000,
+	ServiceSharingAndMount1758470000000,
 ];
 
 export * from './1758240000000-InitialSchema';
@@ -73,3 +75,4 @@ export * from './1758430000000-NotificationChannels';
 export * from './1758440000000-PlacementProvenance';
 export * from './1758450000000-ParentExternalId';
 export * from './1758460000000-ForbidPeerReading';
+export * from './1758470000000-ServiceSharingAndMount';

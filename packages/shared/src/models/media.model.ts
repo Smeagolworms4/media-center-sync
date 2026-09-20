@@ -1,4 +1,4 @@
-import type { MediaServiceScope, MediaServiceType } from './service.model';
+import type { MediaServiceType } from './service.model';
 import type { SyncState } from './sync.model';
 
 export enum MediaKind {
@@ -317,8 +317,6 @@ export interface MediaGroupSource {
 	serviceId: string;
 	serviceName: string;
 	serviceType: MediaServiceType;
-	/** `local` when the gateway can write into that service's libraries. */
-	scope: MediaServiceScope;
 	peerId: string | null;
 	peerName: string | null;
 	quality: QualitySummary | null;
@@ -334,6 +332,7 @@ export interface MediaGroupSource {
 	versionId: string | null;
 	/** The label the service gave this cut, if it gave one. Never an identity. */
 	edition: string | null;
+	/** Whether the gateway reaches this copy's files on disk, rather than over HTTP. */
 	local: boolean;
 	/**
 	 * This copy's own state.

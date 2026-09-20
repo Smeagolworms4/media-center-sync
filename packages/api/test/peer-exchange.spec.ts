@@ -1,9 +1,10 @@
 import { generateKeyPairSync, sign as signBytes } from 'node:crypto';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import request from 'supertest';
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	PeerStatus,
 	PeerTrust,
@@ -113,7 +114,7 @@ describe('The peer protocol', () => {
 			services.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				// Port 9 is the discard service: refused at once rather than hanging for
 				// the handler's whole timeout, and nothing is ever listening on it.
 				baseUrl: 'http://127.0.0.1:9',
@@ -222,7 +223,6 @@ describe('The peer protocol', () => {
 				visibility: ShareVisibility.FRIENDS,
 				allowedPeerIds: [],
 				deniedPeerIds: [],
-				relay: false,
 				rateLimit: 0,
 			}),
 		);
@@ -238,7 +238,6 @@ describe('The peer protocol', () => {
 				visibility: ShareVisibility.PRIVATE,
 				allowedPeerIds: [],
 				deniedPeerIds: [],
-				relay: false,
 				rateLimit: 0,
 			}),
 		);
@@ -384,6 +383,109 @@ describe('The peer protocol', () => {
 
 		it('refuses an item the caller may not see', async () => {
 			await call(`/items/${hiddenItemId}/content`).expect(404);
+		});
+	});
+
+	/**
+	 * The case the old relay consent refused, proved end to end.
+	 *
+	 * Nothing here has a local path: the service states no root, the library states no
+	 * folder of ours, and the file on disk belongs to the media server alone. Serving it
+	 * is `openStream` against that server over HTTP and the bytes passed through, which
+	 * is why the consent gated something that already worked — and why sharing a service
+	 * we merely have an account on is now one switch rather than a per-library agreement
+	 * pointing at a control the interface never had.
+	 */
+	describe('the bytes of a service whose files we do not hold', () => {
+		const BYTES = Buffer.from('the whole film, for the sake of argument');
+
+		let server: Server;
+		let relayedItemId: string;
+
+		beforeAll(async () => {
+			server = createServer((incoming, answer) => {
+				if (incoming.url?.includes('/Download') === true) {
+					answer.writeHead(200, {
+						'content-type': 'video/x-matroska',
+						'content-length': String(BYTES.length),
+					});
+					answer.end(BYTES);
+
+					return;
+				}
+
+				answer.writeHead(404).end();
+			});
+
+			await new Promise<void>((resolve) => {
+				server.listen(0, '127.0.0.1', resolve);
+			});
+
+			const port = (server.address() as AddressInfo).port;
+			const services = context.app.get(MediaServiceRepository);
+			const libraries = context.app.get(LibraryRepository);
+			const items = context.app.get(MediaItemRepository);
+
+			const service = await services.save(
+				services.create({
+					name: 'A Jellyfin we only have an account on',
+					type: MediaServiceType.JELLYFIN,
+					baseUrl: `http://127.0.0.1:${port}`,
+					token: 'an-account-somebody-gave-us',
+					// No root mapping, which is what makes this the case under test: the
+					// gateway cannot reach one byte of this server on disk.
+					remoteRoot: null,
+					localRoot: null,
+					filesMounted: false,
+				}),
+			);
+			const library = await libraries.save(
+				libraries.create({
+					serviceId: service.id,
+					externalId: 'lib-relayed',
+					name: 'Their films',
+					kind: LibraryKind.MOVIES,
+					paths: ['/srv/theirs/films'],
+					localPath: null,
+				}),
+			);
+
+			relayedItemId = (
+				await items.save(
+					items.create({
+						serviceId: service.id,
+						libraryId: library.id,
+						externalId: 'their-film-1',
+						kind: MediaKind.MOVIE,
+						title: 'Something of theirs',
+						normalizedTitle: 'something of theirs',
+						file: fileInfo({
+							path: '/srv/theirs/films/Something.mkv',
+							size: BYTES.length,
+							contentId: 'v1:something-of-theirs',
+						}),
+						syncState: SyncState.LOCAL_ONLY,
+					}),
+				)
+			).id;
+		});
+
+		afterAll(async () => {
+			await new Promise<void>((resolve) => {
+				server.close(() => resolve());
+			});
+		});
+
+		it('is listed to a friend, on the gateway default, with no policy written', async () => {
+			const entries = (await call('/catalogue').expect(200)).body as CatalogueEntry[];
+
+			expect(entries.map((entry) => entry.externalId)).toContain(relayedItemId);
+		});
+
+		it('hands the friend the bytes, read from the media server and passed on', async () => {
+			const response = await call(`/items/${relayedItemId}/content`).expect(200);
+
+			expect(Buffer.from(response.body as Buffer).equals(BYTES)).toBe(true);
 		});
 	});
 

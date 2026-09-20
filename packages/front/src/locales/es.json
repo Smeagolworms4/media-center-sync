@@ -376,14 +376,16 @@
 			"offline": "No responde",
 			"unauthorized": "Rechazado"
 		},
-		"scope": {
-			"local": "Local — puede recibir archivos",
-			"remote": "Remoto — solo lectura"
+		"sharing": {
+			"on": "Compartido",
+			"off": "Sin compartir"
 		},
 		"field": {
 			"name": "Nombre",
 			"type": "Tipo",
-			"scope": "Alcance",
+			"shared": "Compartir las bibliotecas de este servidor",
+			"shared_hint": "Todos tus pares verán estas bibliotecas, en «{level}».",
+			"shared_hint_relayed": "Todos tus pares verán estas bibliotecas, en «{level}». Esta pasarela no tiene los archivos: se leen del servidor y se retransmiten por esta conexión, a costa de su ancho de banda.",
 			"base_url": "Dirección",
 			"base_url_hint": "Con el puerto, por ejemplo http://192.168.0.10:8096",
 			"token": "Token de API",
@@ -412,18 +414,20 @@
 		"action": {
 			"probe": "Comprobar",
 			"scan": "Análisis completo",
-			"refresh": "Actualizar"
+			"refresh": "Actualizar",
+			"open_peer": "Abrir el par"
 		},
 		"mode": {
-			"local": "Míos",
-			"remote": "Servidores de otras personas",
+			"local": "Archivos aquí",
+			"remote": "Alcanzados por la red",
 			"peer": "Pares"
 		},
 		"mode_hint": {
-			"local": "La pasarela puede escribir en ellos, así que son los únicos destinos posibles.",
-			"remote": "Servidores en los que tienes una cuenta. Solo lectura: es el disco de otra persona.",
+			"local": "Esta pasarela alcanza sus carpetas en disco, así que son los únicos destinos posibles para una descarga.",
+			"remote": "Tuyos o de otra persona: esta pasarela solo habla con ellos por HTTP. Puede leerlos y compartirlos; no puede escribir en ninguno hasta que alguien indique sus carpetas.",
 			"peer": "Pasarelas de amigos. Muestran lo que su dueño decidió compartir, y nada más."
-		}
+		},
+		"peer_note": "Se configura en su propia página: nombre, alcance en saltos y si puede leerte."
 	},
 	"peer": {
 		"subtitle": "Las demás pasarelas a las que esta está enlazada.",
@@ -652,11 +656,9 @@
 		},
 		"origin": {
 			"default": "Valor por defecto",
-			"default_hint": "Nadie ha decidido sobre esta biblioteca, así que sigue el valor por defecto de la pasarela. Si cambias ese valor, esta biblioteca cambia con él.",
+			"default_hint": "Nadie ha decidido sobre esta biblioteca: sigue el interruptor de compartición de su servidor y el valor por defecto de la pasarela detrás. Cambia cualquiera de los dos y esta biblioteca cambia con él.",
 			"set": "Definido aquí",
-			"set_hint": "Alguien eligió esto para esta biblioteca en concreto. El valor por defecto de la pasarela ya no la mueve.",
-			"not_ours": "No es nuestra para compartir",
-			"not_ours_hint": "Esta biblioteca está en un servicio que no es nuestro, así que sigue siendo privada diga lo que diga el valor por defecto. Compartirla sería retransmitir el servidor de otra persona, y eso se acepta biblioteca por biblioteca."
+			"set_hint": "Alguien eligió esto para esta biblioteca en concreto. El valor por defecto de la pasarela ya no la mueve."
 		},
 		"audit": {
 			"title": "Lo que vería un par",
@@ -716,10 +718,10 @@
 			"target_header": "Va a",
 			"falls_back": "Recae en {target}",
 			"merges": "Elegir un destino también archiva esta categoría con el nombre de esa biblioteca: en la vista de bibliotecas las dos pasan a mostrarse como una sola categoría, no como dos.",
-			"merges_foreign": "Estas bibliotecas están en el servidor de otra persona, así que el nombre sigue siendo suyo y esta categoría se sigue mostrando aparte. Solo cambia dónde aterrizan los archivos nuevos.",
+			"merges_foreign": "Esta pasarela no alcanza las carpetas de estas bibliotecas, así que sus nombres se quedan como están y esta categoría se sigue mostrando aparte. Solo cambia dónde aterrizan los archivos nuevos.",
 			"fallback_unset": "cualquier biblioteca que pueda recibirlo: arriba no hay nada fijado",
 			"rejected": {
-				"not_ours": "{library} en {service} no se puede ofrecer: está en el servidor de otra persona y esta pasarela no puede escribir allí.",
+				"not_ours": "{library} en {service} no se puede ofrecer: esta pasarela no alcanza las carpetas de ese servidor, así que nada escrito allí aparecería nunca en ella.",
 				"not_writable": "{library} en {service} no se puede ofrecer: esta pasarela no puede escribir en su carpeta."
 			},
 			"fixed_path_active": "Ahora mismo todo va a {path}, sea lo que sea: un ajuste antiguo que manda por encima de toda esta página. Nada de lo anterior se aplica hasta que se borre.",
@@ -792,7 +794,7 @@
 		"write_nfo_help": "Una fuente suele guardar sus metadatos en su propia base de datos y nada en el disco: copiar da el archivo y ninguno de los datos, y tu servidor multimedia vuelve a identificar el episodio por su nombre de archivo. Nunca sustituye un documento que ya tengas.",
 		"default_share": "Compartir las bibliotecas nuevas con",
 		"default_share_help": "Se aplica en cuanto un escaneo encuentra una biblioteca, para que un amigo que se enlace no encuentre un estante vacío.",
-		"default_share_scope": "Solo las bibliotecas de tus propios servicios. Una en el servidor de otra persona sigue siendo privada diga lo que diga esto: volver a compartirla gastaría tu ancho de banda en un acceso que te concedieron a ti, no a quienes se lo pasarías."
+		"default_share_note": "Se aplica a cada biblioteca de un servidor con la compartición activada, incluida una cuyos archivos esta pasarela no tiene: entonces se lee de ese servidor y se retransmite a costa de esta conexión. Lo que un par comparte con nosotros nunca se retransmite más lejos."
 	},
 	"sync": {
 		"subtitle": "Las intenciones permanentes, y lo que han hecho realmente.",
@@ -1151,7 +1153,8 @@
 			"unauthorized": "El servicio multimedia ha rechazado a la pasarela. Revisa su token.",
 			"duplicate": "Este servicio multimedia ya está registrado.",
 			"handler_unknown": "Este tipo de servicio multimedia no es compatible.",
-			"auth_unsupported": "Un par no puede iniciar la sesión de nadie; elige un servidor multimedia."
+			"auth_unsupported": "Un par no puede iniciar la sesión de nadie; elige un servidor multimedia.",
+			"peer_not_editable": "El registro de un par sigue al propio par y no se edita aquí. Su nombre, su alcance en saltos y si puede leerte están en la página de ese par."
 		},
 		"library": {
 			"not_found": "Esta biblioteca ya no existe.",
@@ -1201,9 +1204,6 @@
 		"user": {
 			"not_found": "Esta cuenta ya no existe.",
 			"last_admin": "Es el último administrador. Dale antes el rol a otra persona."
-		},
-		"share": {
-			"relay_not_agreed": "Una biblioteca que está en otra pasarela solo se puede compartir retransmitiéndola. Permite antes la retransmisión en este recurso compartido."
 		},
 		"filesystem": {
 			"path_outside_root": "Esa carpeta está fuera de los directorios que esta pasarela puede explorar.",

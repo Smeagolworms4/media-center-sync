@@ -1,7 +1,7 @@
 import { Readable } from 'node:stream';
 import {
 	ErrorKey,
-	MediaServiceScope,
+	MediaServiceMode,
 	MatchStrategy,
 	SyncState,
 	type MediaFileInfo,
@@ -25,6 +25,7 @@ import {
 	MatchingService,
 	applyOverride,
 	normalizeTitle,
+	serviceMode,
 	SettingsService,
 	type MatchCandidate,
 	type MatchProposal,
@@ -109,7 +110,7 @@ export class MediaManager {
 		const peers = new Map(services.map((service) => [service.id, service.peerId]));
 		const local = new Set(
 			services
-				.filter((service) => service.scope === MediaServiceScope.LOCAL)
+				.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
 				.map((service) => service.id),
 		);
 		const everything = await this._items.find();

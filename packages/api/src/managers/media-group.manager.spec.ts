@@ -1,6 +1,5 @@
 import {
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	SyncState,
 	type MediaFileInfo,
@@ -77,7 +76,7 @@ const service = (overrides: Partial<MediaService> = {}): MediaService =>
 		id: 'local',
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
+		filesMounted: true,
 		baseUrl: 'http://127.0.0.1:8096',
 		priority: 100,
 		peerId: null,
@@ -130,7 +129,7 @@ const build = (
 	const full: World = {
 		items: [],
 		matches: [],
-		services: [service(), service({ id: 'remote', name: 'Cabin', scope: MediaServiceScope.REMOTE, priority: 200 })],
+		services: [service(), service({ id: 'remote', name: 'Cabin', filesMounted: false, priority: 200 })],
 		peers: [],
 		threshold: 0.8,
 		...world,
@@ -279,8 +278,8 @@ describe('MediaGroupManager', () => {
 			const { manager } = build({
 				services: [
 					service(),
-					service({ id: 'remote', scope: MediaServiceScope.REMOTE, priority: 200 }),
-					service({ id: 'friend', scope: MediaServiceScope.REMOTE, priority: 300, peerId: 'peer-1' }),
+					service({ id: 'remote', filesMounted: false, priority: 200 }),
+					service({ id: 'friend', filesMounted: false, priority: 300, peerId: 'peer-1' }),
 				],
 				peers: [{ id: 'peer-1', name: 'Théo' } as Peer],
 				items: [
@@ -791,8 +790,8 @@ describe('MediaGroupManager', () => {
 				],
 				services: [
 					service(),
-					service({ id: 'remote', scope: MediaServiceScope.REMOTE }),
-					service({ id: 'friend', scope: MediaServiceScope.REMOTE }),
+					service({ id: 'remote', filesMounted: false }),
+					service({ id: 'friend', filesMounted: false }),
 				],
 				matches: [correlation({ localItemId: 'a', remoteItemId: 'b' })],
 			});

@@ -3,7 +3,6 @@ import { hostname } from 'node:os';
 import {
 	ErrorKey,
 	EventName,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	NotificationEvent,
@@ -653,11 +652,18 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	/**
 	 * The service row standing for this peer, created the first time we link.
 	 *
-	 * Registered remote, always, and the scope is not a default somebody can change
-	 * their way out of: `serviceMode` reads a service with a peer as a peer's whatever
-	 * the scope says, and the repository refuses to offer one as a destination. We
-	 * cannot write into somebody else's disk, and a transfer planned onto one would
-	 * fail at the end of a completed download.
+	 * Never shared, and that is not a default somebody can change their way out of: the
+	 * registration form does not offer the switch for a peer and `ShareManager` refuses
+	 * their libraries whatever the row says. What a friend's friend holds is going to be
+	 * reached by introducing the two ends so they connect directly — carrying the bytes
+	 * through the middle would be a second propagation stacked on the hop limit that
+	 * exists to bound the first, and a path people would depend on before the right one
+	 * lands.
+	 *
+	 * `serviceMode` reads a service with a peer as a peer's whatever else the row says,
+	 * and the repository refuses to offer one as a destination. We cannot write into
+	 * somebody else's disk, and a transfer planned onto one would fail at the end of a
+	 * completed download.
 	 *
 	 * The name follows theirs. Renaming a peer renames what it brought, because two
 	 * names for one machine on two screens is a question nobody can answer.
@@ -673,7 +679,7 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 				this._services.create({
 					name: peer.name,
 					type: MediaServiceType.PEER,
-					scope: MediaServiceScope.REMOTE,
+					shared: false,
 					baseUrl,
 					peerId: peer.id,
 					priority: PEER_SERVICE_PRIORITY,

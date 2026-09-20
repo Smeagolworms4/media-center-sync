@@ -6,7 +6,7 @@ import {
 	type SharePolicy,
 	type UpdateSharePolicyRequest,
 } from '@mcs/shared';
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
 	Library as LibraryEntity,
 	Peer as PeerEntity,
@@ -31,8 +31,10 @@ import { toSharePolicy } from './mappers';
 interface ResolvedShare {
 	library: LibraryEntity;
 	stored: SharePolicyEntity | null;
-	/** Whether the service this library sits on is one of ours to give. */
-	local: boolean;
+	/** Whether the service this library sits on has its sharing switch on. */
+	shared: boolean;
+	/** Whether the gateway holds this library's files, rather than relaying them. */
+	mounted: boolean;
 	policy: CataloguePolicy;
 }
 
@@ -41,11 +43,23 @@ interface ResolvedShare {
  *
  * One rule runs through every method and is the reason this manager exists as
  * something other than a wrapper around a table: **the absence of a policy is not a
- * state, it is a question, and `effectiveVisibility` answers it**. A library of ours
- * with no row follows the gateway's `defaultShareVisibility`; a library on anything
- * else — a Jellyfin we merely have an account on, a peer's gateway — stays private
- * whatever that setting says, because sharing it would make us the conduit for
- * somebody else's disk and a default is not the consent that takes.
+ * state, it is a question, and `effectiveVisibility` answers it**. A library on a
+ * service whose sharing switch is on follows the gateway's `defaultShareVisibility`;
+ * one on a service that is not shared stays private whatever that setting says.
+ *
+ * Whether the gateway holds the files does not enter into it, and used to. Serving a
+ * library we only reach over HTTP works — `PeerExchangeManager.content()` opens a
+ * stream against the media server and never looks for a local file — so refusing it
+ * was gating something that already worked. What it needed was somebody saying so
+ * once, and the switch on the service is where they say it.
+ *
+ * **Libraries on a peer-backed service are the exception and are never shared
+ * onward.** Not off by default: excluded here, in the manager, so that it cannot
+ * depend on a screen declining to offer a control. Reaching what a friend's friend
+ * holds is going to be an introduction between the two ends that connects them
+ * directly; carrying those bytes through the middle would be a second, independent
+ * propagation stacked on the hop limit that exists to bound the first, and a path
+ * people would come to depend on before the right one lands.
  *
  * Every read here therefore starts from the **libraries** and never from the policy
  * rows. Starting from the rows is what the previous version did, and it is precisely
@@ -81,7 +95,7 @@ export class ShareManager {
 		const resolved = await this._resolve();
 
 		return resolved.map((share) =>
-			toSharePolicy(share.library, share.stored, share.policy.visibility, share.local),
+			toSharePolicy(share.library, share.stored, share.policy.visibility),
 		);
 	}
 
@@ -100,7 +114,7 @@ export class ShareManager {
 		}
 
 		const existing = await this._policies.findByLibrary(libraryId);
-		const local = await this._isLocal(library.serviceId);
+		const shared = (await this._serviceFacts()).sharing.has(library.serviceId);
 		const settings = await this._settings.get();
 		const policy =
 			existing ??
@@ -116,58 +130,53 @@ export class ShareManager {
 				 * that was the trade. Seeding it with what was already in force makes a
 				 * partial write change exactly the fields it names.
 				 */
-				visibility: effectiveVisibility({ library, policy: null, local, settings }),
+				visibility: effectiveVisibility({ library, policy: null, shared, settings }),
 				allowedPeerIds: [],
 				deniedPeerIds: [],
 				rateLimit: 0,
-				relay: false,
 			});
 
 		policy.visibility = patch.visibility ?? policy.visibility;
 		policy.allowedPeerIds = patch.allowedPeerIds ?? policy.allowedPeerIds;
 		policy.deniedPeerIds = patch.deniedPeerIds ?? policy.deniedPeerIds;
 		policy.rateLimit = patch.rateLimit ?? policy.rateLimit;
-		policy.relay = patch.relay ?? policy.relay ?? false;
-
-		/*
-		 * A library that is not ours stays private until somebody says otherwise.
-		 *
-		 * Sharing one of our own libraries gives away our own bytes off our own disk.
-		 * Sharing a remote one makes us the conduit: our bandwidth, our connection, and
-		 * an access granted to us rather than to the people we would be handing it to.
-		 * That is a useful thing to do on purpose — it is how somebody with a good line
-		 * makes a distant server reachable for their friends — and never a thing to do
-		 * by accident, so it is refused rather than assumed.
-		 */
-		if (!local && !policy.relay && policy.visibility !== ShareVisibility.PRIVATE) {
-			throw new ConflictException(ErrorKey.SHARE_RELAY_NOT_AGREED);
-		}
 
 		const saved = await this._policies.save(policy);
 
-		return toSharePolicy(library, saved, saved.visibility, local);
+		return toSharePolicy(library, saved, saved.visibility);
 	}
 
 	/**
-	 * The services whose libraries are ours to give rather than ours to pass on.
+	 * The two facts about services this manager reads, from one pass over them.
 	 *
-	 * Read through `serviceMode` rather than off the scope column, because a service
-	 * reached through a peer carries whatever scope it was registered with while still
-	 * being somebody else's machine. Reading the column alone would let a peer's library
-	 * inherit our default and re-share a friend's disk to their friends.
+	 * `sharing` is the services whose libraries the gateway default reaches: the switch
+	 * somebody set, minus every peer-backed service. That second half is not a
+	 * duplicate of the switch's default — it is the enforcement, and it belongs here
+	 * because a rule that lives only in the registration form holds until the first
+	 * request somebody sends by hand. We do not carry a peer's bytes onward; that reach
+	 * is an introduction between the two ends, not a relay through the middle, so no
+	 * value of the switch may turn one of their libraries into something we serve.
+	 *
+	 * `mounted` is the services whose files we actually hold, and it gates nothing at
+	 * all. A shared library we do not hold is read from its media server over HTTP and
+	 * passed on, which works; this only says that doing so costs us our own line, which
+	 * is worth stating in an audit and nowhere worth refusing over.
 	 */
-	private async _localServiceIds(): Promise<Set<string>> {
+	private async _serviceFacts(): Promise<{ sharing: Set<string>; mounted: Set<string> }> {
 		const services = await this._services.find();
 
-		return new Set(
-			services
-				.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
-				.map((service) => service.id),
-		);
-	}
-
-	private async _isLocal(serviceId: string): Promise<boolean> {
-		return (await this._localServiceIds()).has(serviceId);
+		return {
+			sharing: new Set(
+				services
+					.filter((service) => service.shared && service.peerId === null)
+					.map((service) => service.id),
+			),
+			mounted: new Set(
+				services
+					.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
+					.map((service) => service.id),
+			),
+		};
 	}
 
 	/**
@@ -213,9 +222,10 @@ export class ShareManager {
 				name: share.library.name,
 				serviceName: serviceNames.get(share.library.serviceId) ?? '',
 				itemCount: share.library.itemCount,
-				// Worth saying plainly in an audit: this one costs us, and hands on an
-				// access somebody gave to us rather than to them.
-				throughUs: !share.local,
+				// Worth saying plainly in an audit: this one costs us our own line, and
+				// hands on an access somebody gave to us rather than to them. It is a
+				// fact about the share and not a refusal — saying it is the point.
+				throughUs: !share.mounted,
 			})),
 		};
 	}
@@ -272,21 +282,22 @@ export class ShareManager {
 
 		const rows = await this._policies.find();
 		const stored = new Map(rows.map((row) => [row.libraryId, row]));
-		const localServices = await this._localServiceIds();
+		const facts = await this._serviceFacts();
 		const settings = await this._settings.get();
 
 		return libraries.map((library) => {
 			const policy = stored.get(library.id) ?? null;
-			const local = localServices.has(library.serviceId);
+			const shared = facts.sharing.has(library.serviceId);
 
 			return {
 				library,
 				stored: policy,
-				local,
+				shared,
+				mounted: facts.mounted.has(library.serviceId),
 				policy: this._asCataloguePolicy(
 					library.id,
 					policy,
-					effectiveVisibility({ library, policy, local, settings }),
+					effectiveVisibility({ library, policy, shared, settings }),
 				),
 			};
 		});

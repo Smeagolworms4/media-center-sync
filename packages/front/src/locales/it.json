@@ -376,14 +376,16 @@
 			"offline": "Non risponde",
 			"unauthorized": "Rifiutato"
 		},
-		"scope": {
-			"local": "Locale — può ricevere file",
-			"remote": "Remoto — sola lettura"
+		"sharing": {
+			"on": "Condiviso",
+			"off": "Non condiviso"
 		},
 		"field": {
 			"name": "Nome",
 			"type": "Tipo",
-			"scope": "Ambito",
+			"shared": "Condividi le librerie di questo server",
+			"shared_hint": "Tutti i tuoi peer vedranno queste librerie, a livello «{level}».",
+			"shared_hint_relayed": "Tutti i tuoi peer vedranno queste librerie, a livello «{level}». Questo gateway non ha i file: vengono letti dal server e ritrasmessi da questa connessione, a spese della sua banda.",
 			"base_url": "Indirizzo",
 			"base_url_hint": "Porta compresa, ad esempio http://192.168.0.10:8096",
 			"token": "Token API",
@@ -412,18 +414,20 @@
 		"action": {
 			"probe": "Controlla",
 			"scan": "Scansione completa",
-			"refresh": "Aggiorna"
+			"refresh": "Aggiorna",
+			"open_peer": "Apri il peer"
 		},
 		"mode": {
-			"local": "Miei",
-			"remote": "Server di altri",
+			"local": "File qui",
+			"remote": "Raggiunti dalla rete",
 			"peer": "Peer"
 		},
 		"mode_hint": {
-			"local": "Il gateway può scriverci, quindi sono le uniche destinazioni possibili.",
-			"remote": "Server su cui hai un account. Sola lettura: è il disco di qualcun altro.",
+			"local": "Questo gateway raggiunge le loro cartelle su disco, quindi sono le uniche destinazioni possibili per un recupero.",
+			"remote": "Tuoi o di qualcun altro: questo gateway ci parla solo via HTTP. Può leggerli e condividerli; non può scrivere in nessuno finché qualcuno non indica le loro cartelle.",
 			"peer": "Gateway di amici. Mostrano ciò che il proprietario ha scelto di condividere, e nulla di più."
-		}
+		},
+		"peer_note": "Si configura nella sua pagina: nome, portata in salti e se può leggerti."
 	},
 	"peer": {
 		"subtitle": "Gli altri gateway a cui questo è collegato.",
@@ -652,11 +656,9 @@
 		},
 		"origin": {
 			"default": "Predefinito del gateway",
-			"default_hint": "Nessuno ha deciso per questa libreria: segue il valore predefinito del gateway. Cambia quel valore e la libreria lo segue.",
+			"default_hint": "Nessuno ha deciso per questa libreria: segue l’interruttore di condivisione del suo server e il valore predefinito del gateway dietro di esso. Cambia l’uno o l’altro e la libreria lo segue.",
 			"set": "Impostato qui",
-			"set_hint": "Qualcuno ha scelto questa regola per questa sola libreria. Il valore predefinito del gateway non la muove più.",
-			"not_ours": "Non è nostra da condividere",
-			"not_ours_hint": "Questa libreria si trova su un servizio che non è nostro e resta privata qualunque cosa dica il predefinito. Condividerla significherebbe fare da tramite per il server di qualcun altro, cosa che si accetta una libreria alla volta."
+			"set_hint": "Qualcuno ha scelto questa regola per questa sola libreria. Il valore predefinito del gateway non la muove più."
 		},
 		"audit": {
 			"title": "Cosa vedrebbe un peer",
@@ -716,10 +718,10 @@
 			"target_header": "Va in",
 			"falls_back": "Ripiega su {target}",
 			"merges": "Scegliere una destinazione archivia anche questa categoria sotto il nome di quella libreria: nella vista delle librerie le due compaiono poi come una sola categoria, non due.",
-			"merges_foreign": "Queste librerie sono sul server di qualcun altro, quindi il nome resta il loro e questa categoria continua a comparire per conto suo. Cambia solo dove finiscono i nuovi file.",
+			"merges_foreign": "Questo gateway non raggiunge le cartelle di queste librerie, quindi i loro nomi restano come sono e questa categoria continua a essere mostrata a parte. Cambia solo dove atterrano i nuovi file.",
 			"fallback_unset": "una qualunque libreria che possa accoglierlo: sopra non è impostato niente",
 			"rejected": {
-				"not_ours": "{library} su {service} non può essere proposta: è sul server di qualcun altro e questo gateway non può scriverci.",
+				"not_ours": "{library} su {service} non può essere offerta: questo gateway non raggiunge le cartelle di quel server, quindi nulla di scritto lì vi comparirebbe mai.",
 				"not_writable": "{library} su {service} non può essere proposta: questo gateway non può scrivere nella sua cartella."
 			},
 			"fixed_path_active": "In questo momento tutto finisce in {path}, qualunque cosa sia: una vecchia impostazione che scavalca l'intera pagina. Niente di quanto sopra vale finché non viene cancellata.",
@@ -792,7 +794,7 @@
 		"write_nfo_help": "Una sorgente tiene spesso i metadati nel proprio database e nulla su disco: copiare dà il file e nessuno dei dati, e il tuo server multimediale reidentifica poi l’episodio dal nome del file. Non sostituisce mai un documento che hai già.",
 		"default_share": "Condividere le nuove librerie con",
 		"default_share_help": "Vale dal momento in cui una scansione trova una libreria, così un amico che si collega non trova uno scaffale vuoto.",
-		"default_share_scope": "Solo le librerie sui tuoi servizi. Una sul server di qualcun altro resta privata qualunque cosa dica questo: ricondividerla spenderebbe la tua banda per un accesso concesso a te, non a chi lo passeresti."
+		"default_share_note": "Si applica a ogni libreria su un server con la condivisione attiva, comprese quelle di cui questo gateway non ha i file: vengono allora lette da quel server e ritrasmesse a spese di questa connessione. Ciò che un peer condivide con noi non viene mai ritrasmesso oltre."
 	},
 	"sync": {
 		"subtitle": "Intenzioni permanenti, e ciò che hanno fatto davvero.",
@@ -1151,7 +1153,8 @@
 			"unauthorized": "Il gateway è stato rifiutato da questo servizio multimediale. Controlla il suo token.",
 			"duplicate": "Questo servizio multimediale è già registrato.",
 			"handler_unknown": "Questo tipo di servizio multimediale non è supportato.",
-			"auth_unsupported": "Un peer non può autenticare nessuno; scegli invece un server multimediale."
+			"auth_unsupported": "Un peer non può autenticare nessuno; scegli invece un server multimediale.",
+			"peer_not_editable": "La registrazione di un peer segue il peer stesso e non si modifica qui. Il suo nome, la sua portata in salti e se può leggerti stanno nella pagina di quel peer."
 		},
 		"library": {
 			"not_found": "Questa libreria non esiste più.",
@@ -1201,9 +1204,6 @@
 		"user": {
 			"not_found": "Questo account non esiste più.",
 			"last_admin": "Questo è l'ultimo amministratore. Assegna prima il ruolo a qualcun altro."
-		},
-		"share": {
-			"relay_not_agreed": "Una libreria che si trova su un altro gateway può essere condivisa solo tramite relay. Consenti prima il relay su questa condivisione."
 		},
 		"filesystem": {
 			"path_outside_root": "Quella cartella è fuori dalle directory che questo gateway può esplorare.",

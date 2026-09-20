@@ -376,14 +376,16 @@
 			"offline": "Não responde",
 			"unauthorized": "Recusado"
 		},
-		"scope": {
-			"local": "Local — pode receber ficheiros",
-			"remote": "Remoto — apenas leitura"
+		"sharing": {
+			"on": "Partilhado",
+			"off": "Não partilhado"
 		},
 		"field": {
 			"name": "Nome",
 			"type": "Tipo",
-			"scope": "Âmbito",
+			"shared": "Partilhar as bibliotecas deste servidor",
+			"shared_hint": "Todos os seus pares verão estas bibliotecas, em «{level}».",
+			"shared_hint_relayed": "Todos os seus pares verão estas bibliotecas, em «{level}». Este gateway não tem os ficheiros: são lidos no servidor e retransmitidos por esta ligação, à custa da sua largura de banda.",
 			"base_url": "Endereço",
 			"base_url_hint": "Incluindo a porta, por exemplo http://192.168.0.10:8096",
 			"token": "Token de API",
@@ -412,18 +414,20 @@
 		"action": {
 			"probe": "Verificar",
 			"scan": "Análise completa",
-			"refresh": "Atualizar"
+			"refresh": "Atualizar",
+			"open_peer": "Abrir o par"
 		},
 		"mode": {
-			"local": "Meus",
-			"remote": "Servidores de outras pessoas",
+			"local": "Ficheiros aqui",
+			"remote": "Alcançados pela rede",
 			"peer": "Pares"
 		},
 		"mode_hint": {
-			"local": "A gateway pode escrever neles, por isso são os únicos destinos possíveis.",
-			"remote": "Servidores onde tem uma conta. Apenas leitura: é o disco de outra pessoa.",
+			"local": "Este gateway alcança as pastas deles no disco, por isso são os únicos destinos possíveis para uma transferência.",
+			"remote": "Seus ou de outra pessoa: este gateway só fala com eles por HTTP. Pode lê-los e partilhá-los; não pode escrever em nenhum até alguém indicar as respetivas pastas.",
 			"peer": "Gateways de amigos. Mostram o que o dono escolheu partilhar, e nada mais."
-		}
+		},
+		"peer_note": "Configura-se na sua própria página: nome, alcance em saltos e se pode ler de si."
 	},
 	"peer": {
 		"subtitle": "Os outros gateways a que este está ligado.",
@@ -652,11 +656,9 @@
 		},
 		"origin": {
 			"default": "Predefinição do gateway",
-			"default_hint": "Ninguém decidiu sobre esta biblioteca, por isso segue a predefinição do gateway. Mude essa predefinição e esta biblioteca muda com ela.",
+			"default_hint": "Ninguém decidiu sobre esta biblioteca: segue o interruptor de partilha do seu servidor e a predefinição do gateway por trás dele. Mude um ou outro e a biblioteca muda com ele.",
 			"set": "Definido aqui",
-			"set_hint": "Alguém escolheu isto só para esta biblioteca. A predefinição do gateway já não a move.",
-			"not_ours": "Não é nossa para partilhar",
-			"not_ours_hint": "Esta biblioteca está num serviço que não é nosso, por isso continua privada diga o que disser a predefinição. Partilhá-la seria retransmitir o servidor de outra pessoa, o que é aceite biblioteca a biblioteca."
+			"set_hint": "Alguém escolheu isto só para esta biblioteca. A predefinição do gateway já não a move."
 		},
 		"audit": {
 			"title": "O que um par veria",
@@ -716,10 +718,10 @@
 			"target_header": "Vai para",
 			"falls_back": "Recorre a {target}",
 			"merges": "Escolher um destino também arquiva esta categoria com o nome dessa biblioteca: na vista das bibliotecas as duas passam a aparecer como uma só categoria, e não duas.",
-			"merges_foreign": "Estas bibliotecas estão no servidor de outra pessoa, por isso o nome continua a ser delas e esta categoria continua a aparecer à parte. Só muda para onde vão os ficheiros novos.",
+			"merges_foreign": "Este gateway não alcança as pastas destas bibliotecas, por isso os nomes ficam como estão e esta categoria continua a ser mostrada à parte. Só muda onde aterram os ficheiros novos.",
 			"fallback_unset": "qualquer biblioteca que o possa receber: acima não há nada definido",
 			"rejected": {
-				"not_ours": "{library} em {service} não pode ser oferecida: está no servidor de outra pessoa e este gateway não consegue escrever lá.",
+				"not_ours": "{library} em {service} não pode ser oferecida: este gateway não alcança as pastas desse servidor, por isso nada escrito lá apareceria nela.",
 				"not_writable": "{library} em {service} não pode ser oferecida: este gateway não consegue escrever na pasta dela."
 			},
 			"fixed_path_active": "Neste momento tudo vai para {path}, seja o que for — uma definição antiga que se sobrepõe a toda esta página. Nada do que está acima se aplica enquanto não for limpa.",
@@ -792,7 +794,7 @@
 		"write_nfo_help": "Uma fonte guarda muitas vezes os metadados na sua própria base de dados e nada no disco: copiar dá o ficheiro e nenhum dos dados, e o seu servidor de média volta a identificar o episódio pelo nome do ficheiro. Nunca substitui um documento que já tenha.",
 		"default_share": "Partilhar as bibliotecas novas com",
 		"default_share_help": "Aplica-se assim que uma análise encontra uma biblioteca, para que um amigo que se ligue não encontre uma prateleira vazia.",
-		"default_share_scope": "Apenas bibliotecas nos seus próprios serviços. Uma no servidor de outra pessoa continua privada diga o que disser isto: repartilhá-la gastaria a sua largura de banda num acesso concedido a si, não a quem o passaria."
+		"default_share_note": "Aplica-se a todas as bibliotecas de um servidor com a partilha ligada — incluindo uma cujos ficheiros este gateway não tem, que é então lida nesse servidor e retransmitida à custa desta ligação. O que um par partilha connosco nunca é retransmitido mais além."
 	},
 	"sync": {
 		"subtitle": "As intenções permanentes, e o que fizeram de facto.",
@@ -1151,7 +1153,8 @@
 			"unauthorized": "O serviço multimédia recusou o gateway. Verifique o token.",
 			"duplicate": "Este serviço multimédia já está registado.",
 			"handler_unknown": "Este tipo de serviço multimédia não é suportado.",
-			"auth_unsupported": "Um par não pode iniciar a sessão de ninguém; escolha antes um servidor multimédia."
+			"auth_unsupported": "Um par não pode iniciar a sessão de ninguém; escolha antes um servidor multimédia.",
+			"peer_not_editable": "O registo de um par segue o próprio par e não se edita aqui. O nome, o alcance em saltos e se pode ler de si estão na página desse par."
 		},
 		"library": {
 			"not_found": "Esta biblioteca já não existe.",
@@ -1201,9 +1204,6 @@
 		"user": {
 			"not_found": "Esta conta já não existe.",
 			"last_admin": "Este é o último administrador. Dê a função a outra pessoa primeiro."
-		},
-		"share": {
-			"relay_not_agreed": "Uma biblioteca alojada noutro gateway só pode ser partilhada retransmitindo-a. Autorize primeiro a retransmissão nesta partilha."
 		},
 		"filesystem": {
 			"path_outside_root": "Essa pasta está fora dos diretórios que esta gateway pode percorrer.",

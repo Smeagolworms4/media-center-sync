@@ -3,7 +3,6 @@ import request from 'supertest';
 import {
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceType,
 	PeerStatus,
 	PeerTrust,
@@ -28,24 +27,29 @@ import { createTestApp, signInAs, type TestApp, type TestIdentity } from './util
  *
  * Three things are worth proving here rather than in a unit test. The first is that
  * every field `UpdateSharePolicyRequest` documents actually survives the validation
- * pipe — `relay` did not, and a policy could therefore never be given the consent the
- * manager demands, which made a remote library impossible to share at all through the
- * API that documents how to share it. The second is the relay rule itself, which only
- * reads correctly end to end: it depends on the scope of the service the library sits
- * on, which no DTO carries.
+ * pipe, and that the ones it no longer has are refused by name rather than ignored.
+ *
+ * The second is that a library whose files this gateway does not hold is shared and
+ * served like any other. That is the correction this suite exists to pin down: it used
+ * to be refused with a key naming a consent control the interface never had, while the
+ * route that serves the bytes reads the media server over HTTP and has never needed a
+ * local file.
  *
  * The third is what this gateway does about a library nobody has configured, which is
- * every library on a fresh install. That answer is assembled from a setting, a
- * service's scope and the absence of a row, and no unit test holds all three at once.
+ * every library on a fresh install. That answer is assembled from a setting, the
+ * service's sharing switch and the absence of a row, and no unit test holds all three
+ * at once.
  */
 describe('Sharing', () => {
 	let context: TestApp;
 	let admin: TestIdentity;
 	let guest: TestIdentity;
-	/** On a service of ours: our disk, our bytes, nothing to agree to. */
+	/** On a shared service whose files we hold: our disk, our bytes. */
 	let ownLibraryId: string;
-	/** On somebody else's: sharing it makes us the conduit. */
+	/** On a shared service we only reach over HTTP: served through us. */
 	let remoteLibraryId: string;
+	/** On a service whose sharing switch is off. */
+	let unsharedLibraryId: string;
 	let friendId: string;
 	let acquaintanceId: string;
 
@@ -62,7 +66,7 @@ describe('Sharing', () => {
 			services.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:51',
 			}),
 		);
@@ -71,8 +75,18 @@ describe('Sharing', () => {
 			services.create({
 				name: "A friend's Plex",
 				type: MediaServiceType.PLEX,
-				scope: MediaServiceScope.REMOTE,
+				filesMounted: false,
 				baseUrl: 'http://127.0.0.1:52',
+			}),
+		);
+
+		const hidden = await services.save(
+			services.create({
+				name: 'The one nobody shares',
+				type: MediaServiceType.JELLYFIN,
+				shared: false,
+				filesMounted: true,
+				baseUrl: 'http://127.0.0.1:53',
 			}),
 		);
 
@@ -98,6 +112,19 @@ describe('Sharing', () => {
 					kind: LibraryKind.MOVIES,
 					paths: ['/srv/films'],
 					itemCount: 4,
+				}),
+			)
+		).id;
+
+		unsharedLibraryId = (
+			await libraries.save(
+				libraries.create({
+					serviceId: hidden.id,
+					externalId: 'lib-private',
+					name: 'Home videos',
+					kind: LibraryKind.OTHER,
+					paths: ['/media/home'],
+					itemCount: 3,
 				}),
 			)
 		).id;
@@ -163,9 +190,6 @@ describe('Sharing', () => {
 				allowedPeerIds: [],
 				deniedPeerIds: [],
 				rateLimit: 0,
-				// Ours to give: sharing it costs nobody an access they were not given.
-				relays: false,
-				relay: false,
 			});
 		});
 
@@ -205,20 +229,6 @@ describe('Sharing', () => {
 			expect((await stored(ownLibraryId))?.rateLimit).toBe(1_048_576);
 		});
 
-		it('accepts `relay`, the consent without which a remote library cannot be shared', async () => {
-			// `UpdateSharePolicyRequest` has carried `relay` since the rule was added and
-			// the manager reads it; the DTO did not declare it, so the whitelist answered
-			// `400 property relay should not exist` and the only way to agree to relaying
-			// was to write the row by hand.
-			await put(ownLibraryId, { relay: true }).expect(200);
-
-			expect((await stored(ownLibraryId))?.relay).toBe(true);
-
-			await put(ownLibraryId, { relay: false }).expect(200);
-
-			expect((await stored(ownLibraryId))?.relay).toBe(false);
-		});
-
 		it('leaves every field the request did not name alone', async () => {
 			await put(ownLibraryId, {
 				visibility: ShareVisibility.FRIENDS,
@@ -237,18 +247,27 @@ describe('Sharing', () => {
 			expect(after?.visibility).toBe(before?.visibility);
 			expect(after?.allowedPeerIds).toEqual(before?.allowedPeerIds);
 			expect(after?.deniedPeerIds).toEqual(before?.deniedPeerIds);
-			expect(after?.relay).toBe(before?.relay);
 		});
 
-		it('says plainly whether a policy makes us a relay, in the list as well as on the write', async () => {
-			// `relays` is a fact about the library, not a setting: it is the difference
-			// between serving our own disk and passing on somebody else's server, and a
-			// list that reported every library as a relay would make the flag useless on
-			// the one screen that shows them all.
-			await put(remoteLibraryId, { visibility: ShareVisibility.PRIVATE }).expect(200);
+		it('leaves a library on a service nobody shares private, and lets it be overridden', async () => {
+			// The switch is the default and the row is the exception, in both directions:
+			// one library of an otherwise private service can still be offered by name.
+			expect(await stored(unsharedLibraryId)).toMatchObject({
+				visibility: ShareVisibility.PRIVATE,
+				overridden: false,
+			});
 
-			expect((await stored(ownLibraryId))?.relays).toBe(false);
-			expect((await stored(remoteLibraryId))?.relays).toBe(true);
+			await put(unsharedLibraryId, { visibility: ShareVisibility.FRIENDS }).expect(200);
+
+			expect(await stored(unsharedLibraryId)).toMatchObject({
+				visibility: ShareVisibility.FRIENDS,
+				overridden: true,
+			});
+
+			await request(context.app.getHttpServer())
+				.delete(`/api/shares/${unsharedLibraryId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(204);
 		});
 
 		it('refuses a library nobody holds', async () => {
@@ -272,66 +291,58 @@ describe('Sharing', () => {
 		});
 	});
 
-	describe('relay consent', () => {
+	describe('a library whose files this gateway does not hold', () => {
 		beforeEach(async () => {
-			// Back to private before each case: the rule is about what a change to
-			// visibility is allowed to do, so the starting point has to be the same one.
 			await request(context.app.getHttpServer())
 				.delete(`/api/shares/${remoteLibraryId}`)
 				.set('Authorization', `Bearer ${admin.token}`)
 				.expect(204);
 		});
 
-		it('refuses to share a library that is not ours without the agreement', async () => {
+		it('is shared like any other, with no second agreement to give', async () => {
+			// It used to answer 409 `error.share.relay_not_agreed` and point at a consent
+			// control that existed nowhere in the interface. Serving these bytes was
+			// already solved — the content route opens a stream against the media server
+			// and never looks for a local file — so the refusal guarded nothing.
 			const response = await put(remoteLibraryId, {
 				visibility: ShareVisibility.FRIENDS,
-			}).expect(409);
+			}).expect(200);
 
-			expect(response.body).toMatchObject({ message: 'error.share.relay_not_agreed' });
-		});
-
-		it('refuses it for friends of friends too, which is the wider of the two', async () => {
-			const response = await put(remoteLibraryId, {
-				visibility: ShareVisibility.FRIENDS_OF_FRIENDS,
-			}).expect(409);
-
-			expect(response.body).toMatchObject({ message: 'error.share.relay_not_agreed' });
-		});
-
-		it('allows it once somebody has said so out loud', async () => {
-			const response = await put(remoteLibraryId, {
+			expect(response.body as SharePolicy).toMatchObject({
 				visibility: ShareVisibility.FRIENDS,
-				relay: true,
-			}).expect(200);
-
-			expect(response.body as SharePolicy).toMatchObject({ relays: true, relay: true });
+				overridden: true,
+			});
 		});
 
-		it('allows a private policy on a remote library, because private relays nothing', async () => {
-			const response = await put(remoteLibraryId, {
-				visibility: ShareVisibility.PRIVATE,
-			}).expect(200);
-
-			expect(response.body as SharePolicy).toMatchObject({ relays: true, relay: false });
-		});
-
-		it('refuses withdrawing the agreement while the library is still shared', async () => {
+		it('is shared to friends of friends too, which is the wider of the two', async () => {
 			await put(remoteLibraryId, {
-				visibility: ShareVisibility.FRIENDS,
-				relay: true,
+				visibility: ShareVisibility.FRIENDS_OF_FRIENDS,
 			}).expect(200);
 
-			const response = await put(remoteLibraryId, { relay: false }).expect(409);
-
-			expect(response.body).toMatchObject({ message: 'error.share.relay_not_agreed' });
-			// And nothing was written: a refused change must not half apply.
-			expect((await stored(remoteLibraryId))?.relay).toBe(true);
+			expect((await stored(remoteLibraryId))?.visibility).toBe(
+				ShareVisibility.FRIENDS_OF_FRIENDS,
+			);
 		});
 
-		it('never asks it of one of our own libraries', async () => {
-			await put(ownLibraryId, { visibility: ShareVisibility.FRIENDS_OF_FRIENDS }).expect(200);
+		it('is said in the audit to be served through us, which is the honest warning', async () => {
+			await put(remoteLibraryId, { visibility: ShareVisibility.FRIENDS }).expect(200);
 
-			expect((await stored(ownLibraryId))?.relay).toBe(false);
+			const response = await request(context.app.getHttpServer())
+				.get(`/api/shares/audit/${friendId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+			const audit = response.body as ShareAudit;
+
+			expect(
+				audit.libraries.find((entry) => entry.libraryId === remoteLibraryId),
+			).toMatchObject({ throughUs: true });
+		});
+
+		it('refuses a `relay` field, which is a property the API no longer has', async () => {
+			// The whitelist answering 400 here is the point: a caller still sending the
+			// old consent is told the field is gone rather than having it silently
+			// ignored while they believe they turned something on.
+			await put(remoteLibraryId, { relay: true }).expect(400);
 		});
 	});
 
@@ -379,7 +390,6 @@ describe('Sharing', () => {
 			}).expect(200);
 			await put(remoteLibraryId, {
 				visibility: ShareVisibility.FRIENDS_OF_FRIENDS,
-				relay: true,
 			}).expect(200);
 		});
 
@@ -439,8 +449,10 @@ describe('Sharing', () => {
 	describe('a library nobody has configured', () => {
 		let freshOwnLibraryId: string;
 		let freshRemoteLibraryId: string;
+		let freshHiddenLibraryId: string;
 		let ownItemId: string;
 		let remoteItemId: string;
+		let hiddenItemId: string;
 		let friendCredential: string;
 
 		beforeAll(async () => {
@@ -450,8 +462,9 @@ describe('Sharing', () => {
 			const peers = context.app.get(PeerRepository);
 			const links = context.app.get(PeerLinkService);
 
-			const [ours] = await services.find({ where: { scope: MediaServiceScope.LOCAL } });
-			const [theirs] = await services.find({ where: { scope: MediaServiceScope.REMOTE } });
+			const [ours] = await services.find({ where: { shared: true, filesMounted: true } });
+			const [theirs] = await services.find({ where: { shared: true, filesMounted: false } });
+			const [hidden] = await services.find({ where: { shared: false } });
 
 			const scan = async (serviceId: string, name: string): Promise<{ libraryId: string; itemId: string }> => {
 				const library = await libraries.save(
@@ -481,11 +494,14 @@ describe('Sharing', () => {
 
 			const own = await scan(ours.id, 'just-scanned-here');
 			const remote = await scan(theirs.id, 'just-scanned-there');
+			const hiddenScan = await scan(hidden.id, 'just-scanned-unshared');
 
 			freshOwnLibraryId = own.libraryId;
 			ownItemId = own.itemId;
 			freshRemoteLibraryId = remote.libraryId;
 			remoteItemId = remote.itemId;
+			freshHiddenLibraryId = hiddenScan.libraryId;
+			hiddenItemId = hiddenScan.itemId;
 
 			// A peer that can really prove itself, so this goes through the guard's
 			// cryptography rather than around it.
@@ -528,30 +544,41 @@ describe('Sharing', () => {
 			expect(await stored(freshOwnLibraryId)).toMatchObject({ overridden: false, id: '' });
 		});
 
-		it('is not served when it sits on a service that is not ours', async () => {
-			// Sharing it would make us the conduit for somebody else's disk — our
-			// bandwidth, and an access granted to us rather than to the peer we would be
-			// handing it to. That is the relay consent, and a default is not consent.
+		it('is served just the same when the gateway does not hold its files', async () => {
+			// The case the old rule refused. We serve it by reading the media server over
+			// HTTP and passing the bytes on, which costs us our line and nothing else —
+			// and somebody turning the service's switch on has already said so.
 			const entries = await catalogue();
 
-			expect(entries.map((entry) => entry.externalId)).not.toContain(remoteItemId);
+			expect(entries.map((entry) => entry.externalId)).toContain(remoteItemId);
+		});
+
+		it('is not served when its service is one nobody shares', async () => {
+			const entries = await catalogue();
+
+			expect(entries.map((entry) => entry.externalId)).not.toContain(hiddenItemId);
 		});
 
 		it('is listed on the shares route, said to be following the default', async () => {
 			const own = await stored(freshOwnLibraryId);
 			const remote = await stored(freshRemoteLibraryId);
+			const hidden = await stored(freshHiddenLibraryId);
 
 			expect(own).toMatchObject({
 				libraryId: freshOwnLibraryId,
 				visibility: DEFAULT_SETTINGS.defaultShareVisibility,
 				overridden: false,
-				relays: false,
 			});
+			// The mount changes nothing about the level: both of these follow the switch.
 			expect(remote).toMatchObject({
 				libraryId: freshRemoteLibraryId,
+				visibility: DEFAULT_SETTINGS.defaultShareVisibility,
+				overridden: false,
+			});
+			expect(hidden).toMatchObject({
+				libraryId: freshHiddenLibraryId,
 				visibility: ShareVisibility.PRIVATE,
 				overridden: false,
-				relays: true,
 			});
 		});
 
@@ -563,7 +590,8 @@ describe('Sharing', () => {
 			const seen = (response.body as ShareAudit).libraries.map((library) => library.libraryId);
 
 			expect(seen).toContain(freshOwnLibraryId);
-			expect(seen).not.toContain(freshRemoteLibraryId);
+			expect(seen).toContain(freshRemoteLibraryId);
+			expect(seen).not.toContain(freshHiddenLibraryId);
 		});
 
 		it('stops following the default the moment somebody writes private on it', async () => {

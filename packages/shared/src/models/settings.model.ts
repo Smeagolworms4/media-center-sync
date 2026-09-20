@@ -209,11 +209,17 @@ export interface Settings {
 	 * shelf and conclude the link failed. The default is therefore a real level, not
 	 * silence.
 	 *
-	 * **It applies only to libraries on our own services.** A library on a remote
-	 * Jellyfin or Plex stays private whatever this says, because sharing one of those
-	 * makes us the conduit for it — our bandwidth, and an access granted to us rather
-	 * than to the people we would be handing it to. That is consent
-	 * (`SharePolicy.relay`), and a default is not consent.
+	 * **It applies to every library on a service whose sharing switch is on**, whether
+	 * or not this gateway holds the files. Sharing a service we only reach over HTTP
+	 * means our friends pull through us, and that is what turning the switch on says:
+	 * the switch is the consent, and this setting is only the level it grants. The two
+	 * used to be conflated — the default reached our own disks and nothing else, and a
+	 * separate per-library agreement had to be given for anything else — which left the
+	 * commonest case, a perfectly ordinary Jellyfin nobody had mapped folders for,
+	 * silently private with the fix on a screen that had no control for it.
+	 *
+	 * Libraries reached through a linked peer are the one exception and are never
+	 * shared onward, whatever this says. See `ShareManager`.
 	 */
 	defaultShareVisibility: ShareVisibility;
 

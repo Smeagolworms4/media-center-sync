@@ -1,4 +1,4 @@
-import { ErrorKey, MediaServiceScope, PeerTrust, ShareVisibility } from '@mcs/shared';
+import { ErrorKey, PeerTrust, ShareVisibility } from '@mcs/shared';
 import type { Library, Peer, SharePolicy } from '@/entities';
 import type {
 	LibraryRepository,
@@ -70,7 +70,7 @@ const build = (): { manager: ShareManager; fakes: Fakes } => {
 		peers: { findOne: jest.fn().mockResolvedValue(peer()) },
 		services: {
 			find: jest.fn().mockResolvedValue([
-				{ id: 'service-1', name: 'Living room', scope: MediaServiceScope.LOCAL, peerId: null },
+				{ id: 'service-1', name: 'Living room', shared: true, filesMounted: true, peerId: null },
 			]),
 		},
 		settings: {
@@ -169,29 +169,42 @@ describe('ShareManager', () => {
 			await expect(manager.visiblePolicies(peer())).resolves.toEqual([]);
 		});
 
-		it('stays private on a service that is not ours, whatever the default says', async () => {
-			// Sharing it would make us the conduit for somebody else's disk: our
-			// bandwidth, and an access granted to us rather than to our friends. That is
-			// the relay consent, and a default is not consent.
+		it('stays private on a service nobody switched on, whatever the default says', async () => {
 			const { manager, fakes } = build();
 
 			fakes.services.find.mockResolvedValue([
-				{ id: 'service-1', scope: MediaServiceScope.REMOTE, peerId: null },
+				{ id: 'service-1', shared: false, filesMounted: true, peerId: null },
 			]);
 
 			await expect(manager.visiblePolicies(peer())).resolves.toEqual([]);
 			await expect(manager.list()).resolves.toMatchObject([
-				{ visibility: ShareVisibility.PRIVATE, overridden: false, relays: true },
+				{ visibility: ShareVisibility.PRIVATE, overridden: false },
 			]);
 		});
 
-		it("stays private on a peer's service, whatever scope that service was given", async () => {
-			// A service reached through a peer is somebody else's machine however its
-			// scope column reads, so the default must not reach it either.
+		it('follows the default on a shared service whose files we do not hold', async () => {
+			// The whole point of the switch. Serving these bytes means reading the media
+			// server over HTTP and passing them on, which works — the old rule refused it
+			// and left the commonest case of all silently private.
 			const { manager, fakes } = build();
 
 			fakes.services.find.mockResolvedValue([
-				{ id: 'service-1', scope: MediaServiceScope.LOCAL, peerId: 'peer-9' },
+				{ id: 'service-1', shared: true, filesMounted: false, peerId: null },
+			]);
+
+			await expect(manager.visiblePolicies(peer())).resolves.toMatchObject([
+				{ libraryId: 'library-1', visibility: ShareVisibility.FRIENDS_OF_FRIENDS },
+			]);
+		});
+
+		it("stays private on a peer's service, however that row reads", async () => {
+			// Never relayed, and not merely off by default: what a friend's friend holds
+			// is reached by introducing the two ends, not by carrying their bytes through
+			// the middle. So the manager refuses it rather than trusting the switch.
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', shared: true, filesMounted: true, peerId: 'peer-9' },
 			]);
 
 			await expect(manager.visiblePolicies(peer())).resolves.toEqual([]);
@@ -374,53 +387,41 @@ describe('ShareManager', () => {
 		});
 	});
 
-	describe('relaying a library that is not ours', () => {
-		it('refuses to share a remote library until somebody agrees to relay it', async () => {
-			// Sharing one of our own libraries gives away our own bytes off our own disk.
-			// Sharing a remote one makes us the conduit: our bandwidth, and an access
-			// granted to us rather than to the people we would be handing it to.
+	describe('sharing a library whose files we do not hold', () => {
+		it('saves it like any other, because serving it is a solved problem', async () => {
+			// It used to be refused with `SHARE_RELAY_NOT_AGREED`, pointing at a consent
+			// control that was never built. `PeerExchangeManager.content()` opens a
+			// stream against the media server and never looks for a local file, so there
+			// was nothing behind the refusal but a second place to say yes.
 			const { manager, fakes } = build();
 
-			fakes.services.find.mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.REMOTE }]);
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', shared: true, filesMounted: false, peerId: null },
+			]);
 
 			await expect(
 				manager.put('library-1', { visibility: ShareVisibility.FRIENDS }),
-			).rejects.toThrow(ErrorKey.SHARE_RELAY_NOT_AGREED);
+			).resolves.toMatchObject({ visibility: ShareVisibility.FRIENDS, overridden: true });
 		});
 
-		it('allows it once somebody has said so', async () => {
+		it('says in an audit that this one is served through us', async () => {
 			const { manager, fakes } = build();
 
-			fakes.services.find.mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.REMOTE }]);
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Living room', shared: true, filesMounted: false, peerId: null },
+			]);
 
-			const saved = await manager.put('library-1', {
-				visibility: ShareVisibility.FRIENDS,
-				relay: true,
-			});
+			const audit = await manager.audit('peer-1');
 
-			expect(saved).toMatchObject({ relay: true, relays: true });
+			expect(audit.libraries).toMatchObject([{ libraryId: 'library-1', throughUs: true }]);
 		});
 
-		it('leaves a remote library private without any agreement', async () => {
-			// Private is not sharing, so there is nothing to agree to and nothing to
-			// refuse — somebody setting a rate limit on a library they have not shared
-			// should not be told about relays.
-			const { manager, fakes } = build();
-
-			fakes.services.find.mockResolvedValue([{ id: 'service-1', scope: MediaServiceScope.REMOTE }]);
-
-			await expect(manager.put('library-1', { rateLimit: 1024 })).resolves.toMatchObject({
-				relays: true,
-				relay: false,
-			});
-		});
-
-		it('says a library of ours is ours to give', async () => {
+		it('says nothing of the sort about a library we hold', async () => {
 			const { manager } = build();
 
-			await expect(
-				manager.put('library-1', { visibility: ShareVisibility.FRIENDS }),
-			).resolves.toMatchObject({ relays: false });
+			const audit = await manager.audit('peer-1');
+
+			expect(audit.libraries).toMatchObject([{ libraryId: 'library-1', throughUs: false }]);
 		});
 	});
 

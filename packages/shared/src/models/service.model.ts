@@ -27,33 +27,27 @@ export enum MediaServiceType {
 }
 
 /**
- * Where the service sits.
- *
- * LOCAL is a service whose files the gateway can write to: pulled media lands in
- * its libraries. REMOTE is a service we can only read from — somebody else's, or
- * one of ours we do not want to write into. There can be several of each.
- */
-export enum MediaServiceScope {
-	LOCAL = 'local',
-	REMOTE = 'remote',
-}
-
-/**
  * The three kinds of thing this gateway talks to.
  *
- * Scope and peer are two fields and this is the one question people ask, so it is
- * named rather than left to be inferred. They are genuinely different, not shades of
- * one idea:
+ * Read, never declared. It used to be read off a field somebody chose in the
+ * registration form, labelled "scope" with the values `local` and `remote` — which
+ * every reader took for a statement about the network, because that is what those
+ * words mean everywhere else. Somebody registering the Jellyfin sitting on their own
+ * LAN answered `remote` for a distant service and `local` for a nearby one, and three
+ * screens later found their libraries private and their server refused as a
+ * destination, with nothing connecting either consequence to the word they had picked.
+ * So the question is no longer asked: whether the files are reachable is a fact about
+ * the mounts, and facts are derived.
  *
  * - a **peer** is another gateway running this application. It speaks our own
  *   protocol, so exchanges can be swarmed between several peers holding the same file,
  *   and what it shows us is what its owner chose to share.
- * - a **local** media server is one whose library folders this gateway can write into.
- *   Pulled files land on a disk we can reach, which is the only arrangement where a
- *   sync finishes with the media server seeing the result.
- * - a **remote** media server is a plain Jellyfin or Plex we merely have an account
- *   on. We read from it and pull over HTTP; nothing about it knows this application
- *   exists.
+ * - a **local** media server is one whose library folders this gateway can reach on
+ *   disk. Pulled files land somewhere the media server will actually scan, which is
+ *   the only arrangement where a sync finishes with it seeing the result.
+ * - a **remote** media server is a Jellyfin or Plex we only talk to over HTTP —
+ *   somebody else's, or our own before anybody has mapped its folders. We can read it
+ *   and serve it on; we cannot write into it.
  *
  * Nothing stops a gateway holding several of each, and the useful arrangements mix
  * them: your own server, a friend's gateway, and a distant Jellyfin somebody gave you
@@ -76,16 +70,38 @@ export interface MediaService {
 	id: string;
 	name: string;
 	type: MediaServiceType;
-	scope: MediaServiceScope;
+	/**
+	 * Whether this service's libraries are offered to peers.
+	 *
+	 * The one thing about sharing somebody declares. It carries no visibility of its
+	 * own: on means the gateway's `defaultShareVisibility` applies to every library
+	 * here that nobody has overridden, off means private. Keeping it a switch rather
+	 * than a level is what lets somebody change that setting later and have every
+	 * library nobody touched move with it — a copy of today's value written onto each
+	 * service would freeze the answer and quietly make the setting mean nothing.
+	 *
+	 * A per-library policy still wins in both directions, including an explicit
+	 * private on a service that is shared.
+	 */
+	shared: boolean;
+	/**
+	 * Whether this gateway reaches this service's files on disk.
+	 *
+	 * Derived from the mounts and never declared — see `mode`. It is what decides
+	 * whether the service can be a destination, and it is false for a perfectly
+	 * healthy server we simply talk to over HTTP.
+	 */
+	filesMounted: boolean;
 	baseUrl: string;
 	status: MediaServiceStatus;
 	/** Free-form version string reported by the service. */
 	version: string | null;
 	/**
-	 * Which of the three kinds this is, derived from the scope and the peer.
+	 * Which of the three kinds this is, derived from the mounts and the peer.
 	 *
-	 * Read-only: registering decides it. A service reached through a peer is a peer's
-	 * whatever its scope says, because we cannot write into somebody else's disk.
+	 * Read-only, and deliberately not something the registration form asks: a service
+	 * reached through a peer is a peer's, one whose folders we reach is local, and
+	 * everything else is remote.
 	 */
 	mode: MediaServiceMode;
 	/**
@@ -102,8 +118,10 @@ export interface MediaService {
 	 * both are null when nobody has said, and a library's explicit `localPath` always
 	 * wins over anything derived, because the exception is why that field exists.
 	 *
-	 * Only meaningful for a service whose files we can actually reach: a remote
-	 * Jellyfin we merely have an account on has no directory of ours behind it.
+	 * Setting this mapping is also what makes the service ours: `filesMounted` and
+	 * therefore `mode` are re-derived the moment it lands, so a service registered
+	 * before anybody mapped its folders becomes a destination without being
+	 * re-registered.
 	 */
 	remoteRoot: string | null;
 	localRoot: string | null;
@@ -127,7 +145,15 @@ export interface MediaService {
 export interface CreateMediaServiceRequest {
 	name: string;
 	type: MediaServiceType;
-	scope: MediaServiceScope;
+	/**
+	 * Share this service's libraries. Omitted means yes.
+	 *
+	 * The same reasoning as `defaultShareVisibility` shipping as a real level rather
+	 * than silence: a gateway that shares nothing until somebody has visited a second
+	 * screen shows its friends an empty shelf, and they conclude the link failed.
+	 * Linking a peer passes false explicitly — see `MediaServiceType.PEER`.
+	 */
+	shared?: boolean;
 	baseUrl: string;
 	/** API key or token. Write-only: it is never returned by the API. */
 	token?: string;

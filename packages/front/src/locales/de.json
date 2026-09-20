@@ -376,14 +376,16 @@
 			"offline": "Antwortet nicht",
 			"unauthorized": "Abgewiesen"
 		},
-		"scope": {
-			"local": "Lokal — kann Dateien empfangen",
-			"remote": "Entfernt — nur lesend"
+		"sharing": {
+			"on": "Geteilt",
+			"off": "Nicht geteilt"
 		},
 		"field": {
 			"name": "Name",
 			"type": "Art",
-			"scope": "Bereich",
+			"shared": "Bibliotheken dieses Servers teilen",
+			"shared_hint": "Alle Peers sehen diese Bibliotheken, auf der Stufe „{level}“.",
+			"shared_hint_relayed": "Alle Peers sehen diese Bibliotheken, auf der Stufe „{level}“. Dieses Gateway hat die Dateien nicht: Sie werden vom Server gelesen und über diese Verbindung weitergereicht, auf Kosten ihrer Bandbreite.",
 			"base_url": "Adresse",
 			"base_url_hint": "Mit Port, etwa http://192.168.0.10:8096",
 			"token": "API-Token",
@@ -412,18 +414,20 @@
 		"action": {
 			"probe": "Prüfen",
 			"scan": "Vollständiger Scan",
-			"refresh": "Aktualisieren"
+			"refresh": "Aktualisieren",
+			"open_peer": "Peer öffnen"
 		},
 		"mode": {
-			"local": "Meine",
-			"remote": "Server anderer",
+			"local": "Dateien hier",
+			"remote": "Nur über das Netz erreicht",
 			"peer": "Peers"
 		},
 		"mode_hint": {
-			"local": "Das Gateway kann hier schreiben, daher sind dies die einzigen möglichen Ziele.",
-			"remote": "Server, auf denen Sie ein Konto haben. Nur lesend: es ist die Festplatte eines anderen.",
+			"local": "Dieses Gateway erreicht ihre Ordner auf der Platte, deshalb sind sie die einzig möglichen Ziele für einen Abruf.",
+			"remote": "Ihre eigenen oder die anderer — dieses Gateway spricht mit ihnen nur über HTTP. Es kann sie lesen und weitergeben; schreiben kann es in keinen, solange niemand ihre Ordner zugeordnet hat.",
 			"peer": "Gateways von Freunden. Sie zeigen, was ihr Besitzer freigegeben hat, und nicht mehr."
-		}
+		},
+		"peer_note": "Wird auf seiner eigenen Seite eingestellt: Name, Sprungreichweite und ob er bei Ihnen lesen darf."
 	},
 	"peer": {
 		"subtitle": "Die anderen Gateways, mit denen dieses verbunden ist.",
@@ -652,11 +656,9 @@
 		},
 		"origin": {
 			"default": "Gateway-Standard",
-			"default_hint": "Über diese Bibliothek hat niemand entschieden, sie folgt dem Standard des Gateways. Ändert sich der Standard, ändert sie sich mit.",
+			"default_hint": "Über diese Bibliothek hat niemand entschieden: Sie folgt dem Freigabeschalter ihres Servers und dem Gateway-Standard dahinter. Ändert sich eines von beiden, ändert sie sich mit.",
 			"set": "Hier festgelegt",
-			"set_hint": "Jemand hat das für diese eine Bibliothek gewählt. Der Standard des Gateways bewegt sie nicht mehr.",
-			"not_ours": "Nicht unsere zum Teilen",
-			"not_ours_hint": "Diese Bibliothek liegt auf einem Dienst, der nicht uns gehört, und bleibt privat, was der Standard auch sagt. Sie zu teilen hieße, den Server eines anderen weiterzureichen — dem wird Bibliothek für Bibliothek zugestimmt."
+			"set_hint": "Jemand hat das für diese eine Bibliothek gewählt. Der Standard des Gateways bewegt sie nicht mehr."
 		},
 		"audit": {
 			"title": "Was ein Peer sehen würde",
@@ -716,10 +718,10 @@
 			"target_header": "Geht nach",
 			"falls_back": "Fällt zurück auf {target}",
 			"merges": "Ein Ziel zu wählen ordnet diese Kategorie auch dem Namen dieser Bibliothek zu: In der Bibliotheksansicht erscheinen beide danach als eine Kategorie und nicht als zwei.",
-			"merges_foreign": "Diese Bibliotheken liegen auf dem Server von jemand anderem, also behalten sie ihren Namen und diese Kategorie wird weiterhin für sich angezeigt. Es ändert sich nur, wohin neue Dateien gelangen.",
+			"merges_foreign": "Dieses Gateway erreicht die Ordner dieser Bibliotheken nicht, deshalb bleiben ihre Namen wie sie sind und diese Kategorie wird weiterhin für sich angezeigt. Nur wo neue Dateien landen, ändert sich.",
 			"fallback_unset": "irgendeine Bibliothek, die sie aufnehmen kann — oben ist nichts eingestellt",
 			"rejected": {
-				"not_ours": "{library} auf {service} kann nicht angeboten werden: Sie liegt auf dem Server einer anderen Person, und dieses Gateway kann dort nicht schreiben.",
+				"not_ours": "{library} auf {service} kann nicht angeboten werden: Dieses Gateway erreicht die Ordner dieses Servers nicht, dort Geschriebenes würde nie darin auftauchen.",
 				"not_writable": "{library} auf {service} kann nicht angeboten werden: Dieses Gateway kann nicht in ihren Ordner schreiben."
 			},
 			"fixed_path_active": "Derzeit geht alles nach {path}, ganz gleich was es ist — eine alte Einstellung, die diese ganze Seite übergeht. Nichts von oben gilt, solange sie nicht gelöscht ist.",
@@ -792,7 +794,7 @@
 		"write_nfo_help": "Eine Quelle hält ihre Metadaten oft in der eigenen Datenbank und nichts auf der Festplatte: Kopieren liefert die Datei und keine der Angaben, und Ihr Medienserver identifiziert die Folge dann anhand des Dateinamens neu. Ersetzt nie ein Dokument, das Sie bereits haben.",
 		"default_share": "Neue Bibliotheken teilen mit",
 		"default_share_help": "Gilt, sobald ein Scan eine Bibliothek findet, damit ein Freund, der sich verbindet, nicht auf ein leeres Regal stößt.",
-		"default_share_scope": "Nur Bibliotheken auf Ihren eigenen Diensten. Eine auf dem Server eines anderen bleibt privat, was hier auch steht — sie weiterzugeben würde Ihre Bandbreite für einen Zugang ausgeben, der Ihnen gewährt wurde, nicht denen, an die Sie ihn weitergäben."
+		"default_share_note": "Gilt für jede Bibliothek auf einem Server, dessen Freigabe eingeschaltet ist — auch für eine, deren Dateien dieses Gateway nicht hat: Sie wird dann von jenem Server gelesen und auf Kosten dieser Verbindung weitergereicht. Was ein Peer mit uns teilt, wird niemals weitergereicht."
 	},
 	"sync": {
 		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",
@@ -1151,7 +1153,8 @@
 			"unauthorized": "Dieser Mediendienst hat das Gateway abgewiesen. Prüfen Sie den Token.",
 			"duplicate": "Dieser Mediendienst ist bereits registriert.",
 			"handler_unknown": "Diese Art von Mediendienst wird nicht unterstützt.",
-			"auth_unsupported": "Ein Peer kann niemanden anmelden; wählen Sie stattdessen einen Medienserver."
+			"auth_unsupported": "Ein Peer kann niemanden anmelden; wählen Sie stattdessen einen Medienserver.",
+			"peer_not_editable": "Die Registrierung eines Peers folgt dem Peer selbst und lässt sich hier nicht bearbeiten. Sein Name, seine Sprungreichweite und ob er bei Ihnen lesen darf, stehen auf der Seite dieses Peers."
 		},
 		"library": {
 			"not_found": "Diese Bibliothek gibt es nicht mehr.",
@@ -1201,9 +1204,6 @@
 		"user": {
 			"not_found": "Dieses Konto gibt es nicht mehr.",
 			"last_admin": "Das ist der letzte Administrator. Geben Sie die Rolle zuerst jemand anderem."
-		},
-		"share": {
-			"relay_not_agreed": "Eine Bibliothek, die auf einem anderen Gateway liegt, kann nur über ein Relay geteilt werden. Erlauben Sie zuerst das Relay für diese Freigabe."
 		},
 		"filesystem": {
 			"path_outside_root": "Dieser Ordner liegt außerhalb der Verzeichnisse, die dieses Gateway durchsuchen darf.",

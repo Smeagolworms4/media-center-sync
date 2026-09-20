@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import request from 'supertest';
 import {
 	LibraryKind,
-	MediaServiceScope,
 	MediaServiceType,
 	NamingScheme,
 	PlacementStrategy,
@@ -322,7 +321,7 @@ describe('PATCH /api/settings — a destination that also names the category', (
 			services.create({
 				name: 'Jellyfin (local)',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:51',
 			}),
 		);
@@ -331,7 +330,7 @@ describe('PATCH /api/settings — a destination that also names the category', (
 			services.create({
 				name: 'Plex (mine)',
 				type: MediaServiceType.PLEX,
-				scope: MediaServiceScope.LOCAL,
+				filesMounted: true,
 				baseUrl: 'http://127.0.0.1:52',
 			}),
 		);
@@ -343,7 +342,7 @@ describe('PATCH /api/settings — a destination that also names the category', (
 			services.create({
 				name: 'Jellyfin (a friend)',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.REMOTE,
+				filesMounted: false,
 				baseUrl: 'http://127.0.0.1:53',
 			}),
 		);

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, IsNull, Repository } from 'typeorm';
-import { MediaServiceScope, MediaServiceStatus } from '@mcs/shared';
+import { MediaServiceStatus } from '@mcs/shared';
 import { MediaService } from '@/entities';
 
 @Injectable()
@@ -12,25 +12,29 @@ export class MediaServiceRepository extends Repository<MediaService> {
 	/**
 	 * The services whose libraries the gateway can write into.
 	 *
-	 * A peer is excluded whatever its scope reads, and this is the enforcement of the
-	 * rule `serviceMode` states: the files are on somebody else's disk, so a
-	 * peer-backed row can never be a destination. This is the read every caller uses to
-	 * decide where a transfer lands, which makes it the right place to make that
-	 * impossible rather than merely unlikely — a row that arrived as local, by a bug or
-	 * by somebody's hand on the database, would otherwise be planned onto a path that
-	 * does not exist here, and the failure would arrive at the end of a completed
-	 * download.
+	 * `filesMounted` and not a declared field, because a destination has to be a path
+	 * the media server actually scans: a service somebody had labelled as theirs while
+	 * nothing was mapped accepted transfers that could never be placed, and the failure
+	 * arrived at the end of a completed download.
+	 *
+	 * A peer is excluded whatever the row reads, and this is the enforcement of the
+	 * rule `serviceMode` states: the files are on somebody else's disk. This is the
+	 * read every caller uses to decide where a transfer lands, which makes it the right
+	 * place to make that impossible rather than merely unlikely — a peer-backed row
+	 * that arrived mounted, by a bug or by somebody's hand on the database, would
+	 * otherwise be planned onto a path that does not exist here.
 	 */
 	public findLocal(): Promise<MediaService[]> {
 		return this.find({
-			where: { scope: MediaServiceScope.LOCAL, peerId: IsNull() },
+			where: { filesMounted: true, peerId: IsNull() },
 			order: { priority: 'ASC', name: 'ASC' },
 		});
 	}
 
+	/** The services we only reach over HTTP: no folder of ours holds their files. */
 	public findRemote(): Promise<MediaService[]> {
 		return this.find({
-			where: { scope: MediaServiceScope.REMOTE },
+			where: { filesMounted: false },
 			order: { priority: 'ASC', name: 'ASC' },
 		});
 	}

@@ -6,7 +6,6 @@ import {
 	EventName,
 	LibraryKind,
 	MediaKind,
-	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
 	type MediaFileInfo,
@@ -48,7 +47,8 @@ const service = (overrides: Partial<MediaService> = {}): MediaService =>
 		id: 'service-1',
 		name: 'Living room',
 		type: MediaServiceType.JELLYFIN,
-		scope: MediaServiceScope.LOCAL,
+		shared: true,
+		filesMounted: true,
 		baseUrl: 'http://jellyfin:8096',
 		token: 'api-key',
 		username: null,
@@ -460,7 +460,6 @@ describe('ServiceManager', () => {
 				manager.create({
 					name: 'Living room again',
 					type: MediaServiceType.JELLYFIN,
-					scope: MediaServiceScope.LOCAL,
 					baseUrl: 'http://jellyfin:8096',
 				}),
 			).rejects.toThrow(ConflictException);
@@ -474,7 +473,6 @@ describe('ServiceManager', () => {
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://jellyfin:8096/',
 			});
 
@@ -492,7 +490,6 @@ describe('ServiceManager', () => {
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://jellyfin:8096',
 			});
 
@@ -518,7 +515,6 @@ describe('ServiceManager', () => {
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://jellyfin:8096',
 			});
 
@@ -546,7 +542,6 @@ describe('ServiceManager', () => {
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://jellyfin:8096',
 			});
 
@@ -753,6 +748,85 @@ describe('ServiceManager', () => {
 		});
 	});
 
+	describe('a registration that stands for a peer', () => {
+		it('refuses to be edited, rather than trusting a screen not to offer it', async () => {
+			// Nothing this shape carries applies to a peer: their files are on their
+			// machine, the link authenticates by fingerprint, and the address is a
+			// `peer://` identifier. A root mapping stored for one would look configured
+			// and never resolve, which is worse than being told no.
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ peerId: 'peer-1' }));
+
+			await expect(
+				manager.update('service-1', { localRoot: '/mnt/nas', remoteRoot: '/media' }),
+			).rejects.toThrow(ErrorKey.SERVICE_PEER_NOT_EDITABLE);
+			expect(fakes.services.save).not.toHaveBeenCalled();
+		});
+
+		it('refuses a rename just the same, because the name follows the peer', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ peerId: 'peer-1' }));
+
+			await expect(manager.update('service-1', { name: 'Renamed' })).rejects.toThrow(
+				ErrorKey.SERVICE_PEER_NOT_EDITABLE,
+			);
+		});
+	});
+
+	describe('the sharing switch', () => {
+		it('registers a service shared when the request says nothing', async () => {
+			// The same reasoning as the gateway's default visibility being a real level
+			// rather than silence: a service registered and quietly invisible shows a
+			// friend an empty shelf, and they read that as a link that failed.
+			const { manager, fakes } = build();
+
+			await manager.create({
+				name: 'Living room',
+				type: MediaServiceType.JELLYFIN,
+				baseUrl: 'http://jellyfin:8096',
+			});
+
+			expect((fakes.services.create.mock.calls[0][0] as MediaService).shared).toBe(true);
+		});
+
+		it('registers it private when the request says so', async () => {
+			const { manager, fakes } = build();
+
+			await manager.create({
+				name: 'Living room',
+				type: MediaServiceType.JELLYFIN,
+				shared: false,
+				baseUrl: 'http://jellyfin:8096',
+			});
+
+			expect((fakes.services.create.mock.calls[0][0] as MediaService).shared).toBe(false);
+		});
+
+		it('never re-defaults it on an edit that does not mention it', async () => {
+			// An edit made to correct a port must not start sharing something somebody
+			// deliberately turned off — the one way a default can do real harm.
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ shared: false }));
+
+			await manager.update('service-1', { name: 'Renamed' });
+
+			expect((fakes.services.save.mock.calls[0][0] as MediaService).shared).toBe(false);
+		});
+
+		it('turns it on when somebody flips it', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ shared: false }));
+
+			await manager.update('service-1', { shared: true });
+
+			expect((fakes.services.save.mock.calls[0][0] as MediaService).shared).toBe(true);
+		});
+	});
+
 	describe('the root mapping', () => {
 		it('stores both roots when a service is registered with them', async () => {
 			const { manager, fakes } = build();
@@ -760,7 +834,6 @@ describe('ServiceManager', () => {
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://jellyfin:8096',
 				remoteRoot: '/media/',
 				localRoot: '/mnt/nas',
@@ -782,7 +855,6 @@ describe('ServiceManager', () => {
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://jellyfin:8096',
 				remoteRoot: '   ',
 				localRoot: '',
@@ -800,7 +872,6 @@ describe('ServiceManager', () => {
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
-				scope: MediaServiceScope.LOCAL,
 				baseUrl: 'http://jellyfin:8096',
 				remoteRoot: '/media',
 				localRoot: '/mnt/nas',

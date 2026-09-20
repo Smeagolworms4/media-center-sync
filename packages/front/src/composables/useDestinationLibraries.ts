@@ -1,5 +1,5 @@
 import type { Library, MediaService } from '@mcs/shared';
-import { MediaServiceMode, MediaServiceScope, MediaServiceType } from '@mcs/shared';
+import { MediaServiceMode, MediaServiceType } from '@mcs/shared';
 import { computed, type ComputedRef } from 'vue';
 import { useLibrariesStore } from '@/stores/libraries';
 import { useServicesStore } from '@/stores/services';
@@ -42,6 +42,10 @@ export interface DestinationLibraries {
  * field existed has none — and a library whose service falls into no band would be
  * silently dropped from every destination list, which is the one outcome this whole
  * screen exists to prevent.
+ *
+ * The fallback reads the mount and never the sharing switch: a pull has to land on a
+ * path the media server scans, and offering a service's libraries to peers puts no
+ * file anywhere.
  */
 function modeOf (service: MediaService): MediaServiceMode {
 	if (service.mode) {
@@ -51,9 +55,7 @@ function modeOf (service: MediaService): MediaServiceMode {
 		return MediaServiceMode.PEER;
 	}
 
-	return service.scope === MediaServiceScope.LOCAL
-		? MediaServiceMode.LOCAL
-		: MediaServiceMode.REMOTE;
+	return service.filesMounted ? MediaServiceMode.LOCAL : MediaServiceMode.REMOTE;
 }
 
 /**
