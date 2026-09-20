@@ -190,7 +190,11 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 		fakes.libraries as unknown as LibraryRepository,
 		fakes.lines as unknown as SyncJobItemRepository,
 		fakes.libraryManager as unknown as LibraryManager,
-		{ get: jest.fn().mockResolvedValue({ diskReserveBytes: 0 }) } as unknown as SettingsService,
+		{
+			get: jest
+				.fn()
+				.mockResolvedValue({ diskReserveBytes: 0, defaultTargetPath: '/media/incoming' }),
+		} as unknown as SettingsService,
 		fakes.mover as unknown as FileMoveService,
 		fakes.engine as unknown as TransferEngineService,
 		fakes.verification as unknown as VerificationService,
@@ -404,6 +408,31 @@ describe('TransferManager', () => {
 			// A season flattened to a file name is a season no media server groups.
 			expect((fakes.transfers.save.mock.calls[0][0] as Transfer).targetPath).toBe(
 				'/media/anime/The Expanse/Season 1/S01E02.mkv',
+			);
+		});
+
+		/**
+		 * The case this whole screen is full of.
+		 *
+		 * A file in the fallback folder belongs to no library, so there is no library
+		 * root to measure its folders against — and without the fallback folder being
+		 * looked at too, every row here would be the one that loses them.
+		 */
+		it('keeps the folders of a file that was left in the fallback folder', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.transfers.findOne.mockResolvedValue(
+				transfer({
+					state: TransferState.DOWNLOADING,
+					targetPath: '/media/incoming/Frieren/Season 1/S01E04.mkv',
+					targetLibraryId: null,
+				}),
+			);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			expect((fakes.transfers.save.mock.calls[0][0] as Transfer).targetPath).toBe(
+				'/media/anime/Frieren/Season 1/S01E04.mkv',
 			);
 		});
 
