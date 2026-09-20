@@ -448,6 +448,116 @@ describe('pages/Settings saving', () => {
 		cacheTtlSeconds: 60,
 	};
 
+	/**
+	 * One library that can receive files and one on a friend's gateway that cannot.
+	 *
+	 * The section is only worth testing against something it must refuse: a library
+	 * the gateway cannot write into accepts transfers the media server never sees.
+	 */
+	const placementRoutes = {
+		'/api/libraries/categories': {
+			body: [
+				{
+					key: 'movies',
+					name: 'Movies',
+					kind: LibraryKind.MOVIES,
+					position: 0,
+					libraryIds: ['l1'],
+					serviceIds: ['s1'],
+					itemCount: 2,
+					local: true,
+				},
+				{
+					key: 'shows',
+					name: 'Shows',
+					kind: LibraryKind.SHOWS,
+					position: 1,
+					libraryIds: ['l2'],
+					serviceIds: ['s1'],
+					itemCount: 4,
+					local: true,
+				},
+			],
+		},
+		'/api/libraries': {
+			body: [
+				{
+					id: 'l1',
+					serviceId: 's1',
+					externalId: 'x1',
+					name: 'Movies',
+					alias: null,
+					position: 0,
+					kind: LibraryKind.MOVIES,
+					paths: ['/data/movies'],
+					localPath: '/media/movies',
+					writable: true,
+					isDefaultTarget: false,
+					itemCount: 2,
+					lastScanAt: null,
+					lastRefreshAt: null,
+					createdAt: '2026-01-01T00:00:00.000Z',
+					updatedAt: '2026-01-01T00:00:00.000Z',
+				},
+				{
+					id: 'l2',
+					serviceId: 's1',
+					externalId: 'x2',
+					name: 'Shows',
+					alias: null,
+					position: 1,
+					kind: LibraryKind.SHOWS,
+					paths: ['/data/shows'],
+					localPath: '/media/shows',
+					writable: true,
+					isDefaultTarget: false,
+					itemCount: 4,
+					lastScanAt: null,
+					lastRefreshAt: null,
+					createdAt: '2026-01-01T00:00:00.000Z',
+					updatedAt: '2026-01-01T00:00:00.000Z',
+				},
+			],
+		},
+		'/api/services': {
+			body: [{
+				id: 's1',
+				name: 'Jellyfin (mine)',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: 'https://jellyfin.local',
+				status: MediaServiceStatus.ONLINE,
+			}],
+		},
+	};
+
+	it('sends where each category goes, chosen from the table, with everything else', async () => {
+		// The whole point of the section: a choice made in the table has to reach the
+		// gateway, or the screen is a picture of a setting rather than the setting.
+		const stub = stubFetchRoutes({ '/api/settings': { body: settings }, ...placementRoutes });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const table = wrapper.findComponent({ name: 'CategoryTargetsTable' });
+		table.findAllComponents({ name: 'VSelect' })[1].vm.$emit('update:modelValue', 'l2');
+		await settle();
+
+		(wrapper.vm as any).model.defaultTargetLibraryId = 'l1';
+		await (wrapper.vm as any).form.handle();
+		await settle();
+
+		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+		const body = JSON.parse(String(patch?.[1]?.body));
+
+		expect(body.categoryTargets).toEqual({ shows: 'l2' });
+		expect(body.defaultTargetLibraryId).toBe('l1');
+		// Alongside, not instead of: one form saves the whole page.
+		expect(body.naming).toBe(NamingScheme.STANDARD);
+		expect(body.cacheTtlSeconds).toBe(60);
+	});
+
 	it('sends the sizes as byte counts and an empty cap as no cap', async () => {
 		const stub = stubFetchRoutes({ '/api/settings': { body: settings } });
 		const { wrapper } = mountWithApp(Settings, {

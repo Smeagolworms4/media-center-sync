@@ -28,6 +28,16 @@ import { CacheService } from './cache.service';
 export const DEFAULT_SETTINGS: Settings = {
 	placement: PlacementStrategy.BESIDE_EXISTING,
 	fixedPath: null,
+	// Empty, because a category nobody has answered for has no right answer: guessing
+	// one would file somebody's first anime in whichever library happened to carry the
+	// default-target flag, which is exactly the silent wrong destination this table was
+	// added to stop. With no entry the preference order below still lands the file
+	// somewhere a media server scans.
+	categoryTargets: {},
+	// Null, so nothing changes for a gateway that never opens the screen. Defaulting it
+	// to the library that happens to be marked as the default target would look like the
+	// same behaviour and then diverge the day somebody moves that flag.
+	defaultTargetLibraryId: null,
 	naming: NamingScheme.SOURCE,
 	pullMetadata: true,
 	// Off: writing into somebody's library is not something to start doing unasked,
@@ -178,7 +188,48 @@ export const normaliseTargetPath = (value: string | null | undefined): string | 
 const TEXT_NORMALISERS = {
 	publicUrl: normalisePublicUrl,
 	defaultTargetPath: normaliseTargetPath,
+	// An emptied select hands back `''`, and storing that leaves a library identifier
+	// that is neither set nor unset: it matches nothing, so placement would report the
+	// configured library as gone and say so on every transfer.
+	defaultTargetLibraryId: cleared,
 } as const;
+
+/**
+ * Is a stored value the shape its default says it should be?
+ *
+ * A stored value of the wrong shape is ignored rather than coerced: a `chunkSize` of
+ * `"8MB"` coerced to `NaN` would produce a transfer plan of zero chunks, which fails
+ * much later and much less clearly.
+ *
+ * The null default is the case worth spelling out. Comparing `typeof` against the
+ * default alone answers `object` for every setting that defaults to null — which is
+ * every optional string we have — so a stored `publicUrl`, `instanceName` or
+ * `defaultTargetLibraryId` was dropped on the way out of the database. Nothing
+ * reported it, because the write path keeps its own copy in memory and answers every
+ * read from it: the value came back correctly until the process restarted, and then
+ * it was simply gone.
+ */
+const fitsTheShapeOf = (value: unknown, fallback: unknown): boolean => {
+	// A table has no sensible "unset": every reader indexes into it, so a stored null
+	// would turn the first lookup into a thrown error, where an empty table already
+	// says that nothing has been answered for.
+	if (fallback !== null && typeof fallback === 'object') {
+		return typeof value === 'object' && value !== null && !Array.isArray(value);
+	}
+
+	if (value === null) {
+		return true;
+	}
+
+	// Null says what a setting is not worth, never what it holds, so there is no type
+	// to compare against — and every setting that defaults to null holds a string.
+	// Refusing anything else is what keeps this guard worth having.
+	if (fallback === null) {
+		return typeof value === 'string';
+	}
+
+	return typeof value === typeof fallback;
+};
 
 /**
  * The settings, as key/value rows with the defaults filled in.
@@ -297,14 +348,11 @@ export class SettingsService {
 		for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
 			const value = stored[key];
 
-			// A stored value of the wrong shape is ignored rather than coerced: a
-			// `chunkSize` of `"8MB"` coerced to `NaN` would produce a transfer plan of
-			// zero chunks, which fails much later and much less clearly.
 			if (value === undefined) {
 				continue;
 			}
 
-			if (value === null || typeof value === typeof DEFAULT_SETTINGS[key]) {
+			if (fitsTheShapeOf(value, DEFAULT_SETTINGS[key])) {
 				(merged as Record<string, unknown>)[key] = value;
 			}
 		}

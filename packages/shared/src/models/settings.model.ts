@@ -25,6 +25,45 @@ export enum NamingScheme {
 export interface Settings {
 	placement: PlacementStrategy;
 	fixedPath: string | null;
+	/**
+	 * Which library receives a pull, per category. Category key to library id.
+	 *
+	 * This is the answer to "where does a new series land", and it had none: the
+	 * gateway picked from whichever library carried `isDefaultTarget` for the right
+	 * kind, which is one answer for every category of that kind. A household with
+	 * `Films`, `Animés` and `Documentaires` on three disks could not say so, and the
+	 * strategy select on the settings screen did not mention any of it — so a first
+	 * pull of an unknown series landed somewhere no setting named.
+	 *
+	 * The destination is a **library**, not a path: a library is a real directory the
+	 * gateway has already probed for write access, and it is what the media server
+	 * scans. A raw path could be somewhere no server ever looks, which is the failure
+	 * this whole area exists to prevent.
+	 *
+	 * It only ever decides where something *new* goes. A series we already hold is
+	 * filed beside its own episodes, whatever this says — see `NamingScheme.LOCAL`
+	 * and the sibling path. Overruling that would split a season across two folders,
+	 * which is worse than either answer on its own.
+	 *
+	 * A category with no entry falls to `defaultTargetPath`, and a key whose category
+	 * no longer exists is ignored rather than cleaned up: categories are derived from
+	 * library names, so one disappears the moment a service is offline, and dropping
+	 * the row would lose a deliberate choice to a temporary outage.
+	 */
+	categoryTargets: Record<string, string>;
+	/**
+	 * The library that receives anything no category names. The global answer.
+	 *
+	 * A library rather than a path, for the reason `categoryTargets` is: a library is
+	 * a directory the gateway has probed and the media server scans, while a path is
+	 * a string somebody typed that may be somewhere no server ever looks. Most people
+	 * will set only this one and never open the table.
+	 *
+	 * `defaultTargetPath` stays underneath it, for the case this cannot express — a
+	 * staging folder outside every library, which somebody deliberately wants. Tried
+	 * in that order: category, then this, then the path, then whatever is writable.
+	 */
+	defaultTargetLibraryId: string | null;
 	naming: NamingScheme;
 	/** Also copy artwork, subtitles and `.nfo` files alongside the media. */
 	pullMetadata: boolean;

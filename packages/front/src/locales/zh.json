@@ -621,30 +621,40 @@
 		"saved": "设置已保存。",
 		"group": {
 			"placement": "文件存放位置",
-			"gateway": "地址与默认文件夹",
+			"gateway": "名称与地址",
 			"transfers": "传输",
 			"categories": "分类",
 			"peers": "对等网关与共享",
 			"index": "索引与缓存"
 		},
-		"placement": "存放方式",
-		"placement_value": {
-			"beside_existing": "放在我们自己的副本旁边",
-			"default_library": "放进默认媒体库",
-			"fixed_path": "放进固定路径"
+		"destination": {
+			"rule_title": "网关如何决定文件的去向",
+			"rule_existing": "你已经拥有的剧集保留自己的文件夹。新的一集会归入同伴旁边，并沿用该媒体库自己的季文件夹写法：“Saison 1”仍然是“Saison 1”。",
+			"rule_category": "否则，使用下表中为该类别设定的媒体库。",
+			"rule_global": "否则，使用默认目标媒体库。",
+			"rule_fallback": "否则，使用后备文件夹。",
+			"rule_fixed": "第一步不是设置，也无法关闭。把一季拆进两个文件夹，比任何一种单独的答案都糟糕，所以已经有归属的剧集会保留它。",
+			"global": "默认目标媒体库",
+			"global_help": "所有没有被类别指名的内容都会落在这里。设好这一项，你就永远不必打开下面的表格。",
+			"none": "这里没有任何媒体库可以接收文件。目标必须是你自己服务上的媒体库，并且本网关能够写入。",
+			"table_title": "按类别设置的例外",
+			"table_help": "每个类别一行。未改动的行使用上面的默认目标。",
+			"category_header": "类别",
+			"target_header": "归入",
+			"falls_back": "回退到 {target}",
+			"fallback_unset": "任何能够容纳它的媒体库——上面尚未设置",
+			"rejected": {
+				"not_ours": "{library}（位于 {service}）无法作为目标：它在别人的服务器上，本网关无法写入。",
+				"not_writable": "{library}（位于 {service}）无法作为目标：本网关无法写入它的文件夹。"
+			},
+			"fixed_path_active": "目前所有内容都会进入 {path}，无论是什么——这是一项旧设置，会覆盖整个页面。在清除它之前，上面的规则都不生效。",
+			"fixed_path_clear": "改用上面的规则"
 		},
-		"placement_help": {
-			"beside_existing": "让整齐的媒体库保持整齐，对合集的处理也最合适。",
-			"default_library": "同一类型的内容都放进标记为该类型默认目标的媒体库。",
-			"fixed_path": "不管是什么，全部放进同一个目录。"
-		},
-		"fixed_path": "固定路径",
-		"fixed_path_help": "网关可写入的绝对路径，例如 /media/incoming。",
 		"public_url": "公开地址",
 		"public_url_help": "朋友从外部访问此网关的方式——只填地址，例如 https://mcs.example.org。邀请、分享链接和广播都携带它；没有它，邀请虽写明了这个网关，却没人知道该往哪里连。",
 		"public_url_suggested": "根据您此刻正在使用的地址推荐（{origin}）。如果朋友以别的名称访问此网关，请改成那个地址。",
-		"default_target": "默认文件夹",
-		"default_target_help": "此网关可写入的绝对路径；当没有其他规则决定去向时，拉取的文件就落在这里——例如某个分类没有可写的媒体库。",
+		"default_target": "后备文件夹",
+		"default_target_help": "本网关可写入的绝对路径，用于媒体库无法表达的情况——位于所有媒体库之外的暂存文件夹。只有在类别和默认目标媒体库都没有答案时才会使用。",
 		"naming": "命名",
 		"naming_value": {
 			"source": "沿用来源的名称",

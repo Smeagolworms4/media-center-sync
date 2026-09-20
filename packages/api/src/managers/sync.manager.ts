@@ -1004,6 +1004,11 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		}
 
 		const libraries = await this._placementLibraries();
+		// Which category each item belongs to, so placement can look up the library that
+		// category was configured to receive. Asked of the library manager rather than
+		// folded from the library name here: the merge is its rule, and a second reading
+		// of it would disagree with the keys the settings were saved under.
+		const categoryKeys = await this._libraryManager.categoryKeysByLibrary();
 		const services = new Map(
 			(await this._services.find()).map((service) => [service.id, service.name]),
 		);
@@ -1062,6 +1067,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 
 			const target = await this._placement.resolve({
 				kind: entry.item.kind,
+				categoryKey: categoryKeys.get(entry.item.libraryId) ?? null,
 				settings,
 				libraries,
 				relativeName: (libraryRoot) =>

@@ -184,6 +184,27 @@ export class LibraryManager {
 		);
 	}
 
+	/**
+	 * Which category each library belongs to, by library identifier.
+	 *
+	 * The inverse of `librariesOfCategory`, for the caller that starts from an item
+	 * rather than from a category — placement, asking where this one is configured to
+	 * go. Derived from `categories()` rather than folded from the name again, so the
+	 * key a setting was stored under and the key a placement looks up can never be two
+	 * different readings of the same library name.
+	 */
+	public async categoryKeysByLibrary(): Promise<Map<string, string>> {
+		const keys = new Map<string, string>();
+
+		for (const category of await this.categories()) {
+			for (const libraryId of category.libraryIds) {
+				keys.set(libraryId, category.key);
+			}
+		}
+
+		return keys;
+	}
+
 	/** The libraries behind one merged category, for a query that names it. */
 	public async librariesOfCategory(key: string): Promise<string[]> {
 		const categories = await this.categories();

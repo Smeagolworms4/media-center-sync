@@ -10,16 +10,22 @@ describe('PlacementService', () => {
 	let root: string;
 	let shows: string;
 	let movies: string;
+	let anime: string;
+	let incoming: string;
 	let readOnly: string;
 
 	beforeAll(async () => {
 		root = await mkdtemp(join(tmpdir(), 'mcs-placement-'));
 		shows = join(root, 'shows');
 		movies = join(root, 'movies');
+		anime = join(root, 'anime');
+		incoming = join(root, 'incoming');
 		readOnly = join(root, 'locked');
 
 		await mkdir(shows, { recursive: true });
 		await mkdir(movies, { recursive: true });
+		await mkdir(anime, { recursive: true });
+		await mkdir(incoming, { recursive: true });
 		await mkdir(readOnly, { recursive: true });
 		await chmod(readOnly, 0o500);
 	});
@@ -328,6 +334,296 @@ describe('PlacementService', () => {
 			).rejects.toMatchObject({
 				response: { key: ErrorKey.TRANSFER_TARGET_OCCUPIED },
 			});
+		});
+	});
+
+	/**
+	 * Where a pull lands, decided per category rather than once for the whole gateway.
+	 *
+	 * Three rules in one order, and the order is the whole feature: a series we already
+	 * hold keeps its own folder, anything else goes where its category was told to go,
+	 * and a category nobody answered for still lands somewhere a person named. Each
+	 * test below pins one step of that chain and one way it is allowed to be overruled,
+	 * because the failure this replaces was invisible — a first pull of an unknown
+	 * series landed in whichever library happened to carry the default-target flag, and
+	 * no setting anywhere said so.
+	 */
+	describe('the library a category is configured to receive', () => {
+		const animeLibrary = (overrides: Partial<PlacementLibrary> = {}): PlacementLibrary =>
+			library({
+				id: 'lib-anime',
+				name: 'Animés',
+				localPath: anime,
+				isDefaultTarget: false,
+				...overrides,
+			});
+
+		it('sends a series we do not hold to the library its category names', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({ categoryTargets: { animes: 'lib-anime' } }),
+				libraries: [library(), animeLibrary()],
+				relativeName: 'Frieren/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-anime');
+			expect(target.path).toBe(join(anime, 'Frieren', 'S01E01.mkv'));
+		});
+
+		it('leaves a series we already hold where its own episodes are', async () => {
+			// The rule that outranks everything configured: the category says `Animés`,
+			// and filing there anyway would split the season across two folders, which
+			// neither media server shows as one series.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({ categoryTargets: { animes: 'lib-anime' } }),
+				libraries: [library(), animeLibrary()],
+				relativeName: 'Frieren/S01E02.mkv',
+				existingPath: join(shows, 'Frieren', 'S01E01.mkv'),
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.path).toBe(join(shows, 'Frieren', 'S01E02.mkv'));
+		});
+
+		it('leaves it there whatever the global strategy says, which is the defect', async () => {
+			// This used to be gated behind the strategy being `beside_existing`, so a
+			// gateway set to anything else filed a new episode of a show it already had
+			// into a second copy of that show somewhere else — quietly, and for ever.
+			for (const placement of [
+				PlacementStrategy.DEFAULT_LIBRARY,
+				PlacementStrategy.FIXED_PATH,
+			]) {
+				const target = await service.resolve({
+					kind: MediaKind.EPISODE,
+					categoryKey: 'animes',
+					settings: settings({
+						placement,
+						fixedPath: movies,
+						defaultTargetLibraryId: 'lib-anime',
+					}),
+					libraries: [library({ isDefaultTarget: false }), animeLibrary({ isDefaultTarget: true })],
+					relativeName: 'Frieren/S01E03.mkv',
+					existingPath: join(shows, 'Frieren', 'S01E01.mkv'),
+				});
+
+				expect(target.path).toBe(join(shows, 'Frieren', 'S01E03.mkv'));
+				expect(target.strategy).toBe(PlacementStrategy.BESIDE_EXISTING);
+			}
+		});
+
+		it('ignores an entry for a category this item is not in', async () => {
+			// A key whose category has vanished — a service offline, a library renamed —
+			// is simply never reached. Cleaning it up would lose a deliberate choice to a
+			// temporary outage.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'shows',
+				settings: settings({ categoryTargets: { 'a-category-that-went-away': 'lib-anime' } }),
+				libraries: [library(), animeLibrary()],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.reason).toBeNull();
+		});
+
+		it('ignores the table entirely for an item that belongs to no category', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: null,
+				settings: settings({ categoryTargets: { animes: 'lib-anime' } }),
+				libraries: [library(), animeLibrary()],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+		});
+
+		it('skips a configured library that no longer exists, and says which', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({ categoryTargets: { animes: 'lib-unplugged' } }),
+				libraries: [library()],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.reason).toContain('lib-unplugged');
+			expect(target.fallback).toBe(true);
+		});
+
+		it('skips a configured library that is read-only, naming it', async () => {
+			// The pull has already been chosen, queued and downloaded by the time this
+			// runs. Refusing here would turn an unplugged disk into a lost transfer;
+			// going somewhere else silently would leave nobody able to explain it.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({ categoryTargets: { animes: 'lib-anime' } }),
+				libraries: [library(), animeLibrary({ writable: false })],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.reason).toContain('Animés');
+			expect(target.reason).toContain('not writable');
+		});
+
+		it('skips a configured library the gateway has no path for, naming it', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({ categoryTargets: { animes: 'lib-anime' } }),
+				libraries: [library(), animeLibrary({ localPath: null })],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.reason).toContain('Animés');
+			expect(target.reason).toContain('no local path');
+		});
+
+		it('skips a configured library that is there but cannot be written into', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({ categoryTargets: { animes: 'lib-locked' } }),
+				libraries: [
+					library(),
+					library({ id: 'lib-locked', name: 'Locked', localPath: readOnly, isDefaultTarget: false }),
+				],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.reason).toContain('Locked');
+		});
+	});
+
+	/**
+	 * The global answer, for everything no category names.
+	 *
+	 * Most people will set only this one and never open the category table, so the
+	 * order around it matters more than the table does: a category entry outranks it,
+	 * and it outranks the fallback folder.
+	 */
+	describe('the default target library', () => {
+		it('receives an item whose category names nothing', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'shows',
+				settings: settings({ defaultTargetLibraryId: 'lib-movies' }),
+				libraries: [
+					library(),
+					library({ id: 'lib-movies', name: 'Films', kind: LibraryKind.MOVIES, localPath: movies }),
+				],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-movies');
+		});
+
+		it('gives way to the entry the category carries', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({
+					categoryTargets: { animes: 'lib-anime' },
+					defaultTargetLibraryId: 'lib-movies',
+				}),
+				libraries: [
+					library(),
+					library({ id: 'lib-anime', name: 'Animés', localPath: anime, isDefaultTarget: false }),
+					library({ id: 'lib-movies', name: 'Films', kind: LibraryKind.MOVIES, localPath: movies }),
+				],
+				relativeName: 'Frieren/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-anime');
+		});
+
+		it('is skipped like any other configured library, with the reason kept', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'shows',
+				settings: settings({ defaultTargetLibraryId: 'lib-unplugged' }),
+				libraries: [library()],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.reason).toContain('default target library');
+		});
+
+		it('is tried before the fallback folder', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'shows',
+				settings: settings({ defaultTargetLibraryId: 'lib-movies', defaultTargetPath: incoming }),
+				libraries: [
+					library(),
+					library({ id: 'lib-movies', name: 'Films', kind: LibraryKind.MOVIES, localPath: movies }),
+				],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.path).toBe(join(movies, 'Show', 'S01E01.mkv'));
+		});
+	});
+
+	/**
+	 * The last nameable answer, before the gateway starts choosing for itself.
+	 *
+	 * A category with no entry on a gateway with no default library still has to land
+	 * somewhere a person typed, rather than fail at the end of a completed download.
+	 */
+	describe('the fallback folder', () => {
+		it('takes what no library was named for, ahead of the preference order', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'shows',
+				settings: settings({ defaultTargetPath: incoming }),
+				libraries: [library()],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.path).toBe(join(incoming, 'Show', 'S01E01.mkv'));
+		});
+
+		it('gives way to the library the category names', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'animes',
+				settings: settings({
+					categoryTargets: { animes: 'lib-anime' },
+					defaultTargetPath: incoming,
+				}),
+				libraries: [
+					library(),
+					library({ id: 'lib-anime', name: 'Animés', localPath: anime, isDefaultTarget: false }),
+				],
+				relativeName: 'Frieren/S01E01.mkv',
+			});
+
+			expect(target.path).toBe(join(anime, 'Frieren', 'S01E01.mkv'));
+		});
+
+		it('is ignored when it is not an absolute path', async () => {
+			// Relative resolves against whatever directory the process was started in,
+			// which in a container is inside the container.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				categoryKey: 'shows',
+				settings: settings({ defaultTargetPath: 'incoming' }),
+				libraries: [library()],
+				relativeName: 'Show/S01E01.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
 		});
 	});
 

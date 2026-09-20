@@ -621,30 +621,40 @@
 		"saved": "Definições guardadas.",
 		"group": {
 			"placement": "Onde aterram os ficheiros",
-			"gateway": "Endereço e pasta predefinida",
+			"gateway": "Nome e endereço",
 			"transfers": "Transferências",
 			"categories": "Categorias",
 			"peers": "Pares e partilha",
 			"index": "Índice e cache"
 		},
-		"placement": "Arrumação",
-		"placement_value": {
-			"beside_existing": "Ao lado da nossa própria cópia",
-			"default_library": "Na biblioteca por omissão",
-			"fixed_path": "Num caminho fixo"
+		"destination": {
+			"rule_title": "Como o gateway decide para onde vai um ficheiro",
+			"rule_existing": "Uma série que já tem guarda a sua própria pasta. Um episódio novo é arquivado ao lado dos irmãos, com a grafia de pasta de temporada dessa mesma biblioteca: «Saison 1» continua «Saison 1».",
+			"rule_category": "Caso contrário, a biblioteca definida para essa categoria na tabela abaixo.",
+			"rule_global": "Caso contrário, a biblioteca de destino predefinida.",
+			"rule_fallback": "Caso contrário, a pasta de recurso.",
+			"rule_fixed": "O primeiro passo não é uma definição e não pode ser desligado. Partir uma temporada por duas pastas é pior do que qualquer uma das respostas sozinha, por isso uma série que já tem casa mantém-na.",
+			"global": "Biblioteca de destino predefinida",
+			"global_help": "Para onde vai tudo o que nenhuma categoria nomeia. Defina esta e nunca terá de abrir a tabela.",
+			"none": "Nenhuma biblioteca aqui pode receber ficheiros. Um destino tem de ser uma biblioteca de um serviço seu onde este gateway consiga escrever.",
+			"table_title": "Exceções por categoria",
+			"table_help": "Uma linha por categoria. Uma linha que deixe como está usa o destino predefinido acima.",
+			"category_header": "Categoria",
+			"target_header": "Vai para",
+			"falls_back": "Recorre a {target}",
+			"fallback_unset": "qualquer biblioteca que o possa receber: acima não há nada definido",
+			"rejected": {
+				"not_ours": "{library} em {service} não pode ser oferecida: está no servidor de outra pessoa e este gateway não consegue escrever lá.",
+				"not_writable": "{library} em {service} não pode ser oferecida: este gateway não consegue escrever na pasta dela."
+			},
+			"fixed_path_active": "Neste momento tudo vai para {path}, seja o que for — uma definição antiga que se sobrepõe a toda esta página. Nada do que está acima se aplica enquanto não for limpa.",
+			"fixed_path_clear": "Usar a regra acima"
 		},
-		"placement_help": {
-			"beside_existing": "Mantém arrumada uma biblioteca já arrumada, e faz o que deve com as coleções.",
-			"default_library": "Cada tipo vai para a biblioteca marcada como o seu destino por omissão.",
-			"fixed_path": "Tudo vai para um único diretório, seja o que for."
-		},
-		"fixed_path": "Caminho fixo",
-		"fixed_path_help": "Um caminho absoluto onde o gateway possa escrever, por exemplo /media/incoming.",
 		"public_url": "Endereço público",
 		"public_url_help": "Por onde os seus amigos chegam a este gateway a partir do exterior — apenas o endereço, por exemplo https://mcs.example.org. É o que uma convite, uma ligação de partilha e um anúncio transportam; sem ele, um convite nomeia este gateway sem dar a ninguém forma de lhe chegar.",
 		"public_url_suggested": "Sugerido a partir do endereço que está a usar neste momento ({origin}). Altere-o se os seus amigos chegarem a este gateway com outro nome.",
-		"default_target": "Pasta predefinida",
-		"default_target_help": "Um caminho absoluto onde este gateway possa escrever, onde aterra uma transferência quando mais nada o decide — uma categoria sem biblioteca com escrita, por exemplo.",
+		"default_target": "Pasta de recurso",
+		"default_target_help": "Um caminho absoluto onde este gateway consegue escrever, para o caso que uma biblioteca não consegue exprimir: uma pasta de passagem fora de qualquer biblioteca. Só é usada quando nem uma categoria nem a biblioteca de destino predefinida respondem.",
 		"naming": "Nomenclatura",
 		"naming_value": {
 			"source": "Manter o nome da fonte",

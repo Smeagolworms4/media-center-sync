@@ -191,6 +191,65 @@ describe('SettingsService', () => {
 		});
 	});
 
+	/**
+	 * A stored value whose default is null has to survive the read, and did not.
+	 *
+	 * The shape guard compared `typeof` against the default, which answers `object` for
+	 * every setting that defaults to null — so `publicUrl`, `instanceName` and
+	 * `defaultTargetLibraryId` were dropped on the way out of the database. Nothing
+	 * reported it and no test caught it, because a write keeps its own copy in memory
+	 * and answers every later read from it: the value came back correctly until the
+	 * process restarted, and then it was simply gone.
+	 */
+	it('reads back a setting whose default is null, which a restart used to lose', async () => {
+		await service.update({ defaultTargetLibraryId: '6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b' });
+
+		service.invalidate();
+
+		expect((await service.get()).defaultTargetLibraryId).toBe(
+			'6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b',
+		);
+	});
+
+	it('takes an emptied select as no choice rather than as a library called nothing', async () => {
+		await service.update({ defaultTargetLibraryId: '  ' });
+
+		expect((await service.get()).defaultTargetLibraryId).toBeNull();
+	});
+
+	it('keeps the category table across a restart, and each entry in it', async () => {
+		await service.update({
+			categoryTargets: { animes: '6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b' },
+		});
+
+		service.invalidate();
+
+		expect((await service.get()).categoryTargets).toEqual({
+			animes: '6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b',
+		});
+	});
+
+	it('answers an empty category table before anybody has configured one', async () => {
+		// Empty and not a guess: filing somebody's first anime in whichever library
+		// carries the default-target flag is the silent wrong destination this table was
+		// added to stop.
+		expect((await service.get()).categoryTargets).toEqual({});
+		expect((await service.get()).defaultTargetLibraryId).toBeNull();
+	});
+
+	it('ignores a category table that got into the row as something else', async () => {
+		// Every reader indexes into it, so a stored null or list would turn the next
+		// placement lookup into a thrown error rather than into "nothing configured".
+		stored.set('categoryTargets', 'null');
+
+		expect((await service.get()).categoryTargets).toEqual({});
+
+		service.invalidate();
+		stored.set('categoryTargets', '["lib-1"]');
+
+		expect((await service.get()).categoryTargets).toEqual({});
+	});
+
 	it('drops a text setting it cannot make sense of instead of refusing to start', async () => {
 		// Written by hand or by an older version. Refusing it on read would lock somebody
 		// out of the one screen where they would have corrected it.

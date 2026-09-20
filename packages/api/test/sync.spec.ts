@@ -13,6 +13,7 @@ import {
 	UserRole,
 	type MediaGroup,
 	type ResultList,
+	type Settings,
 	type SyncEstimate,
 	type SyncJob,
 	type SyncJobItem,
@@ -537,6 +538,129 @@ describe('Syncing', () => {
 				.expect(404);
 
 			expect(gone.body).toMatchObject({ message: 'error.sync.job_not_found' });
+		});
+	});
+
+	/**
+	 * Where a pull lands, decided by the category it belongs to.
+	 *
+	 * Over HTTP because every part of the claim is somewhere else: the DTO has to let
+	 * the table through at all — a key it does not declare is stripped by the validation
+	 * pipe, the request answers 200 and the setting silently never arrives, which has
+	 * happened three times in this repository — the settings service has to store it,
+	 * and placement has to prefer it over the library that merely carries the
+	 * default-target flag. A unit test proves any one of those and none of them
+	 * together.
+	 */
+	describe('the library a category is configured to receive', () => {
+		let configured: string;
+		let configuredLibraryId: string;
+
+		const patchSettings = (body: Record<string, unknown>) =>
+			request(context.app.getHttpServer())
+				.patch('/api/settings')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send(body);
+
+		const previewTheEpisode = async (): Promise<SyncPreview> =>
+			(
+				await request(context.app.getHttpServer())
+					.post('/api/sync/preview')
+					.set('Authorization', `Bearer ${admin.token}`)
+					.send({ scope: { itemIds: [episodeId] } })
+					.expect(200)
+			).body as SyncPreview;
+
+		beforeAll(async () => {
+			configured = await mkdtemp(join(tmpdir(), 'mcs-sync-anime-'));
+
+			const services = context.app.get(MediaServiceRepository);
+			const libraries = context.app.get(LibraryRepository);
+			const local = (await services.find()).find(
+				(candidate) => candidate.scope === MediaServiceScope.LOCAL,
+			);
+
+			// A second library of ours, and deliberately not the default target for
+			// anything: the whole claim is that the category sends the file here and the
+			// flag does not.
+			const second = await libraries.save(
+				libraries.create({
+					serviceId: local?.id,
+					externalId: 'lib-local-second',
+					name: 'Animés',
+					kind: LibraryKind.SHOWS,
+					paths: ['/media/anime'],
+					localPath: configured,
+					writable: true,
+					isDefaultTarget: false,
+				}),
+			);
+
+			configuredLibraryId = second.id;
+		});
+
+		afterAll(async () => {
+			await patchSettings({ categoryTargets: {} }).expect(200);
+			await rm(configured, { recursive: true, force: true });
+		});
+
+		it('lands in the default library while no category names one', async () => {
+			const preview = await previewTheEpisode();
+
+			expect(preview.items[0].targetPath.startsWith(destination)).toBe(true);
+		});
+
+		it('lands in the library the category names once one is configured', async () => {
+			// `their-shows` is the key of the merged category the source library belongs
+			// to — folded from the name somebody reads, which is what the settings screen
+			// saves against.
+			const saved = await patchSettings({
+				categoryTargets: { 'their-shows': configuredLibraryId },
+			}).expect(200);
+
+			expect((saved.body as Settings).categoryTargets).toEqual({
+				'their-shows': configuredLibraryId,
+			});
+
+			const preview = await previewTheEpisode();
+
+			expect(preview.items[0].targetPath.startsWith(configured)).toBe(true);
+			// The destination the preview reports room for, which is the other half of
+			// the same answer: a path in one library and a space check against another
+			// would be two readings of one decision.
+			expect(preview.targets).toEqual([
+				expect.objectContaining({ libraryId: configuredLibraryId, localPath: configured }),
+			]);
+		});
+
+		it('survives a reread, so the table was stored and not merely echoed', async () => {
+			const settings = await request(context.app.getHttpServer())
+				.get('/api/settings')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+
+			expect((settings.body as Settings).categoryTargets).toEqual({
+				'their-shows': configuredLibraryId,
+			});
+		});
+
+		it('goes back to the default library when the entry is taken away', async () => {
+			await patchSettings({ categoryTargets: {} }).expect(200);
+
+			const preview = await previewTheEpisode();
+
+			expect(preview.items[0].targetPath.startsWith(destination)).toBe(true);
+		});
+
+		it('refuses a destination that is not a library identifier, naming the field', async () => {
+			const refused = await patchSettings({
+				categoryTargets: { 'their-shows': '/mnt/nas/anime' },
+			}).expect(400);
+
+			expect(refused.body).toMatchObject({
+				key: 'error.settings.invalid',
+				field: 'categoryTargets',
+			});
 		});
 	});
 

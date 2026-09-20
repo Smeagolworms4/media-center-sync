@@ -8,12 +8,16 @@
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import FormMainError from '@/components/FormMainError.vue';
 	import CategoryList from '@/components/library/CategoryList.vue';
+	import CategoryTargetsTable from '@/components/settings/CategoryTargetsTable.vue';
+	import DestinationLibraryField from '@/components/settings/DestinationLibraryField.vue';
 	import ShareRateSummary from '@/components/share/ShareRateSummary.vue';
 	import { useByteSize } from '@/composables/useByteSize';
+	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
 	import { useForm } from '@/composables/useForm';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useValidators } from '@/plugins/validators';
 	import { useLibrariesStore } from '@/stores/libraries';
+	import { useServicesStore } from '@/stores/services';
 	import { useSettingsStore } from '@/stores/settings';
 	import { useSharesStore } from '@/stores/shares';
 
@@ -29,10 +33,12 @@
 	const { t } = useI18n();
 	const settingsStore = useSettingsStore();
 	const librariesStore = useLibrariesStore();
+	const servicesStore = useServicesStore();
 	const sharesStore = useSharesStore();
 	const validators = useValidators();
 	const { notify } = useNotifier();
 	const { parseByteSize, toByteSizeInput } = useByteSize();
+	const { destinations, rejected } = useDestinationLibraries();
 
 	const loading = ref(true);
 	const failed = ref(false);
@@ -40,6 +46,8 @@
 	const model = reactive({
 		placement: PlacementStrategy.BESIDE_EXISTING,
 		fixedPath: '',
+		categoryTargets: {} as Record<string, string>,
+		defaultTargetLibraryId: null as string | null,
 		naming: NamingScheme.STANDARD,
 		pullMetadata: true,
 		writeNfo: false,
@@ -73,6 +81,11 @@
 		}
 		model.placement = settings.placement;
 		model.fixedPath = settings.fixedPath ?? '';
+		// Copied rather than referenced: the table replaces the object on every choice,
+		// and sharing the store's own would make an unsaved edit look stored everywhere
+		// else that reads the settings.
+		model.categoryTargets = { ...settings.categoryTargets };
+		model.defaultTargetLibraryId = settings.defaultTargetLibraryId ?? null;
 		model.naming = settings.naming;
 		model.pullMetadata = settings.pullMetadata;
 		model.writeNfo = settings.writeNfo;
@@ -113,6 +126,11 @@
 				// page does not require: a failure leaves their block empty rather
 				// than refusing the settings somebody came here to change.
 				librariesStore.loadCategories().catch(() => undefined),
+				// The destination menus are built from these two: a library is only
+				// offerable when it is writable and sits on a service of ours, and
+				// neither fact is on the category.
+				librariesStore.load().catch(() => undefined),
+				servicesStore.load().catch(() => undefined),
 				sharesStore.load().catch(() => undefined),
 			]);
 			apply();
@@ -127,7 +145,37 @@
 		void load();
 	});
 
-	const fixedPathNeeded = computed(() => model.placement === PlacementStrategy.FIXED_PATH);
+	/**
+	 * A gateway still pinned to the old fixed-path strategy.
+	 *
+	 * The strategy select this section replaced could put every pull into one
+	 * directory whatever it was, and a gateway set that way ignores every destination
+	 * below. Saying nothing would leave the rule on screen describing something the
+	 * gateway is not doing, which is the exact lie this rebuild exists to end — so it
+	 * is stated, with the one action that ends it.
+	 */
+	const fixedPathActive = computed(() => model.placement === PlacementStrategy.FIXED_PATH);
+
+	function useTheRule (): void {
+		model.placement = PlacementStrategy.BESIDE_EXISTING;
+		model.fixedPath = '';
+	}
+
+	/**
+	 * What a category with no entry of its own actually does, named.
+	 *
+	 * A blank cell in a table of destinations reads as broken, so every row says where
+	 * its media goes — and that is never "nowhere": it is the next step of the rule.
+	 */
+	const fallbackTarget = computed(() => {
+		const library = destinations.value.find(one => one.id === model.defaultTargetLibraryId);
+
+		if (library) {
+			return library.name;
+		}
+
+		return model.defaultTargetPath || t('settings.destination.fallback_unset');
+	});
 
 	/**
 	 * Whether the deployment pinned the reach in its environment.
@@ -151,11 +199,6 @@
 	const form = useForm({
 		fallbackError: 'error.settings.invalid',
 		fields: {
-			fixedPath: {
-				rules: computed(() => (fixedPathNeeded.value
-					? [validators.required(), validators.absolutePath()]
-					: [validators.absolutePath()])),
-			},
 			peerMaxDepth: {
 				rules: [validators.required(), validators.range({ min: 1, max: MAX_PEER_MAX_DEPTH })],
 			},
@@ -188,8 +231,14 @@
 		},
 		handle: async () => {
 			await settingsStore.save({
+				// Passed through rather than offered: the strategy select is gone, and a
+				// gateway somebody once pinned to a fixed path keeps that until they
+				// press the button that clears it. Rewriting it here on the first save
+				// would change where their files land without anybody asking.
 				placement: model.placement,
 				fixedPath: model.fixedPath || null,
+				categoryTargets: model.categoryTargets,
+				defaultTargetLibraryId: model.defaultTargetLibraryId || null,
 				naming: model.naming,
 				pullMetadata: model.pullMetadata,
 				writeNfo: model.writeNfo,
@@ -220,17 +269,6 @@
 		},
 	});
 
-	/**
-	 * Each choice is explained under its field rather than inside the menu: the
-	 * explanation is what somebody needs while deciding, and it stays readable once
-	 * the menu is closed again.
-	 */
-	const placementItems = computed(() => Object.values(PlacementStrategy).map(value => ({
-		value,
-		title: t(`settings.placement_value.${value}`),
-	})));
-	const placementHelp = computed(() => t(`settings.placement_help.${model.placement}`));
-
 	const shareVisibilityItems = computed(() => Object.values(ShareVisibility).map(value => ({
 		value,
 		title: t(`share.visibility_value.${value}`),
@@ -240,9 +278,13 @@
 		value,
 		title: t(`settings.naming_value.${value}`),
 	})));
+	/**
+	 * Each choice is explained under its field rather than inside the menu: the
+	 * explanation is what somebody needs while deciding, and it stays readable once
+	 * the menu is closed again.
+	 */
 	const namingHelp = computed(() => t(`settings.naming_help.${model.naming}`));
-	/** Whether the folder picker is open for each of the two path fields. */
-	const browsingFixedPath = ref(false);
+	/** Whether the folder picker is open for the fallback folder. */
 	const browsingDefaultTarget = ref(false);
 
 	/**
@@ -255,19 +297,19 @@
 	 * one is opened.
 	 */
 	const TABS = [
-		{ key: 'placement', fields: ['placement', 'fixedPath', 'naming', 'writeNfo'] },
 		{
-			key: 'gateway',
+			key: 'placement',
 			fields: [
-				'instanceName',
-				'publicUrl',
-				'rendezvousUrl',
-				// The fallback folder is here rather than with the placement strategy
-				// because that is the section it is rendered in, and this map exists to
-				// point at the pane a refusal is hiding on.
+				'placement',
+				'fixedPath',
+				'categoryTargets',
+				'defaultTargetLibraryId',
 				'defaultTargetPath',
+				'naming',
+				'writeNfo',
 			],
 		},
+		{ key: 'gateway', fields: ['instanceName', 'publicUrl', 'rendezvousUrl'] },
 		{
 			key: 'transfers',
 			fields: [
@@ -363,41 +405,114 @@
 					<v-card-title class="text-subtitle-1">{{ $t('settings.group.placement') }}</v-card-title>
 
 					<v-card-text>
-						<v-select
-							v-model="model.placement"
-							data-test="settings-placement"
-							:hint="placementHelp"
-							item-title="title"
-							item-value="value"
-							:items="placementItems"
-							:label="$t('settings.placement')"
-							persistent-hint
+						<!--
+							The whole rule, in the order the gateway applies it, before any
+							control. A file that lands somewhere the media server never scans
+							is a transfer that succeeded and produced nothing, and nobody
+							should have to read documentation to find out where theirs went.
+						-->
+						<div class="settings_rule" data-test="settings-placement-rule">
+							<p class="text-body-2 font-weight-medium mb-1">
+								{{ $t('settings.destination.rule_title') }}
+							</p>
+
+							<ol class="settings_rule-steps text-body-2">
+								<li data-test="settings-placement-rule-existing">
+									{{ $t('settings.destination.rule_existing') }}
+								</li>
+
+								<li>{{ $t('settings.destination.rule_category') }}</li>
+								<li>{{ $t('settings.destination.rule_global') }}</li>
+								<li>{{ $t('settings.destination.rule_fallback') }}</li>
+							</ol>
+
+							<!--
+								Said out loud because it is the step people come here angry
+								about: their new episode went beside its siblings instead of
+								where the table says, and there is no switch for it.
+							-->
+							<p class="text-caption text-medium-emphasis mt-2 mb-0">
+								{{ $t('settings.destination.rule_fixed') }}
+							</p>
+						</div>
+
+						<v-alert
+							v-if="fixedPathActive"
+							class="mb-4"
+							data-test="settings-fixed-path-active"
+							density="compact"
+							type="warning"
+							variant="tonal"
+						>
+							{{ $t('settings.destination.fixed_path_active', { path: model.fixedPath }) }}
+
+							<template #append>
+								<v-btn
+									data-test="settings-fixed-path-clear"
+									size="small"
+									variant="text"
+									@click="useTheRule"
+								>
+									{{ $t('settings.destination.fixed_path_clear') }}
+								</v-btn>
+							</template>
+						</v-alert>
+
+						<DestinationLibraryField
+							v-model="model.defaultTargetLibraryId"
+							class="mb-6"
+							:destinations="destinations"
+							:field="form.field('defaultTargetLibraryId')"
+							:loading="loading"
+						/>
+
+						<p class="text-body-2 font-weight-medium mb-1">
+							{{ $t('settings.destination.table_title') }}
+						</p>
+
+						<p class="text-caption text-medium-emphasis">
+							{{ $t('settings.destination.table_help') }}
+						</p>
+
+						<CategoryTargetsTable
+							v-model="model.categoryTargets"
+							:categories="librariesStore.orderedCategories"
+							:destinations="destinations"
+							:fallback="fallbackTarget"
+							:loading="loading"
+							:rejected="rejected"
 						/>
 
 						<v-text-field
-							v-if="fixedPathNeeded"
-							v-model="model.fixedPath"
-							v-bind="form.field('fixedPath')"
-							data-test="settings-fixed-path"
-							:hint="$t('settings.fixed_path_help')"
-							:label="$t('settings.fixed_path')"
+							v-model="model.defaultTargetPath"
+							v-bind="form.field('defaultTargetPath')"
+							class="mt-6"
+							data-test="settings-default-target"
+							:hint="$t('settings.default_target_help')"
+							:label="$t('settings.default_target')"
 							persistent-hint
+							placeholder="/media/incoming"
 						>
 							<template #append-inner>
 								<v-icon
 									class="cursor-pointer"
-									data-test="settings-fixed-path-browse"
+									data-test="settings-default-target-browse"
 									icon="mdi-folder-search-outline"
 									:title="$t('browse.open')"
-									@click="browsingFixedPath = true"
+									@click="browsingDefaultTarget = true"
 								/>
 							</template>
 						</v-text-field>
 
+						<!--
+							The field stays the authority and the picker only assists it: a
+							path on a disk that is not mounted yet cannot be browsed to and
+							is a perfectly legitimate thing to type.
+						-->
 						<DirectoryPicker
-							v-model="browsingFixedPath"
-							:path="model.fixedPath"
-							@choose="model.fixedPath = $event"
+							v-model="browsingDefaultTarget"
+							:path="model.defaultTargetPath"
+							@choose="model.defaultTargetPath = $event"
 						/>
 
 						<v-select
@@ -488,32 +603,6 @@
 							{{ $t('settings.public_url_suggested', { origin: browserOrigin }) }}
 						</p>
 
-						<v-text-field
-							v-model="model.defaultTargetPath"
-							v-bind="form.field('defaultTargetPath')"
-							class="mt-4"
-							data-test="settings-default-target"
-							:hint="$t('settings.default_target_help')"
-							:label="$t('settings.default_target')"
-							persistent-hint
-							placeholder="/media/incoming"
-						>
-							<template #append-inner>
-								<v-icon
-									class="cursor-pointer"
-									data-test="settings-default-target-browse"
-									icon="mdi-folder-search-outline"
-									:title="$t('browse.open')"
-									@click="browsingDefaultTarget = true"
-								/>
-							</template>
-						</v-text-field>
-
-						<DirectoryPicker
-							v-model="browsingDefaultTarget"
-							:path="model.defaultTargetPath"
-							@choose="model.defaultTargetPath = $event"
-						/>
 					</v-card-text>
 				</v-card>
 
@@ -787,6 +876,21 @@
 
 <style lang="scss">
 	.settings {
+		// The rule is a statement rather than a control, and the whole section only
+		// works if that is legible before anybody touches a select.
+		&_rule {
+			border: 1px solid rgba(var(--v-border-color), 0.2);
+			border-left: 3px solid rgb(var(--v-theme-primary));
+			border-radius: 6px;
+			padding: 12px 16px;
+			margin-bottom: 16px;
+		}
+
+		&_rule-steps {
+			margin: 0;
+			padding-left: 20px;
+		}
+
 		// The caps in force are a statement rather than a field, and it has to be
 		// told apart from the inputs above it at a glance.
 		&_rates {

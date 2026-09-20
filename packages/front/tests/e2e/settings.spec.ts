@@ -68,7 +68,8 @@ test.describe('settings', () => {
 		await signIn(page);
 		await page.goto('/settings');
 
-		await page.locator(test0('settings-tab-gateway')).click();
+		// The fallback folder lives with the rest of the placement rule now, which is
+		// the only section where a path is an answer to "where does this land".
 		await page.locator(test0('settings-default-target-browse')).click();
 
 		const crumbs = page.locator(test0('browse-crumbs'));
@@ -87,5 +88,37 @@ test.describe('settings', () => {
 		// would queue transfers that can never land.
 		await expect(page.locator(test0('browse-choose')))
 			.toBeEnabled({ enabled: body.writable });
+	});
+
+	test('states the rule and gives every category a row of its own', async ({ page }) => {
+		// The most important screen in the product: a file that lands somewhere the
+		// media server never scans is a transfer that succeeded and produced nothing.
+		// The rule has to be readable, and every category has to have a destination
+		// somebody can see — including the ones that simply fall back.
+		const failures = watchApi(page);
+
+		await signIn(page);
+		await page.goto('/settings');
+
+		// The placement pane is the one the page opens on, so nothing is clicked first:
+		// a click that silently became a modified click is how this journey earns its
+		// keep, and there is no reason to spend one here.
+		await expect(page.locator(test0('settings-placement-rule'))).toBeVisible();
+		await expect(page.locator(test0('settings-placement-rule-existing')))
+			.toContainText('Saison 1');
+
+		await expect(page.locator(test0('settings-default-target-library'))).toBeVisible();
+
+		const rows = page.locator(test0('category-target-row'));
+		// The stack this runs against carries several categories; one row is the claim
+		// worth making, because a table that renders none is the failure being watched.
+		await expect(rows.first()).toBeVisible();
+		expect(await rows.count()).toBeGreaterThan(0);
+
+		// A row nobody has configured says where its media goes rather than sitting
+		// empty, which is what a blank cell in a table of destinations reads as.
+		await expect(page.locator(test0('category-target-fallback')).first()).toBeVisible();
+
+		expect(failures, failures.join('\n')).toEqual([]);
 	});
 });

@@ -621,30 +621,40 @@
 		"saved": "Impostazioni salvate.",
 		"group": {
 			"placement": "Dove finiscono i file",
-			"gateway": "Indirizzo e cartella predefinita",
+			"gateway": "Nome e indirizzo",
 			"transfers": "Trasferimenti",
 			"categories": "Categorie",
 			"peers": "Peer e condivisione",
 			"index": "Indice e cache"
 		},
-		"placement": "Collocazione",
-		"placement_value": {
-			"beside_existing": "Accanto alla nostra copia",
-			"default_library": "Nella libreria predefinita",
-			"fixed_path": "In un percorso fisso"
+		"destination": {
+			"rule_title": "Come il gateway decide dove va un file",
+			"rule_existing": "Una serie che hai già mantiene la sua cartella. Un nuovo episodio viene archiviato accanto ai suoi simili, con la grafia della cartella di stagione di quella libreria: «Saison 1» resta «Saison 1».",
+			"rule_category": "Altrimenti, la libreria impostata per quella categoria nella tabella qui sotto.",
+			"rule_global": "Altrimenti, la libreria di destinazione predefinita.",
+			"rule_fallback": "Altrimenti, la cartella di ripiego.",
+			"rule_fixed": "Il primo passo non è un'impostazione e non si può disattivare. Spezzare una stagione su due cartelle è peggio di entrambe le risposte prese da sole, quindi una serie che ha già una casa se la tiene.",
+			"global": "Libreria di destinazione predefinita",
+			"global_help": "Dove finisce tutto ciò che nessuna categoria nomina. Imposta questa e non dovrai mai aprire la tabella.",
+			"none": "Nessuna libreria qui può ricevere file. Una destinazione deve essere una libreria su un tuo servizio, in cui questo gateway possa scrivere.",
+			"table_title": "Eccezioni per categoria",
+			"table_help": "Una riga per categoria. Una riga lasciata com'è usa la destinazione predefinita qui sopra.",
+			"category_header": "Categoria",
+			"target_header": "Va in",
+			"falls_back": "Ripiega su {target}",
+			"fallback_unset": "una qualunque libreria che possa accoglierlo: sopra non è impostato niente",
+			"rejected": {
+				"not_ours": "{library} su {service} non può essere proposta: è sul server di qualcun altro e questo gateway non può scriverci.",
+				"not_writable": "{library} su {service} non può essere proposta: questo gateway non può scrivere nella sua cartella."
+			},
+			"fixed_path_active": "In questo momento tutto finisce in {path}, qualunque cosa sia: una vecchia impostazione che scavalca l'intera pagina. Niente di quanto sopra vale finché non viene cancellata.",
+			"fixed_path_clear": "Usa invece la regola qui sopra"
 		},
-		"placement_help": {
-			"beside_existing": "Mantiene ordinata una libreria ordinata, e fa la cosa giusta con le raccolte.",
-			"default_library": "Tutto ciò che è di un certo tipo va nella libreria indicata come sua destinazione predefinita.",
-			"fixed_path": "Tutto va in un'unica cartella, qualunque cosa sia."
-		},
-		"fixed_path": "Percorso fisso",
-		"fixed_path_help": "Un percorso assoluto in cui il gateway può scrivere, ad esempio /media/incoming.",
 		"public_url": "Indirizzo pubblico",
 		"public_url_help": "Come gli amici raggiungono questo gateway dall'esterno — solo l'indirizzo, ad esempio https://mcs.example.org. È ciò che portano con sé un invito, un collegamento di condivisione e un annuncio; senza di esso un invito nomina questo gateway senza dare a nessuno il modo di raggiungerlo.",
 		"public_url_suggested": "Suggerito dall'indirizzo che stai usando in questo momento ({origin}). Cambialo se i tuoi amici raggiungono questo gateway con un altro nome.",
-		"default_target": "Cartella predefinita",
-		"default_target_help": "Un percorso assoluto in cui questo gateway può scrivere, dove atterra un download quando nient'altro lo decide — una categoria senza una libreria scrivibile, ad esempio.",
+		"default_target": "Cartella di ripiego",
+		"default_target_help": "Un percorso assoluto in cui questo gateway può scrivere, per il caso che una libreria non sa esprimere: una cartella di transito fuori da ogni libreria. Usata solo quando né una categoria né la libreria di destinazione predefinita rispondono.",
 		"naming": "Denominazione",
 		"naming_value": {
 			"source": "Mantieni il nome della sorgente",

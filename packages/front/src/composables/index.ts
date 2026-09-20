@@ -2,6 +2,7 @@ export * from './useByteSize';
 export * from './useCatalogue';
 export * from './useChunkMap';
 export * from './useCron';
+export * from './useDestinationLibraries';
 export * from './useForm';
 export * from './useFormat';
 export * from './useMediaOrigin';

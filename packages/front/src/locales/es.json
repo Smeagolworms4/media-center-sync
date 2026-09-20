@@ -621,30 +621,40 @@
 		"saved": "Ajustes guardados.",
 		"group": {
 			"placement": "Dónde aterrizan los archivos",
-			"gateway": "Dirección y carpeta por defecto",
+			"gateway": "Nombre y dirección",
 			"transfers": "Transferencias",
 			"categories": "Categorías",
 			"peers": "Pares y compartición",
 			"index": "Índice y caché"
 		},
-		"placement": "Colocación",
-		"placement_value": {
-			"beside_existing": "Junto a nuestra propia copia",
-			"default_library": "En la biblioteca por defecto",
-			"fixed_path": "En una ruta fija"
+		"destination": {
+			"rule_title": "Cómo decide la pasarela dónde va un archivo",
+			"rule_existing": "Una serie que ya tienes conserva su propia carpeta. Un episodio nuevo se archiva junto a sus hermanos, con la grafía de carpeta de temporada de esa misma biblioteca: «Saison 1» sigue siendo «Saison 1».",
+			"rule_category": "Si no, la biblioteca fijada para esa categoría en la tabla de abajo.",
+			"rule_global": "Si no, la biblioteca de destino predeterminada.",
+			"rule_fallback": "Si no, la carpeta de reserva.",
+			"rule_fixed": "El primer paso no es un ajuste y no se puede desactivar. Partir una temporada en dos carpetas es peor que cualquiera de las dos respuestas por separado, así que una serie que ya tiene casa la conserva.",
+			"global": "Biblioteca de destino predeterminada",
+			"global_help": "Donde va todo lo que ninguna categoría nombra. Ajusta esta y nunca tendrás que abrir la tabla.",
+			"none": "Ninguna biblioteca de aquí puede recibir archivos. Un destino tiene que ser una biblioteca de uno de tus propios servicios en la que esta pasarela pueda escribir.",
+			"table_title": "Excepciones por categoría",
+			"table_help": "Una fila por categoría. Una fila que dejes como está usa el destino predeterminado de arriba.",
+			"category_header": "Categoría",
+			"target_header": "Va a",
+			"falls_back": "Recae en {target}",
+			"fallback_unset": "cualquier biblioteca que pueda recibirlo: arriba no hay nada fijado",
+			"rejected": {
+				"not_ours": "{library} en {service} no se puede ofrecer: está en el servidor de otra persona y esta pasarela no puede escribir allí.",
+				"not_writable": "{library} en {service} no se puede ofrecer: esta pasarela no puede escribir en su carpeta."
+			},
+			"fixed_path_active": "Ahora mismo todo va a {path}, sea lo que sea: un ajuste antiguo que manda por encima de toda esta página. Nada de lo anterior se aplica hasta que se borre.",
+			"fixed_path_clear": "Usar la regla de arriba"
 		},
-		"placement_help": {
-			"beside_existing": "Mantiene ordenada una biblioteca ya ordenada, y hace lo correcto con las colecciones.",
-			"default_library": "Cada tipo va a la biblioteca marcada como su destino por defecto.",
-			"fixed_path": "Todo va a un único directorio, sea lo que sea."
-		},
-		"fixed_path": "Ruta fija",
-		"fixed_path_help": "Una ruta absoluta en la que la pasarela pueda escribir, por ejemplo /media/incoming.",
 		"public_url": "Dirección pública",
 		"public_url_help": "Por dónde llegan tus amigos a esta pasarela desde fuera — solo la dirección, por ejemplo https://mcs.example.org. Es lo que llevan una invitación, un enlace de compartición y un anuncio; sin ella, una invitación nombra esta pasarela sin dar a nadie la forma de alcanzarla.",
 		"public_url_suggested": "Sugerida a partir de la dirección que estás usando ahora mismo ({origin}). Cámbiala si tus amigos llegan a esta pasarela con otro nombre.",
-		"default_target": "Carpeta por defecto",
-		"default_target_help": "Una ruta absoluta en la que esta pasarela pueda escribir, donde aterriza una descarga cuando nada más lo decide — una categoría sin biblioteca escribible, por ejemplo.",
+		"default_target": "Carpeta de reserva",
+		"default_target_help": "Una ruta absoluta en la que esta pasarela puede escribir, para el caso que una biblioteca no sabe expresar: una carpeta de paso fuera de toda biblioteca. Solo se usa cuando ni una categoría ni la biblioteca de destino predeterminada responden.",
 		"naming": "Nomenclatura",
 		"naming_value": {
 			"source": "Conservar el nombre de la fuente",

@@ -930,10 +930,109 @@ describe('pages/SettingsUsers', () => {
 	});
 });
 
+/**
+ * The stack behind the placement section: two categories, one library that can
+ * receive files and one on a friend's gateway that cannot.
+ *
+ * Both halves matter. A screen that offers a library the gateway cannot write into
+ * accepts transfers the media server will never see, and one that simply drops the
+ * name sends somebody hunting for a fault in the wrong place.
+ */
+const PLACEMENT_ROUTES = {
+	'/api/libraries/categories': {
+		body: [
+			{
+				key: 'movies',
+				name: 'Movies',
+				kind: LibraryKind.MOVIES,
+				position: 0,
+				libraryIds: ['l1'],
+				serviceIds: ['s1'],
+				itemCount: 2,
+				local: true,
+			},
+			{
+				key: 'shows',
+				name: 'Shows',
+				kind: LibraryKind.SHOWS,
+				position: 1,
+				libraryIds: ['l2'],
+				serviceIds: ['s2'],
+				itemCount: 4,
+				local: false,
+			},
+		],
+	},
+	'/api/libraries': {
+		body: [
+			{
+				id: 'l1',
+				serviceId: 's1',
+				externalId: 'x1',
+				name: 'Movies',
+				alias: null,
+				position: 0,
+				kind: LibraryKind.MOVIES,
+				paths: ['/data/movies'],
+				localPath: '/media/movies',
+				writable: true,
+				isDefaultTarget: false,
+				itemCount: 2,
+				lastScanAt: null,
+				lastRefreshAt: null,
+				createdAt: '2026-01-01T00:00:00.000Z',
+				updatedAt: '2026-01-01T00:00:00.000Z',
+			},
+			{
+				id: 'l2',
+				serviceId: 's2',
+				externalId: 'x2',
+				name: 'Séries',
+				alias: null,
+				position: 1,
+				kind: LibraryKind.SHOWS,
+				paths: ['/data/series'],
+				localPath: null,
+				writable: false,
+				isDefaultTarget: false,
+				itemCount: 4,
+				lastScanAt: null,
+				lastRefreshAt: null,
+				createdAt: '2026-01-01T00:00:00.000Z',
+				updatedAt: '2026-01-01T00:00:00.000Z',
+			},
+		],
+	},
+	'/api/services': {
+		body: [
+			{
+				id: 's1',
+				name: 'Jellyfin (mine)',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.LOCAL,
+				mode: MediaServiceMode.LOCAL,
+				baseUrl: 'https://jellyfin.local',
+				status: MediaServiceStatus.ONLINE,
+			},
+			{
+				id: 's2',
+				name: 'Lab (a friend)',
+				type: MediaServiceType.PEER,
+				scope: MediaServiceScope.REMOTE,
+				mode: MediaServiceMode.PEER,
+				baseUrl: 'https://lab.local',
+				status: MediaServiceStatus.ONLINE,
+			},
+		],
+	},
+};
+
 describe('pages/Settings', () => {
 	const settingsBody = (overrides: Record<string, unknown> = {}) => ({
-		placement: PlacementStrategy.FIXED_PATH,
-		fixedPath: '/media/incoming',
+		placement: PlacementStrategy.BESIDE_EXISTING,
+		fixedPath: null,
+		categoryTargets: {},
+		defaultTargetLibraryId: null,
 		naming: NamingScheme.STANDARD,
 		pullMetadata: true,
 		preferSourceMetadata: false,
@@ -957,7 +1056,10 @@ describe('pages/Settings', () => {
 	});
 
 	const openSettings = async (overrides: Record<string, unknown> = {}) => {
-		stubFetchRoutes({ '/api/settings': { body: { pinned: [], ...settingsBody(overrides) } } });
+		stubFetchRoutes({
+			'/api/settings': { body: { pinned: [], ...settingsBody(overrides) } },
+			...PLACEMENT_ROUTES,
+		});
 		const mounted = mountWithApp(Settings, { global: { stubs: tooltipStub } });
 		await settle();
 		return mounted;
@@ -990,13 +1092,62 @@ describe('pages/Settings', () => {
 			.toContain('cannot be changed here');
 	});
 
-	it('shows the fixed path only when the placement needs one', async () => {
+	it('states the whole rule, with its first step as a fact rather than a control', async () => {
+		// Somebody has to be able to work out why their new episode did not go where
+		// the table says, and the answer is a step nothing on this screen can turn off.
 		const { wrapper } = await openSettings();
+		const rule = wrapper.find('[data-test="settings-placement-rule"]');
 
-		expect(wrapper.find('[data-test="settings-fixed-path"]').exists()).toBe(true);
+		expect(rule.text()).toContain('Saison 1');
+		expect(rule.text()).toContain('cannot be turned off');
 		// A chunk size is shown the way somebody would type it, not as 4194304.
 		expect(wrapper.text()).toContain('Chunk size');
 		expect(wrapper.find('[data-test="cron-hint"]').text()).toContain('04:00');
+	});
+
+	it('says so when an older fixed path still overrules the whole section', async () => {
+		// The strategy this section replaced could send every pull to one directory
+		// whatever it was. Leaving it unsaid would put a rule on screen describing
+		// something the gateway is not doing, which is the lie the rebuild ends.
+		const { wrapper } = await openSettings({
+			placement: PlacementStrategy.FIXED_PATH,
+			fixedPath: '/media/incoming',
+		});
+
+		expect(wrapper.find('[data-test="settings-fixed-path-active"]').text())
+			.toContain('/media/incoming');
+
+		await wrapper.find('[data-test="settings-fixed-path-clear"]').trigger('click');
+		await settle();
+
+		expect(wrapper.find('[data-test="settings-fixed-path-active"]').exists()).toBe(false);
+	});
+
+	it('gives every category a row, on the section that decides where files land', async () => {
+		const { wrapper } = await openSettings();
+
+		expect(wrapper.findAll('[data-test="category-target-row"]')).toHaveLength(2);
+	});
+
+	it('reads a category nobody configured as falling back, never as blank', async () => {
+		const { wrapper } = await openSettings({ defaultTargetLibraryId: 'l1' });
+		const row = wrapper.find('[data-category="shows"]');
+
+		expect(row.attributes('data-configured')).toBe('false');
+		expect(row.find('[data-test="category-target-fallback"]').text()).toContain('Movies');
+	});
+
+	it('never offers a library on a friend’s gateway, and says why on the row', async () => {
+		// Choosing one would queue transfers onto a disk this gateway cannot write to,
+		// and nothing anywhere would report it.
+		const { wrapper } = await openSettings();
+		const select = wrapper
+			.findComponent({ name: 'DestinationLibraryField' })
+			.findComponent({ name: 'VSelect' });
+
+		expect((select.props('items') as { value: string }[]).map(one => one.value)).toEqual(['l1']);
+		expect(wrapper.find('[data-category="shows"] [data-test="category-target-rejected"]').text())
+			.toContain('Séries');
 	});
 
 	it('offers the browser’s own origin when no public address has been set', async () => {

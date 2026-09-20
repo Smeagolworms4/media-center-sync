@@ -621,30 +621,40 @@
 		"saved": "Paramètres enregistrés.",
 		"group": {
 			"placement": "Où atterrissent les fichiers",
-			"gateway": "Adresse et dossier par défaut",
+			"gateway": "Nom et adresse",
 			"transfers": "Transferts",
 			"categories": "Catégories",
 			"peers": "Pairs et partage",
 			"index": "Index et cache"
 		},
-		"placement": "Rangement",
-		"placement_value": {
-			"beside_existing": "À côté de notre propre copie",
-			"default_library": "Dans la bibliothèque par défaut",
-			"fixed_path": "Dans un chemin fixe"
+		"destination": {
+			"rule_title": "Comment la passerelle décide où va un fichier",
+			"rule_existing": "Une série que vous avez déjà garde son propre dossier. Un nouvel épisode est rangé à côté de ses voisins, avec l'orthographe de dossier de saison propre à cette bibliothèque — Saison 1 reste Saison 1.",
+			"rule_category": "Sinon, la bibliothèque définie pour cette catégorie dans le tableau ci-dessous.",
+			"rule_global": "Sinon, la bibliothèque de destination par défaut.",
+			"rule_fallback": "Sinon, le dossier de repli.",
+			"rule_fixed": "La première étape n'est pas un réglage et ne peut pas être désactivée. Éclater une saison sur deux dossiers est pire que l'une ou l'autre réponse prise seule, donc une série qui a déjà un foyer le garde.",
+			"global": "Bibliothèque de destination par défaut",
+			"global_help": "Là où atterrit tout ce qu'aucune catégorie ne nomme. Réglez celle-ci et vous n'aurez jamais besoin d'ouvrir le tableau.",
+			"none": "Aucune bibliothèque ici ne peut recevoir de fichiers. Une destination doit être une bibliothèque d'un de vos propres services, dans laquelle cette passerelle peut écrire.",
+			"table_title": "Exceptions par catégorie",
+			"table_help": "Une ligne par catégorie. Une ligne laissée telle quelle utilise la destination par défaut ci-dessus.",
+			"category_header": "Catégorie",
+			"target_header": "Va vers",
+			"falls_back": "Se rabat sur {target}",
+			"fallback_unset": "n’importe quelle bibliothèque capable de l’accueillir — rien n’est défini ci-dessus",
+			"rejected": {
+				"not_ours": "{library} sur {service} ne peut pas être proposée : elle est sur le serveur de quelqu’un d’autre, et cette passerelle ne peut pas y écrire.",
+				"not_writable": "{library} sur {service} ne peut pas être proposée : cette passerelle ne peut pas écrire dans son dossier."
+			},
+			"fixed_path_active": "Tout part actuellement dans {path}, quoi que ce soit — un ancien réglage qui prime sur toute cette page. Rien de ce qui précède ne s’applique tant qu’il n’est pas effacé.",
+			"fixed_path_clear": "Utiliser la règle ci-dessus"
 		},
-		"placement_help": {
-			"beside_existing": "Garde en ordre une médiathèque déjà en ordre, et fait ce qu'il faut pour les collections.",
-			"default_library": "Chaque type va dans la bibliothèque marquée comme sa cible par défaut.",
-			"fixed_path": "Tout va dans un seul répertoire, quel que soit le média."
-		},
-		"fixed_path": "Chemin fixe",
-		"fixed_path_help": "Un chemin absolu où la passerelle peut écrire, par exemple /media/incoming.",
 		"public_url": "Adresse publique",
 		"public_url_help": "Par où vos amis joignent cette passerelle depuis l'extérieur — l'adresse seule, par exemple https://mcs.example.org. C'est ce que transportent une invitation, un lien de partage et une annonce ; sans elle, une invitation nomme cette passerelle sans donner à personne le moyen de l'atteindre.",
 		"public_url_suggested": "Proposée d'après l'adresse que vous utilisez en ce moment ({origin}). Changez-la si vos amis joignent cette passerelle sous un autre nom.",
-		"default_target": "Dossier par défaut",
-		"default_target_help": "Un chemin absolu où cette passerelle peut écrire, là où atterrit un téléchargement quand rien d'autre n'en décide — une catégorie sans médiathèque accessible en écriture, par exemple.",
+		"default_target": "Dossier de repli",
+		"default_target_help": "Un chemin absolu dans lequel cette passerelle peut écrire, pour le cas qu’une bibliothèque ne sait pas exprimer — un dossier d’attente en dehors de toute bibliothèque. Utilisé seulement quand ni une catégorie ni la bibliothèque de destination par défaut ne répond.",
 		"naming": "Nommage",
 		"naming_value": {
 			"source": "Garder le nom de la source",

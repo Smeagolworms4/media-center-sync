@@ -17,6 +17,16 @@ export interface PlacementLibrary {
 
 export interface PlacementRequest {
 	kind: MediaKind;
+	/**
+	 * The merged category this item belongs to, which is what `categoryTargets` keys on.
+	 *
+	 * Handed in rather than derived here, because a category is a merge of library
+	 * names and that merge belongs to the library manager: folding the name a second
+	 * time in this file would give two keys for `Animés` the day one of them changed.
+	 * Null when the item's library belongs to no category — there is simply nothing to
+	 * look up, and the defaults below apply.
+	 */
+	categoryKey?: string | null;
 	settings: Settings;
 	libraries: PlacementLibrary[];
 	/** Path inside the destination library, from the naming service. */
@@ -85,6 +95,14 @@ export interface PlacementTarget {
 	reason: string | null;
 }
 
+/** One destination worth probing, in the order the rules put it. */
+interface PlacementAttempt {
+	library: PlacementLibrary;
+	root: string;
+	strategy: PlacementStrategy;
+	fallback: boolean;
+}
+
 /**
  * How many alternative names are tried before a transfer is refused.
  *
@@ -115,8 +133,16 @@ export class PlacementService {
 	private readonly _logger = new Logger(PlacementService.name);
 
 	public async resolve(request: PlacementRequest): Promise<PlacementTarget> {
-		const attempts = this._candidates(request);
-		const rejected: string[] = [];
+		const { attempts, skipped } = this._candidates(request);
+		/*
+		 * Seeded with what never became a candidate at all.
+		 *
+		 * A configured library that is gone, read-only or unmapped is skipped rather than
+		 * allowed to fail a download that has already finished — but the skip has to
+		 * travel with the answer, because otherwise somebody whose configured disk is
+		 * unplugged has no way of finding out why their file went somewhere else.
+		 */
+		const rejected: string[] = [...skipped];
 
 		for (const attempt of attempts) {
 			// Rendered per candidate, because the name depends on the destination: the
@@ -137,7 +163,13 @@ export class PlacementService {
 					directory,
 					path: free.path,
 					strategy: attempt.strategy,
-					fallback: attempt.strategy !== request.settings.placement || attempt.fallback,
+					// A configured destination that had to be skipped is a fallback
+					// however well the one that answered went: the file did not land where
+					// the settings said it would.
+					fallback:
+						skipped.length > 0 ||
+						attempt.fallback ||
+						attempt.strategy !== request.settings.placement,
 					reason: notes.length > 0 ? notes.join('; ') : null,
 				};
 			}
@@ -243,30 +275,36 @@ export class PlacementService {
 	}
 
 	/**
-	 * The ordered list of things to try.
+	 * The ordered list of things to try, and what was passed over on the way.
 	 *
 	 * Built rather than resolved so that every fallback is visible in one place: a
 	 * chain of nested conditionals here is how a placement bug becomes unexplainable.
+	 * The order is the specification —
+	 *
+	 * 1. what this run explicitly asked for;
+	 * 2. the folder our own copies of this series are already in;
+	 * 3. the library this category is configured to receive;
+	 * 4. the library everything else is configured to receive;
+	 * 5. the fixed path, when that strategy is selected;
+	 * 6. the fallback folder;
+	 * 7. whatever is writable.
+	 *
+	 * — and each step only ever appends, so a destination that cannot be written into
+	 * hands the question to the next one instead of failing the pull.
 	 */
 	private _candidates(request: PlacementRequest): {
-		library: PlacementLibrary;
-		root: string;
-		strategy: PlacementStrategy;
-		fallback: boolean;
-	}[] {
+		attempts: PlacementAttempt[];
+		skipped: string[];
+	} {
 		const usable = request.libraries.filter(
 			(library) => library.writable && !!library.localPath,
 		);
 
-		const attempts: {
-			library: PlacementLibrary;
-			root: string;
-			strategy: PlacementStrategy;
-			fallback: boolean;
-		}[] = [];
+		const attempts: PlacementAttempt[] = [];
+		const skipped: string[] = [];
 
-		// An explicit choice by the sync plan outranks the global strategy, because
-		// somebody typed it for this run.
+		// An explicit choice by the sync plan outranks the settings, because somebody
+		// typed it for this run.
 		const preferred = usable.find((library) => library.id === request.preferredLibraryId);
 
 		if (preferred) {
@@ -278,7 +316,19 @@ export class PlacementService {
 			});
 		}
 
-		if (request.settings.placement === PlacementStrategy.BESIDE_EXISTING && request.existingPath) {
+		/*
+		 * A series we already hold keeps its own folder, whatever the settings say.
+		 *
+		 * Unconditional, and that is the defect this fixes: it used to be gated behind
+		 * the global strategy being `beside_existing`, so a gateway set to anything else
+		 * filed a new episode of a show it already had into a second copy of that show
+		 * somewhere else. A season split across two folders is worse than either
+		 * destination on its own — neither media server shows it as one series.
+		 *
+		 * It sits above the configured targets below for the same reason: those decide
+		 * where something *new* goes, and an episode of a series we hold is not new.
+		 */
+		if (request.existingPath) {
 			const host = this._libraryHolding(usable, request.existingPath);
 
 			if (host) {
@@ -290,9 +340,32 @@ export class PlacementService {
 				});
 			}
 			// No local copy, or it lives outside every writable library: nothing to sit
-			// beside, so this silently becomes the default-library case below rather
-			// than an error. That is the common case on a first sync, not a fault.
+			// beside, so the configured destinations below apply rather than an error.
+			// That is the common case on a first sync, not a fault.
 		}
+
+		// A key whose category has vanished is never reached rather than cleaned up:
+		// categories are derived from library names, so one disappears the moment a
+		// service is offline, and dropping the row would lose a deliberate choice to a
+		// temporary outage.
+		const perCategory = request.categoryKey
+			? (request.settings.categoryTargets[request.categoryKey] ?? null)
+			: null;
+
+		this._pushConfigured(
+			request.libraries,
+			perCategory,
+			`the library configured for "${request.categoryKey}"`,
+			attempts,
+			skipped,
+		);
+		this._pushConfigured(
+			request.libraries,
+			request.settings.defaultTargetLibraryId,
+			'the default target library',
+			attempts,
+			skipped,
+		);
 
 		if (request.settings.placement === PlacementStrategy.FIXED_PATH) {
 			const fixed = request.settings.fixedPath?.trim();
@@ -312,6 +385,20 @@ export class PlacementService {
 			// inside the container. It is dropped, and the defaults below apply.
 		}
 
+		// The last nameable answer before guessing: a category nobody answered for, on a
+		// gateway with no default library, still has to land somewhere a person chose
+		// rather than fail at the end of a completed download.
+		const fallbackPath = request.settings.defaultTargetPath?.trim();
+
+		if (fallbackPath && isAbsolute(fallbackPath)) {
+			attempts.push({
+				library: this._libraryHolding(usable, fallbackPath) ?? this._syntheticLibrary(fallbackPath),
+				root: fallbackPath,
+				strategy: PlacementStrategy.DEFAULT_LIBRARY,
+				fallback: true,
+			});
+		}
+
 		for (const library of this._byPreference(usable, request.kind)) {
 			attempts.push({
 				library,
@@ -326,16 +413,75 @@ export class PlacementService {
 		// different label would only produce a confusing reason string.
 		const seen = new Set<string>();
 
-		return attempts.filter((attempt) => {
-			const key = normalize(attempt.root);
+		return {
+			attempts: attempts.filter((attempt) => {
+				const key = normalize(attempt.root);
 
-			if (seen.has(key)) {
-				return false;
-			}
+				if (seen.has(key)) {
+					return false;
+				}
 
-			seen.add(key);
+				seen.add(key);
 
-			return true;
+				return true;
+			}),
+			skipped,
+		};
+	}
+
+	/**
+	 * A library somebody configured as a destination, or the note saying why not.
+	 *
+	 * Skipped and never thrown. Whatever reaches placement has already been chosen,
+	 * queued and in most cases downloaded in full, so a disk that was unplugged this
+	 * morning must not turn that into a failure — it has to become "somewhere else, and
+	 * here is why". The note is the only thing that tells the difference between a
+	 * setting that is being honoured and one that is being quietly ignored.
+	 *
+	 * Looked up in the full list rather than in the writable one, because "gone" and
+	 * "read-only" call for different fixes and a filtered list cannot tell them apart.
+	 */
+	private _pushConfigured(
+		libraries: PlacementLibrary[],
+		libraryId: string | null,
+		label: string,
+		attempts: PlacementAttempt[],
+		skipped: string[],
+	): void {
+		if (!libraryId) {
+			return;
+		}
+
+		const library = libraries.find((candidate) => candidate.id === libraryId);
+
+		if (library === undefined) {
+			skipped.push(`${label} no longer exists (${libraryId})`);
+
+			return;
+		}
+
+		if (!library.writable) {
+			skipped.push(`${label}, ${library.name}, is not writable`);
+
+			return;
+		}
+
+		if (!library.localPath) {
+			skipped.push(`${label}, ${library.name}, has no local path`);
+
+			return;
+		}
+
+		attempts.push({
+			library,
+			root: library.localPath,
+			// There is no strategy value for "the library this was configured to go to":
+			// the enum names the three answers somebody picks on the settings screen, and
+			// adding a fourth is a change to a contract the interface is being rebuilt
+			// against. The default-library label is the closest true statement — this is
+			// the library that receives by default, for this category.
+			strategy: PlacementStrategy.DEFAULT_LIBRARY,
+			fallback: false,
 		});
 	}
 

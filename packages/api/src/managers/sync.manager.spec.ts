@@ -46,6 +46,8 @@ const SETTINGS: Settings = {
 	defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
 	placement: PlacementStrategy.BESIDE_EXISTING,
 	fixedPath: null,
+	categoryTargets: {},
+	defaultTargetLibraryId: null,
 	naming: NamingScheme.SOURCE,
 	pullMetadata: false,
 	writeNfo: false,
@@ -151,7 +153,11 @@ interface World {
 			findLine: jest.Mock;
 			progressOf: jest.Mock;
 		};
-		libraryManager: { librariesOfCategory: jest.Mock; probe: jest.Mock };
+		libraryManager: {
+			librariesOfCategory: jest.Mock;
+			categoryKeysByLibrary: jest.Mock;
+			probe: jest.Mock;
+		};
 		engine: { enqueue: jest.Mock; cancel: jest.Mock; setSourceResolver: jest.Mock; onTransferState: jest.Mock };
 		metadata: { discover: jest.Mock; apply: jest.Mock; mergeExternalIds: jest.Mock };
 		naming: { render: jest.Mock };
@@ -169,6 +175,8 @@ const build = (
 		plans?: SyncPlan[];
 		localServices?: MediaService[];
 		categoryLibraries?: string[];
+		/** Library identifier to category key, as the library manager answers it. */
+		categoryKeys?: Record<string, string>;
 	} = {},
 ): World => {
 	const items = world.items ?? [
@@ -270,6 +278,9 @@ const build = (
 		},
 		libraryManager: {
 			librariesOfCategory: jest.fn().mockResolvedValue(world.categoryLibraries ?? []),
+			categoryKeysByLibrary: jest
+				.fn()
+				.mockResolvedValue(new Map(Object.entries(world.categoryKeys ?? {}))),
 			// Room to spare unless a test says otherwise: the space verdict has its own
 			// table-driven suite, and every other test here would otherwise be asserting
 			// about a disk it never meant to mention.

@@ -621,30 +621,40 @@
 		"saved": "Einstellungen gespeichert.",
 		"group": {
 			"placement": "Wohin Dateien kommen",
-			"gateway": "Adresse und Standardordner",
+			"gateway": "Name und Adresse",
 			"transfers": "Übertragungen",
 			"categories": "Kategorien",
 			"peers": "Peers und Freigaben",
 			"index": "Index und Cache"
 		},
-		"placement": "Ablage",
-		"placement_value": {
-			"beside_existing": "Neben unsere eigene Kopie",
-			"default_library": "In die Standardbibliothek",
-			"fixed_path": "In einen festen Pfad"
+		"destination": {
+			"rule_title": "Wie das Gateway entscheidet, wohin eine Datei geht",
+			"rule_existing": "Eine Serie, die Sie schon haben, behält ihren eigenen Ordner. Eine neue Folge wird neben ihre Geschwister gelegt, in der Staffelordner-Schreibweise genau dieser Bibliothek — „Saison 1“ bleibt „Saison 1“.",
+			"rule_category": "Sonst die Bibliothek, die in der Tabelle unten für diese Kategorie eingetragen ist.",
+			"rule_global": "Sonst die Standard-Zielbibliothek.",
+			"rule_fallback": "Sonst der Ausweichordner.",
+			"rule_fixed": "Der erste Schritt ist keine Einstellung und lässt sich nicht abschalten. Eine Staffel auf zwei Ordner zu verteilen ist schlimmer als jede der beiden Antworten für sich, deshalb behält eine Serie, die schon ein Zuhause hat, es auch.",
+			"global": "Standard-Zielbibliothek",
+			"global_help": "Wohin alles kommt, das keine Kategorie benennt. Stellen Sie diese eine ein, und Sie müssen die Tabelle nie öffnen.",
+			"none": "Keine Bibliothek hier kann Dateien aufnehmen. Ein Ziel muss eine Bibliothek auf einem Ihrer eigenen Dienste sein, in die dieses Gateway schreiben kann.",
+			"table_title": "Ausnahmen je Kategorie",
+			"table_help": "Eine Zeile je Kategorie. Eine Zeile, die Sie in Ruhe lassen, benutzt das Standardziel oben.",
+			"category_header": "Kategorie",
+			"target_header": "Geht nach",
+			"falls_back": "Fällt zurück auf {target}",
+			"fallback_unset": "irgendeine Bibliothek, die sie aufnehmen kann — oben ist nichts eingestellt",
+			"rejected": {
+				"not_ours": "{library} auf {service} kann nicht angeboten werden: Sie liegt auf dem Server einer anderen Person, und dieses Gateway kann dort nicht schreiben.",
+				"not_writable": "{library} auf {service} kann nicht angeboten werden: Dieses Gateway kann nicht in ihren Ordner schreiben."
+			},
+			"fixed_path_active": "Derzeit geht alles nach {path}, ganz gleich was es ist — eine alte Einstellung, die diese ganze Seite übergeht. Nichts von oben gilt, solange sie nicht gelöscht ist.",
+			"fixed_path_clear": "Stattdessen die Regel oben verwenden"
 		},
-		"placement_help": {
-			"beside_existing": "Hält eine aufgeräumte Bibliothek aufgeräumt und macht bei Sammlungen das Richtige.",
-			"default_library": "Alles einer Art kommt in die Bibliothek, die als deren Standardziel markiert ist.",
-			"fixed_path": "Alles kommt in ein einziges Verzeichnis, was es auch ist."
-		},
-		"fixed_path": "Fester Pfad",
-		"fixed_path_help": "Ein absoluter Pfad, in den das Gateway schreiben kann, etwa /media/incoming.",
 		"public_url": "Öffentliche Adresse",
 		"public_url_help": "Wie Freunde dieses Gateway von außen erreichen — nur die Adresse, etwa https://mcs.example.org. Sie ist das, was eine Einladung, ein Freigabelink und eine Ankündigung mit sich tragen; ohne sie nennt eine Einladung dieses Gateway, ohne jemandem einen Weg dorthin zu geben.",
 		"public_url_suggested": "Vorgeschlagen anhand der Adresse, die Sie gerade verwenden ({origin}). Ändern Sie sie, wenn Ihre Freunde dieses Gateway unter einem anderen Namen erreichen.",
-		"default_target": "Standardordner",
-		"default_target_help": "Ein absoluter Pfad, in den dieses Gateway schreiben kann und in dem ein Abruf landet, wenn nichts anderes darüber entscheidet — etwa eine Kategorie ohne beschreibbare Bibliothek.",
+		"default_target": "Ausweichordner",
+		"default_target_help": "Ein absoluter Pfad, in den dieses Gateway schreiben kann — für den Fall, den eine Bibliothek nicht ausdrücken kann, etwa einen Zwischenordner außerhalb aller Bibliotheken. Wird nur benutzt, wenn weder eine Kategorie noch die Standard-Zielbibliothek antwortet.",
 		"naming": "Benennung",
 		"naming_value": {
 			"source": "Namen der Quelle behalten",

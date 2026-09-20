@@ -182,3 +182,100 @@ describe('PATCH /api/settings — the gateway’s address and its fallback folde
 		expect(((await read()).body as Settings).publicUrl).toBe('https://mcs.example.org');
 	});
 });
+
+/**
+ * Where a pull lands, per category and in general.
+ *
+ * Over HTTP rather than against the service, because the failure this guards is the
+ * validation pipe's: a setting the DTO does not declare is stripped from the body
+ * before anything sees it, the request answers 200, and the value simply never
+ * arrives. The refusals are checked for their shape as well as their status — these
+ * are all saved from one form, so an error with no field on it can only be shown above
+ * the whole screen, with the person left to guess which of a dozen controls it means.
+ */
+describe('PATCH /api/settings — where a pull lands', () => {
+	let context: TestApp;
+	let admin: TestIdentity;
+	const library = '6f1a2b3c-4d5e-4f60-8a9b-0c1d2e3f4a5b';
+
+	beforeAll(async () => {
+		context = await createTestApp();
+		admin = await signInAs(context, UserRole.ADMIN);
+	});
+
+	afterAll(async () => {
+		await context.close();
+	});
+
+	const patch = (body: Record<string, unknown>) =>
+		request(context.app.getHttpServer())
+			.patch('/api/settings')
+			.set('Authorization', `Bearer ${admin.token}`)
+			.send(body);
+
+	const read = () =>
+		request(context.app.getHttpServer())
+			.get('/api/settings')
+			.set('Authorization', `Bearer ${admin.token}`)
+			.expect(200);
+
+	it('starts with no category answered for and no default library', async () => {
+		const settings = (await read()).body as Settings;
+
+		expect(settings.categoryTargets).toEqual({});
+		expect(settings.defaultTargetLibraryId).toBeNull();
+	});
+
+	it('stores a category table and a default library, and reads both back', async () => {
+		await patch({ categoryTargets: { animes: library }, defaultTargetLibraryId: library }).expect(
+			200,
+		);
+
+		const settings = (await read()).body as Settings;
+
+		expect(settings.categoryTargets).toEqual({ animes: library });
+		expect(settings.defaultTargetLibraryId).toBe(library);
+	});
+
+	it('replaces the whole table, because a removed row is a removed choice', async () => {
+		await patch({ categoryTargets: { films: library } }).expect(200);
+
+		expect(((await read()).body as Settings).categoryTargets).toEqual({ films: library });
+	});
+
+	it('takes an emptied select as no choice rather than as a library called nothing', async () => {
+		await patch({ defaultTargetLibraryId: '' }).expect(200);
+
+		expect(((await read()).body as Settings).defaultTargetLibraryId).toBeNull();
+	});
+
+	it('refuses a destination that is a path, naming the field', async () => {
+		const refused = await patch({ categoryTargets: { animes: '/mnt/nas/anime' } }).expect(400);
+
+		expect(refused.body).toMatchObject({
+			key: 'error.settings.invalid',
+			field: 'categoryTargets',
+		});
+	});
+
+	it('refuses a table that is not a table', async () => {
+		await patch({ categoryTargets: ['lib-1'] }).expect(400);
+		await patch({ categoryTargets: null }).expect(400);
+	});
+
+	it('refuses a default library that is not an identifier, naming the field', async () => {
+		const refused = await patch({ defaultTargetLibraryId: 'the big disk' }).expect(400);
+
+		expect(refused.body).toMatchObject({
+			key: 'error.settings.invalid',
+			field: 'defaultTargetLibraryId',
+		});
+	});
+
+	it('writes nothing when a refusal happens', async () => {
+		await patch({ categoryTargets: { films: library } }).expect(200);
+		await patch({ categoryTargets: { films: 'nonsense' } }).expect(400);
+
+		expect(((await read()).body as Settings).categoryTargets).toEqual({ films: library });
+	});
+});

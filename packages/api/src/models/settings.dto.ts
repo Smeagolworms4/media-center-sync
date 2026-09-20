@@ -1,6 +1,102 @@
+import { BadRequestException } from '@nestjs/common';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy, ShareVisibility } from '@mcs/shared';
+import {
+	IsBoolean,
+	IsEnum,
+	IsInt,
+	IsOptional,
+	IsString,
+	isUUID,
+	Max,
+	MaxLength,
+	Min,
+	registerDecorator,
+} from 'class-validator';
+import {
+	ErrorKey,
+	MAX_PEER_MAX_DEPTH,
+	NamingScheme,
+	PlacementStrategy,
+	ShareVisibility,
+} from '@mcs/shared';
+
+/**
+ * Refuse from inside the validator, rather than letting the pipe word it.
+ *
+ * Every other refusal on this screen answers `{ key, field }`, which is what puts the
+ * message under the control that is wrong instead of above the whole form. The pipe's
+ * own shape is a list of English sentences with no field on them, so a validator that
+ * merely returned false would be the one setting whose error the interface could not
+ * place.
+ */
+const refuse = (field: string | symbol): never => {
+	throw new BadRequestException({ key: ErrorKey.SETTINGS_INVALID, field: String(field) });
+};
+
+/**
+ * A destination library, or no choice at all.
+ *
+ * `undefined` is a field the request left out and `''` is a select somebody emptied —
+ * both mean "no choice", and the service turns the second into null. Anything else has
+ * to be a real identifier: a destination naming a library that cannot exist is only
+ * discovered at the end of a download that has already finished.
+ */
+const isLibraryChoice = (value: unknown): boolean =>
+	value === undefined ||
+	value === null ||
+	value === '' ||
+	(typeof value === 'string' && isUUID(value, '4'));
+
+/**
+ * A category key to a library identifier, and nothing else in either position.
+ *
+ * Null is refused rather than taken as a clearing, which the two nullable settings
+ * beside it do allow. Every reader of this table indexes into it, so a stored null
+ * turns the first placement lookup of the next pull into a thrown error — and an empty
+ * table already says "no category has been answered for".
+ */
+const IsCategoryTargets = (): PropertyDecorator => (target, propertyName) => {
+	registerDecorator({
+		name: 'isCategoryTargets',
+		target: target.constructor,
+		propertyName: propertyName as string,
+		validator: {
+			validate(value: unknown): boolean {
+				if (value === undefined) {
+					return true;
+				}
+
+				if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+					return refuse(propertyName);
+				}
+
+				for (const entry of Object.values(value)) {
+					// A library identifier and not a path: a path can point somewhere no
+					// media server ever scans, which is the failure this whole area
+					// exists to prevent.
+					if (!isLibraryChoice(entry) || entry === null || entry === '') {
+						return refuse(propertyName);
+					}
+				}
+
+				return true;
+			},
+		},
+	});
+};
+
+/** One library identifier, nothing, or a refusal naming the field. */
+const IsLibraryChoice = (): PropertyDecorator => (target, propertyName) => {
+	registerDecorator({
+		name: 'isLibraryChoice',
+		target: target.constructor,
+		propertyName: propertyName as string,
+		validator: {
+			validate: (value: unknown): boolean =>
+				isLibraryChoice(value) ? true : refuse(propertyName),
+		},
+	});
+};
 
 /**
  * Settings.
@@ -21,6 +117,30 @@ export class UpdateSettingsDto {
 	@IsString()
 	@MaxLength(1024)
 	public fixedPath?: string | null;
+
+	/**
+	 * Declared here or unreachable: the validation pipe runs with `whitelist`, so a key
+	 * the DTO does not name is stripped from the body before anything sees it — the
+	 * request answers 200, the settings come back unchanged, and nothing reports a
+	 * problem. That has happened three times in this repository.
+	 */
+	@ApiPropertyOptional({
+		type: 'object',
+		additionalProperties: { type: 'string', format: 'uuid' },
+		description:
+			'Which library receives a pull, per category: a category key to a library identifier. ' +
+			'A category with no entry falls through to the default target library.',
+	})
+	@IsCategoryTargets()
+	public categoryTargets?: Record<string, string>;
+
+	@ApiPropertyOptional({
+		format: 'uuid',
+		description:
+			'The library that receives anything no category names. Empty clears it.',
+	})
+	@IsLibraryChoice()
+	public defaultTargetLibraryId?: string | null;
 
 	@ApiPropertyOptional({ enum: NamingScheme })
 	@IsOptional()
