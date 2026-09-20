@@ -343,6 +343,7 @@ const ROUTES: Record<string, { status?: number; body?: unknown }> = {
 	'/api/sync/preview': { body: { itemsPlanned: 1, bytesPlanned: 10, items: [{ itemId: 'm1', title: 'Pilot', kind: 'episode', sourceServiceId: 's1', sourceServiceName: 'Living room', targetPath: '/media/shows/pilot.mkv', bytes: 10, state: 'missing' }] } },
 	'/api/sync/run': { body: job },
 	'/api/transfers/stats': { body: { active: 1, queued: 2, paused: 1, failed: 1, rate: 500, bytesRemaining: 900 } },
+	'/api/transfers/unconfigured': { body: [] },
 	'/api/transfers/t1/chunks': { body: [{ index: 0, start: 0, end: 99, state: 'corrupt', bytesDone: 0, sourceServiceId: 's1', attempts: 2, checksum: null }] },
 	'/api/transfers/t1/revalidations': { body: [] },
 	'/api/transfers/t1/verify': { body: { transferId: 't1', ok: false, chunksChecked: 10, chunksCorrupt: 1, bytesToRepair: 100, checkedAt: '2026-02-02T00:00:00.000Z' } },

@@ -122,6 +122,7 @@ describe('pages/Dashboard', () => {
 		'/api/libraries': { body: [] },
 		'/api/peers': { body: [] },
 		'/api/transfers/stats': EMPTY_STATS,
+		'/api/transfers/unconfigured': { body: [] },
 		'/api/transfers': EMPTY_LIST,
 		'/api/sync/jobs': EMPTY_LIST,
 		'/api/media': { body: { items: [], pagination: { page: 1, limit: 1, total: 0, pages: 0 } } },
@@ -162,6 +163,45 @@ describe('pages/Dashboard', () => {
 		const problems = wrapper.findAll('[data-test="dashboard-problem"]');
 		expect(problems).toHaveLength(1);
 		expect(problems[0].text()).toContain('Shows');
+	});
+
+	/**
+	 * The failure that reports itself nowhere else at all.
+	 *
+	 * A file placed by a step nobody configured produced no error and no failed
+	 * transfer — it succeeded. Without this zone the only symptom is a folder somebody
+	 * did not plan, found months later.
+	 */
+	it('shows what landed where nobody chose, unasked', async () => {
+		window.localStorage.clear();
+		stubFetchRoutes({
+			...healthy,
+			'/api/transfers/unconfigured': {
+				body: [{
+					transferId: 't1',
+					itemId: 'm1',
+					title: 'Frieren - S01E04',
+					kind: 'episode',
+					state: 'done',
+					targetPath: '/media/shows/Frieren/S01E04.mkv',
+					targetLibraryId: 'l1',
+					targetLibraryName: 'Shows',
+					placedBy: 'default_library',
+					categoryKey: 'animes',
+					categoryName: 'Animés',
+					placedAt: '2026-02-02T10:00:00.000Z',
+				}],
+			},
+		});
+		const { wrapper } = mountWithApp(Dashboard, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const rows = wrapper.findAll('[data-test="dashboard-unconfigured-row"]');
+
+		expect(rows).toHaveLength(1);
+		expect(rows[0].text()).toContain('Frieren - S01E04');
+		expect(wrapper.find('[data-test="dashboard-unconfigured-reason"]').text())
+			.toContain('Animés');
 	});
 
 	/**

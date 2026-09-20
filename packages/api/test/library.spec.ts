@@ -169,7 +169,13 @@ describe('Libraries', () => {
 			const response = await read('/check').expect(200);
 			const checks = response.body as LibraryCheck[];
 
-			expect(checks).toHaveLength(3);
+			// Two of the three, because the third is on a service that is not ours. A
+			// library we cannot write into is not a misconfiguration to report — it is
+			// somebody else's disk — and probing it answered "does not exist, not
+			// readable, not writable" on every one, which had the dashboard asking
+			// people to fix what is neither broken nor fixable.
+			expect(checks).toHaveLength(2);
+			expect(checks.map((one) => one.libraryId)).not.toContain(otherShowsId);
 			expect(checks[0]).toMatchObject({
 				libraryId: expect.any(String),
 				name: expect.any(String),

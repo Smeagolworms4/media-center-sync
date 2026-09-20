@@ -3,6 +3,7 @@ export * from './filesystem.controller';
 export * from './health.controller';
 export * from './library.controller';
 export * from './media.controller';
+export * from './notification.controller';
 export * from './peer.controller';
 export * from './peer-exchange.controller';
 export * from './service.controller';

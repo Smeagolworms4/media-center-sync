@@ -1,4 +1,35 @@
+import { statfs } from 'node:fs/promises';
 import { SpaceVerdict, type TargetSpace } from '@mcs/shared';
+
+/** What a free-space probe has to be able to answer. `statfs` is the one that does. */
+export type StatfsLike = (path: string) => Promise<{ bavail: number | bigint; bsize: number | bigint }>;
+
+/**
+ * Free bytes on the filesystem holding a path, or null when it cannot be measured.
+ *
+ * One probe for the whole application, because there are now three callers — placement
+ * choosing a library, the move service refusing before it writes, and the library
+ * check — and three copies of `Number(bavail) * Number(bsize)` would disagree the day
+ * somebody noticed that `statfs` returns bigints on some platforms and not others.
+ *
+ * Null rather than zero when the call fails: `statfs` is not implemented on some
+ * network mounts, and a zero would read as "full" and refuse a destination that is
+ * perfectly writable. What to do about not knowing is `spaceVerdict`'s business.
+ *
+ * The probe is a parameter so a test can answer with a full disk without needing one.
+ * It is a seam, not an extension point: there is exactly one way to ask a filesystem
+ * how much room it has left.
+ */
+export const freeBytesAt = async (path: string, probe: StatfsLike = statfs): Promise<number | null> => {
+	try {
+		const stats = await probe(path);
+		const free = Number(stats.bavail) * Number(stats.bsize);
+
+		return Number.isFinite(free) ? free : null;
+	} catch {
+		return null;
+	}
+};
 
 /** One destination, what it has, and what a run would put in it. */
 export interface SpaceQuestion {

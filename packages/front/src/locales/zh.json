@@ -547,6 +547,73 @@
 			"saved": "已保存。"
 		}
 	},
+	"notification": {
+		"title": "通知渠道",
+		"help": "一次同步要跑好几个小时，凌晨四点才结束。渠道就是网关在你没开着浏览器标签页时告诉你的方式。",
+		"empty": "还没有任何渠道，所以什么都不会发出去。",
+		"add": "添加渠道",
+		"edit": "编辑此渠道",
+		"remove": "删除此渠道",
+		"remove_confirm": "删除 {name}？以后不会再通过它发送任何东西。",
+		"test": "发送测试",
+		"test_ok": "已送达。看一下接收的设备。",
+		"test_failed": "未送达：{reason}",
+		"name": "名称",
+		"name_help": "由你决定，只出现在这个界面上。",
+		"enabled": "启用",
+		"enabled_help": "关闭的渠道会保留设置，但什么都不发送。",
+		"type": "类型",
+		"kind": {
+			"ntfy": "ntfy 推送",
+			"smtp": "电子邮件"
+		},
+		"kind_help": {
+			"ntfy": "推送到手机。不需要账号，也不需要安装我们的应用：一个服务器地址，加一个只有你家里知道的主题名。",
+			"smtp": "通过你已有的邮件服务器发一封普通邮件。比推送慢，但能送到那些本来就会提醒你的地方。"
+		},
+		"events": "何时发送",
+		"events_all": "什么都不勾表示全部，包括以后版本新增的事件。",
+		"event": {
+			"placement_unconfigured": "文件落到了没人选过的地方",
+			"transfer_failed": "一个传输放弃了",
+			"sync_finished": "一次运行结束了",
+			"disk_full": "某个目标位置满了",
+			"peer_request": "有人请求建立连接"
+		},
+		"event_help": {
+			"placement_unconfigured": "没有任何地方指定过目标，于是它进了默认媒体库或后备文件夹。除此之外不会有任何提示。",
+			"transfer_failed": "在重试次数用尽之后。",
+			"sync_finished": "连同它带回来的东西。",
+			"disk_full": "在第一个字节移动之前，此时腾出空间还来得及。",
+			"peer_request": "没人看到的请求，就是没人回应的请求。"
+		},
+		"field": {
+			"url": "服务器地址",
+			"topic": "主题",
+			"token": "访问令牌",
+			"host": "邮件服务器",
+			"port": "端口",
+			"secure": "隐式 TLS",
+			"username": "用户名",
+			"password": "密码",
+			"from": "发件人",
+			"to": "收件人"
+		},
+		"field_help": {
+			"url": "https://ntfy.sh，或者你自己的服务器。",
+			"topic": "随你取，但要难猜：在公共服务器上，知道名字的人都能读到消息。",
+			"token": "只有要求令牌的服务器才需要。",
+			"port": "587 用于 STARTTLS 提交，465 用于隐式 TLS。",
+			"secure": "465 开启，587 关闭。在你改动之前按端口推断。",
+			"from": "消息发出的地址。有些服务器只接受这一个。",
+			"to": "一个地址，消息发到这里。"
+		},
+		"secret_kept": "留空则保留已保存的值。",
+		"secret_clear": "删除已保存的值",
+		"last_sent": "上次发送 {when}",
+		"never_sent": "还没有发送过任何东西",
+		"last_error": "上次尝试失败：{reason}"
+	},
 	"share": {
 		"subtitle": "此网关对外公开的内容，逐个媒体库决定。",
 		"libraries": "媒体库",
@@ -625,7 +692,8 @@
 			"transfers": "传输",
 			"categories": "分类",
 			"peers": "对等网关与共享",
-			"index": "索引与缓存"
+			"index": "索引与缓存",
+			"notifications": "通知"
 		},
 		"destination": {
 			"rule_title": "网关如何决定文件的去向",
@@ -902,6 +970,28 @@
 			"ok": "已校验：检查了 {count} 个分块，全部完好。",
 			"corrupt": "已校验：{count} 个分块不匹配，需要重新获取。"
 		},
+		"unconfigured": {
+			"title": "有 {count} 个文件落到了无人指定的位置",
+			"hint": "它们的传输都成功了，所以别处不会报告这件事。请指明它们该去哪里，或者一次性为整个分类设定。",
+			"dismiss": "暂不处理",
+			"went_to": "已落到 {target}",
+			"going_to": "正前往 {target}",
+			"choose": "发送到",
+			"move": "移动此文件",
+			"remember": "今后将 {category} 发送到这里",
+			"moved": "已移动。",
+			"remembered": "已保存。该分类今后都会送到那里。",
+			"reason": {
+				"default_library": "分类 {category} 没有设定目标位置，因此文件落到了默认目标媒体库。",
+				"fallback_path": "分类 {category} 没有设定目标位置，也没有默认目标媒体库，因此文件落到了后备文件夹。",
+				"any_writable": "分类 {category} 什么都没有设定，既没有默认媒体库也没有后备文件夹，因此文件落到了第一个能容纳它的媒体库。"
+			},
+			"no_category": {
+				"default_library": "此条目所在的媒体库不属于任何分类，因此由默认目标媒体库接收。",
+				"fallback_path": "此条目所在的媒体库不属于任何分类，也没有默认目标媒体库，因此文件落到了后备文件夹。",
+				"any_writable": "此条目所在的媒体库不属于任何分类，其他也没有设定，因此文件落到了第一个能容纳它的媒体库。"
+			}
+		},
 		"chunks": {
 			"title": "分块",
 			"empty": "此传输还没有分块图。",
@@ -1080,7 +1170,9 @@
 			"not_resumable": "此传输无法恢复，必须重新开始。",
 			"no_space": "目标媒体库的可用空间不足。",
 			"checksum_mismatch": "下载的文件与其校验和不匹配。",
-			"target_occupied": "该文件本应落地的路径已被别的文件占用，且无法构造出空闲的名称。没有任何文件被覆盖。"
+			"destination_full": "移动文件时目标位置已被写满。没有任何内容丢失：释放空间后继续，移动会从中断处接着进行。",
+			"target_occupied": "该文件本应落地的路径已被别的文件占用，且无法构造出空闲的名称。没有任何文件被覆盖。",
+			"destination_invalid": "目标必须是你自己某个服务下的媒体库。没有任何服务扫描的文件夹会接收文件，然后谁也看不到它。"
 		},
 		"settings": {
 			"invalid": "这些设置被拒绝。",
@@ -1100,6 +1192,12 @@
 			"path_outside_root": "该文件夹不在此网关可浏览的目录范围内。",
 			"path_not_found": "找不到该文件夹。",
 			"path_unreadable": "网关无法读取该文件夹。"
+		},
+		"notification": {
+			"channel_not_found": "此通知渠道已不存在。",
+			"config_invalid": "这些设置无法让此渠道工作。",
+			"handler_unknown": "不支持这种通知渠道。",
+			"send_failed": "渠道没有送出这条消息。"
 		}
 	},
 	"indications": {

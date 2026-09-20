@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, In, LessThan, Repository } from 'typeorm';
+import { DataSource, In, LessThan, Not, Repository } from 'typeorm';
 import type { TransferQueueStats } from '@mcs/shared';
-import { TransferState } from '@mcs/shared';
+import { TransferState, UNCONFIGURED_PLACEMENTS } from '@mcs/shared';
 import { Transfer } from '@/entities';
 
 /** States in which a transfer is still moving, or about to. */
@@ -106,6 +106,30 @@ export class TransferRepository extends Repository<Transfer> {
 			failed: counts.get(TransferState.FAILED) ?? 0,
 			bytesRemaining,
 		};
+	}
+
+	/**
+	 * Transfers that landed — or are about to — on a step nobody configured.
+	 *
+	 * Cancelled and failed ones are left out: their file is not in a library and never
+	 * will be, so offering to file it properly would be offering to move nothing. The
+	 * ones still downloading are kept in on purpose, because that is the cheap moment
+	 * to correct the destination — the work file is still in the scratch directory and
+	 * changing where it goes rewrites a path rather than moving bytes.
+	 *
+	 * Newest first and capped, because this feeds a zone on the home screen. A gateway
+	 * that has never had a destination configured has one of these rows per file it has
+	 * ever pulled, and the answer to that is not a longer list.
+	 */
+	public findUnconfigured(limit = 50): Promise<Transfer[]> {
+		return this.find({
+			where: {
+				placedBy: In(UNCONFIGURED_PLACEMENTS),
+				state: Not(In([TransferState.FAILED, TransferState.CANCELLED])),
+			},
+			order: { createdAt: 'DESC' },
+			take: limit,
+		});
 	}
 
 	public async setState(id: string, state: TransferState): Promise<void> {

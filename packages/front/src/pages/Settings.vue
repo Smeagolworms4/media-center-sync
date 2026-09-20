@@ -10,6 +10,7 @@
 	import CategoryList from '@/components/library/CategoryList.vue';
 	import CategoryTargetsTable from '@/components/settings/CategoryTargetsTable.vue';
 	import DestinationLibraryField from '@/components/settings/DestinationLibraryField.vue';
+	import NotificationChannels from '@/components/settings/NotificationChannels.vue';
 	import ShareRateSummary from '@/components/share/ShareRateSummary.vue';
 	import { useByteSize } from '@/composables/useByteSize';
 	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
@@ -323,6 +324,16 @@
 			],
 		},
 		{ key: 'categories', fields: [] },
+		/*
+		 * No fields, for the same reason the categories tab has none.
+		 *
+		 * A channel is a row with its own routes and its own form, not a setting on
+		 * this page's body — so nothing here can be refused, and there is nothing for
+		 * a red dot to point at. The tab still has to be declared: `tabsInError`
+		 * reads this list, and a pane missing from it is one a refusal could never
+		 * open.
+		 */
+		{ key: 'notifications', fields: [] },
 		{ key: 'peers', fields: ['peerMaxDepth', 'allowSwarm', 'defaultShareVisibility'] },
 		{
 			key: 'index',
@@ -723,6 +734,23 @@
 					</v-card-text>
 				</v-card>
 
+			</div>
+
+			<div v-show="tab === 'notifications'">
+				<v-card class="settings_card">
+					<v-card-title class="text-subtitle-1">
+						{{ $t('settings.group.notifications') }}
+					</v-card-title>
+
+					<v-card-text>
+						<!--
+							Its own component, and its own API: nothing in this block is part
+							of the settings form above, so saving the page neither writes nor
+							discards anything here.
+						-->
+						<NotificationChannels />
+					</v-card-text>
+				</v-card>
 			</div>
 
 			<div v-show="tab === 'peers'">

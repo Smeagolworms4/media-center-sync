@@ -547,6 +547,73 @@
 			"saved": "Enregistré."
 		}
 	},
+	"notification": {
+		"title": "Canaux de notification",
+		"help": "Une synchronisation dure des heures et se termine à quatre heures du matin. Un canal, c'est la façon dont la passerelle vous prévient sans qu'un onglet reste ouvert.",
+		"empty": "Aucun canal pour l'instant : rien n'est envoyé nulle part.",
+		"add": "Ajouter un canal",
+		"edit": "Modifier ce canal",
+		"remove": "Supprimer ce canal",
+		"remove_confirm": "Supprimer {name} ? Plus rien ne sera jamais envoyé par ce canal.",
+		"test": "Envoyer un test",
+		"test_ok": "Envoyé. Regardez l'appareil destinataire.",
+		"test_failed": "Non envoyé : {reason}",
+		"name": "Nom",
+		"name_help": "À vous de choisir. Il n'apparaît que sur cet écran.",
+		"enabled": "Activé",
+		"enabled_help": "Un canal désactivé conserve ses réglages et n'envoie rien.",
+		"type": "Type",
+		"kind": {
+			"ntfy": "Notification ntfy",
+			"smtp": "Courriel"
+		},
+		"kind_help": {
+			"ntfy": "Une notification sur un téléphone. Aucun compte et aucune application à installer de notre part : une adresse de serveur et un nom de sujet que seul votre foyer connaît.",
+			"smtp": "Un courriel ordinaire via un serveur de messagerie que vous avez déjà. Plus lent qu'une notification, et cela atteint ce qui vous prévient déjà."
+		},
+		"events": "Envoyer pour",
+		"events_all": "Rien de coché signifie tout, y compris les événements ajoutés dans les versions suivantes.",
+		"event": {
+			"placement_unconfigured": "Un fichier a atterri là où personne ne l'avait choisi",
+			"transfer_failed": "Un transfert a abandonné",
+			"sync_finished": "Une exécution s'est terminée",
+			"disk_full": "Une destination est pleine",
+			"peer_request": "Quelqu'un demande à se lier"
+		},
+		"event_help": {
+			"placement_unconfigured": "Rien n'indiquait de destination : le fichier est parti dans la bibliothèque par défaut ou dans le dossier de repli. Rien d'autre ne vous en dirait jamais un mot.",
+			"transfer_failed": "Une fois ses tentatives épuisées.",
+			"sync_finished": "Avec ce qu'elle a rapporté.",
+			"disk_full": "Avant qu'un seul octet ne bouge, pendant que libérer de la place sert encore à quelque chose.",
+			"peer_request": "Une demande que personne ne voit est une demande à laquelle personne ne répond."
+		},
+		"field": {
+			"url": "Adresse du serveur",
+			"topic": "Sujet",
+			"token": "Jeton d'accès",
+			"host": "Serveur de messagerie",
+			"port": "Port",
+			"secure": "TLS implicite",
+			"username": "Identifiant",
+			"password": "Mot de passe",
+			"from": "Expéditeur",
+			"to": "Destinataire"
+		},
+		"field_help": {
+			"url": "https://ntfy.sh, ou votre propre serveur.",
+			"topic": "Ce que vous voulez, et difficile à deviner : sur un serveur public, quiconque connaît le nom lit les messages.",
+			"token": "Uniquement pour un serveur qui en demande un.",
+			"port": "587 pour la soumission avec STARTTLS, 465 pour le TLS implicite.",
+			"secure": "Activé pour 465, désactivé pour 587. Déduit du port tant que vous n'y touchez pas.",
+			"from": "L'adresse d'où part le message. Certains serveurs refusent toute autre valeur.",
+			"to": "Une seule adresse, celle qui reçoit les messages."
+		},
+		"secret_kept": "Laissé vide, la valeur enregistrée est conservée.",
+		"secret_clear": "Supprimer la valeur enregistrée",
+		"last_sent": "Dernier envoi {when}",
+		"never_sent": "Rien n'a encore été envoyé",
+		"last_error": "La dernière tentative a échoué : {reason}"
+	},
 	"share": {
 		"subtitle": "Ce que cette passerelle expose, décidé bibliothèque par bibliothèque.",
 		"libraries": "Bibliothèques",
@@ -625,7 +692,8 @@
 			"transfers": "Transferts",
 			"categories": "Catégories",
 			"peers": "Pairs et partage",
-			"index": "Index et cache"
+			"index": "Index et cache",
+			"notifications": "Notifications"
 		},
 		"destination": {
 			"rule_title": "Comment la passerelle décide où va un fichier",
@@ -902,6 +970,28 @@
 			"ok": "Vérifié : {count} morceaux contrôlés, tous intacts.",
 			"corrupt": "Vérifié : {count} morceaux ne correspondent pas et doivent revenir."
 		},
+		"unconfigured": {
+			"title": "{count} fichier est arrivé là où personne n’a choisi | {count} fichiers sont arrivés là où personne n’a choisi",
+			"hint": "Leurs transferts ont réussi, donc rien d’autre ne les signale. Indiquez où ils doivent aller, ou dites-le une fois pour toute la catégorie.",
+			"dismiss": "Plus tard",
+			"went_to": "arrivé dans {target}",
+			"going_to": "en route vers {target}",
+			"choose": "Envoyer vers",
+			"move": "Déplacer ce fichier",
+			"remember": "Envoyer {category} ici désormais",
+			"moved": "Déplacé.",
+			"remembered": "Enregistré. Toute cette catégorie ira désormais là.",
+			"reason": {
+				"default_library": "Aucune destination n’est définie pour la catégorie {category} : le fichier est donc allé dans la bibliothèque de destination par défaut.",
+				"fallback_path": "Aucune destination n’est définie pour la catégorie {category} et il n’y a pas de bibliothèque par défaut : le fichier est allé dans le dossier de repli.",
+				"any_writable": "Rien n’est défini pour la catégorie {category}, ni bibliothèque par défaut ni dossier de repli : le fichier est allé dans la première bibliothèque capable de l’accueillir."
+			},
+			"no_category": {
+				"default_library": "La bibliothèque de cet élément n’appartient à aucune catégorie : la bibliothèque de destination par défaut l’a pris.",
+				"fallback_path": "La bibliothèque de cet élément n’appartient à aucune catégorie et il n’y a pas de bibliothèque par défaut : le fichier est allé dans le dossier de repli.",
+				"any_writable": "La bibliothèque de cet élément n’appartient à aucune catégorie et rien d’autre n’était défini : le fichier est allé dans la première bibliothèque capable de l’accueillir."
+			}
+		},
 		"chunks": {
 			"title": "Morceaux",
 			"empty": "Ce transfert n'a pas encore de carte des morceaux.",
@@ -1080,7 +1170,9 @@
 			"not_resumable": "Ce transfert ne peut pas reprendre et doit recommencer.",
 			"no_space": "Espace libre insuffisant sur la bibliothèque cible.",
 			"checksum_mismatch": "Le fichier téléchargé ne correspond pas à son empreinte.",
-			"target_occupied": "Un autre fichier occupe déjà le chemin où celui-ci devait arriver, et aucun nom libre n’a pu être construit. Rien n’a été écrasé."
+			"destination_full": "La destination s’est remplie pendant le déplacement du fichier. Rien n’est perdu : libérez de l’espace et reprenez, le déplacement repartira d’où il s’est arrêté.",
+			"target_occupied": "Un autre fichier occupe déjà le chemin où celui-ci devait arriver, et aucun nom libre n’a pu être construit. Rien n’a été écrasé.",
+			"destination_invalid": "Une destination doit être une bibliothèque sur l’un de vos propres services. Un dossier que rien n’analyse accepte le fichier et ne le montre à personne."
 		},
 		"settings": {
 			"invalid": "Ces paramètres ont été refusés.",
@@ -1100,6 +1192,12 @@
 			"path_outside_root": "Ce dossier est hors des répertoires que cette passerelle peut parcourir.",
 			"path_not_found": "Ce dossier est introuvable.",
 			"path_unreadable": "La passerelle ne peut pas lire ce dossier."
+		},
+		"notification": {
+			"channel_not_found": "Ce canal de notification n'existe plus.",
+			"config_invalid": "Ce canal ne peut pas fonctionner avec ces réglages.",
+			"handler_unknown": "Ce type de canal de notification n'est pas pris en charge.",
+			"send_failed": "Le canal n'a pas délivré le message."
 		}
 	},
 	"indications": {

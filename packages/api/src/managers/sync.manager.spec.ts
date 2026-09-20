@@ -2,6 +2,8 @@ import {
 	ErrorKey,
 	MediaKind,
 	NamingScheme,
+	NotificationEvent,
+	PlacedBy,
 	PlacementStrategy,
 	SpaceVerdict,
 	SyncJobItemState,
@@ -40,6 +42,7 @@ import type {
 	TransferEngineService,
 } from '@/services';
 import type { LibraryManager } from './library.manager';
+import type { NotificationManager } from './notification.manager';
 import { SyncManager } from './sync.manager';
 
 const SETTINGS: Settings = {
@@ -163,6 +166,7 @@ interface World {
 		naming: { render: jest.Mock };
 		services: { findWithSecrets: jest.Mock };
 		scheduler: { registerPlans: jest.Mock; onPlan: jest.Mock; unregisterPlan: jest.Mock; nextRunAt: jest.Mock };
+		notifications: { notify: jest.Mock };
 	};
 }
 
@@ -315,6 +319,7 @@ const build = (
 				Promise.resolve(services.find((candidate) => candidate.id === id) ?? null),
 			),
 		},
+		notifications: { notify: jest.fn().mockResolvedValue(undefined) },
 	};
 
 	const manager = new SyncManager(
@@ -359,6 +364,7 @@ const build = (
 		fakes.engine as unknown as TransferEngineService,
 		fakes.scheduler as unknown as SchedulerService,
 		{ emit: jest.fn() } as unknown as EventGatewayService,
+		fakes.notifications as unknown as NotificationManager,
 		{ getOrThrow: () => ({ root: '/media', transferRoot: '/var/transfer' }) } as unknown as ConfigService,
 	);
 
@@ -844,6 +850,70 @@ describe('SyncManager', () => {
 		});
 	});
 
+	describe('a pull landing where nobody chose', () => {
+		/**
+		 * The one event that is on by default, and the reason the feature exists.
+		 *
+		 * The condition is never re-derived from the strategy: `placedBy` is what the
+		 * placement service actually decided, and `UNCONFIGURED_PLACEMENTS` is the list
+		 * of steps that mean nobody chose. Reading the strategy instead gives a
+		 * different answer the day a step is added.
+		 */
+		const placedBy = (step: PlacedBy) => {
+			const world = build();
+
+			world.fakes.placement.resolve.mockResolvedValue({
+				libraryId: 'library-local',
+				libraryName: 'Shows',
+				directory: '/media/shows',
+				path: '/media/shows/Show/S01E03.mkv',
+				strategy: PlacementStrategy.DEFAULT_LIBRARY,
+				fallback: true,
+				reason: null,
+				placedBy: step,
+			});
+
+			return world;
+		};
+
+		it('says so when the fallback folder caught the file', async () => {
+			const { manager, fakes } = placedBy(PlacedBy.FALLBACK_PATH);
+
+			await manager.run({});
+
+			expect(fakes.notifications.notify).toHaveBeenCalledWith(
+				expect.objectContaining({ event: NotificationEvent.PLACEMENT_UNCONFIGURED }),
+			);
+		});
+
+		it('says nothing when a category named the destination', async () => {
+			// Every run would otherwise notify, which is how somebody turns the whole
+			// thing off and stops hearing about the runs that did go wrong.
+			const { manager, fakes } = placedBy(PlacedBy.CATEGORY);
+
+			await manager.run({});
+
+			expect(fakes.notifications.notify).not.toHaveBeenCalledWith(
+				expect.objectContaining({ event: NotificationEvent.PLACEMENT_UNCONFIGURED }),
+			);
+		});
+
+		it('sends one message for the run rather than one per file', async () => {
+			// Four hundred episodes into an unconfigured category is four hundred
+			// notifications, and the second one is already too many.
+			const { manager, fakes } = placedBy(PlacedBy.ANY_WRITABLE);
+
+			await manager.run({});
+
+			const placements = fakes.notifications.notify.mock.calls.filter(
+				([sent]: [{ event: NotificationEvent }]) =>
+					sent.event === NotificationEvent.PLACEMENT_UNCONFIGURED,
+			);
+
+			expect(placements).toHaveLength(1);
+		});
+	});
+
 	describe('free space', () => {
 		/** A destination with exactly this much room, for a plan of two megabytes. */
 		const withFreeBytes = (freeBytes: number | null, settings: Partial<Settings> = {}) => {
@@ -868,6 +938,28 @@ describe('SyncManager', () => {
 			});
 			expect(fakes.jobs.save).not.toHaveBeenCalled();
 			expect(fakes.engine.enqueue).not.toHaveBeenCalled();
+		});
+
+		/**
+		 * Said while it is still worth saying.
+		 *
+		 * The arithmetic is known before a byte moves, and that is the whole difference
+		 * between this and a failed transfer: said in time somebody frees space, said
+		 * afterwards it is thirty gigabytes downloaded twice.
+		 */
+		it('tells somebody the destination is full, with the numbers', async () => {
+			const { manager, fakes } = withFreeBytes(1000);
+
+			await expect(manager.run({})).rejects.toMatchObject({
+				response: { key: ErrorKey.SYNC_NOT_ENOUGH_SPACE },
+			});
+
+			expect(fakes.notifications.notify).toHaveBeenCalledWith(
+				expect.objectContaining({
+					event: NotificationEvent.DISK_FULL,
+					body: expect.stringContaining('1000 free'),
+				}),
+			);
 		});
 
 		it('refuses it however loudly the caller acknowledges', async () => {

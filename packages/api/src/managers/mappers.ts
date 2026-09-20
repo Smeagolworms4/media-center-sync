@@ -7,6 +7,7 @@ import type {
 	MediaMatch as MediaMatchModel,
 	MediaNode,
 	MediaService as MediaServiceModel,
+	NotificationChannel as NotificationChannelModel,
 	Pagination,
 	Peer as PeerModel,
 	ResultList,
@@ -26,6 +27,7 @@ import type {
 	MediaItem,
 	MediaMatch,
 	MediaService,
+	NotificationChannel,
 	Peer,
 	Revalidation,
 	SharePolicy,
@@ -104,6 +106,32 @@ export const toMediaService = (
 	itemCount: counts.itemCount,
 	createdAt: service.createdAt.toISOString(),
 	updatedAt: service.updatedAt.toISOString(),
+});
+
+/**
+ * A notification channel, with its credentials stripped out.
+ *
+ * `config` travels with the row because the interface prefills a form from it — the
+ * host, the port, the topic — and the secret half is removed before it gets here, by
+ * the handler that is the only thing knowing which of its keys are credentials. This
+ * function cannot do that itself and must not try: it is pure, and a second list of
+ * secret key names living here would go out of date the first time a handler gained
+ * a field.
+ */
+export const toNotificationChannel = (
+	channel: NotificationChannel,
+	config: Record<string, unknown>,
+): NotificationChannelModel => ({
+	id: channel.id,
+	type: channel.type,
+	name: channel.name,
+	enabled: channel.enabled,
+	events: channel.events,
+	config,
+	lastError: channel.lastError,
+	lastSentAt: iso(channel.lastSentAt),
+	createdAt: channel.createdAt.toISOString(),
+	updatedAt: channel.updatedAt.toISOString(),
 });
 
 export const toLibrary = (library: Library): LibraryModel => ({
@@ -227,6 +255,7 @@ export const toSyncJobItem = (item: SyncJobItem): SyncJobItemModel => ({
 	sourceServiceName: item.sourceServiceName,
 	targetLibraryId: item.targetLibraryId,
 	targetPath: item.targetPath,
+	placedBy: item.placedBy ?? null,
 	bytes: bytes(item.bytes),
 	bytesDone: bytes(item.bytesDone),
 	state: item.state,
@@ -263,6 +292,8 @@ export const toTransfer = (
 	kind: extra.kind ?? '',
 	state: transfer.state,
 	targetPath: transfer.targetPath,
+	targetLibraryId: transfer.targetLibraryId ?? null,
+	placedBy: transfer.placedBy ?? null,
 	bytesTotal: bytes(transfer.bytesTotal),
 	bytesDone: bytes(transfer.bytesDone),
 	rate: extra.rate ?? 0,

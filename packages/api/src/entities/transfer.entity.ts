@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
-import { TransferErrorKind, TransferState } from '@mcs/shared';
+import { PlacedBy, TransferErrorKind, TransferState } from '@mcs/shared';
 import { Timestampable } from './timestampable.entity';
 
 /**
@@ -46,6 +46,35 @@ export class Transfer extends Timestampable {
 	@ApiProperty()
 	@Column()
 	public targetPath!: string;
+
+	/**
+	 * The library that path belongs to, when it belongs to one.
+	 *
+	 * Null for a fallback folder outside every registered library, which is precisely
+	 * the case worth showing somebody. Stored rather than derived from the path: two
+	 * libraries can nest, a library's path can be corrected afterwards, and a screen
+	 * that had to guess would name the wrong one on exactly the gateways this matters
+	 * on.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public targetLibraryId!: string | null;
+
+	/**
+	 * Which step of the placement rule chose that path.
+	 *
+	 * The whole point of the column: three of the seven steps mean nobody chose, and
+	 * without this there is nothing anywhere that can tell them from the four that did.
+	 * The transfer succeeds either way, so no error, no state and no log would ever
+	 * mention it — the library simply grows a folder somebody did not plan.
+	 *
+	 * Null on rows written before this existed. Readers treat that as "not known"
+	 * rather than as "fine", which is why it is nullable instead of defaulted.
+	 */
+	@ApiProperty({ enum: PlacedBy, nullable: true })
+	@Index()
+	@Column({ type: 'varchar', nullable: true })
+	public placedBy!: PlacedBy | null;
 
 	/** Where the pieces accumulate until verification passes. */
 	@ApiProperty()

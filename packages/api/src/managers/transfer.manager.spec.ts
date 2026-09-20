@@ -1,18 +1,32 @@
-import { ChunkState, ErrorKey, EventName, MediaKind, TransferState } from '@mcs/shared';
-import { ConflictException } from '@nestjs/common';
+import {
+	ChunkState,
+	ErrorKey,
+	EventName,
+	MediaKind,
+	MediaServiceScope,
+	PlacedBy,
+	TransferState,
+} from '@mcs/shared';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { Transfer } from '@/entities';
 import type {
+	LibraryRepository,
 	MediaItemRepository,
 	MediaServiceRepository,
 	RevalidationRepository,
+	SyncJobItemRepository,
 	TransferChunkRepository,
 	TransferRepository,
 } from '@/repositories';
+import { FileMoveError, FileMoveOutcome } from '@/services';
 import type {
 	EventGatewayService,
+	FileMoveService,
+	SettingsService,
 	TransferEngineService,
 	VerificationService,
 } from '@/services';
+import type { LibraryManager } from './library.manager';
 import { TransferManager } from './transfer.manager';
 
 interface Fakes {
@@ -21,6 +35,7 @@ interface Fakes {
 		findAndCount: jest.Mock;
 		save: jest.Mock;
 		queueStats: jest.Mock;
+		findUnconfigured: jest.Mock;
 	};
 	chunks: {
 		findByTransfer: jest.Mock;
@@ -38,8 +53,21 @@ interface Fakes {
 		progressOf: jest.Mock;
 	};
 	verification: { verify: jest.Mock };
-	events: { emit: jest.Mock };
+	events: { emit: jest.Mock; publishProgress: jest.Mock; flushProgress: jest.Mock };
+	libraries: { findOne: jest.Mock; find: jest.Mock };
+	lines: { findLine: jest.Mock; save: jest.Mock };
+	libraryManager: { probe: jest.Mock; categories: jest.Mock };
+	mover: { move: jest.Mock };
 }
+
+/** A library on one of our own services, writable, which is the only valid target. */
+const OURS = {
+	id: 'lib-anime',
+	name: 'Animes',
+	alias: null,
+	serviceId: 'service-1',
+	localPath: '/media/anime',
+};
 
 const transfer = (overrides: Partial<Transfer> = {}): Transfer =>
 	({
@@ -50,6 +78,8 @@ const transfer = (overrides: Partial<Transfer> = {}): Transfer =>
 		title: 'S01E03',
 		state: TransferState.DOWNLOADING,
 		targetPath: '/media/shows/S01E03.mkv',
+		targetLibraryId: 'lib-shows',
+		placedBy: PlacedBy.DEFAULT_LIBRARY,
 		workPath: '/var/transfer/transfer-1.part',
 		bytesTotal: 1000,
 		bytesDone: 400,
@@ -76,6 +106,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 			queueStats: jest
 				.fn()
 				.mockResolvedValue({ active: 1, queued: 2, paused: 0, failed: 0, bytesRemaining: 600 }),
+			findUnconfigured: jest.fn().mockResolvedValue([]),
 		},
 		chunks: {
 			findByTransfer: jest.fn().mockResolvedValue([
@@ -110,7 +141,29 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				detail: null,
 			}),
 		},
-		events: { emit: jest.fn() },
+		events: { emit: jest.fn(), publishProgress: jest.fn(), flushProgress: jest.fn() },
+		libraries: {
+			findOne: jest.fn(({ where }: { where: { id: string } }) =>
+				Promise.resolve(
+					where.id === OURS.id
+						? OURS
+						: { id: 'lib-shows', name: 'Shows', alias: null, serviceId: 'service-1', localPath: '/media/shows' },
+				),
+			),
+			find: jest.fn().mockResolvedValue([OURS]),
+		},
+		lines: { findLine: jest.fn().mockResolvedValue(null), save: jest.fn() },
+		libraryManager: {
+			// Writable, and nothing is at the destination yet: the ordinary case, which
+			// each test that cares about the opposite overrides for itself.
+			probe: jest.fn().mockResolvedValue({ exists: false, readable: true, writable: true }),
+			categories: jest.fn().mockResolvedValue([]),
+		},
+		mover: {
+			move: jest
+				.fn()
+				.mockResolvedValue({ outcome: FileMoveOutcome.RENAMED, bytesCopied: 0, partialPath: null }),
+		},
 	};
 
 	const manager = new TransferManager(
@@ -118,9 +171,27 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 		fakes.chunks as unknown as TransferChunkRepository,
 		{ findForTransfer: jest.fn().mockResolvedValue([]) } as unknown as RevalidationRepository,
 		{
-			find: jest.fn().mockResolvedValue([{ id: 'item-1', kind: MediaKind.EPISODE }]),
+			find: jest
+				.fn()
+				.mockResolvedValue([{ id: 'item-1', kind: MediaKind.EPISODE, libraryId: 'lib-source' }]),
 		} as unknown as MediaItemRepository,
-		{ find: jest.fn().mockResolvedValue([]) } as unknown as MediaServiceRepository,
+		{
+			find: jest.fn().mockResolvedValue([]),
+			// Answered by identifier rather than fixed, so that a library sitting on a
+			// friend's server really is a different answer here.
+			findOne: jest.fn(({ where }: { where: { id: string } }) =>
+				Promise.resolve({
+					id: where.id,
+					scope:
+						where.id === 'service-1' ? MediaServiceScope.LOCAL : MediaServiceScope.REMOTE,
+				}),
+			),
+		} as unknown as MediaServiceRepository,
+		fakes.libraries as unknown as LibraryRepository,
+		fakes.lines as unknown as SyncJobItemRepository,
+		fakes.libraryManager as unknown as LibraryManager,
+		{ get: jest.fn().mockResolvedValue({ diskReserveBytes: 0 }) } as unknown as SettingsService,
+		fakes.mover as unknown as FileMoveService,
 		fakes.engine as unknown as TransferEngineService,
 		fakes.verification as unknown as VerificationService,
 		fakes.events as unknown as EventGatewayService,
@@ -289,6 +360,192 @@ describe('TransferManager', () => {
 
 			expect(fakes.transfers.save).not.toHaveBeenCalled();
 			expect(fakes.engine.enqueue).not.toHaveBeenCalled();
+		});
+	});
+
+	/**
+	 * Changing where a file goes, which costs two wildly different things.
+	 *
+	 * Before it lands, nothing has been placed and the bytes are piling up in the
+	 * scratch directory: the change is one row write. After it lands, the same request
+	 * moves real bytes between two real filesystems. The tests below pin that
+	 * difference down, because a caller that assumed the second cost for the first case
+	 * would never offer the cheap one — which is the only one worth offering while a
+	 * forty-gigabyte season is still downloading.
+	 */
+	describe('changing the destination', () => {
+		it('only rewrites the path while the file is still downloading', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			expect(fakes.mover.move).not.toHaveBeenCalled();
+
+			const saved = fakes.transfers.save.mock.calls[0][0] as Transfer;
+
+			expect(saved.targetPath).toBe('/media/anime/S01E03.mkv');
+			expect(saved.targetLibraryId).toBe('lib-anime');
+			expect(saved.state).toBe(TransferState.DOWNLOADING);
+		});
+
+		it('keeps the folders the file already sits in, one library over', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.transfers.findOne.mockResolvedValue(
+				transfer({
+					state: TransferState.DOWNLOADING,
+					targetPath: '/media/shows/The Expanse/Season 1/S01E02.mkv',
+					targetLibraryId: 'lib-shows',
+				}),
+			);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			// A season flattened to a file name is a season no media server groups.
+			expect((fakes.transfers.save.mock.calls[0][0] as Transfer).targetPath).toBe(
+				'/media/anime/The Expanse/Season 1/S01E02.mkv',
+			);
+		});
+
+		it('moves the bytes once the file is in a library, and says so while it runs', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			expect(fakes.mover.move).toHaveBeenCalledWith(
+				expect.objectContaining({
+					source: '/media/shows/S01E03.mkv',
+					destination: '/media/anime/S01E03.mkv',
+				}),
+			);
+
+			// The state the interface already draws a bar for, pushed before the copy
+			// starts rather than after it finishes.
+			const states = fakes.events.emit.mock.calls
+				.filter(([name]: [string]) => name === EventName.TRANSFER_STATE)
+				.map(([, payload]: [string, { state: TransferState }]) => payload.state);
+
+			expect(states[0]).toBe(TransferState.PLACING);
+			expect(states.at(-1)).toBe(TransferState.DONE);
+		});
+
+		it('leaves the transfer where it was when the move is refused', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			fakes.mover.move.mockRejectedValue(
+				new FileMoveError(ErrorKey.TRANSFER_NO_SPACE, 'ENOSPC: no space left on device'),
+			);
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_NO_SPACE);
+
+			// The file is still whole, in the library it was in. A transfer stuck on
+			// `placing` would make a recoverable refusal look like a hung job.
+			const saved = fakes.transfers.save.mock.calls.at(-1) as [Transfer];
+
+			expect(saved[0].state).toBe(TransferState.DONE);
+			expect(saved[0].targetPath).toBe('/media/shows/S01E03.mkv');
+		});
+
+		/**
+		 * The refusal this whole area exists for.
+		 *
+		 * A library on somebody else's server is a directory this gateway cannot write
+		 * into and no media server of ours scans. A transfer sent there reports success
+		 * and produces nothing.
+		 */
+		it('refuses a library that is not on one of our own services', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.libraries.findOne.mockResolvedValue({ ...OURS, serviceId: 'peer-service' });
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_DESTINATION_INVALID);
+			expect(fakes.mover.move).not.toHaveBeenCalled();
+		});
+
+		it('refuses a library of ours the gateway cannot write into', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.libraryManager.probe.mockResolvedValue({
+				exists: true,
+				readable: true,
+				writable: false,
+			});
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.LIBRARY_PATH_NOT_WRITABLE);
+		});
+
+		it('refuses a library nobody has', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.libraries.findOne.mockResolvedValue(null);
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-ghost' }),
+			).rejects.toThrow(NotFoundException);
+		});
+
+		it('refuses to land on somebody else\'s file', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.libraryManager.probe.mockResolvedValue({
+				exists: true,
+				readable: true,
+				writable: true,
+			});
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_TARGET_OCCUPIED);
+		});
+
+		it('refuses while the engine is placing the file at this exact moment', async () => {
+			const { manager, fakes } = build(TransferState.PLACING);
+
+			await expect(
+				manager.changeDestination('transfer-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_NOT_RESUMABLE);
+			expect(fakes.transfers.save).not.toHaveBeenCalled();
+		});
+
+		it('marks a destination somebody chose by hand as chosen', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			expect((fakes.transfers.save.mock.calls[0][0] as Transfer).placedBy).toBe(
+				PlacedBy.REQUESTED,
+			);
+		});
+	});
+
+	describe('what landed where nobody chose', () => {
+		it('names the category to go and fix, rather than the step it fell to', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			fakes.transfers.findUnconfigured.mockResolvedValue([
+				transfer({ state: TransferState.DONE, placedBy: PlacedBy.DEFAULT_LIBRARY }),
+			]);
+			fakes.libraryManager.categories.mockResolvedValue([
+				{ key: 'animes', name: 'Animés', libraryIds: ['lib-source'] },
+			]);
+
+			const rows = await manager.unconfigured();
+
+			expect(rows).toHaveLength(1);
+			expect(rows[0].categoryName).toBe('Animés');
+			expect(rows[0].placedBy).toBe(PlacedBy.DEFAULT_LIBRARY);
+		});
+
+		it('says nothing at all when every file went where it was meant to', async () => {
+			const { manager } = build();
+
+			await expect(manager.unconfigured()).resolves.toEqual([]);
 		});
 	});
 

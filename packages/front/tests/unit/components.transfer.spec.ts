@@ -1,17 +1,26 @@
-import type { Revalidation, Transfer, TransferChunk, TransferSource } from '@mcs/shared';
+import type {
+	Revalidation,
+	Transfer,
+	TransferChunk,
+	TransferSource,
+	UnconfiguredPlacement,
+} from '@mcs/shared';
 import {
 	ChunkState,
+	PlacedBy,
 	RevalidationAction,
 	RevalidationOutcome,
 	TransferErrorKind,
 	TransferState,
 	TransferTransport,
 } from '@mcs/shared';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import ChunkMap from '@/components/transfer/ChunkMap.vue';
 import RevalidationList from '@/components/transfer/RevalidationList.vue';
 import TransferActions from '@/components/transfer/TransferActions.vue';
+import TransferDestination from '@/components/transfer/TransferDestination.vue';
 import TransferSources from '@/components/transfer/TransferSources.vue';
+import UnconfiguredPlacements from '@/components/transfer/UnconfiguredPlacements.vue';
 import { mountWithApp, tooltipStub } from './helpers';
 
 function transfer (overrides: Partial<Transfer> = {}): Transfer {
@@ -24,6 +33,8 @@ function transfer (overrides: Partial<Transfer> = {}): Transfer {
 		kind: 'episode',
 		state: TransferState.DOWNLOADING,
 		targetPath: '/media/shows/pilot.mkv',
+		targetLibraryId: 'lib-shows',
+		placedBy: PlacedBy.CATEGORY,
 		bytesTotal: 1000,
 		bytesDone: 100,
 		rate: 10,
@@ -265,5 +276,155 @@ describe('components/transfer/RevalidationList', () => {
 		const { wrapper } = mountWithApp(RevalidationList, { props: { revalidations: [] } });
 
 		expect(wrapper.text()).toContain('Nothing has been asked');
+	});
+});
+
+const DESTINATIONS = [
+	{ id: 'lib-anime', name: 'Animés', serviceName: 'Living room', path: '/media/anime' },
+	{ id: 'lib-shows', name: 'Shows', serviceName: 'Living room', path: '/media/shows' },
+];
+
+function placement (overrides: Partial<UnconfiguredPlacement> = {}): UnconfiguredPlacement {
+	return {
+		transferId: 't1',
+		itemId: 'm1',
+		title: 'Frieren - S01E04',
+		kind: 'episode',
+		state: TransferState.DONE,
+		targetPath: '/media/shows/Frieren/S01E04.mkv',
+		targetLibraryId: 'lib-shows',
+		targetLibraryName: 'Shows',
+		placedBy: PlacedBy.DEFAULT_LIBRARY,
+		categoryKey: 'animes',
+		categoryName: 'Animés',
+		placedAt: '2026-02-02T10:00:00.000Z',
+		...overrides,
+	};
+}
+
+/**
+ * The zone that is the only mention, anywhere, of a file placed where nobody chose.
+ *
+ * Every assertion here is about that: the transfer succeeded, so if this does not say
+ * it, nothing does.
+ */
+describe('components/UnconfiguredPlacements', () => {
+	beforeEach(() => {
+		window.localStorage.clear();
+	});
+
+	it('shows one row per file and says which category to go and fix', () => {
+		const { wrapper } = mountWithApp(UnconfiguredPlacements, {
+			props: {
+				items: [placement(), placement({ transferId: 't2', title: 'Frieren - S01E05' })],
+				destinations: DESTINATIONS,
+			},
+		});
+
+		expect(wrapper.findAll('[data-test="dashboard-unconfigured-row"]')).toHaveLength(2);
+
+		const reason = wrapper.find('[data-test="dashboard-unconfigured-reason"]').text();
+
+		// Actionable — it names the setting. "Fallback" would not be.
+		expect(reason).toContain('Animés');
+		expect(reason).toContain('default destination library');
+	});
+
+	it('words an item that belongs to no category differently', () => {
+		const { wrapper } = mountWithApp(UnconfiguredPlacements, {
+			props: {
+				items: [placement({ categoryKey: null, categoryName: null })],
+				destinations: DESTINATIONS,
+			},
+		});
+
+		// Telling somebody to set a destination for a category that does not exist sends
+		// them looking for a row that is not in the table.
+		expect(wrapper.find('[data-test="dashboard-unconfigured-reason"]').text())
+			.toContain('belongs to no category');
+		expect(wrapper.find('[data-test="transfer-destination-remember"]').exists()).toBe(false);
+	});
+
+	it('says nothing at all when every file went where it was meant to', () => {
+		const { wrapper } = mountWithApp(UnconfiguredPlacements, {
+			props: { items: [], destinations: DESTINATIONS },
+		});
+
+		expect(wrapper.find('[data-test="dashboard-unconfigured"]').exists()).toBe(false);
+	});
+
+	it('is shown without being asked for, which is the whole point', () => {
+		const { wrapper } = mountWithApp(UnconfiguredPlacements, {
+			props: { items: [placement()], destinations: DESTINATIONS },
+		});
+
+		expect(wrapper.find('[data-test="dashboard-unconfigured"]').exists()).toBe(true);
+	});
+
+	it('stays dismissed once it has been dismissed', async () => {
+		const props = { items: [placement()], destinations: DESTINATIONS };
+		const first = mountWithApp(UnconfiguredPlacements, { props });
+
+		await first.wrapper.find('[data-test="dashboard-unconfigured-dismiss"]').trigger('click');
+
+		expect(first.wrapper.find('[data-test="dashboard-unconfigured"]').exists()).toBe(false);
+
+		// A second visit to the page: what was waved away stays waved away.
+		const second = mountWithApp(UnconfiguredPlacements, { props });
+
+		expect(second.wrapper.find('[data-test="dashboard-unconfigured"]').exists()).toBe(false);
+	});
+
+	it('comes back for a file that landed after the dismissal', async () => {
+		const { wrapper } = mountWithApp(UnconfiguredPlacements, {
+			props: { items: [placement()], destinations: DESTINATIONS },
+		});
+
+		await wrapper.find('[data-test="dashboard-unconfigured-dismiss"]').trigger('click');
+
+		// Dismissing is "not now", not "never tell me again": a file placed tomorrow is
+		// a new occurrence of the thing nothing else reports.
+		const later = mountWithApp(UnconfiguredPlacements, {
+			props: {
+				items: [placement({ transferId: 't9', placedAt: '2026-03-03T10:00:00.000Z' })],
+				destinations: DESTINATIONS,
+			},
+		});
+
+		expect(later.wrapper.findAll('[data-test="dashboard-unconfigured-row"]')).toHaveLength(1);
+	});
+});
+
+describe('components/TransferDestination', () => {
+	it('asks nothing of the caller until a library has been picked', () => {
+		const { wrapper } = mountWithApp(TransferDestination, {
+			props: { destinations: DESTINATIONS, categoryName: 'Animés' },
+		});
+
+		expect(wrapper.find('[data-test="transfer-destination-move"]').attributes('disabled'))
+			.toBeDefined();
+	});
+
+	/**
+	 * Two actions, because they fix different amounts of the problem.
+	 *
+	 * Moving deals with the file in front of them; pointing the category deals with
+	 * everything that arrives afterwards. Offering only one of the two either answers a
+	 * question nobody asked or has them back here next week.
+	 */
+	it('offers both the one-off move and the rule for the whole category', () => {
+		const { wrapper } = mountWithApp(TransferDestination, {
+			props: { destinations: DESTINATIONS, categoryName: 'Animés' },
+		});
+
+		expect(wrapper.find('[data-test="transfer-destination-move"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="transfer-destination-remember"]').text())
+			.toContain('Animés');
+	});
+
+	it('warns rather than showing an empty menu when nothing can receive a file', () => {
+		const { wrapper } = mountWithApp(TransferDestination, { props: { destinations: [] } });
+
+		expect(wrapper.find('[data-test="transfer-destination-none"]').exists()).toBe(true);
 	});
 });

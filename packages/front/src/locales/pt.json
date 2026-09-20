@@ -547,6 +547,73 @@
 			"saved": "Guardado."
 		}
 	},
+	"notification": {
+		"title": "Canais de notificação",
+		"help": "Uma sincronização dura horas e acaba às quatro da manhã. Um canal é a forma de esta gateway o avisar sem deixar um separador aberto.",
+		"empty": "Ainda não há nenhum canal, por isso nada é enviado para lado nenhum.",
+		"add": "Adicionar um canal",
+		"edit": "Editar este canal",
+		"remove": "Remover este canal",
+		"remove_confirm": "Remover {name}? Nunca mais será enviado nada por aí.",
+		"test": "Enviar um teste",
+		"test_ok": "Entregue. Veja o aparelho para onde foi.",
+		"test_failed": "Não entregue: {reason}",
+		"name": "Nome",
+		"name_help": "À sua escolha. Só aparece neste ecrã.",
+		"enabled": "Ativo",
+		"enabled_help": "Um canal desligado mantém as definições e não envia nada.",
+		"type": "Tipo",
+		"kind": {
+			"ntfy": "Aviso ntfy",
+			"smtp": "E-mail"
+		},
+		"kind_help": {
+			"ntfy": "Um aviso no telemóvel. Sem conta e sem aplicação nossa para instalar: um endereço de servidor e um nome de tópico que só a sua casa conhece.",
+			"smtp": "Um e-mail comum através de um servidor de correio que já tem. Mais lento do que um aviso, e chega ao que já o notifica."
+		},
+		"events": "Enviar quando",
+		"events_all": "Nada assinalado significa tudo, incluindo os eventos acrescentados em versões posteriores.",
+		"event": {
+			"placement_unconfigured": "Um ficheiro foi parar onde ninguém escolheu",
+			"transfer_failed": "Uma transferência desistiu",
+			"sync_finished": "Uma execução terminou",
+			"disk_full": "Um destino está cheio",
+			"peer_request": "Alguém pediu para se ligar"
+		},
+		"event_help": {
+			"placement_unconfigured": "Nada indicava um destino, por isso foi para a biblioteca predefinida ou para a pasta de recurso. Mais nada lhe diria uma palavra sobre isso.",
+			"transfer_failed": "Depois de esgotadas as tentativas.",
+			"sync_finished": "Com aquilo que trouxe.",
+			"disk_full": "Antes de mexer um único byte, enquanto libertar espaço ainda resolve.",
+			"peer_request": "Um pedido que ninguém vê é um pedido a que ninguém responde."
+		},
+		"field": {
+			"url": "Endereço do servidor",
+			"topic": "Tópico",
+			"token": "Token de acesso",
+			"host": "Servidor de correio",
+			"port": "Porta",
+			"secure": "TLS implícito",
+			"username": "Utilizador",
+			"password": "Palavra-passe",
+			"from": "Remetente",
+			"to": "Destinatário"
+		},
+		"field_help": {
+			"url": "https://ntfy.sh, ou o seu próprio servidor.",
+			"topic": "O que quiser, e difícil de adivinhar: num servidor público, quem souber o nome lê as mensagens.",
+			"token": "Só para um servidor que peça um.",
+			"port": "587 para submissão com STARTTLS, 465 para TLS implícito.",
+			"secure": "Ligado para 465, desligado para 587. Deduzido da porta até o alterar.",
+			"from": "O endereço de onde sai a mensagem. Alguns servidores recusam qualquer outro.",
+			"to": "Um endereço, para onde vão as mensagens."
+		},
+		"secret_kept": "Deixado vazio, o valor guardado é mantido.",
+		"secret_clear": "Remover o valor guardado",
+		"last_sent": "Último envio {when}",
+		"never_sent": "Ainda não foi enviado nada",
+		"last_error": "A última tentativa falhou: {reason}"
+	},
 	"share": {
 		"subtitle": "O que este gateway expõe, decidido biblioteca a biblioteca.",
 		"libraries": "Bibliotecas",
@@ -625,7 +692,8 @@
 			"transfers": "Transferências",
 			"categories": "Categorias",
 			"peers": "Pares e partilha",
-			"index": "Índice e cache"
+			"index": "Índice e cache",
+			"notifications": "Notificações"
 		},
 		"destination": {
 			"rule_title": "Como o gateway decide para onde vai um ficheiro",
@@ -902,6 +970,28 @@
 			"ok": "Verificado: {count} blocos controlados, todos intactos.",
 			"corrupt": "Verificado: {count} blocos não correspondem e têm de voltar."
 		},
+		"unconfigured": {
+			"title": "{count} ficheiro foi parar onde ninguém escolheu | {count} ficheiros foram parar onde ninguém escolheu",
+			"hint": "As transferências correram bem, por isso nada mais os assinala. Diga para onde vão, ou diga-o uma vez para toda a categoria.",
+			"dismiss": "Agora não",
+			"went_to": "foi para {target}",
+			"going_to": "a caminho de {target}",
+			"choose": "Enviar para",
+			"move": "Mover este ficheiro",
+			"remember": "Enviar {category} para aqui de agora em diante",
+			"moved": "Movido.",
+			"remembered": "Guardado. Essa categoria passa a ir para lá.",
+			"reason": {
+				"default_library": "Não há destino definido para a categoria {category}, por isso foi para a biblioteca de destino predefinida.",
+				"fallback_path": "Não há destino definido para a categoria {category} nem biblioteca predefinida, por isso foi para a pasta de recurso.",
+				"any_writable": "Nada está definido para a categoria {category}, nem biblioteca predefinida nem pasta de recurso: foi para a primeira biblioteca que o conseguiu receber."
+			},
+			"no_category": {
+				"default_library": "A biblioteca deste item não pertence a nenhuma categoria, por isso a biblioteca de destino predefinida recebeu-o.",
+				"fallback_path": "A biblioteca deste item não pertence a nenhuma categoria e não há biblioteca predefinida, por isso foi para a pasta de recurso.",
+				"any_writable": "A biblioteca deste item não pertence a nenhuma categoria e também não havia mais nada definido: foi para a primeira biblioteca que o conseguiu receber."
+			}
+		},
 		"chunks": {
 			"title": "Blocos",
 			"empty": "Esta transferência ainda não tem mapa de blocos.",
@@ -1080,7 +1170,9 @@
 			"not_resumable": "Esta transferência não pode ser retomada e tem de recomeçar.",
 			"no_space": "Espaço livre insuficiente na biblioteca de destino.",
 			"checksum_mismatch": "O ficheiro transferido não corresponde à sua soma de verificação.",
-			"target_occupied": "Outro ficheiro já ocupa o caminho onde este iria aterrar e não foi possível construir um nome livre. Nada foi sobrescrito."
+			"destination_full": "O destino ficou sem espaço enquanto o ficheiro estava a ser movido. Nada se perdeu: liberte espaço e retome, e a mudança continua de onde parou.",
+			"target_occupied": "Outro ficheiro já ocupa o caminho onde este iria aterrar e não foi possível construir um nome livre. Nada foi sobrescrito.",
+			"destination_invalid": "Um destino tem de ser uma biblioteca num dos seus próprios serviços. Uma pasta que nada analisa aceita o ficheiro e não o mostra a ninguém."
 		},
 		"settings": {
 			"invalid": "Estas definições foram recusadas.",
@@ -1100,6 +1192,12 @@
 			"path_outside_root": "Essa pasta está fora dos diretórios que esta gateway pode percorrer.",
 			"path_not_found": "Pasta inexistente.",
 			"path_unreadable": "A gateway não consegue ler essa pasta."
+		},
+		"notification": {
+			"channel_not_found": "Este canal de notificação já não existe.",
+			"config_invalid": "Este canal não consegue funcionar com estas definições.",
+			"handler_unknown": "Este tipo de canal de notificação não é suportado.",
+			"send_failed": "O canal não entregou a mensagem."
 		}
 	},
 	"indications": {

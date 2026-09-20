@@ -1,6 +1,7 @@
 import type { Transfer } from '@mcs/shared';
 import {
 	EventName,
+	PlacedBy,
 	RevalidationAction,
 	RevalidationOutcome,
 	TransferErrorKind,
@@ -21,6 +22,8 @@ function transfer (overrides: Partial<Transfer> = {}): Transfer {
 		kind: 'episode',
 		state: TransferState.DOWNLOADING,
 		targetPath: '/media/shows/The Expanse/S01E02.mkv',
+		targetLibraryId: 'lib-shows',
+		placedBy: PlacedBy.CATEGORY,
 		bytesTotal: 1000,
 		bytesDone: 100,
 		rate: 50,
@@ -242,6 +245,44 @@ describe('stores/transfers', () => {
 		expect(String(stub.mock.calls[0][0])).toContain('/api/transfers/t1/verify');
 		expect(String(stub.mock.calls[1][0])).toContain('/api/transfers/t1/repair');
 		expect(store.byId.t1.state).toBe(TransferState.REPAIRING);
+	});
+
+	/**
+	 * A row that has been dealt with leaves the list at once.
+	 *
+	 * Waiting for the next reload would keep showing somebody a problem they just
+	 * solved, and a zone about things needing attention that does that is one people
+	 * stop reading — which puts the whole thing back to being invisible.
+	 */
+	it('drops a placement from the unconfigured list once it has been sent somewhere', async () => {
+		const stub = stubFetch([
+			{ body: [{
+				transferId: 't1',
+				itemId: 'm1',
+				title: 'The Expanse - S01E02',
+				kind: 'episode',
+				state: TransferState.DONE,
+				targetPath: '/media/shows/The Expanse/S01E02.mkv',
+				targetLibraryId: 'lib-shows',
+				targetLibraryName: 'Shows',
+				placedBy: PlacedBy.DEFAULT_LIBRARY,
+				categoryKey: 'shows',
+				categoryName: 'Shows',
+				placedAt: '2026-02-02T10:00:00.000Z',
+			}] },
+			{ body: transfer({ targetLibraryId: 'lib-anime', placedBy: PlacedBy.REQUESTED }) },
+		]);
+		const store = useTransfersStore();
+
+		await store.loadUnconfigured();
+
+		expect(store.unconfigured).toHaveLength(1);
+
+		await store.setDestination('t1', 'lib-anime');
+
+		expect(store.unconfigured).toHaveLength(0);
+		expect(String(stub.mock.calls[1][0])).toContain('/api/transfers/t1/destination');
+		expect(store.byId.t1.targetLibraryId).toBe('lib-anime');
 	});
 
 	it('holds the chunk map and the revalidation history per transfer', async () => {

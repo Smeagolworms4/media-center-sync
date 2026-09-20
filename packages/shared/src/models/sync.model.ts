@@ -1,3 +1,5 @@
+import type { PlacedBy } from './transfer.model';
+
 /**
  * What the icon next to a media item means.
  *
@@ -289,6 +291,15 @@ export interface SyncJobItem {
 	targetLibraryId: string | null;
 	/** Where it will land, resolved at planning time rather than at write time. */
 	targetPath: string;
+	/**
+	 * Which step of the placement rule chose that path, recorded when the run planned it.
+	 *
+	 * Kept on the line as well as on the transfer because the two outlive each other:
+	 * a transfer is deleted when its history is pruned and never exists at all for an
+	 * item a ceiling dropped, and a run opened next month would otherwise be unable to
+	 * say where its files were sent or why.
+	 */
+	placedBy: PlacedBy | null;
 	bytes: number;
 	bytesDone: number;
 	state: SyncJobItemState;

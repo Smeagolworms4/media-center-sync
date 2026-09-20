@@ -3,6 +3,7 @@ import { access, statfs } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import {
 	ErrorKey,
+	MediaServiceMode,
 	MediaServiceScope,
 	type Library,
 	type LibraryCheck,
@@ -18,7 +19,7 @@ import {
 } from '@nestjs/common';
 import type { Library as LibraryEntity, MediaService as MediaServiceEntity } from '@/entities';
 import { LibraryRepository, MediaServiceRepository } from '@/repositories';
-import { derivedLocalPath, type ServiceRootMapping } from '@/services';
+import { derivedLocalPath, serviceMode, type ServiceRootMapping } from '@/services';
 import { toLibrary } from './mappers';
 
 /** What probing one declared path found. */
@@ -220,8 +221,31 @@ export class LibraryManager {
 	 * permissions problem on this side, and it only ever shows up on the first
 	 * transfer otherwise.
 	 */
+	/**
+	 * Whether each library the gateway could write into is actually reachable.
+	 *
+	 * **Only libraries on our own services.** A peer's library is somebody else's disk
+	 * reached over the link: it has no local path by construction, and it can never be
+	 * a destination. Probing it reported "does not exist, not readable, not writable"
+	 * on every one of them, and the dashboard then asked somebody to go and fix a
+	 * thing that is neither broken nor fixable — which is worse than saying nothing,
+	 * because a screen that cries wolf about two rows is a screen whose real warnings
+	 * stop being read.
+	 *
+	 * A library on a friend's Jellyfin or Plex is excluded for the same reason: we
+	 * have an account on their server, not a path on their disk.
+	 */
 	public async check(): Promise<LibraryCheck[]> {
-		const libraries = await this._libraries.find({ order: { name: 'ASC' } });
+		const services = new Map(
+			(await this._services.find()).map((service) => [service.id, service]),
+		);
+		const libraries = (await this._libraries.find({ order: { name: 'ASC' } })).filter(
+			(library) => {
+				const service = services.get(library.serviceId);
+
+				return service !== undefined && serviceMode(service) === MediaServiceMode.LOCAL;
+			},
+		);
 
 		return Promise.all(
 			libraries.map(async (library) => ({

@@ -547,6 +547,73 @@
 			"saved": "Saved."
 		}
 	},
+	"notification": {
+		"title": "Notification channels",
+		"help": "A sync runs for hours and finishes at four in the morning. A channel is how this gateway tells you about it without a browser tab left open.",
+		"empty": "No channel yet, so nothing is sent anywhere.",
+		"add": "Add a channel",
+		"edit": "Edit this channel",
+		"remove": "Remove this channel",
+		"remove_confirm": "Remove {name}? Nothing will ever be sent through it again.",
+		"test": "Send a test",
+		"test_ok": "Delivered. Look at the device it was sent to.",
+		"test_failed": "Not delivered: {reason}",
+		"name": "Name",
+		"name_help": "Yours to choose. It appears on this screen and nowhere else.",
+		"enabled": "Enabled",
+		"enabled_help": "A channel switched off keeps its settings and sends nothing.",
+		"type": "Kind",
+		"kind": {
+			"ntfy": "ntfy push",
+			"smtp": "Email"
+		},
+		"kind_help": {
+			"ntfy": "A push to a phone. No account and no app to install from us: a server address and a topic name only your household knows.",
+			"smtp": "An ordinary email through a mail server you already have. Slower than a push, and it reaches whatever already notifies you."
+		},
+		"events": "Send on",
+		"events_all": "Nothing ticked means everything, including the events added in later versions.",
+		"event": {
+			"placement_unconfigured": "A file landed where nobody chose",
+			"transfer_failed": "A transfer gave up",
+			"sync_finished": "A run finished",
+			"disk_full": "A destination is full",
+			"peer_request": "Somebody asked to link"
+		},
+		"event_help": {
+			"placement_unconfigured": "Nothing named a destination, so it went to the default library or the fallback folder. Nothing else would ever say a word about it.",
+			"transfer_failed": "Once its retries are exhausted.",
+			"sync_finished": "With what it brought back.",
+			"disk_full": "Before a byte moves, while freeing space still helps.",
+			"peer_request": "A request nobody sees is a request nobody answers."
+		},
+		"field": {
+			"url": "Server address",
+			"topic": "Topic",
+			"token": "Access token",
+			"host": "Mail server",
+			"port": "Port",
+			"secure": "Implicit TLS",
+			"username": "Username",
+			"password": "Password",
+			"from": "From",
+			"to": "To"
+		},
+		"field_help": {
+			"url": "https://ntfy.sh, or your own server.",
+			"topic": "Anything you like, and hard to guess: on a public server whoever knows the name reads the messages.",
+			"token": "Only for a server that asks for one.",
+			"port": "587 for submission with STARTTLS, 465 for implicit TLS.",
+			"secure": "On for 465, off for 587. Set from the port until you change it.",
+			"from": "The address the message is sent from. Some servers refuse anything else.",
+			"to": "One address, where the messages go."
+		},
+		"secret_kept": "Left empty, the stored value is kept.",
+		"secret_clear": "Remove the stored value",
+		"last_sent": "Last sent {when}",
+		"never_sent": "Nothing sent yet",
+		"last_error": "Last attempt failed: {reason}"
+	},
 	"share": {
 		"subtitle": "What this gateway exposes, decided one library at a time.",
 		"libraries": "Libraries",
@@ -625,7 +692,8 @@
 			"transfers": "Transfers",
 			"categories": "Categories",
 			"peers": "Peers and sharing",
-			"index": "Index and cache"
+			"index": "Index and cache",
+			"notifications": "Notifications"
 		},
 		"destination": {
 			"rule_title": "How the gateway decides where a file goes",
@@ -902,6 +970,28 @@
 			"ok": "Verified: {count} pieces checked, all intact.",
 			"corrupt": "Verified: {count} pieces do not match and have to come back."
 		},
+		"unconfigured": {
+			"title": "{count} file landed where nobody chose | {count} files landed where nobody chose",
+			"hint": "Their transfers succeeded, so nothing else reports them. Say where they belong, or say it once for the whole category.",
+			"dismiss": "Not now",
+			"went_to": "went to {target}",
+			"going_to": "going to {target}",
+			"choose": "Send it to",
+			"move": "Move this file",
+			"remember": "Send {category} here from now on",
+			"moved": "Moved.",
+			"remembered": "Set. Everything in that category goes there from now on.",
+			"reason": {
+				"default_library": "No destination is set for the category {category}, so it went to the default destination library.",
+				"fallback_path": "No destination is set for the category {category} and there is no default destination library, so it went to the fallback folder.",
+				"any_writable": "Nothing is set for the category {category}, and there is no default destination or fallback folder either, so it went to the first library that could take it."
+			},
+			"no_category": {
+				"default_library": "This item's library belongs to no category, so the default destination library took it.",
+				"fallback_path": "This item's library belongs to no category and there is no default destination library, so it went to the fallback folder.",
+				"any_writable": "This item's library belongs to no category, and nothing else was set either, so it went to the first library that could take it."
+			}
+		},
 		"chunks": {
 			"title": "Pieces",
 			"empty": "This transfer has no piece map yet.",
@@ -1080,7 +1170,9 @@
 			"not_resumable": "This transfer cannot be resumed and has to start over.",
 			"no_space": "Not enough free space on the target library.",
 			"checksum_mismatch": "The downloaded file does not match its checksum.",
-			"target_occupied": "Something else already occupies the path this file would land on, and no free name could be built. Nothing was overwritten."
+			"destination_full": "The destination filled up while the file was being moved into it. Nothing is lost: free some space and resume, and the move carries on from where it stopped.",
+			"target_occupied": "Something else already occupies the path this file would land on, and no free name could be built. Nothing was overwritten.",
+			"destination_invalid": "A destination has to be a library on one of your own services. A folder nothing scans accepts the file and then shows it to nobody."
 		},
 		"settings": {
 			"invalid": "These settings were refused.",
@@ -1100,6 +1192,12 @@
 			"path_outside_root": "That folder is outside the directories this gateway may browse.",
 			"path_not_found": "No such folder.",
 			"path_unreadable": "The gateway cannot read that folder."
+		},
+		"notification": {
+			"channel_not_found": "This notification channel no longer exists.",
+			"config_invalid": "This channel cannot work with these settings.",
+			"handler_unknown": "This kind of notification channel is not supported.",
+			"send_failed": "The channel did not deliver the message."
 		}
 	},
 	"indications": {

@@ -1,15 +1,28 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import request from 'supertest';
 import {
 	ChunkState,
+	LibraryKind,
+	MediaServiceScope,
+	MediaServiceType,
+	PlacedBy,
 	TransferState,
 	UserRole,
 	type ResultList,
 	type Transfer,
 	type TransferChunk,
 	type TransferQueueStats,
+	type UnconfiguredPlacement,
 } from '@mcs/shared';
-import { TransferChunkRepository, TransferRepository } from '@/repositories';
+import {
+	LibraryRepository,
+	MediaServiceRepository,
+	TransferChunkRepository,
+	TransferRepository,
+} from '@/repositories';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
 
 describe('The transfer queue', () => {
@@ -18,6 +31,10 @@ describe('The transfer queue', () => {
 	let reader: TestIdentity;
 	let downloading: string;
 	let done: string;
+	let unconfigured: string;
+	let ourLibraryId: string;
+	let theirLibraryId: string;
+	let ourPath: string;
 
 	beforeAll(async () => {
 		context = await createTestApp();
@@ -26,8 +43,65 @@ describe('The transfer queue', () => {
 
 		const transfers = context.app.get(TransferRepository);
 		const chunks = context.app.get(TransferChunkRepository);
+		const services = context.app.get(MediaServiceRepository);
+		const libraries = context.app.get(LibraryRepository);
 
-		const seed = async (state: TransferState, title: string): Promise<string> => {
+		// A directory that really exists and really is writable, because the manager
+		// probes the path rather than trusting the row: a made-up one would be refused
+		// for the right reason and prove nothing about the route.
+		ourPath = mkdtempSync(join(tmpdir(), 'mcs-destination-'));
+
+		const ours = await services.save(
+			services.create({
+				name: 'Living room',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: 'http://127.0.0.1:41',
+			}),
+		);
+
+		const theirs = await services.save(
+			services.create({
+				name: "A friend's server",
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.REMOTE,
+				baseUrl: 'http://127.0.0.1:42',
+			}),
+		);
+
+		ourLibraryId = (
+			await libraries.save(
+				libraries.create({
+					serviceId: ours.id,
+					externalId: 'lib-anime',
+					name: 'Animes',
+					kind: LibraryKind.SHOWS,
+					paths: [ourPath],
+					localPath: ourPath,
+					writable: true,
+				}),
+			)
+		).id;
+
+		theirLibraryId = (
+			await libraries.save(
+				libraries.create({
+					serviceId: theirs.id,
+					externalId: 'lib-their-shows',
+					name: 'Their shows',
+					kind: LibraryKind.SHOWS,
+					paths: ['/media/theirs'],
+					localPath: '/media/theirs',
+					writable: true,
+				}),
+			)
+		).id;
+
+		const seed = async (
+			state: TransferState,
+			title: string,
+			placedBy: PlacedBy | null = null,
+		): Promise<string> => {
 			const id = randomUUID();
 
 			await transfers.save(
@@ -37,6 +111,8 @@ describe('The transfer queue', () => {
 					title,
 					state,
 					targetPath: `/media/shows/${title}.mkv`,
+					targetLibraryId: null,
+					placedBy,
 					workPath: `/var/transfer/${id}.part`,
 					bytesTotal: 4_000,
 					bytesDone: state === TransferState.DONE ? 4_000 : 1_000,
@@ -59,7 +135,7 @@ describe('The transfer queue', () => {
 
 		downloading = await seed(TransferState.DOWNLOADING, 'S01E03');
 		done = await seed(TransferState.DONE, 'S01E01');
-		await seed(TransferState.QUEUED, 'S01E04');
+		unconfigured = await seed(TransferState.QUEUED, 'S01E04', PlacedBy.FALLBACK_PATH);
 	});
 
 	afterAll(async () => {
@@ -156,5 +232,86 @@ describe('The transfer queue', () => {
 		const response = await asReader('/11111111-2222-4333-8444-555555555555').expect(404);
 
 		expect(response.body).toMatchObject({ message: 'error.transfer.not_found' });
+	});
+
+	/**
+	 * The one place a file that landed where nobody chose is ever mentioned.
+	 *
+	 * The transfer succeeded, so there is no error, no failed state and no log line to
+	 * find. Without this list the only symptom is a folder somebody did not plan,
+	 * discovered months later.
+	 */
+	describe('what landed where nobody chose', () => {
+		it('lists only the transfers a step nobody configured placed', async () => {
+			const response = await asReader('/unconfigured').expect(200);
+			const rows = response.body as UnconfiguredPlacement[];
+
+			expect(rows.map((row) => row.transferId)).toEqual([unconfigured]);
+			expect(rows[0].placedBy).toBe(PlacedBy.FALLBACK_PATH);
+		});
+
+		it('is a reading, not a management right', async () => {
+			await request(context.app.getHttpServer())
+				.get('/api/transfers/unconfigured')
+				.expect(401);
+		});
+	});
+
+	describe('changing where a transfer goes', () => {
+		it('rewrites the target path while the file is still downloading', async () => {
+			const response = await request(context.app.getHttpServer())
+				.post(`/api/transfers/${downloading}/destination`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ libraryId: ourLibraryId })
+				.expect(200);
+
+			const transfer = response.body as Transfer;
+
+			// Nothing has been placed, so this cost one row write rather than a move.
+			expect(transfer.targetPath).toBe(join(ourPath, 'S01E03.mkv'));
+			expect(transfer.targetLibraryId).toBe(ourLibraryId);
+			expect(transfer.placedBy).toBe(PlacedBy.REQUESTED);
+		});
+
+		/**
+		 * The refusal the whole destination rule exists for.
+		 *
+		 * A library on somebody else's server is a directory this gateway cannot write
+		 * into and none of our media servers scan. Accepting it buys a transfer that
+		 * reports success and produces nothing anybody can watch.
+		 */
+		it('refuses a library that is not on one of our own services', async () => {
+			const response = await request(context.app.getHttpServer())
+				.post(`/api/transfers/${done}/destination`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ libraryId: theirLibraryId })
+				.expect(409);
+
+			expect(response.body).toMatchObject({ message: 'error.transfer.destination_invalid' });
+		});
+
+		it('refuses a library nobody has', async () => {
+			await request(context.app.getHttpServer())
+				.post(`/api/transfers/${done}/destination`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ libraryId: '11111111-2222-4333-8444-555555555555' })
+				.expect(404);
+		});
+
+		it('refuses a path where a library identifier belongs', async () => {
+			await request(context.app.getHttpServer())
+				.post(`/api/transfers/${done}/destination`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ libraryId: '/media/somewhere' })
+				.expect(400);
+		});
+
+		it('refuses to move anything without the right to manage the queue', async () => {
+			await request(context.app.getHttpServer())
+				.post(`/api/transfers/${done}/destination`)
+				.set('Authorization', `Bearer ${reader.token}`)
+				.send({ libraryId: ourLibraryId })
+				.expect(403);
+		});
 	});
 });

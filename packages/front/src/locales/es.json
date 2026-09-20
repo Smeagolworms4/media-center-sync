@@ -547,6 +547,73 @@
 			"saved": "Guardado."
 		}
 	},
+	"notification": {
+		"title": "Canales de notificación",
+		"help": "Una sincronización dura horas y termina a las cuatro de la madrugada. Un canal es la forma en que esta pasarela te avisa sin dejar una pestaña abierta.",
+		"empty": "Todavía no hay ningún canal, así que no se envía nada a ninguna parte.",
+		"add": "Añadir un canal",
+		"edit": "Editar este canal",
+		"remove": "Eliminar este canal",
+		"remove_confirm": "¿Eliminar {name}? No se volverá a enviar nada por ahí.",
+		"test": "Enviar una prueba",
+		"test_ok": "Entregado. Mira el dispositivo al que se envió.",
+		"test_failed": "No entregado: {reason}",
+		"name": "Nombre",
+		"name_help": "Tú eliges. Solo aparece en esta pantalla.",
+		"enabled": "Activado",
+		"enabled_help": "Un canal desactivado conserva sus ajustes y no envía nada.",
+		"type": "Tipo",
+		"kind": {
+			"ntfy": "Aviso ntfy",
+			"smtp": "Correo electrónico"
+		},
+		"kind_help": {
+			"ntfy": "Un aviso al teléfono. Sin cuenta y sin aplicación nuestra que instalar: una dirección de servidor y un nombre de tema que solo conoce tu casa.",
+			"smtp": "Un correo corriente a través de un servidor que ya tienes. Más lento que un aviso, y llega a lo que ya te avisa."
+		},
+		"events": "Enviar cuando",
+		"events_all": "Sin nada marcado se envía todo, incluidos los eventos añadidos en versiones posteriores.",
+		"event": {
+			"placement_unconfigured": "Un archivo acabó donde nadie eligió",
+			"transfer_failed": "Una transferencia se rindió",
+			"sync_finished": "Una ejecución ha terminado",
+			"disk_full": "Un destino está lleno",
+			"peer_request": "Alguien pide enlazarse"
+		},
+		"event_help": {
+			"placement_unconfigured": "Nada indicaba un destino, así que fue a la biblioteca por defecto o a la carpeta de reserva. Nada más te diría una palabra al respecto.",
+			"transfer_failed": "Una vez agotados sus reintentos.",
+			"sync_finished": "Con lo que ha traído.",
+			"disk_full": "Antes de mover un solo byte, mientras liberar espacio todavía sirve.",
+			"peer_request": "Una petición que nadie ve es una petición que nadie responde."
+		},
+		"field": {
+			"url": "Dirección del servidor",
+			"topic": "Tema",
+			"token": "Token de acceso",
+			"host": "Servidor de correo",
+			"port": "Puerto",
+			"secure": "TLS implícito",
+			"username": "Usuario",
+			"password": "Contraseña",
+			"from": "Remitente",
+			"to": "Destinatario"
+		},
+		"field_help": {
+			"url": "https://ntfy.sh, o tu propio servidor.",
+			"topic": "Lo que quieras, y difícil de adivinar: en un servidor público, quien conozca el nombre lee los mensajes.",
+			"token": "Solo para un servidor que lo pida.",
+			"port": "587 para envío con STARTTLS, 465 para TLS implícito.",
+			"secure": "Activado para 465, desactivado para 587. Se deduce del puerto hasta que lo cambies.",
+			"from": "La dirección desde la que sale el mensaje. Algunos servidores rechazan cualquier otra.",
+			"to": "Una dirección, a la que llegan los mensajes."
+		},
+		"secret_kept": "Si lo dejas vacío, se conserva el valor guardado.",
+		"secret_clear": "Eliminar el valor guardado",
+		"last_sent": "Último envío {when}",
+		"never_sent": "Todavía no se ha enviado nada",
+		"last_error": "El último intento falló: {reason}"
+	},
 	"share": {
 		"subtitle": "Lo que esta pasarela expone, decidido biblioteca por biblioteca.",
 		"libraries": "Bibliotecas",
@@ -625,7 +692,8 @@
 			"transfers": "Transferencias",
 			"categories": "Categorías",
 			"peers": "Pares y compartición",
-			"index": "Índice y caché"
+			"index": "Índice y caché",
+			"notifications": "Notificaciones"
 		},
 		"destination": {
 			"rule_title": "Cómo decide la pasarela dónde va un archivo",
@@ -902,6 +970,28 @@
 			"ok": "Verificado: {count} fragmentos comprobados, todos intactos.",
 			"corrupt": "Verificado: {count} fragmentos no coinciden y tienen que volver."
 		},
+		"unconfigured": {
+			"title": "{count} archivo ha aterrizado donde nadie lo eligió | {count} archivos han aterrizado donde nadie los eligió",
+			"hint": "Sus transferencias funcionaron, así que nada más los señala. Diga dónde van, o dígalo una vez para toda la categoría.",
+			"dismiss": "Ahora no",
+			"went_to": "fue a {target}",
+			"going_to": "va hacia {target}",
+			"choose": "Enviar a",
+			"move": "Mover este archivo",
+			"remember": "Enviar {category} aquí a partir de ahora",
+			"moved": "Movido.",
+			"remembered": "Guardado. Esa categoría irá ahí a partir de ahora.",
+			"reason": {
+				"default_library": "No hay destino definido para la categoría {category}, así que fue a la biblioteca de destino predeterminada.",
+				"fallback_path": "No hay destino definido para la categoría {category} ni biblioteca predeterminada, así que fue a la carpeta de reserva.",
+				"any_writable": "No hay nada definido para la categoría {category}, ni biblioteca predeterminada ni carpeta de reserva: fue a la primera biblioteca que pudo aceptarlo."
+			},
+			"no_category": {
+				"default_library": "La biblioteca de este elemento no pertenece a ninguna categoría, así que la biblioteca de destino predeterminada lo aceptó.",
+				"fallback_path": "La biblioteca de este elemento no pertenece a ninguna categoría y no hay biblioteca predeterminada, así que fue a la carpeta de reserva.",
+				"any_writable": "La biblioteca de este elemento no pertenece a ninguna categoría y tampoco había nada más definido: fue a la primera biblioteca que pudo aceptarlo."
+			}
+		},
 		"chunks": {
 			"title": "Fragmentos",
 			"empty": "Esta transferencia todavía no tiene mapa de fragmentos.",
@@ -1080,7 +1170,9 @@
 			"not_resumable": "Esta transferencia no se puede reanudar y tiene que empezar de nuevo.",
 			"no_space": "No hay espacio libre suficiente en la biblioteca de destino.",
 			"checksum_mismatch": "El archivo descargado no coincide con su suma de comprobación.",
-			"target_occupied": "Otro archivo ya ocupa la ruta donde este iba a aterrizar y no se pudo construir un nombre libre. No se sobrescribió nada."
+			"destination_full": "El destino se llenó mientras se movía el archivo. No se ha perdido nada: libere espacio y reanude, y el traslado continuará donde se detuvo.",
+			"target_occupied": "Otro archivo ya ocupa la ruta donde este iba a aterrizar y no se pudo construir un nombre libre. No se sobrescribió nada.",
+			"destination_invalid": "Un destino tiene que ser una biblioteca en uno de sus propios servicios. Una carpeta que nada analiza acepta el archivo y no se lo muestra a nadie."
 		},
 		"settings": {
 			"invalid": "Estos ajustes han sido rechazados.",
@@ -1100,6 +1192,12 @@
 			"path_outside_root": "Esa carpeta está fuera de los directorios que esta pasarela puede explorar.",
 			"path_not_found": "No existe esa carpeta.",
 			"path_unreadable": "La pasarela no puede leer esa carpeta."
+		},
+		"notification": {
+			"channel_not_found": "Este canal de notificación ya no existe.",
+			"config_invalid": "Este canal no puede funcionar con estos ajustes.",
+			"handler_unknown": "Este tipo de canal de notificación no es compatible.",
+			"send_failed": "El canal no entregó el mensaje."
 		}
 	},
 	"indications": {

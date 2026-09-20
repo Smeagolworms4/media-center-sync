@@ -3,6 +3,7 @@ export * from './cache.service';
 export * from './chunk-planner';
 export * from './companions';
 export * from './event-gateway.service';
+export * from './file-move.service';
 export * from './filesystem.service';
 export * from './fingerprint.service';
 export * from './handlers';
@@ -11,8 +12,10 @@ export * from './matching.service';
 export * from './media-override';
 export * from './metadata.service';
 export * from './naming.service';
+export * from './notifications';
 export * from './nfo';
 export * from './path-containment';
+export * from './placed-by';
 export * from './peer-catalogue.service';
 export * from './peer-gateway.service';
 export * from './peer-link.service';
@@ -34,12 +37,14 @@ export * from './version';
 
 import { CacheService } from './cache.service';
 import { EventGatewayService } from './event-gateway.service';
+import { FileMoveService } from './file-move.service';
 import { FilesystemService } from './filesystem.service';
 import { FingerprintService } from './fingerprint.service';
 import { MEDIA_HANDLER_PROVIDERS } from './handlers';
 import { MatchingService } from './matching.service';
 import { MetadataService } from './metadata.service';
 import { NamingService } from './naming.service';
+import { NOTIFICATION_HANDLER_PROVIDERS } from './notifications';
 import { PeerCatalogueService } from './peer-catalogue.service';
 import { PeerGatewayService } from './peer-gateway.service';
 import { PeerLinkService } from './peer-link.service';
@@ -69,6 +74,7 @@ export const SERVICE_PROVIDERS = [
 	SchedulerService,
 	FingerprintService,
 	FilesystemService,
+	FileMoveService,
 	QualityService,
 	MatchingService,
 	NamingService,
@@ -82,5 +88,6 @@ export const SERVICE_PROVIDERS = [
 	PeerCatalogueService,
 	TransferEngineService,
 	...MEDIA_HANDLER_PROVIDERS,
+	...NOTIFICATION_HANDLER_PROVIDERS,
 	...TRANSPORT_PROVIDERS,
 ];

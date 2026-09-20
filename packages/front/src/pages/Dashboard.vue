@@ -7,10 +7,14 @@
 	import Rate from '@/components/common/Rate.vue';
 	import StatTile from '@/components/common/StatTile.vue';
 	import JobRow from '@/components/sync/JobRow.vue';
+	import UnconfiguredPlacements from '@/components/transfer/UnconfiguredPlacements.vue';
+	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
+	import { useNotifier } from '@/hooks/useNotifier';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 	import { usePeersStore } from '@/stores/peers';
 	import { useServicesStore } from '@/stores/services';
+	import { useSettingsStore } from '@/stores/settings';
 	import { useSyncStore } from '@/stores/sync';
 	import { useTransfersStore } from '@/stores/transfers';
 
@@ -29,6 +33,9 @@
 	const peersStore = usePeersStore();
 	const syncStore = useSyncStore();
 	const transfersStore = useTransfersStore();
+	const settingsStore = useSettingsStore();
+	const { notify, tryCallback } = useNotifier();
+	const { destinations } = useDestinationLibraries();
 
 	const loading = ref(true);
 	const failed = ref(false);
@@ -46,6 +53,7 @@
 				peersStore.load(),
 				transfersStore.load({ page: 1, limit: 10 }),
 				transfersStore.loadStats(),
+				transfersStore.loadUnconfigured(),
 				syncStore.loadJobs({ page: 1, limit: 5 }),
 				// One row is enough: the count lives in the pagination, and pulling a
 				// page of forty thousand missing episodes to count them would not.
@@ -127,6 +135,34 @@
 	 * want.
 	 */
 	const categories = computed(() => librariesStore.orderedCategories);
+
+	/** Move this one file. Cheap while it is still downloading, a real move once it landed. */
+	const move = tryCallback(
+		async (transferId: string, libraryId: string) => {
+			await transfersStore.setDestination(transferId, libraryId);
+			await notify('transfer.unconfigured.moved');
+		},
+	);
+
+	/**
+	 * Point a whole category somewhere, which is what actually fixes this.
+	 *
+	 * The file already on disk is left where it is on purpose: this answers "where do
+	 * the next ones go", and silently moving what has already been indexed would be a
+	 * second, larger action nobody asked for. The row stays, so the move is still one
+	 * click away.
+	 */
+	const remember = tryCallback(
+		async (categoryKey: string, libraryId: string) => {
+			await settingsStore.save({
+				categoryTargets: {
+					...settingsStore.settings?.categoryTargets,
+					[categoryKey]: libraryId,
+				},
+			});
+			await notify('transfer.unconfigured.remembered');
+		},
+	);
 </script>
 
 <template>
@@ -215,6 +251,16 @@
 			</v-row>
 
 			<v-row class="mt-2" density="compact">
+				<v-col cols="12">
+					<UnconfiguredPlacements
+						:destinations="destinations"
+						:items="transfersStore.unconfigured"
+						:loading="loading"
+						@move="move"
+						@remember="remember"
+					/>
+				</v-col>
+
 				<v-col v-if="categories.length > 0" cols="12">
 					<v-card class="dashboard_card" data-test="dashboard-categories">
 						<v-card-title class="text-subtitle-1">{{ $t('library.categories') }}</v-card-title>

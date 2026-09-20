@@ -20,6 +20,45 @@ export enum TransferTransport {
 	SWARM = 'swarm',
 }
 
+/**
+ * Which step of the placement rule decided where a file went.
+ *
+ * Recorded because the last two mean nobody chose: the file is not lost, the
+ * transfer did not fail, and nothing anywhere would ever say a word — the library
+ * simply grows a folder somebody did not plan, and it is found months later. A
+ * screen can only offer to file those properly if it can tell them from the ones
+ * that landed where they were meant to.
+ */
+export enum PlacedBy {
+	/** The run said so, for this run only. */
+	REQUESTED = 'requested',
+	/** Beside our own copies of the same show. The rule that always wins. */
+	EXISTING_COPY = 'existing_copy',
+	/** The library the category names. */
+	CATEGORY = 'category',
+	/** The global destination library. Nobody named this category. */
+	DEFAULT_LIBRARY = 'default_library',
+	/** The fixed path, while that setting still exists. */
+	FIXED_PATH = 'fixed_path',
+	/** The fallback folder. Nobody named this category and there is no default. */
+	FALLBACK_PATH = 'fallback_path',
+	/** Whatever could take it. Nothing above answered, and the file had to land. */
+	ANY_WRITABLE = 'any_writable',
+}
+
+/**
+ * The steps that mean nobody chose, and which a screen offers to correct.
+ *
+ * Kept beside the enum rather than spelled out in each caller: the interface, the
+ * notifier and the dashboard all ask the same question, and three copies of this
+ * list would disagree the day a step is added.
+ */
+export const UNCONFIGURED_PLACEMENTS: PlacedBy[] = [
+	PlacedBy.DEFAULT_LIBRARY,
+	PlacedBy.FALLBACK_PATH,
+	PlacedBy.ANY_WRITABLE,
+];
+
 export enum TransferState {
 	QUEUED = 'queued',
 	CONNECTING = 'connecting',
@@ -124,6 +163,22 @@ export interface Transfer {
 	kind: string;
 	state: TransferState;
 	targetPath: string;
+	/**
+	 * The library that path belongs to, or null for a folder no service indexes.
+	 *
+	 * Carried beside the path because a path alone cannot be turned back into a
+	 * library: two libraries can nest, a fallback folder belongs to none of them, and
+	 * the interface has to name where a file went before it can offer to move it.
+	 */
+	targetLibraryId: string | null;
+	/**
+	 * Which step of the placement rule chose that path.
+	 *
+	 * Null only on rows written before this was recorded. Everything else in the
+	 * application reads it through `UNCONFIGURED_PLACEMENTS` rather than comparing
+	 * against individual values.
+	 */
+	placedBy: PlacedBy | null;
 	bytesTotal: number;
 	bytesDone: number;
 	/** Aggregated over every source. */
@@ -238,4 +293,49 @@ export interface TransferQueueStats {
 	/** Sum of the rates of every running transfer. */
 	rate: number;
 	bytesRemaining: number;
+}
+
+/**
+ * One file that landed on a step nobody configured, and what could be done about it.
+ *
+ * Assembled rather than stored: the category a library belongs to is a merge of
+ * library names that changes when somebody renames a shelf, so a name frozen into a
+ * transfer row would go on naming a category that no longer exists. The transfer
+ * carries the decision; the names are resolved when somebody looks.
+ */
+export interface UnconfiguredPlacement {
+	transferId: string;
+	itemId: string;
+	title: string;
+	kind: string;
+	state: TransferState;
+	/** Where it went, or where it is going — see `state`. */
+	targetPath: string;
+	targetLibraryId: string | null;
+	/** Null for a fallback folder, which belongs to no library by definition. */
+	targetLibraryName: string | null;
+	placedBy: PlacedBy;
+	/**
+	 * The category whose destination is unset, which is the thing to go and fix.
+	 *
+	 * Null when the item's own library belongs to no category at all: there is then
+	 * nothing to configure per category, and the answer is the global destination.
+	 */
+	categoryKey: string | null;
+	categoryName: string | null;
+	/** When it landed, or when it was queued while it still has not. */
+	placedAt: string;
+}
+
+/** Sending a transfer somewhere else, before it lands or after. */
+export interface ChangeDestinationRequest {
+	/**
+	 * A library, never a path.
+	 *
+	 * A library is a directory this gateway has probed for write access and one of our
+	 * own media servers is known to scan. A raw path is a string somebody typed, and a
+	 * file written where no server ever looks is the failure this whole area exists to
+	 * prevent — it reports success and produces nothing.
+	 */
+	libraryId: string;
 }

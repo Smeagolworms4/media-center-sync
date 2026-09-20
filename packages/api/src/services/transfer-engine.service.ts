@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { access, mkdir, open, rename, rm, stat, unlink } from 'node:fs/promises';
+import { access, mkdir, open, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { FileHandle } from 'node:fs/promises';
 import {
@@ -24,6 +24,13 @@ import { Transfer } from '@/entities';
 import { TransferChunkRepository, TransferRepository } from '@/repositories';
 import { planChunks, type ChunkPlan, type PlannedChunk } from './chunk-planner';
 import { EventGatewayService } from './event-gateway.service';
+import {
+	FileMoveError,
+	FileMoveOutcome,
+	FileMoveService,
+	FILE_MOVE_CANCEL,
+	type FileMoveResult,
+} from './file-move.service';
 import { SettingsService } from './settings.service';
 import type { TransferSourceRef, TransportCapabilities } from './transport/transport.interface';
 import { TransportRegistry } from './transport/transport.registry';
@@ -215,6 +222,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		private readonly _verification: VerificationService,
 		private readonly _settings: SettingsService,
 		private readonly _events: EventGatewayService,
+		private readonly _move: FileMoveService,
 	) {}
 
 	/**
@@ -326,7 +334,11 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 
 		if (running) {
 			running.cancelling = true;
-			running.abort.abort();
+			// The reason is read by the move service, which cannot otherwise tell a pause
+			// from a cancellation — they are the same event to an `AbortSignal`, and the
+			// difference is whether the partial in the library survives. Without it, a
+			// cancelled transfer would leave the bytes somebody cancelled it to get back.
+			running.abort.abort(FILE_MOVE_CANCEL);
 
 			return;
 		}
@@ -541,7 +553,14 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			const transfer = await this._load(transferId).catch(() => null);
 
 			if (transfer) {
-				await this._fail(transfer, this._classify(error), ErrorKey.GENERAL);
+				// A move that stopped knows what to say about itself — "the destination is
+				// full", with the partial still there to resume from. The generic key would
+				// read as "the move failed" and send somebody to download it all again.
+				await this._fail(
+					transfer,
+					this._classify(error),
+					error instanceof FileMoveError ? error.key : ErrorKey.GENERAL,
+				);
 			}
 		} finally {
 			await running?.handle?.close().catch(() => undefined);
@@ -816,7 +835,27 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 
 		running.handle = null;
 
-		await this._place(transfer);
+		const placed = await this._place(running, settings);
+
+		if (placed.outcome === FileMoveOutcome.CANCELLED) {
+			// The entry goes first, for the reason it goes first in `_run`: `cancel` is
+			// written for a transfer that is not running, and finding one here it would
+			// merely flag it a second time and leave the row in `placing` for ever.
+			this._running.delete(transfer.id);
+
+			await this.cancel(transfer.id);
+
+			return;
+		}
+
+		if (placed.outcome === FileMoveOutcome.PAUSED) {
+			// The partial in the library is deliberate: resuming re-enters `_place` and
+			// carries on from the byte it reached rather than copying forty gigabytes
+			// again. Nothing was renamed, so the media server has seen nothing.
+			await this._setState(transfer.id, TransferState.PAUSED);
+
+			return;
+		}
 
 		transfer.state = TransferState.DONE;
 		transfer.bytesDone = running.plan.bytesTotal;
@@ -834,28 +873,43 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	/**
 	 * Move the finished file to the path the manager decided on.
 	 *
-	 * A rename when both are on the same filesystem, a copy otherwise — and the copy
-	 * goes through a temporary name in the destination directory so the media server
-	 * never sees a partial file appear under the final one.
+	 * Handed to `FileMoveService` rather than done here, and the move reports itself
+	 * while it runs. The copy this replaced was a bare `copyFile`: on the normal
+	 * deployment — working directory in the container, library on a NAS — that is a
+	 * quarter of an hour of a forty gigabyte film in which the interface showed
+	 * `placing` and nothing else, with no way to pause it and nothing to resume.
+	 *
+	 * The progress goes down the channel the download already uses. A second one would
+	 * mean every client learning to read both, and a bar that jumps between them.
 	 */
-	private async _place(transfer: Transfer): Promise<void> {
-		await mkdir(dirname(transfer.targetPath), { recursive: true });
+	private async _place(
+		running: RunningTransfer,
+		settings: Settings,
+	): Promise<FileMoveResult> {
+		const transfer = running.transfer;
 
-		try {
-			await rename(transfer.workPath, transfer.targetPath);
-
-			return;
-		} catch {
-			// `EXDEV`: the working directory and the library are different mounts, which
-			// is the normal case when the library is a NAS.
-		}
-
-		const temporary = `${transfer.targetPath}.mcs-part`;
-		const { copyFile } = await import('node:fs/promises');
-
-		await copyFile(transfer.workPath, temporary);
-		await rename(temporary, transfer.targetPath);
-		await unlink(transfer.workPath).catch(() => undefined);
+		return this._move.move({
+			source: transfer.workPath,
+			destination: transfer.targetPath,
+			signal: running.abort.signal,
+			reserveBytes: settings.diskReserveBytes,
+			onProgress: (progress) => {
+				this._events.publishProgress({
+					...this._toProgress(running),
+					// The move's own figures, not the download's: the plan says every byte
+					// is done, and reporting that against a file that is a third of the way
+					// into the library is exactly the silence this replaced.
+					state: TransferState.PLACING,
+					bytesDone: progress.bytesDone,
+					bytesTotal: progress.bytesTotal,
+					rate: progress.rate,
+					etaSeconds:
+						progress.rate > 0
+							? Math.round((progress.bytesTotal - progress.bytesDone) / progress.rate)
+							: null,
+				});
+			},
+		});
 	}
 
 	/**
@@ -973,6 +1027,8 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			kind: '',
 			state: transfer.state,
 			targetPath: transfer.targetPath,
+			targetLibraryId: transfer.targetLibraryId,
+			placedBy: transfer.placedBy,
 			bytesTotal: Number(transfer.bytesTotal),
 			bytesDone: Number(transfer.bytesDone),
 			rate: publicSources.reduce((total, source) => total + source.rate, 0),

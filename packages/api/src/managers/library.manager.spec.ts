@@ -52,7 +52,12 @@ const build = (
 			clearDefaultTarget: jest.fn().mockResolvedValue(undefined),
 		},
 		services: {
-			find: jest.fn().mockResolvedValue([{ id: 'jellyfin', scope: MediaServiceScope.LOCAL }]),
+			// Keyed by the identifier the library rows carry: `check` now only probes
+			// libraries on our own services, so a service the library does not belong to
+			// would make every row vanish rather than fail an assertion.
+			find: jest.fn().mockResolvedValue([
+				{ id: 'service-1', scope: MediaServiceScope.LOCAL, peerId: null },
+			]),
 			// No mapping by default, so every test that does not talk about roots sees
 			// exactly the behaviour there was before there were any.
 			findOne: jest.fn().mockResolvedValue({ remoteRoot: null, localRoot: null }),

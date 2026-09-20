@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
-import { MediaKind, SyncJobItemState } from '@mcs/shared';
+import { MediaKind, PlacedBy, SyncJobItemState } from '@mcs/shared';
 import { Timestampable } from './timestampable.entity';
 
 /**
@@ -67,6 +67,18 @@ export class SyncJobItem extends Timestampable {
 	@ApiProperty()
 	@Column({ type: 'varchar' })
 	public targetPath!: string;
+
+	/**
+	 * Which step of the placement rule chose that path, as the plan decided it.
+	 *
+	 * On the line as well as on the transfer because the two outlive each other: a
+	 * transfer is pruned with its history and never exists at all for an item a ceiling
+	 * dropped, and a run opened next month would otherwise have no way of saying where
+	 * its files went or why.
+	 */
+	@ApiProperty({ enum: PlacedBy, nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public placedBy!: PlacedBy | null;
 
 	@ApiProperty()
 	@Column({ type: 'bigint', default: 0 })

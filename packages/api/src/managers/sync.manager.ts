@@ -5,6 +5,7 @@ import {
 	EventName,
 	MediaKind,
 	MediaServiceScope,
+	NotificationEvent,
 	SyncJobItemState,
 	SyncJobState,
 	SyncState,
@@ -12,8 +13,10 @@ import {
 	SyncTrigger,
 	TransferState,
 	TransferTransport,
+	UNCONFIGURED_PLACEMENTS,
 	type CompanionPullResult,
 	type CreateSyncPlanRequest,
+	type PlacedBy,
 	type ResultList,
 	type RunSyncRequest,
 	type SyncEstimate,
@@ -78,6 +81,7 @@ import {
 	type TransferSourceRef,
 } from '@/services';
 import { LibraryManager } from './library.manager';
+import { NotificationManager } from './notification.manager';
 import { pageBounds, paginate, toSyncJob, toSyncJobItem, toSyncPlan } from './mappers';
 
 /**
@@ -104,6 +108,14 @@ export interface PlannedItem {
 	targetLibraryId: string;
 	targetLibraryName: string;
 	targetPath: string;
+	/**
+	 * Which step of the placement rule chose that path.
+	 *
+	 * Carried from the placement service rather than worked out again here: three of
+	 * its seven steps mean nobody chose, and the difference between them and the four
+	 * that did is not recoverable from the strategy alone.
+	 */
+	placedBy: PlacedBy;
 	bytes: number;
 	contentId: string | null;
 	state: SyncState;
@@ -193,6 +205,14 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		private readonly _engine: TransferEngineService,
 		private readonly _scheduler: SchedulerService,
 		private readonly _events: EventGatewayService,
+		/**
+		 * Told what happened, and never allowed to make it worse.
+		 *
+		 * Every call below is fire-and-forget on purpose: `notify` resolves whatever a
+		 * channel does, and a run must not be abandoned because a mail server was slow.
+		 * A notification that breaks a transfer is worse than no notification.
+		 */
+		private readonly _notifications: NotificationManager,
 		config: ConfigService,
 	) {
 		this._transferRoot = config.getOrThrow<MediaConfig>('media').transferRoot;
@@ -411,6 +431,11 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 					title: planned.title,
 					state: TransferState.QUEUED,
 					targetPath: planned.targetPath,
+					// Empty means a fallback folder outside every registered library, which
+					// is exactly the case somebody has to be told about — so it is stored as
+					// null rather than as a library identifier nothing can resolve.
+					targetLibraryId: planned.targetLibraryId === '' ? null : planned.targetLibraryId,
+					placedBy: planned.placedBy,
 					// The pieces accumulate beside the database rather than in the library:
 					// a half-written file in a watched folder is one a media server will
 					// happily index and then fail to play.
@@ -423,6 +448,8 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			await this._engine.enqueue(id);
 			await this._pullMetadata(planned, settings);
 		}
+
+		this._reportUnconfiguredPlacements(planning.items);
 
 		if (request.planId !== undefined) {
 			await this._plans.setRunStamps(
@@ -440,6 +467,44 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	}
 
 	/**
+	 * Say when a pull is about to land somewhere nobody chose.
+	 *
+	 * The condition is never re-derived here: `UNCONFIGURED_PLACEMENTS` is the list of
+	 * steps that mean nobody chose, and `placedBy` is what the placement service
+	 * actually decided. Reading the strategy instead would give a different answer the
+	 * day a step is added, and this screen, the dashboard and the notifier would then
+	 * disagree about the same file.
+	 *
+	 * Said at the start of the run rather than when the bytes land, because that is
+	 * the only moment it is still worth anything: the file is not lost and the
+	 * transfer has not failed, so nothing else would ever say a word — the library
+	 * simply grows a folder somebody did not plan, and it is found months later. Told
+	 * now, the destination can be set before the first file arrives.
+	 *
+	 * One message for the whole run, not one per file. A sync of four hundred
+	 * episodes into an unconfigured category would otherwise be four hundred
+	 * notifications, which is how somebody turns the feature off.
+	 */
+	private _reportUnconfiguredPlacements(items: PlannedItem[]): void {
+		const unconfigured = items.filter((item) => UNCONFIGURED_PLACEMENTS.includes(item.placedBy));
+
+		if (unconfigured.length === 0) {
+			return;
+		}
+
+		const destinations = [...new Set(unconfigured.map((item) => item.targetLibraryName || dirname(item.targetPath)))];
+
+		void this._notifications.notify({
+			event: NotificationEvent.PLACEMENT_UNCONFIGURED,
+			title: `${unconfigured.length} file(s) are landing where nobody chose`,
+			body:
+				`Nothing named a destination for them, so they are going to ${destinations.join(', ')}. ` +
+				'Set a destination for their category and the next run will file them properly.',
+			link: '/settings',
+		});
+	}
+
+	/**
 	 * Stop a run that a destination cannot take.
 	 *
 	 * The refusal and the question are two different answers on purpose. `INSUFFICIENT`
@@ -454,12 +519,46 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 */
 	private _refuseOnSpace(targets: TargetSpace[], acknowledged: boolean): void {
 		if (refusesRun(targets)) {
+			/*
+			 * Said here, before a byte moves, because that is the whole difference
+			 * between this and a failed transfer.
+			 *
+			 * The arithmetic is known now: the free space and the size of every file
+			 * are both in hand. Said in time, somebody frees space and the queue
+			 * drains. Said afterwards, as a transfer that died at ninety per cent, it
+			 * is thirty gigabytes downloaded twice.
+			 */
+			void this._notifications.notify({
+				event: NotificationEvent.DISK_FULL,
+				title: 'Not enough space for this run',
+				body: this._spaceSentence(targets),
+				link: '/settings',
+			});
+
 			throw new ConflictException({ key: ErrorKey.SYNC_NOT_ENOUGH_SPACE, targets });
 		}
 
 		if (!acknowledged && needsAcknowledgement(targets)) {
 			throw new ConflictException({ key: ErrorKey.SYNC_SPACE_NOT_ACKNOWLEDGED, targets });
 		}
+	}
+
+	/**
+	 * Which destinations are short, and by how much, in one line.
+	 *
+	 * The numbers are the message: "the library is full" sends somebody to look at
+	 * the wrong disk on a gateway with four of them, while a name and two figures is
+	 * something they can act on from a phone at four in the morning.
+	 */
+	private _spaceSentence(targets: TargetSpace[]): string {
+		const short = targets.filter((target) => refusesRun([target]));
+
+		return (short.length > 0 ? short : targets)
+			.map(
+				(target) =>
+					`${target.libraryName}: ${target.requiredBytes} needed, ${target.freeBytes ?? 'unknown'} free`,
+			)
+			.join('; ');
 	}
 
 	/**
@@ -502,6 +601,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			sourceServiceName: planned.sourceServiceName,
 			targetLibraryId: planned.targetLibraryId === '' ? null : planned.targetLibraryId,
 			targetPath: planned.targetPath,
+			placedBy: planned.placedBy,
 			bytes: planned.bytes,
 			bytesDone: 0,
 			state,
@@ -540,6 +640,24 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 * the transfer's own stream. What lands in the row is what survives a restart.
 	 */
 	private async _recordTransferState(transfer: TransferEntity): Promise<void> {
+		// Before the job check, because a transfer started by hand fails exactly as
+		// expensively as one belonging to a run — and it is the one nobody is watching
+		// a progress bar for.
+		if (transfer.state === TransferState.FAILED) {
+			void this._notifications.notify({
+				event: NotificationEvent.TRANSFER_FAILED,
+				title: `Transfer failed: ${transfer.title}`,
+				// The error key, not a sentence: the wording belongs to whoever renders
+				// it, and a channel is one more renderer. `errorKind` travels with it
+				// because it is what says whether this is worth getting up for — a full
+				// disk is, a source that went away for the night is not.
+				body: `${transfer.errorKind ?? 'unknown'} — ${transfer.error ?? 'no reason recorded'}`,
+				// The transfers screen, not a per-transfer route: there is no such route,
+				// and a notification whose link 404s is worse than one with no link.
+				link: '/transfers',
+			});
+		}
+
 		if (transfer.jobId === null) {
 			return;
 		}
@@ -583,7 +701,13 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		// Only a run still believed to be going gets finished here. A cancelled job
 		// whose transfers are still reporting their own cancellation would otherwise
 		// come back as done, and the stop button would look like it had failed.
-		if (job.state === SyncJobState.RUNNING && progress.open === 0) {
+		// Only a state that has just changed is announced. `_settleJob` runs on every
+		// transfer event of the run, so notifying on `state === DONE` rather than on
+		// the transition would send one message per straggler reporting in after the
+		// last one finished.
+		const finishing = job.state === SyncJobState.RUNNING && progress.open === 0;
+
+		if (finishing) {
 			job.state = SyncJobState.DONE;
 			job.finishedAt = new Date();
 		}
@@ -591,6 +715,18 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const model = toSyncJob(await this._jobs.save(job), await this._planName(job.planId));
 
 		this._events.emit(EventName.JOB_STATE, model);
+
+		// The event stream reaches open tabs and nothing else, which is the entire
+		// problem: a run that started at eleven finishes at four in the morning with no
+		// tab open anywhere.
+		if (finishing) {
+			void this._notifications.notify({
+				event: NotificationEvent.SYNC_FINISHED,
+				title: `Sync finished: ${model.planName ?? 'manual run'}`,
+				body: `${model.itemsDone} of ${model.itemsPlanned} done, ${model.itemsFailed} failed.`,
+				link: '/sync',
+			});
+		}
 	}
 
 	/**
@@ -1104,6 +1240,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				targetLibraryId: target.libraryId,
 				targetLibraryName: target.libraryName,
 				targetPath: target.path,
+				placedBy: target.placedBy,
 				bytes: entry.item.file?.size ?? 0,
 				contentId: entry.item.file?.contentId ?? null,
 				state: entry.state,

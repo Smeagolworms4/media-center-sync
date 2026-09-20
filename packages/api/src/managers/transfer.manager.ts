@@ -1,23 +1,44 @@
-import { ChunkState, ErrorKey, EventName, TransferState } from '@mcs/shared';
+import { basename, join, relative, resolve } from 'node:path';
+import {
+	ChunkState,
+	ErrorKey,
+	EventName,
+	MediaServiceScope,
+	PlacedBy,
+	TransferState,
+} from '@mcs/shared';
 import type {
+	ChangeDestinationRequest,
 	ResultList,
 	Revalidation,
 	Transfer,
 	TransferChunk,
 	TransferQueueStats,
 	TransferVerification,
+	UnconfiguredPlacement,
 } from '@mcs/shared';
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { In } from 'typeorm';
-import type { Transfer as TransferEntity } from '@/entities';
+import type { Library as LibraryEntity, Transfer as TransferEntity } from '@/entities';
 import {
+	LibraryRepository,
 	MediaItemRepository,
 	MediaServiceRepository,
 	RevalidationRepository,
+	SyncJobItemRepository,
 	TransferChunkRepository,
 	TransferRepository,
 } from '@/repositories';
-import { EventGatewayService, TransferEngineService, VerificationService } from '@/services';
+import {
+	EventGatewayService,
+	FileMoveError,
+	FileMoveService,
+	SettingsService,
+	TransferEngineService,
+	VerificationService,
+	isInside,
+} from '@/services';
+import { LibraryManager } from './library.manager';
 import {
 	pageBounds,
 	paginate,
@@ -56,6 +77,26 @@ export class TransferManager {
 		private readonly _revalidations: RevalidationRepository,
 		private readonly _items: MediaItemRepository,
 		private readonly _services: MediaServiceRepository,
+		private readonly _libraries: LibraryRepository,
+		/**
+		 * The lines of the run this transfer belongs to, kept in step with it.
+		 *
+		 * A line records where the run decided the file would go. Moving the file and
+		 * leaving the line alone gives a run detail that names a path nothing is at —
+		 * which is the same quiet wrongness this whole feature exists to remove, one
+		 * screen further along.
+		 */
+		private readonly _lines: SyncJobItemRepository,
+		/**
+		 * Asked which category a library belongs to, and whether a path can be written.
+		 *
+		 * A manager rather than the repository because both are decisions that belong to
+		 * it: a category is a merge of library names, and a second reading of that merge
+		 * here would name a different category than the one the settings were saved under.
+		 */
+		private readonly _libraryManager: LibraryManager,
+		private readonly _settings: SettingsService,
+		private readonly _mover: FileMoveService,
 		private readonly _engine: TransferEngineService,
 		private readonly _verification: VerificationService,
 		private readonly _events: EventGatewayService,
@@ -289,6 +330,291 @@ export class TransferManager {
 		);
 
 		return this.read(id);
+	}
+
+	/**
+	 * Everything that landed on a step of the placement rule nobody configured.
+	 *
+	 * The one place any of this is ever mentioned. A file placed by the global default,
+	 * the fallback folder or the last-resort walk of whatever is writable produced no
+	 * error, no failed transfer and no log line worth reading — the transfer succeeded,
+	 * and the only visible consequence is a folder somebody did not plan, found months
+	 * later.
+	 *
+	 * The category is resolved here rather than stored on the row, because it is a merge
+	 * of library names: renaming a shelf renames the category, and a name frozen at
+	 * planning time would go on naming one that no longer exists. That name is the whole
+	 * value of the row — "no destination is set for the category Animés" is something
+	 * somebody can act on, and "fallback" is not.
+	 */
+	public async unconfigured(): Promise<UnconfiguredPlacement[]> {
+		const rows = await this._transfers.findUnconfigured();
+
+		if (rows.length === 0) {
+			return [];
+		}
+
+		const [items, categories, libraries] = await Promise.all([
+			this._items.find({ where: { id: In(rows.map((row) => row.itemId)) } }),
+			this._libraryManager.categories(),
+			this._libraries.find(),
+		]);
+
+		const itemsById = new Map(items.map((item) => [item.id, item]));
+		const names = new Map(
+			libraries.map((library) => [library.id, library.alias?.trim() || library.name]),
+		);
+		const categoryOf = new Map<string, { key: string; name: string }>();
+
+		for (const category of categories) {
+			for (const libraryId of category.libraryIds) {
+				categoryOf.set(libraryId, { key: category.key, name: category.name });
+			}
+		}
+
+		return rows.map((row) => {
+			// The item the bytes come from, whose own library is what the category table
+			// is keyed on — the same reading the plan used when it chose this path.
+			const item = itemsById.get(row.itemId);
+			const category = item === undefined ? undefined : categoryOf.get(item.libraryId);
+
+			return {
+				transferId: row.id,
+				itemId: row.itemId,
+				title: row.title,
+				kind: item?.kind ?? '',
+				state: row.state,
+				targetPath: row.targetPath,
+				targetLibraryId: row.targetLibraryId,
+				targetLibraryName:
+					row.targetLibraryId === null ? null : (names.get(row.targetLibraryId) ?? null),
+				placedBy: row.placedBy as PlacedBy,
+				categoryKey: category?.key ?? null,
+				categoryName: category?.name ?? null,
+				placedAt: (row.finishedAt ?? row.createdAt).toISOString(),
+			};
+		});
+	}
+
+	/**
+	 * Send a transfer somewhere else, before it lands or after.
+	 *
+	 * The two cases cost wildly different things and that is worth knowing before
+	 * pressing the button:
+	 *
+	 * - **While it is still downloading** every byte is going into the work file in the
+	 *   scratch directory, and `targetPath` is not read until that file is finally moved
+	 *   into place. Changing it is one row write. Nothing is copied, nothing is deleted,
+	 *   and the download is not interrupted.
+	 * - **Once it has landed** the file is in a library and this is a real move of real
+	 *   bytes, usually across two filesystems, which is why it goes through the mover
+	 *   and reports progress on the same channel the download used.
+	 *
+	 * A transfer the engine is placing right now is refused rather than queued: the
+	 * engine is copying to the old path at that exact moment, and rewriting the row
+	 * underneath it would leave the copy landing somewhere the row no longer names.
+	 */
+	public async changeDestination(
+		id: string,
+		request: ChangeDestinationRequest,
+	): Promise<Transfer> {
+		const transfer = await this._require(id);
+		const library = await this._requireDestination(request.libraryId);
+		const path = await this._destinationPath(transfer, library);
+
+		if (path === resolve(transfer.targetPath) && transfer.targetLibraryId === library.id) {
+			// The destination already in force. Answering the transfer unchanged beats
+			// refusing it: a list somebody is fixing row by row should not punish them for
+			// picking the library a file is already in.
+			return this.read(id);
+		}
+
+		if (transfer.state === TransferState.PLACING) {
+			throw new ConflictException(ErrorKey.TRANSFER_NOT_RESUMABLE);
+		}
+
+		if ((await this._libraryManager.probe(path)).exists) {
+			// Somebody else's file is there. Landing on it is the loss this whole area
+			// exists to prevent, and it would be silent.
+			throw new ConflictException(ErrorKey.TRANSFER_TARGET_OCCUPIED);
+		}
+
+		if (transfer.state === TransferState.DONE) {
+			await this._moveInPlace(transfer, path);
+		}
+
+		await this._retarget(transfer, library, path);
+
+		return this.read(id);
+	}
+
+	/**
+	 * Move a file that is already in a library, with the screen following along.
+	 *
+	 * `PLACING` and the progress channel are reused rather than given a state and an
+	 * event of their own. The interface already draws both, and a move that reported on
+	 * a second channel would be a bar nobody had written a component for — while a move
+	 * that reported nothing at all is forty minutes in which the only honest thing the
+	 * screen could say is nothing.
+	 *
+	 * The state goes back to what it was if the move fails, because it did: the file is
+	 * still in the library it was in, whole, and leaving the transfer stuck on `placing`
+	 * would make a recoverable refusal look like a hung job.
+	 */
+	private async _moveInPlace(transfer: TransferEntity, path: string): Promise<void> {
+		const settings = await this._settings.get();
+		const source = transfer.targetPath;
+
+		await this._publishState(transfer, TransferState.PLACING);
+
+		try {
+			await this._mover.move({
+				source,
+				destination: path,
+				reserveBytes: settings.diskReserveBytes,
+				onProgress: (progress) => {
+					this._events.publishProgress({
+						id: transfer.id,
+						state: TransferState.PLACING,
+						bytesDone: progress.bytesDone,
+						bytesTotal: progress.bytesTotal,
+						rate: progress.rate,
+						// No estimate without a rate: a number that swings between two
+						// minutes and four hours is worse than none, and the first window
+						// has not closed yet.
+						etaSeconds:
+							progress.rate > 0
+								? Math.round((progress.bytesTotal - progress.bytesDone) / progress.rate)
+								: null,
+						chunksDone: transfer.chunksTotal,
+						chunksTotal: transfer.chunksTotal,
+						sourceCount: 0,
+					});
+				},
+			});
+		} catch (error) {
+			await this._publishState(transfer, TransferState.DONE);
+
+			if (error instanceof FileMoveError) {
+				throw new ConflictException(error.key);
+			}
+
+			throw error;
+		}
+
+		transfer.state = TransferState.DONE;
+		this._events.flushProgress();
+		this._logger.log(`Moved ${transfer.title} from ${source} to ${path}`);
+	}
+
+	/** Records the new destination on the transfer, and on the run line that names it. */
+	private async _retarget(
+		transfer: TransferEntity,
+		library: LibraryEntity,
+		path: string,
+	): Promise<void> {
+		transfer.targetPath = path;
+		transfer.targetLibraryId = library.id;
+		// Somebody chose this one by hand, so it is no longer a destination nobody
+		// picked — whatever step the plan had originally reached.
+		transfer.placedBy = PlacedBy.REQUESTED;
+
+		await this._transfers.save(transfer);
+
+		if (transfer.jobId !== null) {
+			const line = await this._lines.findLine(transfer.jobId, transfer.itemId);
+
+			if (line !== null) {
+				line.targetPath = path;
+				line.targetLibraryId = library.id;
+				line.placedBy = PlacedBy.REQUESTED;
+
+				await this._lines.save(line);
+			}
+		}
+
+		const [presented] = await this._present([transfer]);
+
+		this._events.emit(EventName.TRANSFER_STATE, presented);
+	}
+
+	/**
+	 * The library a transfer may be sent to, or the refusal that says why not.
+	 *
+	 * A library on one of our own services, and one this gateway can write into. That
+	 * is the whole rule, and it is the rule the product exists for: a path nothing
+	 * scans accepts the file, reports success and produces a folder no media server
+	 * will ever show. There is no error to find afterwards, because nothing failed.
+	 *
+	 * The write is probed rather than read off the library row. The flag is what the
+	 * last scan believed, and a disk unmounted since then is exactly the case worth
+	 * catching — it costs one `access` against a choice somebody is making by hand.
+	 */
+	private async _requireDestination(libraryId: string): Promise<LibraryEntity> {
+		const library = await this._libraries.findOne({ where: { id: libraryId } });
+
+		if (library === null) {
+			throw new NotFoundException(ErrorKey.LIBRARY_NOT_FOUND);
+		}
+
+		const service = await this._services.findOne({ where: { id: library.serviceId } });
+
+		if (service === null || service.scope !== MediaServiceScope.LOCAL || !library.localPath) {
+			throw new ConflictException(ErrorKey.TRANSFER_DESTINATION_INVALID);
+		}
+
+		if (!(await this._libraryManager.probe(library.localPath)).writable) {
+			throw new ConflictException(ErrorKey.LIBRARY_PATH_NOT_WRITABLE);
+		}
+
+		return library;
+	}
+
+	/**
+	 * Where the file goes inside the new library.
+	 *
+	 * The layout it already has is kept — `The Expanse/Season 1/S01E02.mkv` stays that,
+	 * one library over — because the folders are what a media server groups a series
+	 * by, and flattening them to a file name would scatter a season the day somebody
+	 * corrected its library.
+	 *
+	 * The fallback folder is looked at as well as the library, and it is not an
+	 * afterthought: a file placed there belongs to no library at all, so without this
+	 * every single row this screen exists to fix would be the one case that loses its
+	 * folders on the way out. Only a file that sits under neither falls back to its own
+	 * name, and then there is genuinely nothing to preserve.
+	 */
+	private async _destinationPath(
+		transfer: TransferEntity,
+		library: LibraryEntity,
+	): Promise<string> {
+		const current = resolve(transfer.targetPath);
+		const previous =
+			transfer.targetLibraryId === null
+				? null
+				: await this._libraries.findOne({ where: { id: transfer.targetLibraryId } });
+		const fallback = (await this._settings.get()).defaultTargetPath?.trim();
+
+		const roots = [
+			previous?.localPath ? resolve(previous.localPath) : null,
+			fallback ? resolve(fallback) : null,
+		].filter((root): root is string => root !== null);
+
+		const root = roots.find((candidate) => isInside(current, candidate)) ?? null;
+		const inside = root === null ? basename(current) : relative(root, current);
+
+		return join(resolve(library.localPath as string), inside);
+	}
+
+	/** Saves a state change and pushes it, so a long move is visible while it runs. */
+	private async _publishState(transfer: TransferEntity, state: TransferState): Promise<void> {
+		transfer.state = state;
+
+		await this._transfers.save(transfer);
+
+		const [presented] = await this._present([transfer]);
+
+		this._events.emit(EventName.TRANSFER_STATE, presented);
 	}
 
 	/**

@@ -4,6 +4,7 @@ export * from './library.manager';
 export * from './mappers';
 export * from './media.manager';
 export * from './media-group.manager';
+export * from './notification.manager';
 export * from './peer.manager';
 export * from './peer-exchange.manager';
 export * from './service.manager';

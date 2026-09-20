@@ -547,6 +547,73 @@
 			"saved": "Salvato."
 		}
 	},
+	"notification": {
+		"title": "Canali di notifica",
+		"help": "Una sincronizzazione dura ore e finisce alle quattro del mattino. Un canale è il modo in cui questo gateway te lo dice senza tenere aperta una scheda del browser.",
+		"empty": "Nessun canale per ora, quindi non viene inviato nulla da nessuna parte.",
+		"add": "Aggiungi un canale",
+		"edit": "Modifica questo canale",
+		"remove": "Rimuovi questo canale",
+		"remove_confirm": "Rimuovere {name}? Non verrà più inviato nulla attraverso questo canale.",
+		"test": "Invia una prova",
+		"test_ok": "Consegnato. Controlla il dispositivo a cui è stato inviato.",
+		"test_failed": "Non consegnato: {reason}",
+		"name": "Nome",
+		"name_help": "Scegli tu. Compare solo in questa schermata.",
+		"enabled": "Attivo",
+		"enabled_help": "Un canale disattivato conserva le sue impostazioni e non invia nulla.",
+		"type": "Tipo",
+		"kind": {
+			"ntfy": "Notifica ntfy",
+			"smtp": "E-mail"
+		},
+		"kind_help": {
+			"ntfy": "Una notifica sul telefono. Nessun account e nessuna app nostra da installare: un indirizzo di server e un nome di argomento che conosce solo casa tua.",
+			"smtp": "Una normale e-mail tramite un server di posta che hai già. Più lenta di una notifica, e raggiunge ciò che già ti avvisa."
+		},
+		"events": "Invia quando",
+		"events_all": "Niente spuntato significa tutto, compresi gli eventi aggiunti nelle versioni successive.",
+		"event": {
+			"placement_unconfigured": "Un file è finito dove nessuno aveva scelto",
+			"transfer_failed": "Un trasferimento ha rinunciato",
+			"sync_finished": "Un'esecuzione è terminata",
+			"disk_full": "Una destinazione è piena",
+			"peer_request": "Qualcuno chiede di collegarsi"
+		},
+		"event_help": {
+			"placement_unconfigured": "Niente indicava una destinazione, quindi è andato nella libreria predefinita o nella cartella di ripiego. Nient'altro te ne direbbe mai una parola.",
+			"transfer_failed": "Una volta esauriti i suoi tentativi.",
+			"sync_finished": "Con quello che ha portato.",
+			"disk_full": "Prima che si muova un solo byte, finché liberare spazio serve ancora.",
+			"peer_request": "Una richiesta che nessuno vede è una richiesta a cui nessuno risponde."
+		},
+		"field": {
+			"url": "Indirizzo del server",
+			"topic": "Argomento",
+			"token": "Token di accesso",
+			"host": "Server di posta",
+			"port": "Porta",
+			"secure": "TLS implicito",
+			"username": "Nome utente",
+			"password": "Password",
+			"from": "Mittente",
+			"to": "Destinatario"
+		},
+		"field_help": {
+			"url": "https://ntfy.sh, oppure il tuo server.",
+			"topic": "Quello che vuoi, e difficile da indovinare: su un server pubblico chi conosce il nome legge i messaggi.",
+			"token": "Solo per un server che ne chiede uno.",
+			"port": "587 per l'invio con STARTTLS, 465 per il TLS implicito.",
+			"secure": "Attivo per 465, disattivo per 587. Dedotto dalla porta finché non lo cambi.",
+			"from": "L'indirizzo da cui parte il messaggio. Alcuni server rifiutano qualsiasi altro.",
+			"to": "Un indirizzo, quello a cui arrivano i messaggi."
+		},
+		"secret_kept": "Lasciato vuoto, il valore salvato viene conservato.",
+		"secret_clear": "Rimuovi il valore salvato",
+		"last_sent": "Ultimo invio {when}",
+		"never_sent": "Non è ancora stato inviato nulla",
+		"last_error": "L'ultimo tentativo è fallito: {reason}"
+	},
 	"share": {
 		"subtitle": "Ciò che questo gateway espone, deciso una libreria alla volta.",
 		"libraries": "Librerie",
@@ -625,7 +692,8 @@
 			"transfers": "Trasferimenti",
 			"categories": "Categorie",
 			"peers": "Peer e condivisione",
-			"index": "Indice e cache"
+			"index": "Indice e cache",
+			"notifications": "Notifiche"
 		},
 		"destination": {
 			"rule_title": "Come il gateway decide dove va un file",
@@ -902,6 +970,28 @@
 			"ok": "Verificato: {count} blocchi controllati, tutti intatti.",
 			"corrupt": "Verificato: {count} blocchi non corrispondono e devono tornare."
 		},
+		"unconfigured": {
+			"title": "{count} file è finito dove nessuno ha scelto | {count} file sono finiti dove nessuno ha scelto",
+			"hint": "I loro trasferimenti sono riusciti, quindi nient'altro li segnala. Indica dove devono andare, oppure dillo una volta per tutta la categoria.",
+			"dismiss": "Non ora",
+			"went_to": "finito in {target}",
+			"going_to": "diretto a {target}",
+			"choose": "Invia a",
+			"move": "Sposta questo file",
+			"remember": "Invia {category} qui d'ora in poi",
+			"moved": "Spostato.",
+			"remembered": "Salvato. Quella categoria andrà lì d'ora in poi.",
+			"reason": {
+				"default_library": "Nessuna destinazione è impostata per la categoria {category}, quindi il file è finito nella libreria di destinazione predefinita.",
+				"fallback_path": "Nessuna destinazione è impostata per la categoria {category} e non c'è una libreria predefinita, quindi il file è finito nella cartella di ripiego.",
+				"any_writable": "Per la categoria {category} non è impostato nulla, né libreria predefinita né cartella di ripiego: il file è finito nella prima libreria in grado di accoglierlo."
+			},
+			"no_category": {
+				"default_library": "La libreria di questo elemento non appartiene a nessuna categoria, quindi l'ha preso la libreria di destinazione predefinita.",
+				"fallback_path": "La libreria di questo elemento non appartiene a nessuna categoria e non c'è una libreria predefinita, quindi il file è finito nella cartella di ripiego.",
+				"any_writable": "La libreria di questo elemento non appartiene a nessuna categoria e non era impostato nient'altro: il file è finito nella prima libreria in grado di accoglierlo."
+			}
+		},
 		"chunks": {
 			"title": "Blocchi",
 			"empty": "Questo trasferimento non ha ancora una mappa dei blocchi.",
@@ -1080,7 +1170,9 @@
 			"not_resumable": "Questo trasferimento non può essere ripreso e deve ricominciare da capo.",
 			"no_space": "Spazio libero insufficiente nella libreria di destinazione.",
 			"checksum_mismatch": "Il file scaricato non corrisponde al suo checksum.",
-			"target_occupied": "Qualcos’altro occupa già il percorso su cui questo file sarebbe arrivato e non è stato possibile costruire un nome libero. Nulla è stato sovrascritto."
+			"destination_full": "La destinazione si è riempita mentre il file veniva spostato. Nulla è perduto: libera spazio e riprendi, lo spostamento ripartirà da dove si era fermato.",
+			"target_occupied": "Qualcos’altro occupa già il percorso su cui questo file sarebbe arrivato e non è stato possibile costruire un nome libero. Nulla è stato sovrascritto.",
+			"destination_invalid": "Una destinazione deve essere una libreria su uno dei tuoi servizi. Una cartella che nulla analizza accetta il file e non lo mostra a nessuno."
 		},
 		"settings": {
 			"invalid": "Queste impostazioni sono state rifiutate.",
@@ -1100,6 +1192,12 @@
 			"path_outside_root": "Quella cartella è fuori dalle directory che questo gateway può esplorare.",
 			"path_not_found": "Cartella inesistente.",
 			"path_unreadable": "Il gateway non può leggere quella cartella."
+		},
+		"notification": {
+			"channel_not_found": "Questo canale di notifica non esiste più.",
+			"config_invalid": "Questo canale non può funzionare con queste impostazioni.",
+			"handler_unknown": "Questo tipo di canale di notifica non è supportato.",
+			"send_failed": "Il canale non ha consegnato il messaggio."
 		}
 	},
 	"indications": {

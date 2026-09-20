@@ -3,6 +3,7 @@ export * from './library.entity';
 export * from './media-item.entity';
 export * from './media-match.entity';
 export * from './media-service.entity';
+export * from './notification-channel.entity';
 export * from './peer.entity';
 export * from './peer-invite.entity';
 export * from './revalidation.entity';

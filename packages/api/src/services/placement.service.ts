@@ -1,8 +1,17 @@
 import { constants } from 'node:fs';
-import { access, mkdir, statfs } from 'node:fs/promises';
+import { access, mkdir } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
-import { ErrorKey, LibraryKind, MediaKind, PlacementStrategy, type Settings } from '@mcs/shared';
+import {
+	ErrorKey,
+	LibraryKind,
+	MediaKind,
+	type PlacedBy,
+	PlacementStrategy,
+	type Settings,
+} from '@mcs/shared';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { placedByFor } from './placed-by';
+import { freeBytesAt } from './space';
 
 /** A local library, reduced to what placement actually decides on. */
 export interface PlacementLibrary {
@@ -93,6 +102,14 @@ export interface PlacementTarget {
 	fallback: boolean;
 	/** Why the fallback happened, for the transfer's history. */
 	reason: string | null;
+	/**
+	 * Which step of the rule above chose this, in the vocabulary `PlacedBy` fixes.
+	 *
+	 * Filled here and nowhere else. `strategy` cannot answer it — see `placedByFor`
+	 * for why — and a caller that tried would report a configured destination as a
+	 * guess, which is the one distinction the interface is built on.
+	 */
+	placedBy: PlacedBy;
 }
 
 /** One destination worth probing, in the order the rules put it. */
@@ -157,7 +174,7 @@ export class PlacementService {
 				const free = await this._freePath(request, attempt.root, relativeName);
 				const notes = free.note === null ? rejected : [...rejected, free.note];
 
-				return {
+				const target = {
 					libraryId: attempt.library.id,
 					libraryName: attempt.library.name,
 					directory,
@@ -172,6 +189,8 @@ export class PlacementService {
 						attempt.strategy !== request.settings.placement,
 					reason: notes.length > 0 ? notes.join('; ') : null,
 				};
+
+				return { ...target, placedBy: placedByFor(target, request) };
 			}
 
 			rejected.push(`${attempt.library.name}: ${probe.error ?? 'not writable'}`);
@@ -609,29 +628,28 @@ export class PlacementService {
 			return { writable: true, freeBytes: null, error: null };
 		}
 
-		try {
-			const stats = await statfs(current);
-			const freeBytes = Number(stats.bavail) * Number(stats.bsize);
+		const freeBytes = await freeBytesAt(current);
 
-			// A margin on top of the file itself: the metadata, the `.nfo`, the artwork,
-			// and the fact that a filesystem at exactly zero free bytes is a filesystem
-			// nothing else on the machine can write to either.
-			const margin = Math.max(64 * 1024 * 1024, requiredBytes * 0.01);
-
-			if (freeBytes < requiredBytes + margin) {
-				return {
-					writable: false,
-					freeBytes,
-					error: `not enough space (${freeBytes} free, ${requiredBytes} needed)`,
-				};
-			}
-
-			return { writable: true, freeBytes, error: null };
-		} catch {
+		if (freeBytes === null) {
 			// `statfs` fails on some network mounts. Unknown free space is not a reason
 			// to refuse a target that is demonstrably writable; the transfer will fail
 			// with a disk-full error instead, which is recoverable.
 			return { writable: true, freeBytes: null, error: null };
 		}
+
+		// A margin on top of the file itself: the metadata, the `.nfo`, the artwork,
+		// and the fact that a filesystem at exactly zero free bytes is a filesystem
+		// nothing else on the machine can write to either.
+		const margin = Math.max(64 * 1024 * 1024, requiredBytes * 0.01);
+
+		if (freeBytes < requiredBytes + margin) {
+			return {
+				writable: false,
+				freeBytes,
+				error: `not enough space (${freeBytes} free, ${requiredBytes} needed)`,
+			};
+		}
+
+		return { writable: true, freeBytes, error: null };
 	}
 }

@@ -7,8 +7,10 @@ import {
 	type TransferChunk,
 	type TransferQueueStats,
 	type TransferVerification,
+	type UnconfiguredPlacement,
 } from '@mcs/shared';
 import {
+	Body,
 	Controller,
 	Get,
 	HttpCode,
@@ -21,13 +23,15 @@ import {
 import {
 	ApiBearerAuth,
 	ApiConflictResponse,
+	ApiNotFoundResponse,
 	ApiOkResponse,
 	ApiOperation,
+	ApiProperty,
 	ApiPropertyOptional,
 	ApiTags,
 } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
 import { Granted } from '@/decorators';
 import { TransferManager } from '@/managers';
 
@@ -51,6 +55,20 @@ class TransferQueryDto {
 	@IsOptional()
 	@IsEnum(TransferState)
 	public state?: TransferState;
+}
+
+/**
+ * Where a transfer should go instead.
+ *
+ * A library identifier and nothing else. A path was deliberately not accepted: a
+ * library is a directory this gateway has probed and one of our own media servers is
+ * known to scan, while a path is a string somebody typed — and a file written where
+ * no server looks is a transfer that succeeds and produces nothing.
+ */
+class ChangeDestinationDto {
+	@ApiProperty()
+	@IsUUID()
+	public libraryId!: string;
 }
 
 /**
@@ -86,6 +104,20 @@ export class TransferController {
 	@ApiOkResponse({ description: 'TransferQueueStats' })
 	public stats(): Promise<TransferQueueStats> {
 		return this._transfers.stats();
+	}
+
+	/** Before `:id` as well, for the same reason `stats` is. */
+	@Get('unconfigured')
+	@Granted(Right.TRANSFER_READ)
+	@ApiOperation({
+		summary: 'What landed on a step of the placement rule nobody configured',
+		description:
+			'The global destination, the fallback folder and the last-resort walk of whatever is ' +
+			'writable all mean nobody chose. Nothing else reports them: the transfer succeeded.',
+	})
+	@ApiOkResponse({ description: 'UnconfiguredPlacement[]' })
+	public unconfigured(): Promise<UnconfiguredPlacement[]> {
+		return this._transfers.unconfigured();
 	}
 
 	@Get(':id')
@@ -181,5 +213,29 @@ export class TransferController {
 	@ApiOkResponse({ description: 'Transfer' })
 	public repair(@Param('id', ParseUUIDPipe) id: string): Promise<Transfer> {
 		return this._transfers.repair(id);
+	}
+
+	@Post(':id/destination')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Send it somewhere else',
+		description:
+			'While it is still downloading this rewrites a target path and costs nothing — the ' +
+			'bytes are in the scratch directory. Once the file has landed it is a real move, ' +
+			'reported as `placing` on the progress stream.',
+	})
+	@ApiOkResponse({ description: 'Transfer' })
+	@ApiNotFoundResponse({ description: 'error.library.not_found' })
+	@ApiConflictResponse({
+		description:
+			'error.transfer.destination_invalid, error.library.path_not_writable, ' +
+			'error.transfer.target_occupied',
+	})
+	public destination(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: ChangeDestinationDto,
+	): Promise<Transfer> {
+		return this._transfers.changeDestination(id, body);
 	}
 }

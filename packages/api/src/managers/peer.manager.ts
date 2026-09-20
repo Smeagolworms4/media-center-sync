@@ -6,6 +6,7 @@ import {
 	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
+	NotificationEvent,
 	PeerDirection,
 	MAX_PEER_MAX_DEPTH,
 	PeerStatus,
@@ -53,6 +54,7 @@ import {
 	type PeerLinkAuthority,
 } from '@/services';
 import { toMediaService, toPeer } from './mappers';
+import { NotificationManager } from './notification.manager';
 import { ServiceManager } from './service.manager';
 
 /**
@@ -102,6 +104,15 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		private readonly _libraries: LibraryRepository,
 		private readonly _mediaMatches: MediaMatchRepository,
 		private readonly _serviceManager: ServiceManager,
+		/**
+		 * A request nobody can see is a request nobody chases.
+		 *
+		 * The peers screen already shows a pending row, and that is exactly the problem:
+		 * somebody has to be looking at it. Fire-and-forget, like every other call to
+		 * this manager — a friend waiting on an answer must not be able to fail our own
+		 * handshake by having an unreachable mail server on our side of it.
+		 */
+		private readonly _notifications: NotificationManager,
 	) {}
 
 	public async list(): Promise<Peer[]> {
@@ -417,6 +428,22 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		);
 
 		this._emit(peer);
+
+		// Only for a row that is actually waiting on somebody. A peer settled above —
+		// one answering a request of ours — is not news anybody has to act on, and a
+		// re-announcement from a gateway that reconnects would otherwise notify on
+		// every restart of theirs.
+		if (peer.status === PeerStatus.PENDING) {
+			void this._notifications.notify({
+				event: NotificationEvent.PEER_REQUEST,
+				title: `${peer.name} wants to link with this gateway`,
+				// The fingerprint, because that is the only part somebody can actually
+				// check against what their friend read out to them. A name is whatever
+				// the far end typed.
+				body: `Fingerprint ${peer.fingerprint}. Nothing is shared until somebody approves it.`,
+				link: '/peers',
+			});
+		}
 	}
 
 	public async rename(id: string, name: string): Promise<Peer> {

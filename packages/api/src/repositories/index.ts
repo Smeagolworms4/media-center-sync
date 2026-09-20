@@ -3,6 +3,7 @@ export * from './library.repository';
 export * from './media-item.repository';
 export * from './media-match.repository';
 export * from './media-service.repository';
+export * from './notification-channel.repository';
 export * from './peer.repository';
 export * from './peer-invite.repository';
 export * from './revalidation.repository';

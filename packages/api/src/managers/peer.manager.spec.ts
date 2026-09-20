@@ -19,6 +19,7 @@ import type {
 } from '@/repositories';
 import type { EventGatewayService, PeerLinkService, SettingsService } from '@/services';
 import { PeerManager } from './peer.manager';
+import type { NotificationManager } from './notification.manager';
 import type { ServiceManager } from './service.manager';
 
 const OUR_FINGERPRINT = 'ffffffffffffffffffffffffffffffff';
@@ -72,6 +73,7 @@ interface Fakes {
 	matches: { deleteForItems: jest.Mock; deleteForService: jest.Mock };
 	items: { countByService: jest.Mock; findStale: jest.Mock; remove: jest.Mock };
 	serviceManager: { probe: jest.Mock; scan: jest.Mock; refresh: jest.Mock };
+	notifications: { notify: jest.Mock };
 }
 
 const peerRow = (overrides: Partial<Peer> = {}): Peer =>
@@ -161,6 +163,7 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 			scan: jest.fn().mockResolvedValue(undefined),
 			refresh: jest.fn().mockResolvedValue(undefined),
 		},
+		notifications: { notify: jest.fn().mockResolvedValue(undefined) },
 		bans: {
 			isBanned: jest.fn().mockResolvedValue(false),
 			findByFingerprint: jest.fn().mockResolvedValue(null),
@@ -194,6 +197,7 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 		fakes.libraries as unknown as LibraryRepository,
 		fakes.matches as unknown as MediaMatchRepository,
 		fakes.serviceManager as unknown as ServiceManager,
+		fakes.notifications as unknown as NotificationManager,
 	);
 
 	return { manager, fakes };

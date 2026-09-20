@@ -8,6 +8,7 @@ import type {
 	TransferQueueStats,
 	TransferState,
 	TransferVerification,
+	UnconfiguredPlacement,
 } from '@mcs/shared';
 import { EventName } from '@mcs/shared';
 import { defineStore } from 'pinia';
@@ -83,6 +84,15 @@ export const useTransfersStore = defineStore('transfers', () => {
 	const revalidations = ref<Record<string, Revalidation[]>>({});
 	const verifications = ref<Record<string, TransferVerification>>({});
 
+	/**
+	 * What landed on a step of the placement rule nobody configured.
+	 *
+	 * Its own list rather than a filter over `transfers`: the queue page holds one page
+	 * of recent transfers and these are, by their nature, old — a file placed where
+	 * nobody chose is found months later, which is the whole problem.
+	 */
+	const unconfigured = ref<UnconfiguredPlacement[]>([]);
+
 	const byId = computed(() => {
 		const map: Record<string, Transfer> = {};
 		for (const transfer of transfers.value) {
@@ -155,6 +165,34 @@ export const useTransfersStore = defineStore('transfers', () => {
 		// has to become zeroes rather than a null the page would read fields off.
 		stats.value = loadedStats ?? { ...EMPTY_STATS };
 		return stats.value;
+	}
+
+	async function loadUnconfigured (): Promise<UnconfiguredPlacement[]> {
+		const rows = await caller('api').get<UnconfiguredPlacement[]>('/transfers/unconfigured', {
+			keepLastKey: 'transfers|unconfigured',
+		});
+		// Anything but a list becomes an empty one. The home screen renders this zone
+		// unconditionally, so an answer of the wrong shape — an older gateway, a proxy
+		// error page — would take the whole dashboard down rather than one card.
+		unconfigured.value = Array.isArray(rows) ? rows : [];
+		return unconfigured.value;
+	}
+
+	/**
+	 * Send one transfer somewhere else.
+	 *
+	 * The row leaves the list straight away rather than on the next reload. It is no
+	 * longer a destination nobody chose — somebody just chose it — and a zone about
+	 * things needing attention that keeps showing what has been dealt with is one
+	 * people stop reading.
+	 */
+	async function setDestination (id: string, libraryId: string): Promise<Transfer> {
+		const transfer = await caller('api').post<Transfer>(`/transfers/${id}/destination`, {
+			libraryId,
+		});
+		mergeTransfer(transfer);
+		unconfigured.value = unconfigured.value.filter(one => one.transferId !== id);
+		return transfer;
 	}
 
 	async function get (id: string): Promise<Transfer> {
@@ -261,10 +299,13 @@ export const useTransfersStore = defineStore('transfers', () => {
 		chunks,
 		revalidations,
 		verifications,
+		unconfigured,
 		byId,
 		failed,
 		load,
 		loadStats,
+		loadUnconfigured,
+		setDestination,
 		get,
 		loadChunks,
 		loadRevalidations,

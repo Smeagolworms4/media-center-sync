@@ -290,6 +290,7 @@ afterwards.
 |---|---|---|---|---|
 | GET | `/transfers` | page, limit, state (query) | `ResultList<Transfer>` | `TRANSFER_READ` |
 | GET | `/transfers/stats` | — | `TransferQueueStats` | `TRANSFER_READ` |
+| GET | `/transfers/unconfigured` | — | `UnconfiguredPlacement[]` | `TRANSFER_READ` |
 | GET | `/transfers/:id` | — | `Transfer` | `TRANSFER_READ` |
 | GET | `/transfers/:id/chunks` | — | `TransferChunk[]` | `TRANSFER_READ` |
 | POST | `/transfers/:id/pause` | — | `Transfer` | `TRANSFER_MANAGE` |
@@ -298,6 +299,7 @@ afterwards.
 | POST | `/transfers/:id/retry` | — | `Transfer` | `TRANSFER_MANAGE` |
 | POST | `/transfers/:id/verify` | — | `TransferVerification` | `TRANSFER_MANAGE` |
 | POST | `/transfers/:id/repair` | — | `Transfer` | `TRANSFER_MANAGE` |
+| POST | `/transfers/:id/destination` | `{ libraryId }` | `Transfer` | `TRANSFER_MANAGE` |
 | GET | `/transfers/:id/revalidations` | — | `Revalidation[]` | `TRANSFER_READ` |
 
 `verify` re-reads what is on disk and answers what it found without changing anything;
@@ -308,6 +310,23 @@ again".
 The revalidation list is why a transfer changed its mind: which source was asked, what
 it said, and what was decided. Without it the queue shows outcomes nobody can account
 for.
+
+`/transfers/unconfigured` is the only thing anywhere that mentions a file placed by a
+step nobody configured — the global destination library, the fallback folder, or the
+last-resort walk of whatever was writable. The transfer succeeded, so there is no
+error, no failed state and no log line to go looking for; the only other symptom is a
+folder somebody did not plan, found months later. Each row carries the category whose
+destination is unset, because "no destination is set for the category Animés" names
+the setting to change and "fallback" names nothing.
+
+`/transfers/:id/destination` sends one transfer somewhere else, and the two cases cost
+wildly different things. While the file is still downloading the bytes are piling up in
+the scratch directory and `targetPath` is not read until the very end, so the change is
+one row write. Once the file has landed it is a real move of real bytes, usually across
+two filesystems, reported as `placing` on the progress stream so it is visible while it
+runs. The body takes a library identifier and never a path: a destination has to be a
+library on one of this gateway's own services, because a folder nothing scans accepts
+the file, reports success and shows it to nobody.
 
 ## Peers
 

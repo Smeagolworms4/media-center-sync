@@ -134,6 +134,27 @@ export const ErrorKey = {
 	 * this key has cost a download; the alternative cost somebody their file.
 	 */
 	TRANSFER_TARGET_OCCUPIED: 'error.transfer.target_occupied',
+	/**
+	 * The destination asked for is not a library this gateway can write into.
+	 *
+	 * Its own key rather than the library refusals, because the mistake it catches is
+	 * a different one: somebody naming a folder no media server scans. A transfer sent
+	 * there succeeds, reports success, and produces nothing anybody can watch — which
+	 * is the failure the whole destination rule exists to prevent, so it is refused at
+	 * the point of choosing rather than discovered at the end of a download.
+	 */
+	TRANSFER_DESTINATION_INVALID: 'error.transfer.destination_invalid',
+	/**
+	 * The destination filled up while the finished file was being moved into it.
+	 *
+	 * Distinct from `TRANSFER_NO_SPACE`, which is a refusal before anything is written
+	 * and means "pick somewhere else". This one is reported after a download has
+	 * completed and a copy has partly run, so the answer is different and worth saying:
+	 * nothing is lost, the partial is still on the destination, and freeing space and
+	 * resuming carries on from the byte it reached. "The move failed" would send
+	 * somebody to start a forty gigabyte download again for no reason.
+	 */
+	TRANSFER_DESTINATION_FULL: 'error.transfer.destination_full',
 
 	USER_NOT_FOUND: 'error.user.not_found',
 	USER_LAST_ADMIN: 'error.user.last_admin',
@@ -179,6 +200,28 @@ export const ErrorKey = {
 	 * then has nowhere to put its file.
 	 */
 	SETTINGS_TARGET_PATH_NOT_WRITABLE: 'error.settings.target_path_not_writable',
+	NOTIFICATION_CHANNEL_NOT_FOUND: 'error.notification.channel_not_found',
+	/**
+	 * The channel's settings are missing something that channel requires.
+	 *
+	 * The refused field travels beside the key, because only the handler knows what
+	 * `config` has to contain and the person is looking at a form: "the settings were
+	 * refused" for an opaque object is a message that cannot be acted on, while
+	 * "topic" under the topic box is the whole answer.
+	 */
+	NOTIFICATION_CONFIG_INVALID: 'error.notification.config_invalid',
+	/** A stored row names a channel type this build has no handler for. */
+	NOTIFICATION_HANDLER_UNKNOWN: 'error.notification.handler_unknown',
+	/**
+	 * The channel was asked to deliver and did not.
+	 *
+	 * Only ever answered by the test route, and never while reporting something: a
+	 * notification that breaks the transfer it was about is worse than no
+	 * notification. Everywhere else the failure lands in `lastError` on the row, so a
+	 * channel that has gone silent can be seen to have gone silent.
+	 */
+	NOTIFICATION_SEND_FAILED: 'error.notification.send_failed',
+
 	GENERAL: 'error.general',
 } as const;
 

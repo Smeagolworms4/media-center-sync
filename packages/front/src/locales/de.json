@@ -547,6 +547,73 @@
 			"saved": "Gespeichert."
 		}
 	},
+	"notification": {
+		"title": "Benachrichtigungskanäle",
+		"help": "Ein Abgleich läuft stundenlang und endet um vier Uhr morgens. Über einen Kanal sagt dieses Gateway Bescheid, ohne dass ein Browser-Tab offen bleiben muss.",
+		"empty": "Noch kein Kanal, es wird also nirgendwohin etwas gesendet.",
+		"add": "Kanal hinzufügen",
+		"edit": "Diesen Kanal bearbeiten",
+		"remove": "Diesen Kanal entfernen",
+		"remove_confirm": "{name} entfernen? Darüber wird nie wieder etwas gesendet.",
+		"test": "Test senden",
+		"test_ok": "Zugestellt. Sieh auf dem Gerät nach, an das es ging.",
+		"test_failed": "Nicht zugestellt: {reason}",
+		"name": "Name",
+		"name_help": "Frei wählbar. Er erscheint nur auf diesem Bildschirm.",
+		"enabled": "Aktiv",
+		"enabled_help": "Ein abgeschalteter Kanal behält seine Einstellungen und sendet nichts.",
+		"type": "Art",
+		"kind": {
+			"ntfy": "ntfy-Push",
+			"smtp": "E-Mail"
+		},
+		"kind_help": {
+			"ntfy": "Eine Push-Nachricht aufs Telefon. Kein Konto und keine App von uns: eine Serveradresse und ein Themenname, den nur dein Haushalt kennt.",
+			"smtp": "Eine gewöhnliche E-Mail über einen Mailserver, den du ohnehin hast. Langsamer als Push, erreicht aber, was dich schon benachrichtigt."
+		},
+		"events": "Senden bei",
+		"events_all": "Nichts angehakt bedeutet alles, auch die Ereignisse späterer Versionen.",
+		"event": {
+			"placement_unconfigured": "Eine Datei landete dort, wo es niemand festgelegt hat",
+			"transfer_failed": "Eine Übertragung hat aufgegeben",
+			"sync_finished": "Ein Lauf ist fertig",
+			"disk_full": "Ein Ziel ist voll",
+			"peer_request": "Jemand möchte sich verbinden"
+		},
+		"event_help": {
+			"placement_unconfigured": "Nichts nannte ein Ziel, also ging sie in die Standardbibliothek oder den Ausweichordner. Sonst würde nie etwas ein Wort darüber verlieren.",
+			"transfer_failed": "Nachdem die Wiederholungen aufgebraucht sind.",
+			"sync_finished": "Mit dem, was er gebracht hat.",
+			"disk_full": "Bevor ein Byte bewegt wird, solange Platz schaffen noch hilft.",
+			"peer_request": "Eine Anfrage, die niemand sieht, beantwortet auch niemand."
+		},
+		"field": {
+			"url": "Serveradresse",
+			"topic": "Thema",
+			"token": "Zugriffstoken",
+			"host": "Mailserver",
+			"port": "Port",
+			"secure": "Implizites TLS",
+			"username": "Benutzername",
+			"password": "Passwort",
+			"from": "Absender",
+			"to": "Empfänger"
+		},
+		"field_help": {
+			"url": "https://ntfy.sh oder dein eigener Server.",
+			"topic": "Was du willst, aber schwer zu erraten: auf einem öffentlichen Server liest jeder mit, der den Namen kennt.",
+			"token": "Nur für einen Server, der eines verlangt.",
+			"port": "587 für Submission mit STARTTLS, 465 für implizites TLS.",
+			"secure": "An bei 465, aus bei 587. Wird aus dem Port abgeleitet, bis du es änderst.",
+			"from": "Die Adresse, von der die Nachricht kommt. Manche Server lehnen jede andere ab.",
+			"to": "Eine Adresse, an die die Nachrichten gehen."
+		},
+		"secret_kept": "Leer gelassen bleibt der gespeicherte Wert erhalten.",
+		"secret_clear": "Gespeicherten Wert entfernen",
+		"last_sent": "Zuletzt gesendet {when}",
+		"never_sent": "Noch nichts gesendet",
+		"last_error": "Letzter Versuch fehlgeschlagen: {reason}"
+	},
 	"share": {
 		"subtitle": "Was dieses Gateway preisgibt, Bibliothek für Bibliothek entschieden.",
 		"libraries": "Bibliotheken",
@@ -625,7 +692,8 @@
 			"transfers": "Übertragungen",
 			"categories": "Kategorien",
 			"peers": "Peers und Freigaben",
-			"index": "Index und Cache"
+			"index": "Index und Cache",
+			"notifications": "Benachrichtigungen"
 		},
 		"destination": {
 			"rule_title": "Wie das Gateway entscheidet, wohin eine Datei geht",
@@ -902,6 +970,28 @@
 			"ok": "Geprüft: {count} Blöcke kontrolliert, alle unversehrt.",
 			"corrupt": "Geprüft: {count} Blöcke stimmen nicht und müssen erneut geholt werden."
 		},
+		"unconfigured": {
+			"title": "{count} Datei ist dort gelandet, wo niemand etwas gewählt hat | {count} Dateien sind dort gelandet, wo niemand etwas gewählt hat",
+			"hint": "Ihre Übertragungen waren erfolgreich, also meldet sie sonst nichts. Sagen Sie, wohin sie gehören — oder sagen Sie es einmal für die ganze Kategorie.",
+			"dismiss": "Später",
+			"went_to": "gelandet in {target}",
+			"going_to": "unterwegs nach {target}",
+			"choose": "Senden an",
+			"move": "Diese Datei verschieben",
+			"remember": "{category} ab jetzt hierher senden",
+			"moved": "Verschoben.",
+			"remembered": "Gespeichert. Diese Kategorie geht ab jetzt dorthin.",
+			"reason": {
+				"default_library": "Für die Kategorie {category} ist kein Ziel festgelegt, deshalb ging die Datei in die Standard-Zielbibliothek.",
+				"fallback_path": "Für die Kategorie {category} ist kein Ziel festgelegt und es gibt keine Standard-Zielbibliothek, deshalb ging die Datei in den Ausweichordner.",
+				"any_writable": "Für die Kategorie {category} ist nichts festgelegt, und es gibt weder eine Standardbibliothek noch einen Ausweichordner — die Datei ging in die erste Bibliothek, die sie aufnehmen konnte."
+			},
+			"no_category": {
+				"default_library": "Die Bibliothek dieses Eintrags gehört zu keiner Kategorie, deshalb hat die Standard-Zielbibliothek sie aufgenommen.",
+				"fallback_path": "Die Bibliothek dieses Eintrags gehört zu keiner Kategorie und es gibt keine Standard-Zielbibliothek, deshalb ging die Datei in den Ausweichordner.",
+				"any_writable": "Die Bibliothek dieses Eintrags gehört zu keiner Kategorie, und sonst war nichts festgelegt — die Datei ging in die erste Bibliothek, die sie aufnehmen konnte."
+			}
+		},
 		"chunks": {
 			"title": "Blöcke",
 			"empty": "Diese Übertragung hat noch keine Blockkarte.",
@@ -1080,7 +1170,9 @@
 			"not_resumable": "Diese Übertragung lässt sich nicht fortsetzen und muss von vorn beginnen.",
 			"no_space": "Nicht genug freier Speicher in der Zielbibliothek.",
 			"checksum_mismatch": "Die heruntergeladene Datei stimmt nicht mit ihrer Prüfsumme überein.",
-			"target_occupied": "Etwas anderes belegt bereits den Pfad, auf dem diese Datei landen würde, und es ließ sich kein freier Name bilden. Es wurde nichts überschrieben."
+			"destination_full": "Das Ziel ist vollgelaufen, während die Datei dorthin verschoben wurde. Nichts ist verloren: Geben Sie Speicher frei und setzen Sie fort, dann läuft der Vorgang dort weiter, wo er stehen geblieben ist.",
+			"target_occupied": "Etwas anderes belegt bereits den Pfad, auf dem diese Datei landen würde, und es ließ sich kein freier Name bilden. Es wurde nichts überschrieben.",
+			"destination_invalid": "Ein Ziel muss eine Bibliothek auf einem Ihrer eigenen Dienste sein. Ein Ordner, den nichts durchsucht, nimmt die Datei an und zeigt sie niemandem."
 		},
 		"settings": {
 			"invalid": "Diese Einstellungen wurden abgelehnt.",
@@ -1100,6 +1192,12 @@
 			"path_outside_root": "Dieser Ordner liegt außerhalb der Verzeichnisse, die dieses Gateway durchsuchen darf.",
 			"path_not_found": "Ordner nicht gefunden.",
 			"path_unreadable": "Das Gateway kann diesen Ordner nicht lesen."
+		},
+		"notification": {
+			"channel_not_found": "Diesen Benachrichtigungskanal gibt es nicht mehr.",
+			"config_invalid": "Mit diesen Einstellungen kann dieser Kanal nicht arbeiten.",
+			"handler_unknown": "Diese Art von Benachrichtigungskanal wird nicht unterstützt.",
+			"send_failed": "Der Kanal hat die Nachricht nicht zugestellt."
 		}
 	},
 	"indications": {

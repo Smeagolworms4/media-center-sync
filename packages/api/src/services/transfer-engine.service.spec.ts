@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import {
 	ChunkState,
+	ErrorKey,
 	TransferErrorKind,
 	TransferState,
 	TransferTransport,
@@ -13,6 +14,11 @@ import {
 import type { Transfer, TransferChunk } from '@/entities';
 import type { TransferChunkRepository, TransferRepository } from '@/repositories';
 import { EventGatewayService } from './event-gateway.service';
+import {
+	FileMoveService,
+	NODE_FILE_MOVE_OPERATIONS,
+	type FileMoveOperations,
+} from './file-move.service';
 import { FingerprintService } from './fingerprint.service';
 import { MIN_CHUNK_SIZE } from './chunk-planner';
 import { DEFAULT_SETTINGS } from './settings.service';
@@ -59,6 +65,14 @@ describe('TransferEngineService', () => {
 	let prepare: jest.Mock;
 	let events: EventGatewayService;
 	let engine: TransferEngineService;
+	/**
+	 * The real filesystem, mutable so a test can make one call answer differently.
+	 *
+	 * The same object the service holds, rather than a copy, so a test can install a
+	 * cross-device `rename` or a full disk after the engine has been built — neither
+	 * of which can be arranged for real inside a test run.
+	 */
+	let moveFs: FileMoveOperations;
 
 	function transfer(overrides: Partial<Transfer> = {}): Transfer {
 		return {
@@ -191,6 +205,7 @@ describe('TransferEngineService', () => {
 		} as unknown as ByteTransport;
 
 		events = new EventGatewayService();
+		moveFs = { ...NODE_FILE_MOVE_OPERATIONS };
 		engine = new TransferEngineService(
 			transferRepository as unknown as TransferRepository,
 			chunkRepository as unknown as TransferChunkRepository,
@@ -198,6 +213,7 @@ describe('TransferEngineService', () => {
 			new VerificationService(new FingerprintService()),
 			{ get: async () => settings } as unknown as SettingsService,
 			events,
+			new FileMoveService(moveFs),
 		);
 
 		engine.setSourceResolver(async () => [source()]);
@@ -907,6 +923,94 @@ describe('TransferEngineService', () => {
 
 			expect(finished.state).toBe(TransferState.FAILED);
 			expect(finished.errorKind).toBe(kind);
+		});
+	});
+
+	/**
+	 * The step between a verified download and a file somebody can watch.
+	 *
+	 * Worth its own block because the normal deployment takes the slow path through
+	 * it: the working directory is in the container and the library is a NAS mount, so
+	 * `rename` answers `EXDEV` and every byte of a forty gigabyte film is streamed.
+	 * That used to be a bare `copyFile` — no progress, no pause, no resume, and a full
+	 * disk that threw and left a temporary nobody knew about.
+	 */
+	describe('placing', () => {
+		/** The library is a different mount: only the temporary can be renamed. */
+		function crossDevice(): void {
+			const real = NODE_FILE_MOVE_OPERATIONS.rename;
+
+			moveFs.rename = async (from, to) => {
+				if (from.endsWith('.part')) {
+					throw Object.assign(new Error('EXDEV: simulated'), { code: 'EXDEV' });
+				}
+
+				await real(from, to);
+			};
+		}
+
+		it('streams the finished file into a library on another mount', async () => {
+			crossDevice();
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.DONE);
+			expect(await digestOf(finished.targetPath)).toBe(digest(content));
+			// Nothing is left under the temporary name the media server must never see.
+			await expect(stat(`${finished.targetPath}.mcs-part`)).rejects.toThrow();
+		});
+
+		it('publishes the move down the same channel the download uses', async () => {
+			// One channel, not two: a second one would mean every client learning to
+			// read both, and a bar that jumps between them at the end of a transfer.
+			crossDevice();
+
+			const placing: { bytesDone: number; bytesTotal: number }[] = [];
+
+			events.publishProgress = ((progress: {
+				state: TransferState;
+				bytesDone: number;
+				bytesTotal: number;
+			}) => {
+				if (progress.state === TransferState.PLACING) {
+					placing.push({ bytesDone: progress.bytesDone, bytesTotal: progress.bytesTotal });
+				}
+			}) as EventGatewayService['publishProgress'];
+
+			await engine.enqueue('t1');
+
+			expect((await runToEnd()).state).toBe(TransferState.DONE);
+			expect(placing.length).toBeGreaterThan(0);
+			expect(placing[placing.length - 1]).toEqual({ bytesDone: TOTAL, bytesTotal: TOTAL });
+		});
+
+		it('says the destination is full rather than that the move failed', async () => {
+			crossDevice();
+			moveFs.createWriteStream = (path, options) => {
+				const real = NODE_FILE_MOVE_OPERATIONS.createWriteStream(path, options);
+
+				return new Writable({
+					write(_chunk, _encoding, callback) {
+						callback(Object.assign(new Error('ENOSPC: simulated'), { code: 'ENOSPC' }));
+					},
+					destroy(error, callback) {
+						real.end(() => callback(error));
+					},
+				});
+			};
+
+			await engine.enqueue('t1');
+
+			const finished = await runToEnd();
+
+			expect(finished.state).toBe(TransferState.FAILED);
+			expect(finished.errorKind).toBe(TransferErrorKind.DISK_FULL);
+			// The key the interface needs: nothing is lost, the partial is still there,
+			// and freeing space and resuming costs the remainder rather than the file.
+			expect(finished.error).toBe(ErrorKey.TRANSFER_DESTINATION_FULL);
+			expect(await stat(join(root, 'work', 't1.part'))).toBeDefined();
 		});
 	});
 

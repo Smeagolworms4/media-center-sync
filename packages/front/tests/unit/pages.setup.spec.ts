@@ -74,9 +74,16 @@ async function flush (times = 6): Promise<void> {
  * Every page is a lazy chunk, and a dynamic import resolves on a task rather than
  * on a microtask: a loop that only drains promises spins for ever and then fails
  * on a number that looks like an arbitrary patience setting.
+ *
+ * Bounded by the clock rather than by a number of turns, and that is not a detail: a
+ * count of turns is really a guess at how many modules a page pulls in, so adding one
+ * component to the dashboard made this fail with "expected undefined to be dashboard"
+ * — a message about routing, for a change that had nothing to do with routing.
  */
 async function waitForRoute (router: { currentRoute: { value: { name?: unknown } } }, name: string): Promise<void> {
-	for (let attempt = 0; attempt < 300 && router.currentRoute.value.name !== name; attempt += 1) {
+	const deadline = Date.now() + 5000;
+
+	while (router.currentRoute.value.name !== name && Date.now() < deadline) {
 		await flush(1);
 	}
 }

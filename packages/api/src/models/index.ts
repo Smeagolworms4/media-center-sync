@@ -3,6 +3,7 @@ export * from './filesystem.dto';
 export * from './library.dto';
 export * from './media.dto';
 export * from './media-service.dto';
+export * from './notification.dto';
 export * from './peer.dto';
 export * from './settings.dto';
 export * from './share.dto';
