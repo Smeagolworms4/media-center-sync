@@ -402,6 +402,16 @@
 			"probe": "Verificar",
 			"scan": "Análise completa",
 			"refresh": "Atualizar"
+		},
+		"mode": {
+			"local": "Meus",
+			"remote": "Servidores de outras pessoas",
+			"peer": "Pares"
+		},
+		"mode_hint": {
+			"local": "A gateway pode escrever neles, por isso são os únicos destinos possíveis.",
+			"remote": "Servidores onde tem uma conta. Apenas leitura: é o disco de outra pessoa.",
+			"peer": "Gateways de amigos. Mostram o que o dono escolheu partilhar, e nada mais."
 		}
 	},
 	"peer": {
@@ -647,8 +657,6 @@
 		"categories_edit": "Renomear ou reordenar uma biblioteca",
 		"history_days": "Guardar as transferências terminadas durante",
 		"history_days_help": "Em dias. Passado esse prazo, saem da fila.",
-		"friends_of_friends": "Permitir amigos de amigos",
-		"friends_of_friends_help": "Deixa os pares que os seus pares apresentam chegar sequer a este gateway.",
 		"swarm": "Permitir o enxame",
 		"swarm_help": "Vários pares com o mesmo ficheiro podem alimentar em conjunto uma mesma transferência.",
 		"rendezvous": "Ponto de encontro",
@@ -663,7 +671,11 @@
 		"full_scan_help": "Uma atualização só vê o que um serviço anuncia como novo. Vazio desativa a passagem agendada; o botão funciona sempre.",
 		"instance_name": "Nome desta gateway",
 		"instance_name_help": "O que os seus amigos veem em vez do nome da máquina. Num contentor esse nome é uma sequência aleatória.",
-		"instance_name_placeholder": "Sala"
+		"instance_name_placeholder": "Sala",
+		"peer_max_depth": "Alcance das apresentações",
+		"peer_max_depth_help": "Saltos permitidos daqui: 1 apenas amigos, 2 os amigos deles, e assim por diante.",
+		"peer_max_depth_pinned": "Fixado pelo ambiente desta instalação e não alterável aqui.",
+		"peer_max_depth_per_peer": "Um tecto para toda a gateway. Cada par pode ser limitado mais na sua própria linha, e nenhuma definição aqui ultrapassa o que outro permitiu."
 	},
 	"sync": {
 		"subtitle": "As intenções permanentes, e o que fizeram de facto.",

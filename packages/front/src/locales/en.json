@@ -402,6 +402,16 @@
 			"probe": "Check",
 			"scan": "Full scan",
 			"refresh": "Refresh"
+		},
+		"mode": {
+			"local": "Mine",
+			"remote": "Somebody else’s servers",
+			"peer": "Peers"
+		},
+		"mode_hint": {
+			"local": "The gateway can write into these, so they are the only possible destinations.",
+			"remote": "Servers you have an account on. Read-only: it is somebody else’s disk.",
+			"peer": "Friends’ gateways. They show what their owner chose to share, and nothing more."
 		}
 	},
 	"peer": {
@@ -647,8 +657,6 @@
 		"categories_edit": "Rename or reorder a library",
 		"history_days": "Keep finished transfers for",
 		"history_days_help": "In days. After that they leave the queue.",
-		"friends_of_friends": "Allow friends of friends",
-		"friends_of_friends_help": "Lets peers your peers introduce reach this gateway at all.",
 		"swarm": "Allow the swarm",
 		"swarm_help": "Several peers holding the same file can feed one transfer together.",
 		"rendezvous": "Rendezvous",
@@ -663,7 +671,11 @@
 		"full_scan_help": "A refresh only sees what a service reports as new. Empty disables the scheduled pass; the button always works.",
 		"instance_name": "Name of this gateway",
 		"instance_name_help": "What your friends see instead of the machine's hostname. Inside a container that hostname is a random string.",
-		"instance_name_placeholder": "Living room"
+		"instance_name_placeholder": "Living room",
+		"peer_max_depth": "How far introductions travel",
+		"peer_max_depth_help": "Hops allowed from here: 1 is friends only, 2 their friends, and so on.",
+		"peer_max_depth_pinned": "Fixed by this deployment’s environment and cannot be changed here.",
+		"peer_max_depth_per_peer": "A ceiling over the whole gateway. Each peer can be held shorter on its own row, and no setting here can reach past what somebody else allowed."
 	},
 	"sync": {
 		"subtitle": "Standing intents, and what they have actually done.",

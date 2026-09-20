@@ -402,6 +402,16 @@
 			"probe": "Prüfen",
 			"scan": "Vollständiger Scan",
 			"refresh": "Aktualisieren"
+		},
+		"mode": {
+			"local": "Meine",
+			"remote": "Server anderer",
+			"peer": "Peers"
+		},
+		"mode_hint": {
+			"local": "Das Gateway kann hier schreiben, daher sind dies die einzigen möglichen Ziele.",
+			"remote": "Server, auf denen Sie ein Konto haben. Nur lesend: es ist die Festplatte eines anderen.",
+			"peer": "Gateways von Freunden. Sie zeigen, was ihr Besitzer freigegeben hat, und nicht mehr."
 		}
 	},
 	"peer": {
@@ -647,8 +657,6 @@
 		"categories_edit": "Bibliothek umbenennen oder umsortieren",
 		"history_days": "Abgeschlossene Übertragungen behalten",
 		"history_days_help": "In Tagen. Danach verlassen sie die Warteschlange.",
-		"friends_of_friends": "Freundesfreunde zulassen",
-		"friends_of_friends_help": "Lässt Peers, die Ihre Peers vorstellen, dieses Gateway überhaupt erreichen.",
 		"swarm": "Schwarm zulassen",
 		"swarm_help": "Mehrere Peers, die dieselbe Datei haben, können eine Übertragung gemeinsam speisen.",
 		"rendezvous": "Rendezvous",
@@ -663,7 +671,11 @@
 		"full_scan_help": "Eine Aktualisierung sieht nur, was ein Dienst als neu meldet. Leer schaltet den geplanten Durchlauf ab; die Schaltfläche funktioniert immer.",
 		"instance_name": "Name dieses Gateways",
 		"instance_name_help": "Was Ihre Freunde anstelle des Hostnamens sehen. In einem Container ist dieser Name eine zufällige Zeichenfolge.",
-		"instance_name_placeholder": "Wohnzimmer"
+		"instance_name_placeholder": "Wohnzimmer",
+		"peer_max_depth": "Reichweite der Vermittlungen",
+		"peer_max_depth_help": "Erlaubte Schritte von hier: 1 nur Freunde, 2 deren Freunde und so weiter.",
+		"peer_max_depth_pinned": "Durch die Umgebung dieser Installation festgelegt und hier nicht änderbar.",
+		"peer_max_depth_per_peer": "Eine Obergrenze für das ganze Gateway. Jeder Peer kann auf seiner Zeile kürzer gehalten werden, und keine Einstellung hier reicht über das hinaus, was jemand anderes erlaubt hat."
 	},
 	"sync": {
 		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",

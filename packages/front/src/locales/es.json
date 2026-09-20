@@ -402,6 +402,16 @@
 			"probe": "Comprobar",
 			"scan": "Análisis completo",
 			"refresh": "Actualizar"
+		},
+		"mode": {
+			"local": "Míos",
+			"remote": "Servidores de otras personas",
+			"peer": "Pares"
+		},
+		"mode_hint": {
+			"local": "La pasarela puede escribir en ellos, así que son los únicos destinos posibles.",
+			"remote": "Servidores en los que tienes una cuenta. Solo lectura: es el disco de otra persona.",
+			"peer": "Pasarelas de amigos. Muestran lo que su dueño decidió compartir, y nada más."
 		}
 	},
 	"peer": {
@@ -647,8 +657,6 @@
 		"categories_edit": "Renombrar o reordenar una biblioteca",
 		"history_days": "Conservar las transferencias terminadas",
 		"history_days_help": "En días. Pasado ese plazo salen de la cola.",
-		"friends_of_friends": "Permitir a los amigos de amigos",
-		"friends_of_friends_help": "Permite que los pares que presentan tus pares lleguen siquiera a esta pasarela.",
 		"swarm": "Permitir el enjambre",
 		"swarm_help": "Varios pares que tienen el mismo archivo pueden alimentar juntos una misma transferencia.",
 		"rendezvous": "Punto de encuentro",
@@ -663,7 +671,11 @@
 		"full_scan_help": "Una actualización solo ve lo que un servicio anuncia como nuevo. Vacío desactiva el pase planificado; el botón funciona siempre.",
 		"instance_name": "Nombre de esta pasarela",
 		"instance_name_help": "Lo que ven tus amigos en lugar del nombre de máquina. En un contenedor ese nombre es una cadena aleatoria.",
-		"instance_name_placeholder": "Salón"
+		"instance_name_placeholder": "Salón",
+		"peer_max_depth": "Alcance de las presentaciones",
+		"peer_max_depth_help": "Saltos permitidos desde aquí: 1 solo amigos, 2 sus amigos, y así sucesivamente.",
+		"peer_max_depth_pinned": "Fijado por el entorno de esta instalación y no modificable aquí.",
+		"peer_max_depth_per_peer": "Un techo para toda la pasarela. Cada par puede limitarse más en su propia fila, y ningún ajuste de aquí supera lo que otro haya permitido."
 	},
 	"sync": {
 		"subtitle": "Las intenciones permanentes, y lo que han hecho realmente.",

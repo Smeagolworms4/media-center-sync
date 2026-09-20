@@ -402,6 +402,16 @@
 			"probe": "Controlla",
 			"scan": "Scansione completa",
 			"refresh": "Aggiorna"
+		},
+		"mode": {
+			"local": "Miei",
+			"remote": "Server di altri",
+			"peer": "Peer"
+		},
+		"mode_hint": {
+			"local": "Il gateway può scriverci, quindi sono le uniche destinazioni possibili.",
+			"remote": "Server su cui hai un account. Sola lettura: è il disco di qualcun altro.",
+			"peer": "Gateway di amici. Mostrano ciò che il proprietario ha scelto di condividere, e nulla di più."
 		}
 	},
 	"peer": {
@@ -647,8 +657,6 @@
 		"categories_edit": "Rinomina o riordina una libreria",
 		"history_days": "Conserva i trasferimenti conclusi per",
 		"history_days_help": "In giorni. Dopo di che lasciano la coda.",
-		"friends_of_friends": "Consenti gli amici di amici",
-		"friends_of_friends_help": "Permette ai peer presentati dai tuoi peer di raggiungere questo gateway.",
 		"swarm": "Consenti lo swarm",
 		"swarm_help": "Più peer che hanno lo stesso file possono alimentare insieme un solo trasferimento.",
 		"rendezvous": "Rendezvous",
@@ -663,7 +671,11 @@
 		"full_scan_help": "Un aggiornamento vede solo ciò che un servizio segnala come nuovo. Vuoto disattiva il passaggio pianificato; il pulsante funziona sempre.",
 		"instance_name": "Nome di questo gateway",
 		"instance_name_help": "Ciò che i tuoi amici vedono al posto del nome macchina. In un contenitore quel nome è una stringa casuale.",
-		"instance_name_placeholder": "Salotto"
+		"instance_name_placeholder": "Salotto",
+		"peer_max_depth": "Portata delle presentazioni",
+		"peer_max_depth_help": "Salti consentiti da qui: 1 solo amici, 2 i loro amici, e così via.",
+		"peer_max_depth_pinned": "Fissato dall'ambiente di questa installazione e non modificabile qui.",
+		"peer_max_depth_per_peer": "Un tetto per tutto il gateway. Ogni peer può essere limitato di più sulla propria riga, e nessuna impostazione qui va oltre ciò che un altro ha consentito."
 	},
 	"sync": {
 		"subtitle": "Intenzioni permanenti, e ciò che hanno fatto davvero.",

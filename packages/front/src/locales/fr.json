@@ -402,6 +402,16 @@
 			"probe": "Vérifier",
 			"scan": "Analyse complète",
 			"refresh": "Rafraîchir"
+		},
+		"mode": {
+			"local": "À moi",
+			"remote": "Serveurs de quelqu'un d'autre",
+			"peer": "Pairs"
+		},
+		"mode_hint": {
+			"local": "La passerelle peut y écrire : ce sont les seules destinations possibles.",
+			"remote": "Serveurs sur lesquels vous avez un compte. En lecture seule : c'est le disque d'un autre.",
+			"peer": "Passerelles d'amis. Elles montrent ce que leur propriétaire a choisi de partager, rien de plus."
 		}
 	},
 	"peer": {
@@ -647,8 +657,6 @@
 		"categories_edit": "Renommer ou réordonner une bibliothèque",
 		"history_days": "Conserver les transferts terminés",
 		"history_days_help": "En jours. Passé ce délai, ils quittent la file.",
-		"friends_of_friends": "Autoriser les amis d'amis",
-		"friends_of_friends_help": "Permet aux pairs que vos pairs présentent d'atteindre cette passerelle.",
 		"swarm": "Autoriser l'essaim",
 		"swarm_help": "Plusieurs pairs détenant le même fichier peuvent alimenter un même transfert.",
 		"rendezvous": "Rendez-vous",
@@ -663,7 +671,11 @@
 		"full_scan_help": "Un rafraîchissement ne voit que ce qu'un service annonce comme nouveau. Vide désactive le passage planifié ; le bouton fonctionne toujours.",
 		"instance_name": "Nom de cette passerelle",
 		"instance_name_help": "Ce que vos amis voient à la place du nom de machine. Dans un conteneur, ce nom est une suite de caractères aléatoires.",
-		"instance_name_placeholder": "Salon"
+		"instance_name_placeholder": "Salon",
+		"peer_max_depth": "Portée des présentations",
+		"peer_max_depth_help": "Sauts autorisés depuis ici : 1 pour les amis seuls, 2 pour leurs amis, et ainsi de suite.",
+		"peer_max_depth_pinned": "Fixé par l'environnement de ce déploiement et non modifiable ici.",
+		"peer_max_depth_per_peer": "Un plafond pour toute la passerelle. Chaque pair peut être limité plus court sur sa propre ligne, et aucun réglage ici ne dépasse ce qu'un autre a autorisé."
 	},
 	"sync": {
 		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",

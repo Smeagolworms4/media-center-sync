@@ -132,6 +132,25 @@
 					</template>
 				</v-chip>
 
+				<!--
+					The distance as a number, always, beside the word for it.
+					The word is what people recognise and the number is what the source
+					order and the reach setting actually compare, so a screen showing only
+					the word left "Friend of a friend" standing for two hops and for four
+					alike — and the reach limit unexplainable.
+				-->
+				<v-chip
+					v-if="depth > 1"
+					:data-depth="depth"
+					data-test="peer-depth"
+					label
+					size="small"
+					variant="outlined"
+				>
+					<v-icon class="mr-1" icon="mdi-arrow-expand-right" size="x-small" />
+					{{ $t('peer.depth.hops', { count: depth }, depth) }}
+				</v-chip>
+
 				<v-chip
 					v-if="peer.linkMode"
 					:color="relayed ? 'state-outdated' : undefined"

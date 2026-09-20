@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import { DEFAULT_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy } from '@mcs/shared';
+	import { DEFAULT_PEER_MAX_DEPTH, MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy } from '@mcs/shared';
 	import { computed, onMounted, reactive, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import CronHint from '@/components/common/CronHint.vue';
@@ -127,20 +127,14 @@
 	const fixedPathNeeded = computed(() => model.placement === PlacementStrategy.FIXED_PATH);
 
 	/**
-	 * The old yes/no, kept as a switch over the new number of hops.
+	 * Whether the deployment pinned the reach in its environment.
 	 *
-	 * The setting is a distance now and deserves a control that says so, but the
-	 * wording on this screen — and the message catalogue behind it — still only knows
-	 * about friends of friends. Changing both at once would leave the interface
-	 * promising a choice of distance it cannot express, so the switch stays and writes
-	 * the default reach; replacing it is a separate piece of work with its own strings.
+	 * The control is disabled and says so rather than being hidden: somebody looking
+	 * for this setting has to find out that it exists and that it is decided
+	 * elsewhere, otherwise they conclude the gateway has no such limit. The API
+	 * refuses a write to it either way — this only stops the screen offering one.
 	 */
-	const friendsOfFriends = computed({
-		get: () => model.peerMaxDepth > 1,
-		set: (value: boolean) => {
-			model.peerMaxDepth = value ? DEFAULT_PEER_MAX_DEPTH : 1;
-		},
-	});
+	const peerDepthPinned = computed(() => settingsStore.pinned.includes('peerMaxDepth'));
 
 	/**
 	 * True only while the box still holds the suggestion and nothing has been stored.
@@ -158,6 +152,9 @@
 				rules: computed(() => (fixedPathNeeded.value
 					? [validators.required(), validators.absolutePath()]
 					: [validators.absolutePath()])),
+			},
+			peerMaxDepth: {
+				rules: [validators.required(), validators.range({ min: 1, max: MAX_PEER_MAX_DEPTH })],
 			},
 			maxParallelTransfers: { rules: [validators.required(), validators.range({ min: 1, max: 32 })] },
 			maxConnectionsPerSource: { rules: [validators.required(), validators.range({ min: 1, max: 16 })] },
@@ -487,16 +484,23 @@
 				<v-card-title class="text-subtitle-1">{{ $t('settings.group.peers') }}</v-card-title>
 
 				<v-card-text>
-					<v-switch
-						v-model="friendsOfFriends"
-						color="primary"
-						density="compact"
-						hide-details
-						:label="$t('settings.friends_of_friends')"
+					<v-text-field
+						v-model.number="model.peerMaxDepth"
+						v-bind="form.field('peerMaxDepth')"
+						data-test="settings-peer-depth"
+						:disabled="peerDepthPinned"
+						:hint="peerDepthPinned
+							? $t('settings.peer_max_depth_pinned')
+							: $t('settings.peer_max_depth_help')"
+						:label="$t('settings.peer_max_depth')"
+						:max="MAX_PEER_MAX_DEPTH"
+						min="1"
+						persistent-hint
+						type="number"
 					/>
 
-					<p class="text-caption text-medium-emphasis">
-						{{ $t('settings.friends_of_friends_help') }}
+					<p class="text-caption text-medium-emphasis mt-2">
+						{{ $t('settings.peer_max_depth_per_peer') }}
 					</p>
 
 					<v-switch

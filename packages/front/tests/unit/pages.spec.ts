@@ -3,6 +3,7 @@ import {
 	LibraryKind,
 	MediaKind,
 	MediaOrigin,
+	MediaServiceMode,
 	MediaServiceScope,
 	MediaServiceStatus,
 	MediaServiceType,
@@ -582,6 +583,55 @@ describe('pages/Services', () => {
 			.toBe(MediaServiceStatus.UNAUTHORIZED);
 		expect(row.text()).toContain('Living room');
 	});
+
+	it('bands the list by what can be done with each service', async () => {
+		// Three kinds that do not behave alike: only ours can be written into, a
+		// server we merely have an account on is somebody else's disk, and a peer
+		// shows what its owner chose to share. Flat, they all looked the same.
+		stubFetchRoutes({
+			'/api/services': {
+				body: [
+					service({ id: 'mine', name: 'Living room', mode: MediaServiceMode.LOCAL }),
+					service({
+						id: 'theirs',
+						name: 'Their Plex',
+						mode: MediaServiceMode.REMOTE,
+						scope: MediaServiceScope.REMOTE,
+					}),
+					service({
+						id: 'friend',
+						name: 'The cottage',
+						mode: MediaServiceMode.PEER,
+						type: MediaServiceType.PEER,
+						scope: MediaServiceScope.REMOTE,
+					}),
+				],
+			},
+		});
+		const { wrapper } = mountWithApp(Services, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.findAll('[data-test="service-row"]')).toHaveLength(3);
+		expect(wrapper.findAll('[data-test="service-band"]').map(band => band.attributes('data-mode')))
+			.toEqual([MediaServiceMode.LOCAL, MediaServiceMode.REMOTE, MediaServiceMode.PEER]);
+	});
+
+	it('never drops a row whose mode it cannot read', async () => {
+		// Filtering on `mode` alone left a record written before that field existed
+		// belonging to no band, and it disappeared from the page. A registered
+		// service that does not appear is worse than one in the wrong band: nothing
+		// says it is missing.
+		stubFetchRoutes({
+			'/api/services': {
+				body: [{ ...service({ name: 'Ancient' }), mode: undefined }],
+			},
+		});
+		const { wrapper } = mountWithApp(Services, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.findAll('[data-test="service-row"]')).toHaveLength(1);
+		expect(wrapper.text()).toContain('Ancient');
+	});
 });
 
 describe('pages/Transfers', () => {
@@ -907,7 +957,7 @@ describe('pages/Settings', () => {
 	});
 
 	const openSettings = async (overrides: Record<string, unknown> = {}) => {
-		stubFetchRoutes({ '/api/settings': { body: settingsBody(overrides) } });
+		stubFetchRoutes({ '/api/settings': { body: { pinned: [], ...settingsBody(overrides) } } });
 		const mounted = mountWithApp(Settings, { global: { stubs: tooltipStub } });
 		await settle();
 		return mounted;
@@ -915,6 +965,30 @@ describe('pages/Settings', () => {
 
 	const valueOf = (wrapper: ReturnType<typeof mountWithApp>['wrapper'], test: string) =>
 		(wrapper.find(`[data-test="${test}"] input`).element as HTMLInputElement).value;
+
+	it('offers the reach as a number of hops, not as a yes or no', async () => {
+		// The switch it replaces could only write one hop or the default: there was no
+		// way to ask for two, and no way to see which of the six was in force.
+		const { wrapper } = await openSettings({ peerMaxDepth: 4 });
+
+		expect(valueOf(wrapper, 'settings-peer-depth')).toBe('4');
+	});
+
+	it('disables the reach when the deployment pinned it, and says why', async () => {
+		// Hidden would be worse: somebody looking for this setting has to find out that
+		// it exists and is decided elsewhere, or they conclude there is no limit at all.
+		stubFetchRoutes({
+			'/api/settings': { body: { pinned: ['peerMaxDepth'], ...settingsBody() } },
+		});
+		const { wrapper } = mountWithApp(Settings, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const input = wrapper.find('[data-test="settings-peer-depth"] input');
+
+		expect((input.element as HTMLInputElement).disabled).toBe(true);
+		expect(wrapper.find('[data-test="settings-peer-depth"]').text())
+			.toContain('cannot be changed here');
+	});
 
 	it('shows the fixed path only when the placement needs one', async () => {
 		const { wrapper } = await openSettings();

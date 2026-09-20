@@ -402,6 +402,16 @@
 			"probe": "检查",
 			"scan": "完整扫描",
 			"refresh": "刷新"
+		},
+		"mode": {
+			"local": "我的",
+			"remote": "他人的服务器",
+			"peer": "对端"
+		},
+		"mode_hint": {
+			"local": "网关可以写入这些服务器，因此它们是唯一可能的目标。",
+			"remote": "你拥有账号的服务器。只读：那是别人的磁盘。",
+			"peer": "朋友的网关。它们只显示其所有者选择分享的内容。"
 		}
 	},
 	"peer": {
@@ -647,8 +657,6 @@
 		"categories_edit": "重命名或重新排序媒体库",
 		"history_days": "已完成传输保留",
 		"history_days_help": "单位为天。超过后它们会离开队列。",
-		"friends_of_friends": "允许朋友的朋友",
-		"friends_of_friends_help": "让你的对等网关引荐的对等网关能够连上此网关。",
 		"swarm": "允许群集",
 		"swarm_help": "多个拥有同一文件的对等网关可以共同为一次传输供源。",
 		"rendezvous": "会合服务器",
@@ -663,7 +671,11 @@
 		"full_scan_help": "刷新只能看到服务报告为新增的内容。留空则停用定时的完整扫描；按钮始终可用。",
 		"instance_name": "此网关的名称",
 		"instance_name_help": "好友看到的名称，替代主机名。在容器中主机名是一串随机字符。",
-		"instance_name_placeholder": "客厅"
+		"instance_name_placeholder": "客厅",
+		"peer_max_depth": "介绍的传播范围",
+		"peer_max_depth_help": "从这里允许的跳数：1 仅限好友，2 包括他们的好友，依此类推。",
+		"peer_max_depth_pinned": "由本部署的环境固定，无法在此更改。",
+		"peer_max_depth_per_peer": "这是整个网关的上限。每个对端可在自己那一行设得更短，此处的设置也无法超出别人所允许的范围。"
 	},
 	"sync": {
 		"subtitle": "长期的同步意图，以及它们实际做了什么。",
