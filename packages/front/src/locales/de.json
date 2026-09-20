@@ -104,6 +104,17 @@
 		"placeholder": "Diese Seite ist noch nicht gebaut.",
 		"copy_failed": "Das Kopieren ist fehlgeschlagen. Markieren Sie den Wert und kopieren Sie ihn von Hand."
 	},
+	"browse": {
+		"title": "Ordner auswählen",
+		"up": "Eine Ebene nach oben",
+		"choose": "Diesen Ordner verwenden",
+		"empty": "Hier gibt es keinen Ordner.",
+		"not_writable": "Für das Gateway schreibgeschützt",
+		"current_not_writable": "Das Gateway kann nicht in diesen Ordner schreiben – hier würde nie etwas ankommen.",
+		"truncated": "Es werden nur die ersten {count} Ordner angezeigt. Geben Sie den Pfad ein, wenn der gesuchte Ordner fehlt.",
+		"show_hidden": "Versteckte Ordner anzeigen",
+		"open": "Ordner durchsuchen"
+	},
 	"general": {
 		"byte_unit": "B"
 	},
@@ -542,8 +553,8 @@
 		"no_libraries_title": "Keine Bibliothek zum Teilen",
 		"no_libraries_text": "Registrieren Sie zuerst einen Dienst; seine Bibliotheken erscheinen hier.",
 		"visibility": "Wer sie sehen darf",
-		"make_private": "Wieder privat machen",
-		"made_private": "Diese Bibliothek ist wieder privat.",
+		"follow_default": "Standard des Gateways übernehmen",
+		"followed_default": "Diese Bibliothek folgt wieder dem Standard des Gateways.",
 		"saved": "Freigabe gespeichert.",
 		"allowed": "Immer erlaubt",
 		"allowed_hint": "Diese Peers sehen diese Bibliothek, was die Regel oben auch sagt.",
@@ -563,9 +574,17 @@
 			"friends_of_friends": "Meine Peers und deren Peers"
 		},
 		"visibility_help": {
-			"private": "Nichts wird geteilt. Eine Bibliothek ohne Regel ist privat.",
+			"private": "Nichts wird geteilt, mit niemandem, was der Standard des Gateways auch sagt.",
 			"friends": "Die Gateways, mit denen Sie sich selbst verbunden haben.",
 			"friends_of_friends": "Ihre Peers und die Peers, die sie vorstellen."
+		},
+		"origin": {
+			"default": "Gateway-Standard",
+			"default_hint": "Über diese Bibliothek hat niemand entschieden, sie folgt dem Standard des Gateways. Ändert sich der Standard, ändert sie sich mit.",
+			"set": "Hier festgelegt",
+			"set_hint": "Jemand hat das für diese eine Bibliothek gewählt. Der Standard des Gateways bewegt sie nicht mehr.",
+			"not_ours": "Nicht unsere zum Teilen",
+			"not_ours_hint": "Diese Bibliothek liegt auf einem Dienst, der nicht uns gehört, und bleibt privat, was der Standard auch sagt. Sie zu teilen hieße, den Server eines anderen weiterzureichen — dem wird Bibliothek für Bibliothek zugestimmt."
 		},
 		"audit": {
 			"title": "Was ein Peer sehen würde",
@@ -675,7 +694,12 @@
 		"peer_max_depth": "Reichweite der Vermittlungen",
 		"peer_max_depth_help": "Erlaubte Schritte von hier: 1 nur Freunde, 2 deren Freunde und so weiter.",
 		"peer_max_depth_pinned": "Durch die Umgebung dieser Installation festgelegt und hier nicht änderbar.",
-		"peer_max_depth_per_peer": "Eine Obergrenze für das ganze Gateway. Jeder Peer kann auf seiner Zeile kürzer gehalten werden, und keine Einstellung hier reicht über das hinaus, was jemand anderes erlaubt hat."
+		"peer_max_depth_per_peer": "Eine Obergrenze für das ganze Gateway. Jeder Peer kann auf seiner Zeile kürzer gehalten werden, und keine Einstellung hier reicht über das hinaus, was jemand anderes erlaubt hat.",
+		"write_nfo": "Eine .nfo schreiben, wenn die Quelle keine hat",
+		"write_nfo_help": "Eine Quelle hält ihre Metadaten oft in der eigenen Datenbank und nichts auf der Festplatte: Kopieren liefert die Datei und keine der Angaben, und Ihr Medienserver identifiziert die Folge dann anhand des Dateinamens neu. Ersetzt nie ein Dokument, das Sie bereits haben.",
+		"default_share": "Neue Bibliotheken teilen mit",
+		"default_share_help": "Gilt, sobald ein Scan eine Bibliothek findet, damit ein Freund, der sich verbindet, nicht auf ein leeres Regal stößt.",
+		"default_share_scope": "Nur Bibliotheken auf Ihren eigenen Diensten. Eine auf dem Server eines anderen bleibt privat, was hier auch steht — sie weiterzugeben würde Ihre Bandbreite für einen Zugang ausgeben, der Ihnen gewährt wurde, nicht denen, an die Sie ihn weitergäben."
 	},
 	"sync": {
 		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",

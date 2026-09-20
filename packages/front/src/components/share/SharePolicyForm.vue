@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 	import type { Library, Peer, SharePolicy } from '@mcs/shared';
 	import { ShareVisibility } from '@mcs/shared';
-	import { computed, reactive } from 'vue';
+	import { computed, reactive, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import FormMainError from '@/components/FormMainError.vue';
 	import { useByteSize } from '@/composables/useByteSize';
@@ -12,9 +12,15 @@
 	/**
 	 * What one library exposes.
 	 *
-	 * A library with no policy is private, so the absence of a row here means
-	 * "nobody", never "not decided yet" — which is why making a library private
-	 * again is a deletion rather than a visibility nobody would notice was missing.
+	 * The policy always arrives, even for a library nobody has configured: that one
+	 * carries `overridden: false` and the gateway default resolved for it. Saying so
+	 * on screen is the point — "nobody" chosen by somebody and "nobody" because the
+	 * library is not ours to give are opposite states, and a form that shows the same
+	 * select for both leaves people guessing which one they are looking at.
+	 *
+	 * Saving turns a library into an overridden one: from then on it stops moving when
+	 * the gateway default moves. Dropping the override is a deletion, which hands the
+	 * library back to that default rather than making it private.
 	 */
 	const props = withDefaults(defineProps<{
 		library: Library;
@@ -40,6 +46,32 @@
 		allowedPeerIds: [...(props.policy?.allowedPeerIds ?? [])],
 		deniedPeerIds: [...(props.policy?.deniedPeerIds ?? [])],
 		rateLimit: toByteSizeInput(props.policy?.rateLimit ?? 0),
+	});
+
+	// Re-seeded when the row underneath changes, which it does after the override is
+	// dropped: the library then falls back to the gateway default, and a form still
+	// showing what somebody had set would offer to save a value nobody chose.
+	watch(() => props.policy, policy => {
+		model.visibility = policy?.visibility ?? ShareVisibility.PRIVATE;
+		model.allowedPeerIds = [...(policy?.allowedPeerIds ?? [])];
+		model.deniedPeerIds = [...(policy?.deniedPeerIds ?? [])];
+		model.rateLimit = toByteSizeInput(policy?.rateLimit ?? 0);
+	});
+
+	/**
+	 * Which of the three states this library is in.
+	 *
+	 * `not_ours` is not a milder `default`: a library on a service that is not ours
+	 * stays private whatever the gateway default says, because sharing it would relay
+	 * somebody else's server. Reading it as "following the default" would tell somebody
+	 * that changing the default will share it, and it never will.
+	 */
+	const origin = computed(() => {
+		if (props.policy?.overridden) {
+			return 'set';
+		}
+
+		return props.policy?.relays ? 'not_ours' : 'default';
 	});
 
 	const visibilityItems = computed(() => Object.values(ShareVisibility).map(value => ({
@@ -69,15 +101,28 @@
 		},
 	});
 
-	async function makePrivate (): Promise<void> {
+	async function followDefault (): Promise<void> {
 		await sharesStore.remove(props.library.id);
-		model.visibility = ShareVisibility.PRIVATE;
 		emit('removed', props.library.id);
 	}
 </script>
 
 <template>
 	<v-form v-form="form" class="share-policy-form" data-test="share-policy">
+		<p
+			class="text-caption text-medium-emphasis mb-3"
+			:data-origin="origin"
+			data-test="share-origin-note"
+		>
+			<v-icon
+				class="mr-1"
+				:icon="origin === 'set' ? 'mdi-account-check-outline' : 'mdi-cog-outline'"
+				size="small"
+			/>
+
+			{{ $t(`share.origin.${origin}_hint`) }}
+		</p>
+
 		<v-select
 			v-model="model.visibility"
 			v-bind="form.field('visibility')"
@@ -136,13 +181,13 @@
 
 		<div class="share-policy-form_actions mt-4">
 			<v-btn
-				v-if="policy"
+				v-if="policy?.overridden"
 				color="error"
 				data-test="share-remove"
 				variant="text"
-				@click="makePrivate"
+				@click="followDefault"
 			>
-				{{ $t('share.make_private') }}
+				{{ $t('share.follow_default') }}
 			</v-btn>
 
 			<v-spacer />

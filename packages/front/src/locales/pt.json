@@ -104,6 +104,17 @@
 		"placeholder": "Esta página ainda não está construída.",
 		"copy_failed": "A cópia falhou. Selecione o valor e copie-o à mão."
 	},
+	"browse": {
+		"title": "Escolher uma pasta",
+		"up": "Subir um nível",
+		"choose": "Usar esta pasta",
+		"empty": "Não há nenhuma pasta aqui.",
+		"not_writable": "Apenas de leitura para a gateway",
+		"current_not_writable": "A gateway não consegue escrever nesta pasta, por isso nada chegaria aqui.",
+		"truncated": "Apenas as primeiras {count} pastas são mostradas. Escreva o caminho se a que procura não estiver na lista.",
+		"show_hidden": "Mostrar pastas ocultas",
+		"open": "Percorrer pastas"
+	},
 	"general": {
 		"byte_unit": "B"
 	},
@@ -542,8 +553,8 @@
 		"no_libraries_title": "Nenhuma biblioteca para partilhar",
 		"no_libraries_text": "Registe primeiro um serviço; as suas bibliotecas aparecem aqui.",
 		"visibility": "Quem a pode ver",
-		"make_private": "Voltar a torná-la privada",
-		"made_private": "Esta biblioteca está de novo privada.",
+		"follow_default": "Seguir o valor predefinido do gateway",
+		"followed_default": "Esta biblioteca volta a seguir o valor predefinido do gateway.",
 		"saved": "Partilha guardada.",
 		"allowed": "Sempre autorizados",
 		"allowed_hint": "Estes pares veem esta biblioteca diga o que disser a regra acima.",
@@ -563,9 +574,17 @@
 			"friends_of_friends": "Os meus pares e os deles"
 		},
 		"visibility_help": {
-			"private": "Nada é partilhado. Uma biblioteca sem regra é privada.",
+			"private": "Nada é partilhado com ninguém, diga o que disser o valor predefinido do gateway.",
 			"friends": "Os gateways a que se ligou você mesmo.",
 			"friends_of_friends": "Os seus pares, e os pares que eles apresentam."
+		},
+		"origin": {
+			"default": "Predefinição do gateway",
+			"default_hint": "Ninguém decidiu sobre esta biblioteca, por isso segue a predefinição do gateway. Mude essa predefinição e esta biblioteca muda com ela.",
+			"set": "Definido aqui",
+			"set_hint": "Alguém escolheu isto só para esta biblioteca. A predefinição do gateway já não a move.",
+			"not_ours": "Não é nossa para partilhar",
+			"not_ours_hint": "Esta biblioteca está num serviço que não é nosso, por isso continua privada diga o que disser a predefinição. Partilhá-la seria retransmitir o servidor de outra pessoa, o que é aceite biblioteca a biblioteca."
 		},
 		"audit": {
 			"title": "O que um par veria",
@@ -675,7 +694,12 @@
 		"peer_max_depth": "Alcance das apresentações",
 		"peer_max_depth_help": "Saltos permitidos daqui: 1 apenas amigos, 2 os amigos deles, e assim por diante.",
 		"peer_max_depth_pinned": "Fixado pelo ambiente desta instalação e não alterável aqui.",
-		"peer_max_depth_per_peer": "Um tecto para toda a gateway. Cada par pode ser limitado mais na sua própria linha, e nenhuma definição aqui ultrapassa o que outro permitiu."
+		"peer_max_depth_per_peer": "Um tecto para toda a gateway. Cada par pode ser limitado mais na sua própria linha, e nenhuma definição aqui ultrapassa o que outro permitiu.",
+		"write_nfo": "Escrever um .nfo quando a fonte não tem nenhum",
+		"write_nfo_help": "Uma fonte guarda muitas vezes os metadados na sua própria base de dados e nada no disco: copiar dá o ficheiro e nenhum dos dados, e o seu servidor de média volta a identificar o episódio pelo nome do ficheiro. Nunca substitui um documento que já tenha.",
+		"default_share": "Partilhar as bibliotecas novas com",
+		"default_share_help": "Aplica-se assim que uma análise encontra uma biblioteca, para que um amigo que se ligue não encontre uma prateleira vazia.",
+		"default_share_scope": "Apenas bibliotecas nos seus próprios serviços. Uma no servidor de outra pessoa continua privada diga o que disser isto: repartilhá-la gastaria a sua largura de banda num acesso concedido a si, não a quem o passaria."
 	},
 	"sync": {
 		"subtitle": "As intenções permanentes, e o que fizeram de facto.",

@@ -638,31 +638,97 @@ describe('pages/SyncPlan', () => {
 });
 
 describe('pages/SettingsShares', () => {
-	it('shows each library with what it currently exposes', async () => {
+	const sharePolicy = (overrides: Record<string, unknown> = {}) => ({
+		id: 'sp1',
+		libraryId: 'l1',
+		libraryName: 'Shows',
+		serviceId: 's1',
+		visibility: 'friends',
+		overridden: true,
+		allowedPeerIds: [],
+		deniedPeerIds: [],
+		relays: false,
+		relay: false,
+		rateLimit: 0,
+		updatedAt: '2026-01-01T00:00:00.000Z',
+		...overrides,
+	});
+
+	const screen = (policies: Record<string, unknown>[], libraries = [library]) => {
 		stubFetchRoutes({
-			'/api/shares': {
-				body: [{
-					id: 'sp1',
-					libraryId: 'l1',
-					libraryName: 'Shows',
-					serviceId: 's1',
-					visibility: 'friends',
-					allowedPeerIds: [],
-					deniedPeerIds: [],
-					rateLimit: 0,
-					updatedAt: '2026-01-01T00:00:00.000Z',
-				}],
-			},
-			'/api/libraries': { body: [library] },
+			'/api/shares': { body: policies },
+			'/api/libraries': { body: libraries },
 			'/api/services': { body: [service] },
 			'/api/peers': { body: [] },
 		});
-		const { wrapper } = mountWithApp(SettingsShares, { global: { stubs: tooltipStub } });
+
+		return mountWithApp(SettingsShares, { global: { stubs: tooltipStub } });
+	};
+
+	it('shows each library with what it currently exposes', async () => {
+		const { wrapper } = screen([sharePolicy()]);
 		await settle();
 
 		expect(wrapper.find('[data-test="share-library"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="share-visibility-chip"]').text()).toContain('My peers');
 		expect(wrapper.find('[data-test="share-audit"]').exists()).toBe(true);
+	});
+
+	/**
+	 * The distinction the screen exists to show: "my peers" because somebody chose it
+	 * reads differently from "my peers" because that is what the gateway does by
+	 * default, and only one of the two changes when the default changes.
+	 */
+	it('says whether a library was set here or is following the gateway default', async () => {
+		const { wrapper } = screen([
+			sharePolicy(),
+			sharePolicy({
+				id: '',
+				libraryId: 'l2',
+				libraryName: 'Films',
+				visibility: 'friends_of_friends',
+				overridden: false,
+				updatedAt: '',
+			}),
+		], [library, { ...library, id: 'l2', name: 'Films' }]);
+		await settle();
+
+		const chips = wrapper.findAll('[data-test="share-origin-chip"]');
+
+		expect(chips).toHaveLength(2);
+		expect(chips[0].attributes('data-origin')).toBe('set');
+		expect(chips[0].text()).toContain('Set here');
+		expect(chips[1].attributes('data-origin')).toBe('default');
+		expect(chips[1].text()).toContain('Gateway default');
+	});
+
+	/**
+	 * A library on a service that is not ours is not "following the default" — no
+	 * default reaches it, and saying otherwise would promise that changing the default
+	 * shares it, which it never will.
+	 */
+	it('says plainly when a library is not ours to share', async () => {
+		const { wrapper } = screen([
+			sharePolicy({ id: '', visibility: 'private', overridden: false, relays: true, updatedAt: '' }),
+		]);
+		await settle();
+
+		const chip = wrapper.find('[data-test="share-origin-chip"]');
+
+		expect(chip.attributes('data-origin')).toBe('not_ours');
+		expect(chip.text()).toContain('Not ours to share');
+	});
+
+	it('lists a library nobody has configured, which is most of them on a new gateway', async () => {
+		// Listed only the stored rows, this screen showed nothing at all on a gateway
+		// that was in fact sharing every library it had.
+		const { wrapper } = screen([
+			sharePolicy({ id: '', visibility: 'friends_of_friends', overridden: false, updatedAt: '' }),
+		]);
+		await settle();
+
+		expect(wrapper.findAll('[data-test="share-library"]')).toHaveLength(1);
+		expect(wrapper.find('[data-test="share-visibility-chip"]').text()).toContain('My peers and theirs');
 	});
 });
 

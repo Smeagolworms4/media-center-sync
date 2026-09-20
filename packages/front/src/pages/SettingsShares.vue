@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+	import type { SharePolicy } from '@mcs/shared';
 	import { ShareVisibility } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
@@ -18,9 +19,14 @@
 	 * Sharing, decided per library.
 	 *
 	 * Per library and not per service, because somebody may want their series
-	 * visible and their home videos not while both live on the same Jellyfin. A
-	 * library with no policy is private: nothing is ever shared by having been
-	 * forgotten.
+	 * visible and their home videos not while both live on the same Jellyfin.
+	 *
+	 * Every library is listed, including the ones nobody has configured — most of
+	 * them on a fresh gateway — and each row says whether what it shows was chosen
+	 * for that library or is the gateway default applying to it. Without that, a
+	 * row reading "nobody" could be a deliberate private, a library on a service
+	 * that is not ours, or a default nobody has looked at, and the three of them
+	 * call for entirely different actions.
 	 */
 	const sharesStore = useSharesStore();
 	const librariesStore = useLibrariesStore();
@@ -58,8 +64,31 @@
 		return servicesStore.byId[serviceId]?.name ?? serviceId;
 	}
 
+	function policyOf (libraryId: string): SharePolicy | null {
+		return sharesStore.byLibraryId[libraryId] ?? null;
+	}
+
 	function visibilityOf (libraryId: string): ShareVisibility {
-		return sharesStore.byLibraryId[libraryId]?.visibility ?? ShareVisibility.PRIVATE;
+		// Private while the list has not arrived: a row that guessed at sharing and
+		// turned out to be wrong is the one mistake this screen must not make.
+		return policyOf(libraryId)?.visibility ?? ShareVisibility.PRIVATE;
+	}
+
+	/**
+	 * Chosen here, the gateway default, or not ours to give.
+	 *
+	 * The third is not a softer version of the second: a library on a service that is
+	 * not ours stays private whatever the default says, so telling somebody it is
+	 * "following the default" would promise them that changing the default shares it.
+	 */
+	function originOf (libraryId: string): 'set' | 'default' | 'not_ours' {
+		const policy = policyOf(libraryId);
+
+		if (policy?.overridden) {
+			return 'set';
+		}
+
+		return policy?.relays ? 'not_ours' : 'default';
 	}
 
 	async function onSaved (): Promise<void> {
@@ -67,7 +96,7 @@
 	}
 
 	async function onRemoved (): Promise<void> {
-		void notify('share.made_private');
+		void notify('share.followed_default');
 	}
 </script>
 
@@ -112,6 +141,19 @@
 								<v-spacer />
 
 								<v-chip
+									class="mr-2"
+									:color="originOf(library.id) === 'set' ? 'primary' : 'state-unknown'"
+									:data-origin="originOf(library.id)"
+									data-test="share-origin-chip"
+									label
+									size="small"
+									:title="$t(`share.origin.${originOf(library.id)}_hint`)"
+									variant="outlined"
+								>
+									{{ $t(`share.origin.${originOf(library.id)}`) }}
+								</v-chip>
+
+								<v-chip
 									class="mr-3"
 									:color="visibilityOf(library.id) === ShareVisibility.PRIVATE
 										? 'state-unknown'
@@ -130,7 +172,7 @@
 								<SharePolicyForm
 									:library="library"
 									:peers="peersStore.peers"
-									:policy="sharesStore.byLibraryId[library.id] ?? null"
+									:policy="policyOf(library.id)"
 									@removed="onRemoved"
 									@saved="onSaved"
 								/>

@@ -3,6 +3,7 @@
 	import { MediaServiceScope, MediaServiceType } from '@mcs/shared';
 	import { computed, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
+	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
 	import FormMainError from '@/components/FormMainError.vue';
 	import { useForm } from '@/composables/useForm';
 	import { useValidators } from '@/plugins/validators';
@@ -64,6 +65,16 @@
 		value,
 		title: t(`service.scope.${value}`),
 	})));
+
+	/**
+	 * The folder browser over `localRoot`, which is a directory on *this* gateway.
+	 *
+	 * Only the local side gets one: `remoteRoot` is a path inside the media server's
+	 * own container and nothing here can see it, so offering the same icon next to it
+	 * would list our directories for a field that is about theirs — the exact mix-up
+	 * the two fields exist to keep apart.
+	 */
+	const browsingLocalRoot = ref(false);
 
 	/** A probe answer stops describing what is in the form as soon as it changes. */
 	watch(() => [model.baseUrl, model.token, model.type], () => {
@@ -287,6 +298,21 @@
 						:hint="$t('service.field.local_root_hint')"
 						:label="$t('service.field.local_root')"
 						persistent-hint
+					>
+						<template #append-inner>
+							<v-icon
+								class="cursor-pointer"
+								icon="mdi-folder-search-outline"
+								:title="$t('browse.open')"
+								@click="browsingLocalRoot = true"
+							/>
+						</template>
+					</v-text-field>
+
+					<DirectoryPicker
+						v-model="browsingLocalRoot"
+						:path="model.localRoot"
+						@choose="model.localRoot = $event"
 					/>
 				</v-col>
 			</v-row>

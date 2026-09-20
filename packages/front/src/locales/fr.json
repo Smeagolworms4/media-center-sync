@@ -104,6 +104,17 @@
 		"placeholder": "Cette page n'est pas encore construite.",
 		"copy_failed": "La copie a échoué. Sélectionnez la valeur et copiez-la à la main."
 	},
+	"browse": {
+		"title": "Choisir un dossier",
+		"up": "Remonter d'un niveau",
+		"choose": "Utiliser ce dossier",
+		"empty": "Aucun dossier ici.",
+		"not_writable": "En lecture seule pour la passerelle",
+		"current_not_writable": "La passerelle ne peut pas écrire dans ce dossier : rien n'y arriverait jamais.",
+		"truncated": "Seuls les {count} premiers dossiers sont affichés. Saisissez le chemin si celui que vous cherchez n'y est pas.",
+		"show_hidden": "Afficher les dossiers cachés",
+		"open": "Parcourir les dossiers"
+	},
 	"general": {
 		"byte_unit": "o"
 	},
@@ -542,8 +553,8 @@
 		"no_libraries_title": "Aucune bibliothèque à partager",
 		"no_libraries_text": "Enregistrez d'abord un service ; ses bibliothèques apparaîtront ici.",
 		"visibility": "Qui peut la voir",
-		"make_private": "Rendre privée",
-		"made_private": "Cette bibliothèque est de nouveau privée.",
+		"follow_default": "Suivre la valeur par défaut de la passerelle",
+		"followed_default": "Cette bibliothèque suit de nouveau la valeur par défaut de la passerelle.",
 		"saved": "Partage enregistré.",
 		"allowed": "Toujours autorisés",
 		"allowed_hint": "Ces pairs voient cette bibliothèque quoi que dise la règle ci-dessus.",
@@ -563,9 +574,17 @@
 			"friends_of_friends": "Mes pairs et les leurs"
 		},
 		"visibility_help": {
-			"private": "Rien n'est partagé. Une bibliothèque sans règle est privée.",
+			"private": "Rien n'est partagé avec personne, quelle que soit la valeur par défaut de la passerelle.",
 			"friends": "Les passerelles que vous avez liées vous-même.",
 			"friends_of_friends": "Vos pairs, et ceux qu'ils présentent."
+		},
+		"origin": {
+			"default": "Défaut de la passerelle",
+			"default_hint": "Personne n'a décidé pour cette bibliothèque : elle suit la valeur par défaut de la passerelle. Changez cette valeur et la bibliothèque suivra.",
+			"set": "Défini ici",
+			"set_hint": "Quelqu'un a choisi cette règle pour cette bibliothèque seule. La valeur par défaut de la passerelle ne la déplace plus.",
+			"not_ours": "Pas à nous de la partager",
+			"not_ours_hint": "Cette bibliothèque est sur un service qui n'est pas le nôtre : elle reste privée quelle que soit la valeur par défaut. La partager reviendrait à relayer le serveur de quelqu'un d'autre, ce qui s'accepte bibliothèque par bibliothèque."
 		},
 		"audit": {
 			"title": "Ce qu'un pair verrait",
@@ -675,7 +694,12 @@
 		"peer_max_depth": "Portée des présentations",
 		"peer_max_depth_help": "Sauts autorisés depuis ici : 1 pour les amis seuls, 2 pour leurs amis, et ainsi de suite.",
 		"peer_max_depth_pinned": "Fixé par l'environnement de ce déploiement et non modifiable ici.",
-		"peer_max_depth_per_peer": "Un plafond pour toute la passerelle. Chaque pair peut être limité plus court sur sa propre ligne, et aucun réglage ici ne dépasse ce qu'un autre a autorisé."
+		"peer_max_depth_per_peer": "Un plafond pour toute la passerelle. Chaque pair peut être limité plus court sur sa propre ligne, et aucun réglage ici ne dépasse ce qu'un autre a autorisé.",
+		"write_nfo": "Écrire un .nfo quand la source n'en a pas",
+		"write_nfo_help": "Une source garde souvent ses métadonnées dans sa propre base et rien sur le disque : la copie donne le fichier et aucun des faits, et votre serveur de médias ré-identifie alors l'épisode d'après son nom. Ne remplace jamais un document que vous avez déjà.",
+		"default_share": "Partager les nouvelles bibliothèques avec",
+		"default_share_help": "S'applique dès qu'un scan découvre une bibliothèque, pour qu'un ami qui se relie à cette passerelle ne tombe pas sur une étagère vide.",
+		"default_share_scope": "Uniquement les bibliothèques de vos propres services. Celle d'un serveur tiers reste privée quoi qu'en dise ce réglage — la repartager dépenserait votre bande passante pour un accès qui vous a été accordé à vous, pas à ceux à qui vous le transmettriez."
 	},
 	"sync": {
 		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",

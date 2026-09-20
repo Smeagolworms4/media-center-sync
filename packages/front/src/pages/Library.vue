@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 	import type { TrailStep } from '@/composables/useMediaTrail';
-	import type { LibraryKind, MediaCategory, MediaGroup, MediaGroupQuery, SyncState } from '@mcs/shared';
-	import { MediaKind, MediaOrigin } from '@mcs/shared';
+	import type { LibraryKind, MediaCategory, MediaGroup, MediaGroupQuery } from '@mcs/shared';
+	import { MediaKind, MediaOrigin, SyncState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
@@ -94,6 +94,11 @@
 	const kind = queryRef<MediaKind>('kind', queryTypes.stringEnum({ values: Object.values(MediaKind) }));
 	const states = queryRef<SyncState[]>('states', queryTypes.delimitedArray<SyncState>({
 		itemParse: value => value as SyncState,
+		// Validated like the origins beside it, so a hand-edited address is ignored
+		// rather than forwarded: the API is right to refuse a state it has no name for,
+		// and a 400 in place of a page is a poor way to be told a link was mistyped.
+		validate: values => values.every(
+			one => (Object.values(SyncState) as string[]).includes(one)),
 	}));
 	const sort = queryRef<string>('sort', queryTypes.string({ defaultValue: 'title' }));
 	const direction = queryRef<string>('direction', queryTypes.string({ defaultValue: 'asc' }));

@@ -104,6 +104,17 @@
 		"placeholder": "Esta página todavía no está construida.",
 		"copy_failed": "La copia ha fallado. Selecciona el valor y cópialo a mano."
 	},
+	"browse": {
+		"title": "Elegir una carpeta",
+		"up": "Subir un nivel",
+		"choose": "Usar esta carpeta",
+		"empty": "Aquí no hay ninguna carpeta.",
+		"not_writable": "Solo lectura para la pasarela",
+		"current_not_writable": "La pasarela no puede escribir en esta carpeta, así que aquí nunca llegaría nada.",
+		"truncated": "Solo se muestran las primeras {count} carpetas. Escriba la ruta si la que busca no aparece.",
+		"show_hidden": "Mostrar carpetas ocultas",
+		"open": "Explorar carpetas"
+	},
 	"general": {
 		"byte_unit": "B"
 	},
@@ -542,8 +553,8 @@
 		"no_libraries_title": "Ninguna biblioteca que compartir",
 		"no_libraries_text": "Registra antes un servicio; sus bibliotecas aparecerán aquí.",
 		"visibility": "Quién puede verla",
-		"make_private": "Volver a hacerla privada",
-		"made_private": "Esta biblioteca vuelve a ser privada.",
+		"follow_default": "Seguir el valor por defecto de la pasarela",
+		"followed_default": "Esta biblioteca vuelve a seguir el valor por defecto de la pasarela.",
 		"saved": "Compartición guardada.",
 		"allowed": "Siempre permitidos",
 		"allowed_hint": "Estos pares ven esta biblioteca diga lo que diga la regla de arriba.",
@@ -563,9 +574,17 @@
 			"friends_of_friends": "Mis pares y los suyos"
 		},
 		"visibility_help": {
-			"private": "No se comparte nada. Una biblioteca sin regla es privada.",
+			"private": "No se comparte nada con nadie, diga lo que diga el valor por defecto de la pasarela.",
 			"friends": "Las pasarelas que has enlazado tú mismo.",
 			"friends_of_friends": "Tus pares, y los pares que ellos presentan."
+		},
+		"origin": {
+			"default": "Valor por defecto",
+			"default_hint": "Nadie ha decidido sobre esta biblioteca, así que sigue el valor por defecto de la pasarela. Si cambias ese valor, esta biblioteca cambia con él.",
+			"set": "Definido aquí",
+			"set_hint": "Alguien eligió esto para esta biblioteca en concreto. El valor por defecto de la pasarela ya no la mueve.",
+			"not_ours": "No es nuestra para compartir",
+			"not_ours_hint": "Esta biblioteca está en un servicio que no es nuestro, así que sigue siendo privada diga lo que diga el valor por defecto. Compartirla sería retransmitir el servidor de otra persona, y eso se acepta biblioteca por biblioteca."
 		},
 		"audit": {
 			"title": "Lo que vería un par",
@@ -675,7 +694,12 @@
 		"peer_max_depth": "Alcance de las presentaciones",
 		"peer_max_depth_help": "Saltos permitidos desde aquí: 1 solo amigos, 2 sus amigos, y así sucesivamente.",
 		"peer_max_depth_pinned": "Fijado por el entorno de esta instalación y no modificable aquí.",
-		"peer_max_depth_per_peer": "Un techo para toda la pasarela. Cada par puede limitarse más en su propia fila, y ningún ajuste de aquí supera lo que otro haya permitido."
+		"peer_max_depth_per_peer": "Un techo para toda la pasarela. Cada par puede limitarse más en su propia fila, y ningún ajuste de aquí supera lo que otro haya permitido.",
+		"write_nfo": "Escribir un .nfo cuando la fuente no tiene ninguno",
+		"write_nfo_help": "Una fuente suele guardar sus metadatos en su propia base de datos y nada en el disco: copiar da el archivo y ninguno de los datos, y tu servidor multimedia vuelve a identificar el episodio por su nombre de archivo. Nunca sustituye un documento que ya tengas.",
+		"default_share": "Compartir las bibliotecas nuevas con",
+		"default_share_help": "Se aplica en cuanto un escaneo encuentra una biblioteca, para que un amigo que se enlace no encuentre un estante vacío.",
+		"default_share_scope": "Solo las bibliotecas de tus propios servicios. Una en el servidor de otra persona sigue siendo privada diga lo que diga esto: volver a compartirla gastaría tu ancho de banda en un acceso que te concedieron a ti, no a quienes se lo pasarías."
 	},
 	"sync": {
 		"subtitle": "Las intenciones permanentes, y lo que han hecho realmente.",

@@ -54,7 +54,9 @@
 			</p>
 
 			<ul class="share-rate-summary_list text-caption">
-				<li v-for="policy of capped" :key="policy.id" data-test="share-rate-library">
+				<!-- Keyed by the library: a row following the gateway default has no
+					policy identifier, because no policy row was ever written for it. -->
+				<li v-for="policy of capped" :key="policy.libraryId" data-test="share-rate-library">
 					{{ policy.libraryName }} — <Rate :rate="policy.rateLimit" />
 				</li>
 			</ul>

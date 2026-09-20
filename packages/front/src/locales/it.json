@@ -104,6 +104,17 @@
 		"placeholder": "Questa pagina non è ancora stata costruita.",
 		"copy_failed": "La copia non è riuscita. Seleziona il valore e copialo a mano."
 	},
+	"browse": {
+		"title": "Scegli una cartella",
+		"up": "Sali di un livello",
+		"choose": "Usa questa cartella",
+		"empty": "Nessuna cartella qui.",
+		"not_writable": "In sola lettura per il gateway",
+		"current_not_writable": "Il gateway non può scrivere in questa cartella: qui non arriverebbe mai nulla.",
+		"truncated": "Sono mostrate solo le prime {count} cartelle. Digita il percorso se quella che cerchi non c'è.",
+		"show_hidden": "Mostra le cartelle nascoste",
+		"open": "Sfoglia le cartelle"
+	},
 	"general": {
 		"byte_unit": "B"
 	},
@@ -542,8 +553,8 @@
 		"no_libraries_title": "Nessuna libreria da condividere",
 		"no_libraries_text": "Registra prima un servizio; le sue librerie compaiono qui.",
 		"visibility": "Chi può vederla",
-		"make_private": "Rendi di nuovo privata",
-		"made_private": "Questa libreria è di nuovo privata.",
+		"follow_default": "Segui il valore predefinito del gateway",
+		"followed_default": "Questa libreria segue di nuovo il valore predefinito del gateway.",
 		"saved": "Condivisione salvata.",
 		"allowed": "Sempre consentiti",
 		"allowed_hint": "Questi peer vedono questa libreria qualunque cosa dica la regola qui sopra.",
@@ -563,9 +574,17 @@
 			"friends_of_friends": "I miei peer e i loro"
 		},
 		"visibility_help": {
-			"private": "Non viene condiviso nulla. Una libreria senza regola è privata.",
+			"private": "Non viene condiviso nulla con nessuno, qualunque cosa dica il valore predefinito del gateway.",
 			"friends": "I gateway che hai collegato tu stesso.",
 			"friends_of_friends": "I tuoi peer, e i peer che loro presentano."
+		},
+		"origin": {
+			"default": "Predefinito del gateway",
+			"default_hint": "Nessuno ha deciso per questa libreria: segue il valore predefinito del gateway. Cambia quel valore e la libreria lo segue.",
+			"set": "Impostato qui",
+			"set_hint": "Qualcuno ha scelto questa regola per questa sola libreria. Il valore predefinito del gateway non la muove più.",
+			"not_ours": "Non è nostra da condividere",
+			"not_ours_hint": "Questa libreria si trova su un servizio che non è nostro e resta privata qualunque cosa dica il predefinito. Condividerla significherebbe fare da tramite per il server di qualcun altro, cosa che si accetta una libreria alla volta."
 		},
 		"audit": {
 			"title": "Cosa vedrebbe un peer",
@@ -675,7 +694,12 @@
 		"peer_max_depth": "Portata delle presentazioni",
 		"peer_max_depth_help": "Salti consentiti da qui: 1 solo amici, 2 i loro amici, e così via.",
 		"peer_max_depth_pinned": "Fissato dall'ambiente di questa installazione e non modificabile qui.",
-		"peer_max_depth_per_peer": "Un tetto per tutto il gateway. Ogni peer può essere limitato di più sulla propria riga, e nessuna impostazione qui va oltre ciò che un altro ha consentito."
+		"peer_max_depth_per_peer": "Un tetto per tutto il gateway. Ogni peer può essere limitato di più sulla propria riga, e nessuna impostazione qui va oltre ciò che un altro ha consentito.",
+		"write_nfo": "Scrivere un .nfo quando la sorgente non ne ha",
+		"write_nfo_help": "Una sorgente tiene spesso i metadati nel proprio database e nulla su disco: copiare dà il file e nessuno dei dati, e il tuo server multimediale reidentifica poi l’episodio dal nome del file. Non sostituisce mai un documento che hai già.",
+		"default_share": "Condividere le nuove librerie con",
+		"default_share_help": "Vale dal momento in cui una scansione trova una libreria, così un amico che si collega non trova uno scaffale vuoto.",
+		"default_share_scope": "Solo le librerie sui tuoi servizi. Una sul server di qualcun altro resta privata qualunque cosa dica questo: ricondividerla spenderebbe la tua banda per un accesso concesso a te, non a chi lo passeresti."
 	},
 	"sync": {
 		"subtitle": "Intenzioni permanenti, e ciò che hanno fatto davvero.",

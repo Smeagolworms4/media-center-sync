@@ -104,6 +104,17 @@
 		"placeholder": "This page is not built yet.",
 		"copy_failed": "Copying failed. Select the value and copy it by hand."
 	},
+	"browse": {
+		"title": "Choose a folder",
+		"up": "Up one level",
+		"choose": "Use this folder",
+		"empty": "No folder in here.",
+		"not_writable": "Read-only for the gateway",
+		"current_not_writable": "The gateway cannot write into this folder, so nothing would ever land here.",
+		"truncated": "Showing the first {count} folders. Type the path if the one you want is not listed.",
+		"show_hidden": "Show hidden folders",
+		"open": "Browse folders"
+	},
 	"general": {
 		"byte_unit": "B"
 	},
@@ -542,8 +553,8 @@
 		"no_libraries_title": "No library to share",
 		"no_libraries_text": "Register a service first; its libraries appear here.",
 		"visibility": "Who can see it",
-		"make_private": "Make private again",
-		"made_private": "This library is private again.",
+		"follow_default": "Follow the gateway default",
+		"followed_default": "This library follows the gateway default again.",
 		"saved": "Sharing saved.",
 		"allowed": "Always allowed",
 		"allowed_hint": "These peers see this library whatever the rule above says.",
@@ -563,9 +574,17 @@
 			"friends_of_friends": "My peers and theirs"
 		},
 		"visibility_help": {
-			"private": "Nothing is shared. A library with no policy is private.",
+			"private": "Nothing is shared with anybody, whatever the gateway default says.",
 			"friends": "The gateways you linked to yourself.",
 			"friends_of_friends": "Your peers, and the peers they introduce."
+		},
+		"origin": {
+			"default": "Gateway default",
+			"default_hint": "Nobody has decided about this library, so it follows the gateway default. Change that default and this library moves with it.",
+			"set": "Set here",
+			"set_hint": "Somebody chose this for this library alone. The gateway default no longer moves it.",
+			"not_ours": "Not ours to share",
+			"not_ours_hint": "This library lives on a service that is not ours, so it stays private whatever the default says. Sharing it would mean relaying somebody else's server, and that is agreed to one library at a time."
 		},
 		"audit": {
 			"title": "What a peer would see",
@@ -675,7 +694,12 @@
 		"peer_max_depth": "How far introductions travel",
 		"peer_max_depth_help": "Hops allowed from here: 1 is friends only, 2 their friends, and so on.",
 		"peer_max_depth_pinned": "Fixed by this deployment’s environment and cannot be changed here.",
-		"peer_max_depth_per_peer": "A ceiling over the whole gateway. Each peer can be held shorter on its own row, and no setting here can reach past what somebody else allowed."
+		"peer_max_depth_per_peer": "A ceiling over the whole gateway. Each peer can be held shorter on its own row, and no setting here can reach past what somebody else allowed.",
+		"write_nfo": "Write an .nfo when the source has none",
+		"write_nfo_help": "A source often keeps its metadata in its own database and nothing on disk, so copying gives the file and none of the facts — and your media server then re-identifies the episode from its filename. Never replaces a document you already have.",
+		"default_share": "Share new libraries with",
+		"default_share_help": "Applies the moment a scan finds a library, so a friend who links to this gateway is not met with an empty shelf.",
+		"default_share_scope": "Only libraries on your own services. One on somebody else’s server stays private whatever this says — sharing it on would spend your bandwidth on an access granted to you, not to the people you would hand it to."
 	},
 	"sync": {
 		"subtitle": "Standing intents, and what they have actually done.",

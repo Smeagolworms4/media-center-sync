@@ -242,7 +242,13 @@ export const queryTypes = {
 		parse: v => {
 			const first = firstParam(v);
 			if (first !== null) {
-				const arStr = first.split(separator!);
+				// Empty segments are dropped, and that is not tidying. `''.split(',')`
+				// answers `['']` — a JavaScript quirk, not a list with one empty member —
+				// so an absent filter parsed as a list containing an empty string. The
+				// next value the interface added serialised as `,syncing`, and the API
+				// refused the request with a 400 naming every value it does accept and
+				// none of them empty. `a,,b` is the same mistake written by hand.
+				const arStr = first.split(separator!).filter(part => part !== '');
 				const ar = arStr.map(param => itemParse!(param));
 				if (validate(ar)) {
 					return ar;

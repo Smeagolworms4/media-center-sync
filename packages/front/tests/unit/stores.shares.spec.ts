@@ -11,6 +11,7 @@ function policy (overrides: Partial<SharePolicy> = {}): SharePolicy {
 		libraryName: 'Shows',
 		serviceId: 's1',
 		visibility: ShareVisibility.FRIENDS,
+		overridden: true,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
 		relays: false,
@@ -61,15 +62,25 @@ describe('stores/shares', () => {
 		expect(store.byLibraryId.l1.visibility).toBe(ShareVisibility.FRIENDS_OF_FRIENDS);
 	});
 
-	it('makes a library private again by deleting its policy', async () => {
-		stubFetch([{ body: [policy()] }, {}]);
+	/**
+	 * Deleting the policy does not make the library private, it hands it back to the
+	 * gateway default — so the row is read again rather than dropped. Dropping it
+	 * would leave the screen reporting "nobody" for a library still being served.
+	 */
+	it('reads the library back after dropping its override', async () => {
+		stubFetch([
+			{ body: [policy()] },
+			{},
+			{ body: [policy({ id: '', overridden: false, visibility: ShareVisibility.FRIENDS_OF_FRIENDS })] },
+		]);
 		const store = useSharesStore();
 		await store.load();
 
 		await store.remove('l1');
 
-		expect(store.policies).toHaveLength(0);
-		expect(store.byLibraryId.l1).toBeUndefined();
+		expect(store.policies).toHaveLength(1);
+		expect(store.byLibraryId.l1.overridden).toBe(false);
+		expect(store.byLibraryId.l1.visibility).toBe(ShareVisibility.FRIENDS_OF_FRIENDS);
 	});
 
 	it('asks what one peer would see', async () => {

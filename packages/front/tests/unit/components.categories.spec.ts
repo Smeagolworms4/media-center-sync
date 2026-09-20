@@ -159,6 +159,7 @@ function policy (overrides: Partial<SharePolicy> = {}): SharePolicy {
 		libraryName: 'Films',
 		serviceId: 's1',
 		visibility: ShareVisibility.FRIENDS,
+		overridden: true,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
 		relays: false,

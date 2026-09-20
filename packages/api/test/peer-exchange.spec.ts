@@ -216,11 +216,26 @@ describe('The peer protocol', () => {
 		).id;
 
 		// Only the films are shared, and only with the people we linked to ourselves.
-		// The home videos have no policy at all, which is what private means here.
 		await policies.save(
 			policies.create({
 				libraryId: shared.id,
 				visibility: ShareVisibility.FRIENDS,
+				allowedPeerIds: [],
+				deniedPeerIds: [],
+				relay: false,
+				rateLimit: 0,
+			}),
+		);
+
+		// The home videos are private, and said so rather than left unsaid: this service
+		// is one of ours, so a library with no row follows the gateway default — which
+		// ships as `friends_of_friends`. An explicit private is what keeps something off
+		// the wire, and it is also the case worth pinning here, because it is the one the
+		// default must never be allowed to overrule.
+		await policies.save(
+			policies.create({
+				libraryId: hidden.id,
+				visibility: ShareVisibility.PRIVATE,
 				allowedPeerIds: [],
 				deniedPeerIds: [],
 				relay: false,

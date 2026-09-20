@@ -349,7 +349,7 @@ describe('components/share/SharePolicyForm interactions', () => {
 			global: { stubs: tooltipStub },
 		});
 
-		expect(wrapper.text()).toContain('A library with no policy is private');
+		expect(wrapper.text()).toContain('Nothing is shared with anybody');
 
 		(wrapper.vm as any).model.visibility = ShareVisibility.FRIENDS;
 		await nextTick();

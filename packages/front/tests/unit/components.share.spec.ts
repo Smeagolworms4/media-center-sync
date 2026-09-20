@@ -55,6 +55,7 @@ function policy (overrides: Partial<SharePolicy> = {}): SharePolicy {
 		libraryName: 'Home videos',
 		serviceId: 's1',
 		visibility: ShareVisibility.FRIENDS,
+		overridden: true,
 		allowedPeerIds: [],
 		deniedPeerIds: [],
 		relays: false,
@@ -85,6 +86,79 @@ describe('components/share/SharePolicyForm', () => {
 		expect(wrapper.find('[data-test="share-remove"]').exists()).toBe(false);
 	});
 
+	/**
+	 * A library nobody has configured still arrives with a policy, and the form has to
+	 * say so: what it shows is the gateway default applying, and it will move when that
+	 * default moves. There is also nothing to delete, so nothing offers to.
+	 */
+	it('says when the library is only following the gateway default', () => {
+		const { wrapper } = mountWithApp(SharePolicyForm, {
+			props: {
+				library,
+				peers,
+				policy: policy({ id: '', overridden: false, updatedAt: '' }),
+			},
+		});
+
+		const note = wrapper.find('[data-test="share-origin-note"]');
+
+		expect(note.attributes('data-origin')).toBe('default');
+		expect(note.text()).toContain('follows the gateway default');
+		expect(wrapper.find('[data-test="share-remove"]').exists()).toBe(false);
+	});
+
+	it('says when the library is not ours to share, which no default can change', () => {
+		const { wrapper } = mountWithApp(SharePolicyForm, {
+			props: {
+				library,
+				peers,
+				policy: policy({
+					id: '',
+					overridden: false,
+					relays: true,
+					visibility: ShareVisibility.PRIVATE,
+					updatedAt: '',
+				}),
+			},
+		});
+
+		const note = wrapper.find('[data-test="share-origin-note"]');
+
+		expect(note.attributes('data-origin')).toBe('not_ours');
+		expect(note.text()).toContain('not ours');
+	});
+
+	it('says when somebody set this library, and offers to drop that', () => {
+		const { wrapper } = mountWithApp(SharePolicyForm, {
+			props: { library, peers, policy: policy() },
+		});
+
+		expect(wrapper.find('[data-test="share-origin-note"]').attributes('data-origin')).toBe('set');
+		expect(wrapper.find('[data-test="share-remove"]').text()).toContain('Follow the gateway default');
+	});
+
+	it('follows what the row underneath says once the override has been dropped', async () => {
+		// The store re-reads the list after the deletion, because the library falls back
+		// to the gateway default rather than to private — and a form still showing what
+		// somebody had set would offer to save a value nobody chose.
+		const { wrapper } = mountWithApp(SharePolicyForm, {
+			props: { library, peers, policy: policy({ visibility: ShareVisibility.PRIVATE }) },
+		});
+
+		await wrapper.setProps({
+			policy: policy({
+				id: '',
+				overridden: false,
+				visibility: ShareVisibility.FRIENDS_OF_FRIENDS,
+				updatedAt: '',
+			}),
+		});
+		await settle();
+
+		expect((wrapper.vm as any).model.visibility).toBe(ShareVisibility.FRIENDS_OF_FRIENDS);
+		expect(wrapper.find('[data-test="share-remove"]').exists()).toBe(false);
+	});
+
 	it('shows the lists and the cap once the library is shared', () => {
 		const { wrapper } = mountWithApp(SharePolicyForm, {
 			props: { library, peers, policy: policy() },
@@ -95,8 +169,10 @@ describe('components/share/SharePolicyForm', () => {
 		expect(wrapper.find('[data-test="share-rate-limit"]').exists()).toBe(true);
 	});
 
-	it('offers to make a shared library private again, which is a deletion', async () => {
-		stubFetch([{}]);
+	it('offers to drop the override, which is a deletion followed by a re-read', async () => {
+		// The second answer is the list being read back: deleting the row hands the
+		// library to the gateway default, and only the gateway knows what that is now.
+		stubFetch([{}, { body: [policy({ id: '', overridden: false, updatedAt: '' })] }]);
 		const { wrapper } = mountWithApp(SharePolicyForm, {
 			props: { library, peers, policy: policy() },
 		});

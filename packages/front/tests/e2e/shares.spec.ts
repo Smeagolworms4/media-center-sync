@@ -4,14 +4,16 @@ import { API_URL, apiToken, field0, signIn, test0, watchApi } from './helpers';
 /**
  * What this gateway exposes, library by library.
  *
- * The absence of a policy is the private state — a library is never shared by having
- * been forgotten — so the screen has to be read against what the API actually holds
- * rather than against what a chip says: a row that renders `private` because the
- * policy list failed to load looks exactly like a row that is private, and the two
- * are opposite answers to the only question this screen asks.
+ * The screen is read against what the API actually holds rather than against what a
+ * chip says: a row that renders `private` because the policy list failed to load looks
+ * exactly like a row that is private, and the two are opposite answers to the only
+ * question this screen asks.
  *
- * Making a library private again is a deletion, which is why it is tested as one: a
- * visibility left behind on a row nobody can see is how something stays shared.
+ * The API answers with one row per library, including the ones nobody has configured —
+ * those carry `overridden: false` and the gateway default resolved for them. Dropping
+ * an override is a deletion, which is why it is tested as one: it hands the library
+ * back to that default rather than making it private, and a visibility left behind on
+ * a row nobody can see is how something stays shared.
  */
 interface Library {
 	id: string;
@@ -21,10 +23,9 @@ interface Library {
 interface Policy {
 	libraryId: string;
 	visibility: string;
+	overridden: boolean;
 	rateLimit: number;
 }
-
-const PRIVATE = 'private';
 
 async function authorized (request: APIRequestContext): Promise<{ Authorization: string }> {
 	return { Authorization: `Bearer ${await apiToken(request)}` };
@@ -42,8 +43,15 @@ async function policiesOf (request: APIRequestContext): Promise<Policy[]> {
 	return await response.json() as Policy[];
 }
 
-async function makePrivate (request: APIRequestContext, libraryId: string): Promise<void> {
+/** Drops the override, so the library follows the gateway default again. */
+async function dropOverride (request: APIRequestContext, libraryId: string): Promise<void> {
 	await request.delete(`${API_URL}/shares/${libraryId}`, { headers: await authorized(request) });
+}
+
+function policyOf (policies: Policy[], libraryId: string): Policy {
+	const held = policies.find(one => one.libraryId === libraryId);
+	expect(held, `the API listed no row at all for ${libraryId}`).toBeDefined();
+	return held!;
 }
 
 test.describe('shares', () => {
@@ -62,22 +70,24 @@ test.describe('shares', () => {
 			const panel = page.locator(`${test0('share-library')}[data-library="${library.id}"]`);
 			await expect(panel).toHaveCount(1);
 			// The API's answer, not a default the screen fell back to.
-			const held = policies.find(one => one.libraryId === library.id);
+			const held = policyOf(policies, library.id);
 			await expect(panel.locator(test0('share-visibility-chip')))
-				.toHaveAttribute('data-visibility', held?.visibility ?? PRIVATE);
+				.toHaveAttribute('data-visibility', held.visibility);
+			await expect(panel.locator(test0('share-origin-chip')))
+				.toHaveAttribute('data-origin', held.overridden ? 'set' : /default|not_ours/);
 		}
 
 		await page.waitForLoadState('networkidle');
 		expect(failures, failures.join('\n')).toHaveLength(0);
 	});
 
-	test('a library is shared by saying who can see it, and made private by deletion', async ({ page, request }) => {
+	test('a library is shared by saying who can see it, and released by deletion', async ({ page, request }) => {
 		const libraries = await librariesOf(request);
 		const before = await policiesOf(request);
 		const library = libraries[0];
 		expect(
-			before.some(one => one.libraryId === library.id),
-			'that library is already shared, so this journey would not be the one sharing it',
+			policyOf(before, library.id).overridden,
+			'that library is already set, so this journey would not be the one setting it',
 		).toBe(false);
 
 		const failures = watchApi(page);
@@ -99,20 +109,26 @@ test.describe('shares', () => {
 			await page.getByRole('option').nth(1).click();
 			await panel.locator(test0('share-save')).click();
 
-			const saved = (await policiesOf(request)).find(one => one.libraryId === library.id);
-			expect(saved, 'nothing was saved').toBeDefined();
-			expect(saved!.visibility).not.toBe(PRIVATE);
+			const saved = policyOf(await policiesOf(request), library.id);
+			expect(saved.overridden, 'nothing was saved').toBe(true);
 			await expect(panel.locator(test0('share-visibility-chip')))
-				.toHaveAttribute('data-visibility', saved!.visibility);
+				.toHaveAttribute('data-visibility', saved.visibility);
+			await expect(panel.locator(test0('share-origin-chip')))
+				.toHaveAttribute('data-origin', 'set');
 
-			// And back: the row is removed rather than set to `private`, because the
-			// absence of a row is what private means everywhere else in the gateway.
+			// And back: the row is deleted rather than rewritten to `private`, which
+			// hands the library to the gateway default — whatever that is now.
 			await panel.locator(test0('share-remove')).click();
+			await expect(panel.locator(test0('share-origin-chip')))
+				.not
+				.toHaveAttribute('data-origin', 'set');
+
+			const released = policyOf(await policiesOf(request), library.id);
+			expect(released.overridden).toBe(false);
 			await expect(panel.locator(test0('share-visibility-chip')))
-				.toHaveAttribute('data-visibility', PRIVATE);
-			expect((await policiesOf(request)).some(one => one.libraryId === library.id)).toBe(false);
+				.toHaveAttribute('data-visibility', released.visibility);
 		} finally {
-			await makePrivate(request, library.id);
+			await dropOverride(request, library.id);
 		}
 
 		await page.waitForLoadState('networkidle');
@@ -165,9 +181,9 @@ test.describe('shares', () => {
 
 			await page.waitForLoadState('networkidle');
 			expect(attempts, `a policy was sent anyway: ${attempts.join(', ')}`).toHaveLength(0);
-			expect((await policiesOf(request)).some(one => one.libraryId === library.id)).toBe(false);
+			expect(policyOf(await policiesOf(request), library.id).overridden).toBe(false);
 		} finally {
-			await makePrivate(request, library.id);
+			await dropOverride(request, library.id);
 		}
 
 		expect(failures, failures.join('\n')).toHaveLength(0);

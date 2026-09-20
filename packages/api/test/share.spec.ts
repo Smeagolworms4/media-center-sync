@@ -1,32 +1,42 @@
+import { generateKeyPairSync, sign as signBytes } from 'node:crypto';
 import request from 'supertest';
 import {
 	LibraryKind,
+	MediaKind,
 	MediaServiceScope,
 	MediaServiceType,
 	PeerStatus,
 	PeerTrust,
 	ShareVisibility,
+	SyncState,
 	UserRole,
+	type CatalogueEntry,
 	type ShareAudit,
 	type SharePolicy,
 } from '@mcs/shared';
 import {
 	LibraryRepository,
+	MediaItemRepository,
 	MediaServiceRepository,
 	PeerRepository,
 } from '@/repositories';
+import { DEFAULT_SETTINGS, PeerLinkService } from '@/services';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
 
 /**
  * What this gateway exposes, over HTTP.
  *
- * Two things are worth proving here rather than in a unit test. The first is that
+ * Three things are worth proving here rather than in a unit test. The first is that
  * every field `UpdateSharePolicyRequest` documents actually survives the validation
  * pipe — `relay` did not, and a policy could therefore never be given the consent the
  * manager demands, which made a remote library impossible to share at all through the
  * API that documents how to share it. The second is the relay rule itself, which only
  * reads correctly end to end: it depends on the scope of the service the library sits
  * on, which no DTO carries.
+ *
+ * The third is what this gateway does about a library nobody has configured, which is
+ * every library on a fresh install. That answer is assembled from a setting, a
+ * service's scope and the absence of a row, and no unit test holds all three at once.
  */
 describe('Sharing', () => {
 	let context: TestApp;
@@ -148,6 +158,8 @@ describe('Sharing', () => {
 				libraryName: 'Shows',
 				serviceId: expect.any(String),
 				visibility: ShareVisibility.FRIENDS,
+				// Somebody said so, so this library no longer moves with the default.
+				overridden: true,
 				allowedPeerIds: [],
 				deniedPeerIds: [],
 				rateLimit: 0,
@@ -324,18 +336,33 @@ describe('Sharing', () => {
 	});
 
 	describe('deleting a policy', () => {
-		it('makes the library private again, which is the same as never having shared it', async () => {
-			await put(ownLibraryId, { visibility: ShareVisibility.FRIENDS }).expect(200);
+		it('hands the library back to the gateway default rather than making it private', async () => {
+			// The distinction the screen has to show: private is a decision somebody made
+			// and it survives the default changing, while deleting the row is "stop
+			// deciding about this one" — which on a service of ours means the default
+			// takes over, and the default is a level of sharing.
+			await put(ownLibraryId, { visibility: ShareVisibility.PRIVATE }).expect(200);
+
+			expect(await stored(ownLibraryId)).toMatchObject({
+				visibility: ShareVisibility.PRIVATE,
+				overridden: true,
+			});
 
 			await request(context.app.getHttpServer())
 				.delete(`/api/shares/${ownLibraryId}`)
 				.set('Authorization', `Bearer ${admin.token}`)
 				.expect(204);
 
-			expect(await stored(ownLibraryId)).toBeUndefined();
+			expect(await stored(ownLibraryId)).toMatchObject({
+				visibility: DEFAULT_SETTINGS.defaultShareVisibility,
+				overridden: false,
+				// Nothing was written, so there is nothing to name or date.
+				id: '',
+				updatedAt: '',
+			});
 		});
 
-		it('is the same answer twice, because the absence of a row is the whole state', async () => {
+		it('is the same answer twice, because deleting what is not there changes nothing', async () => {
 			await request(context.app.getHttpServer())
 				.delete(`/api/shares/${ownLibraryId}`)
 				.set('Authorization', `Bearer ${admin.token}`)
@@ -399,6 +426,154 @@ describe('Sharing', () => {
 			const response = await audit('11111111-2222-4333-8444-555555555555').expect(404);
 
 			expect(response.body).toMatchObject({ message: 'error.peer.not_found' });
+		});
+	});
+
+	/**
+	 * The defect this gateway shipped with: a scan discovers a library, nothing writes
+	 * a policy for it, and every read started from the policy rows — so a brand new
+	 * gateway shared nothing at all with anybody while its own setting said
+	 * `friends_of_friends`. The friend who linked to it saw an empty shelf and concluded
+	 * the link had failed.
+	 */
+	describe('a library nobody has configured', () => {
+		let freshOwnLibraryId: string;
+		let freshRemoteLibraryId: string;
+		let ownItemId: string;
+		let remoteItemId: string;
+		let friendCredential: string;
+
+		beforeAll(async () => {
+			const services = context.app.get(MediaServiceRepository);
+			const libraries = context.app.get(LibraryRepository);
+			const items = context.app.get(MediaItemRepository);
+			const peers = context.app.get(PeerRepository);
+			const links = context.app.get(PeerLinkService);
+
+			const [ours] = await services.find({ where: { scope: MediaServiceScope.LOCAL } });
+			const [theirs] = await services.find({ where: { scope: MediaServiceScope.REMOTE } });
+
+			const scan = async (serviceId: string, name: string): Promise<{ libraryId: string; itemId: string }> => {
+				const library = await libraries.save(
+					libraries.create({
+						serviceId,
+						externalId: `lib-${name}`,
+						name,
+						kind: LibraryKind.MOVIES,
+						paths: [`/srv/${name}`],
+						itemCount: 1,
+					}),
+				);
+				const item = await items.save(
+					items.create({
+						serviceId,
+						libraryId: library.id,
+						externalId: `item-${name}`,
+						kind: MediaKind.MOVIE,
+						title: `Something in ${name}`,
+						normalizedTitle: `something in ${name}`,
+						syncState: SyncState.LOCAL_ONLY,
+					}),
+				);
+
+				return { libraryId: library.id, itemId: item.id };
+			};
+
+			const own = await scan(ours.id, 'just-scanned-here');
+			const remote = await scan(theirs.id, 'just-scanned-there');
+
+			freshOwnLibraryId = own.libraryId;
+			ownItemId = own.itemId;
+			freshRemoteLibraryId = remote.libraryId;
+			remoteItemId = remote.itemId;
+
+			// A peer that can really prove itself, so this goes through the guard's
+			// cryptography rather than around it.
+			const pair = generateKeyPairSync('ed25519', {
+				privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+				publicKeyEncoding: { type: 'spki', format: 'pem' },
+			});
+			const fingerprint = links.fingerprintOf(pair.publicKey);
+
+			await peers.save(
+				peers.create({
+					name: 'Dave',
+					fingerprint,
+					publicKey: pair.publicKey,
+					status: PeerStatus.LINKED,
+					trust: PeerTrust.FRIEND,
+				}),
+			);
+
+			friendCredential = `Peer ${fingerprint}:${signBytes(
+				null,
+				Buffer.from(`${fingerprint}:${links.fingerprint}`),
+				pair.privateKey,
+			).toString('base64')}`;
+		});
+
+		const catalogue = (): Promise<CatalogueEntry[]> =>
+			request(context.app.getHttpServer())
+				.get('/api/peer/catalogue')
+				.set('Authorization', friendCredential)
+				.expect(200)
+				.then((response) => response.body as CatalogueEntry[]);
+
+		it('is served to a linked peer when it sits on a service of ours, with no policy written', async () => {
+			const entries = await catalogue();
+
+			expect(entries.map((entry) => entry.externalId)).toContain(ownItemId);
+			// And still nothing was written: the answer is resolved at read time, so
+			// changing the setting later moves this library with it.
+			expect(await stored(freshOwnLibraryId)).toMatchObject({ overridden: false, id: '' });
+		});
+
+		it('is not served when it sits on a service that is not ours', async () => {
+			// Sharing it would make us the conduit for somebody else's disk — our
+			// bandwidth, and an access granted to us rather than to the peer we would be
+			// handing it to. That is the relay consent, and a default is not consent.
+			const entries = await catalogue();
+
+			expect(entries.map((entry) => entry.externalId)).not.toContain(remoteItemId);
+		});
+
+		it('is listed on the shares route, said to be following the default', async () => {
+			const own = await stored(freshOwnLibraryId);
+			const remote = await stored(freshRemoteLibraryId);
+
+			expect(own).toMatchObject({
+				libraryId: freshOwnLibraryId,
+				visibility: DEFAULT_SETTINGS.defaultShareVisibility,
+				overridden: false,
+				relays: false,
+			});
+			expect(remote).toMatchObject({
+				libraryId: freshRemoteLibraryId,
+				visibility: ShareVisibility.PRIVATE,
+				overridden: false,
+				relays: true,
+			});
+		});
+
+		it('is named in the audit, which answers with the test the peer routes run', async () => {
+			const response = await request(context.app.getHttpServer())
+				.get(`/api/shares/audit/${friendId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+			const seen = (response.body as ShareAudit).libraries.map((library) => library.libraryId);
+
+			expect(seen).toContain(freshOwnLibraryId);
+			expect(seen).not.toContain(freshRemoteLibraryId);
+		});
+
+		it('stops following the default the moment somebody writes private on it', async () => {
+			await put(freshOwnLibraryId, { visibility: ShareVisibility.PRIVATE }).expect(200);
+
+			expect(await stored(freshOwnLibraryId)).toMatchObject({
+				visibility: ShareVisibility.PRIVATE,
+				overridden: true,
+			});
+			expect((await catalogue()).map((entry) => entry.externalId)).not.toContain(ownItemId);
 		});
 	});
 

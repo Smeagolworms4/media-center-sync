@@ -71,6 +71,20 @@ describe('queryTypes', () => {
 		expect(delimited.parse('1,2,3')).toEqual([1, 2, 3]);
 		expect(delimited.serialize([1, 2])).toBe('1,2');
 	});
+
+	it('reads an empty parameter as no values, not as one empty value', () => {
+		// `''.split(',')` answers `['']`, which is a JavaScript quirk rather than a
+		// list with one empty member. Taken literally, an absent filter became a list
+		// holding an empty string; the next value the interface added serialised as
+		// `,syncing`, and the API answered 400 naming every state it accepts and none
+		// of them empty. `a,,b` is the same mistake written by hand.
+		const delimited = queryTypes.delimitedArray<string>();
+
+		expect(delimited.parse('')).toEqual([]);
+		expect(delimited.parse(',syncing')).toEqual(['syncing']);
+		expect(delimited.parse('a,,b')).toEqual(['a', 'b']);
+		expect(delimited.parse('a,b')).toEqual(['a', 'b']);
+	});
 });
 
 describe('storageRef', () => {

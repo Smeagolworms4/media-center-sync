@@ -6,9 +6,11 @@ import { useCaller } from '@/hooks/useCaller';
 /**
  * What each library exposes, and to whom.
  *
- * A library with no policy is private: the absence of a row is a decision, not a
- * gap, which is why deleting a policy is the same thing as never having shared
- * the library at all.
+ * The list holds one row per library, including the ones nobody has configured:
+ * those carry `overridden: false` and the gateway's default resolved for them.
+ * The distinction matters on screen — a library reading "nobody" because
+ * somebody made it private is a decision, one reading "nobody" because it is not
+ * ours is a rule — so it is never flattened away here.
  */
 export const useSharesStore = defineStore('shares', () => {
 	const { caller } = useCaller();
@@ -65,9 +67,18 @@ export const useSharesStore = defineStore('shares', () => {
 		return policy;
 	}
 
+	/**
+	 * Drop the override, and read back what the library falls to.
+	 *
+	 * Reloaded rather than removed from the list: deleting the row does not make the
+	 * library private, it hands it back to the gateway default — which on one of our
+	 * own services is usually a level of sharing. Dropping the row here would leave
+	 * the screen showing "nobody" for a library that is still being served, which is
+	 * the worst of the two possible lies.
+	 */
 	async function remove (libraryId: string): Promise<void> {
 		await caller('api').delete(`/shares/${libraryId}`);
-		policies.value = policies.value.filter(one => one.libraryId !== libraryId);
+		await load();
 	}
 
 	/** What one peer would see of us — the question people ask before saving. */

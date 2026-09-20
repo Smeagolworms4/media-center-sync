@@ -50,12 +50,16 @@ export const DEFAULT_SETTINGS: Settings = {
 	peerMaxDepth: DEFAULT_PEER_MAX_DEPTH,
 	allowSwarm: true,
 	rendezvousUrl: null,
+	// A real level rather than silence, and it applies only to libraries on our own
+	// services: a gateway whose libraries are all invisible until somebody visits a
+	// screen looks broken to the friend who linked to it. See `effectiveVisibility`,
+	// which resolves it per library at read time — nothing writes it into a row.
+	defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
+	instanceName: null,
 	// Null, and deliberately not guessed from the first request that arrives: behind a
 	// reverse proxy `Host` is whatever the proxy chose to forward, so a guess would be
 	// wrong exactly on the installations that need this set. The interface offers its
 	// own origin instead, where somebody can see it before accepting it.
-	defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
-	instanceName: null,
 	publicUrl: null,
 	peerAddress: null,
 	defaultTargetPath: null,

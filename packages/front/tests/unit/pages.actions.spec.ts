@@ -467,19 +467,15 @@ describe('pages/Settings saving', () => {
 		expect(body.fullScanCron).toBe('0 4 * * *');
 	});
 
-	it('opens the tab holding a refused field, and marks it', async () => {
-		// One form saves every setting at once, so a refusal can land on a tab nobody
-		// is looking at: the screen would say the settings were refused, show nothing
-		// visible, and leave somebody pressing save again.
+	it('puts a refusal under the field it names, wherever it sits on the page', async () => {
+		// One form saves every setting at once. A refusal that only reached the top of
+		// the screen would leave somebody with twenty boxes and no idea which to change.
 		stubFetchRoutes({ '/api/settings': { body: settings } });
 		const { wrapper } = mountWithApp(Settings, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
 		});
 		await settle();
 
-		expect(wrapper.find('[data-test="settings-tab-error"]').exists()).toBe(false);
-
-		// The refusal names a field, which is what lets a tab be pointed at.
 		stubFetchRoutes({
 			'/api/settings': {
 				status: 400,
@@ -489,8 +485,9 @@ describe('pages/Settings saving', () => {
 		await (wrapper.vm as any).form.handle();
 		await settle();
 
-		expect(wrapper.find('[data-test="settings-tab-error"]').exists()).toBe(true);
-		expect((wrapper.vm as any).tab).toBe('peers');
+		expect((wrapper.vm as any).form.fieldErrors.peerMaxDepth).toBeTruthy();
+		expect(wrapper.find('[data-test="settings-peer-depth"]').text())
+			.toContain('These settings were refused');
 	});
 
 	it('offers a retry when the settings cannot be read', async () => {

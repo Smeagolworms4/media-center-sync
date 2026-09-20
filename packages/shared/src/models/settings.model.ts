@@ -85,34 +85,6 @@ export interface Settings {
 	rendezvousUrl: string | null;
 
 	/**
-	 * How this gateway is reached from outside, origin only — `https://mcs.example.org`.
-	 *
-	 * The gateway had no idea of its own address, so an invitation handed a friend an
-	 * identity and no way to use it: they had to be told where we live out of band,
-	 * which is the step people get wrong. It is also what a share link and a torrent
-	 * announce have to carry, and neither can be built from a request that arrived
-	 * through a reverse proxy — `Host` is whatever the proxy chose to forward.
-	 *
-	 * Null means nobody has set it, and the interface offers its own origin as the
-	 * default, because the browser reached this gateway somehow and that address is
-	 * almost always the right answer. Almost, not always: a gateway administered over
-	 * `http://192.168.0.12:4200` and reached by friends over a domain name would
-	 * otherwise announce a private address, so it is offered and never assumed.
-	 */
-	/**
-	 * What this gateway calls itself to other people.
-	 *
-	 * Falls back to the machine's hostname, which is why it exists: in a container the
-	 * hostname is a random hex string, so friends were being shown `d9b90135` where
-	 * they expected "Living room" or "The NAS". A name is the only part of an identity
-	 * a person actually reads — the fingerprint is what the software compares, and
-	 * nobody recognises a friend by it.
-	 *
-	 * Null means nobody chose one, and the hostname stands. It is deliberately not
-	 * defaulted to a pretty string at install time: a gateway called "Media Center
-	 * Sync" on both ends of a link is worse than two hostnames.
-	 */
-	/**
 	 * What a library of ours is visible to before anybody configures it.
 	 *
 	 * A gateway whose libraries are all invisible until somebody visits a screen is a
@@ -128,8 +100,36 @@ export interface Settings {
 	 */
 	defaultShareVisibility: ShareVisibility;
 
+	/**
+	 * What this gateway calls itself to other people.
+	 *
+	 * Falls back to the machine's hostname, which is why it exists: in a container the
+	 * hostname is a random hex string, so friends were being shown `d9b90135` where
+	 * they expected "Living room" or "The NAS". A name is the only part of an identity
+	 * a person actually reads — the fingerprint is what the software compares, and
+	 * nobody recognises a friend by it.
+	 *
+	 * Null means nobody chose one, and the hostname stands. It is deliberately not
+	 * defaulted to a pretty string at install time: a gateway called "Media Center
+	 * Sync" on both ends of a link is worse than two hostnames.
+	 */
 	instanceName: string | null;
 
+	/**
+	 * How this gateway is reached from outside, origin only — `https://mcs.example.org`.
+	 *
+	 * The gateway had no idea of its own address, so an invitation handed a friend an
+	 * identity and no way to use it: they had to be told where we live out of band,
+	 * which is the step people get wrong. It is also what a share link and a torrent
+	 * announce have to carry, and neither can be built from a request that arrived
+	 * through a reverse proxy — `Host` is whatever the proxy chose to forward.
+	 *
+	 * Null means nobody has set it, and the interface offers its own origin as the
+	 * default, because the browser reached this gateway somehow and that address is
+	 * almost always the right answer. Almost, not always: a gateway administered over
+	 * `http://192.168.0.12:4200` and reached by friends over a domain name would
+	 * otherwise announce a private address, so it is offered and never assumed.
+	 */
 	publicUrl: string | null;
 
 	/**

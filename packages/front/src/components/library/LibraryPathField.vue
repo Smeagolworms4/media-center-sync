@@ -2,6 +2,7 @@
 	import type { Library, LibraryCheck } from '@mcs/shared';
 	import { computed, ref } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
+	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
 	import FormMainError from '@/components/FormMainError.vue';
 	import { useForm } from '@/composables/useForm';
 	import { useValidators } from '@/plugins/validators';
@@ -28,6 +29,16 @@
 	const validators = useValidators();
 
 	const localPath = ref(props.library.localPath ?? '');
+
+	/**
+	 * The folder browser, behind the icon on the field.
+	 *
+	 * An assist and never a replacement: the field stays the input, because a library
+	 * on a disk that is not mounted yet is a path nobody can browse to and a perfectly
+	 * legitimate thing to declare. Choosing a folder only fills the field — it is
+	 * still saved by the same button, through the same probe.
+	 */
+	const browsing = ref(false);
 
 	const writable = computed(() => props.check?.writable ?? props.library.writable);
 	const declared = computed(() => (props.library.localPath ?? '').length > 0);
@@ -126,6 +137,21 @@
 				:hint="derived ? $t('library.derived_hint') : $t('library.local_path_hint')"
 				:label="$t('library.local_path')"
 				persistent-hint
+			>
+				<template #append-inner>
+					<v-icon
+						class="cursor-pointer"
+						icon="mdi-folder-search-outline"
+						:title="$t('browse.open')"
+						@click="browsing = true"
+					/>
+				</template>
+			</v-text-field>
+
+			<DirectoryPicker
+				v-model="browsing"
+				:path="localPath"
+				@choose="localPath = $event"
 			/>
 
 			<v-btn
