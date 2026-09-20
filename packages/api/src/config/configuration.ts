@@ -141,7 +141,6 @@ const readOptionalNumber = (name: string): number | null => {
 	const value = Number(raw);
 
 	if (!Number.isFinite(value)) {
-		// eslint-disable-next-line no-console
 		console.warn(`${name} is not a number, ignoring it`);
 
 		return null;

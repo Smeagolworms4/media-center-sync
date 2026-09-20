@@ -189,6 +189,7 @@
 		"category_alone": "its own category",
 		"category_unknown": "The categories have not been read yet.",
 		"reported_name": "The service calls it “{name}”.",
+		"derived_hint": "Worked out from the root stated on the service. Type a path here only if this library needs a different one.",
 		"local_path": "Local path",
 		"local_path_hint": "Where the gateway sees these files. It must be the same directory your media server reads.",
 		"reported_paths": "Reported by the service",
@@ -379,6 +380,12 @@
 			"token_hint_edit": "Leave empty to keep the token already registered.",
 			"priority": "Priority",
 			"priority_hint": "Lowest first when the same media is available from several services.",
+			"roots": "Where its files are, for us",
+			"roots_hint": "The server reports its own paths. State its root once here and every library under it works out where this gateway reaches the same files — instead of one path to type per library. A library that needs something else keeps a path of its own.",
+			"remote_root": "Root, as the server reports it",
+			"remote_root_hint": "What the media server calls it, such as /media",
+			"local_root": "The same directory, from here",
+			"local_root_hint": "Where this gateway reaches it, such as /mnt/nas",
 			"auth_provider": "Sign in with this service",
 			"auth_provider_hint": "Its accounts become ways into this gateway."
 		},
@@ -487,10 +494,37 @@
 			"connect": "Connect now",
 			"rename": "Rename",
 			"block": "Block",
-			"unblock": "Unblock"
+			"unblock": "Unblock",
+			"remove": "Remove",
+			"ban": "Ban",
+			"unban": "Lift the ban"
 		},
 		"protocol": "Protocol {version}",
-		"capabilities": "can"
+		"capabilities": "can",
+		"banned": "Banned. That key cannot come back on its own.",
+		"unbanned": "Ban lifted. They may ask again.",
+		"remove_ban": "Also refuse this key for good",
+		"remove_ban_hint": "Removing alone lets them ask again, which is usually what you want when a friend rebuilds their gateway.",
+		"ban_title": "Ban this peer",
+		"ban_confirm": "{name} will be unlinked, and their key refused — by request, by invitation, and through a friend.",
+		"ban_reason": "Reason",
+		"ban_reason_hint": "For whoever reads this list a year from now",
+		"unban_title": "Lift the ban",
+		"unban_confirm": "{name} will be able to ask again. It links nobody by itself.",
+		"bans": {
+			"title": "Refused keys",
+			"hint": "A ban outlives the peer it came from: the key cannot return by request, by invitation, or through a friend."
+		},
+		"depth": {
+			"hops": "one hop away | {count} hops away",
+			"hops_via": "one hop away, through {peer} | {count} hops away, through {peer}"
+		},
+		"max_depth": {
+			"label": "Introductions through them",
+			"default": "Default ({count})",
+			"hops": "one hop | up to {count} hops",
+			"saved": "Saved."
+		}
 	},
 	"share": {
 		"subtitle": "What this gateway exposes, decided one library at a time.",
@@ -984,7 +1018,9 @@
 			"rejected": "The peer refused the link.",
 			"awaiting_them": "They have not answered yet, so there is nothing to approve.",
 			"protocol_unsupported": "This peer speaks a version of the protocol this gateway does not know.",
-			"method_unsupported": "This peer asked for something this gateway does not implement."
+			"method_unsupported": "This peer asked for something this gateway does not implement.",
+			"banned": "This fingerprint is on the ban list. Lift the ban before linking to them again.",
+			"ban_not_found": "Nothing on the ban list matches that fingerprint."
 		},
 		"sync": {
 			"plan_not_found": "This sync plan no longer exists.",
@@ -1007,7 +1043,8 @@
 			"public_url_invalid": "Enter the full address, scheme included, such as https://mcs.example.org.",
 			"peer_address_invalid": "Enter a host and a port, such as mcs.example.org:4210 — no scheme.",
 			"target_path_invalid": "Enter an absolute path, such as /media/incoming.",
-			"target_path_not_writable": "The gateway cannot write to this folder."
+			"target_path_not_writable": "The gateway cannot write to this folder.",
+			"pinned": "This setting is fixed by the deployment and cannot be changed here."
 		},
 		"user": {
 			"not_found": "This account no longer exists.",

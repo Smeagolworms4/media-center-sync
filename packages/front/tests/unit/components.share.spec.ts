@@ -35,6 +35,8 @@ const peers: Peer[] = [{
 	status: PeerStatus.LINKED,
 	direction: null,
 	trust: PeerTrust.FRIEND,
+	depth: 1,
+	maxDepth: null,
 	linkMode: null,
 	address: null,
 	viaPeerId: null,

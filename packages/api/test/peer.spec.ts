@@ -1,10 +1,12 @@
 import request from 'supertest';
 import {
+	MAX_PEER_MAX_DEPTH,
 	PeerDirection,
 	PeerLinkMode,
 	PeerStatus,
 	PeerTrust,
 	UserRole,
+	type BannedPeer,
 	type MediaService,
 	type Peer,
 	type PeerIdentity,
@@ -693,4 +695,102 @@ describe('Peers', () => {
 			await request(context.app.getHttpServer()).get('/api/peers').expect(401);
 		});
 	});
+
+	describe('banning, which outlives the peer row', () => {
+		const del = (path: string, body: Record<string, unknown> = {}): request.Test =>
+			request(context.app.getHttpServer())
+				.delete(`/api/peers${path}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send(body);
+
+		it('a removed peer may come back, a banned one may not', async () => {
+			// The hole this closes: removing used to be the weaker of the two ejections.
+			// It deleted the row, and with it the only thing refusing them.
+			const ordinary = fingerprint();
+			const id = await seed({ fingerprint: ordinary });
+
+			await del(`/${id}`).expect(204);
+			await post('', { fingerprint: ordinary }).expect(201);
+
+			const refused = fingerprint();
+			const banishedId = await seed({ fingerprint: refused });
+
+			await del(`/${banishedId}`, { ban: true, reason: 'flooded us' }).expect(204);
+			await post('', { fingerprint: refused }).expect(409);
+		});
+
+		it('lists what is refused, with the name it had and why', async () => {
+			const refused = fingerprint();
+			const id = await seed({ fingerprint: refused, name: 'The cottage' });
+
+			await request(context.app.getHttpServer())
+				.post(`/api/peers/${id}/ban`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ reason: 'kept asking' })
+				.expect(200);
+
+			const listed = (await get('/bans').expect(200)).body as BannedPeer[];
+
+			expect(listed).toContainEqual(
+				expect.objectContaining({
+					fingerprint: refused,
+					// Without the name this screen is a list of hex strings and nobody can
+					// tell which one was the person who had to go.
+					name: 'The cottage',
+					reason: 'kept asking',
+				}),
+			);
+			// Banning unlinks: a banned peer still listed among the others is a row that
+			// can be approved by whoever does not know why it is there.
+			expect(((await get('').expect(200)).body as Peer[]).map(one => one.id)).not.toContain(id);
+		});
+
+		it('refuses a fingerprint nobody ever linked to, then lets it ask once lifted', async () => {
+			const refused = fingerprint();
+
+			await post('/bans', { fingerprint: refused, name: 'Somebody' }).expect(201);
+			await post('', { fingerprint: refused }).expect(409);
+
+			await del(`/bans/${encodeURIComponent(refused)}`).expect(204);
+			await post('', { fingerprint: refused }).expect(201);
+		});
+
+		it('answers a key for lifting a ban nobody had', async () => {
+			await del('/bans/never-banned').expect(404);
+		});
+
+		it('refuses a reader the ban list changes, and lets them read it', async () => {
+			await get('/bans', user).expect(200);
+			await post('/bans', { fingerprint: fingerprint() }, user).expect(403);
+		});
+	});
+
+	describe('how far a peer may introduce', () => {
+		const patchDepth = (id: string, maxDepth: number | null): request.Test =>
+			request(context.app.getHttpServer())
+				.patch(`/api/peers/${id}/max-depth`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ maxDepth });
+
+		it('sets a limit for one peer, and clears it back to the gateway ceiling', async () => {
+			const id = await seed();
+
+			expect(((await patchDepth(id, 2).expect(200)).body as Peer).maxDepth).toBe(2);
+			expect(((await patchDepth(id, null).expect(200)).body as Peer).maxDepth).toBeNull();
+		});
+
+		it('refuses a limit past the hard ceiling, and one below one hop', async () => {
+			const id = await seed();
+
+			await patchDepth(id, MAX_PEER_MAX_DEPTH + 1).expect(400);
+			await patchDepth(id, 0).expect(400);
+		});
+
+		it('reports a direct peer at one hop', async () => {
+			const id = await seed();
+
+			expect(((await get(`/${id}`).expect(200)).body as Peer).depth).toBe(1);
+		});
+	});
+
 });

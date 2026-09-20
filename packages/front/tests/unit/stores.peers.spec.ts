@@ -15,6 +15,8 @@ function peer (overrides: Partial<Peer> = {}): Peer {
 		status: PeerStatus.LINKED,
 		direction: null,
 		trust: PeerTrust.FRIEND,
+		depth: 1,
+		maxDepth: null,
 		linkMode: PeerLinkMode.DIRECT,
 		address: '203.0.113.9:4210',
 		viaPeerId: null,
@@ -103,5 +105,106 @@ describe('stores/peers', () => {
 		await store.remove('p1');
 
 		expect(store.peers.map(one => one.id)).toEqual(['p2']);
+	});
+
+	describe('bans, which outlive the peer row', () => {
+		it('sends the ban with the removal, because that is where the decision is', async () => {
+			const stub = stubFetch([{ status: 204 }, { body: [] }]);
+			const store = usePeersStore();
+			store.peers = [peer()];
+
+			await store.remove('p1', { ban: true, reason: 'flooded us' });
+
+			expect(store.peers).toHaveLength(0);
+			const [url, options] = stub.mock.calls[0] as [string, RequestInit];
+			expect(url).toContain('/peers/p1');
+			expect(options.method).toBe('DELETE');
+			expect(JSON.parse(String(options.body))).toEqual({ ban: true, reason: 'flooded us' });
+		});
+
+		it('does not refuse the key when the peer is simply removed', async () => {
+			const stub = stubFetch([{ status: 204 }]);
+			const store = usePeersStore();
+			store.peers = [peer()];
+
+			await store.remove('p1');
+
+			// One call, so nothing went looking for a ban list that was never written.
+			expect(stub).toHaveBeenCalledTimes(1);
+			const [, options] = stub.mock.calls[0] as [string, RequestInit];
+			expect(JSON.parse(String(options.body))).toEqual({});
+		});
+
+		it('drops the peer from the list and adds it to the bans', async () => {
+			stubFetch([
+				{ body: { fingerprint: 'AB:CD', name: 'Bob', reason: null, bannedAt: '2026-02-02T00:00:00.000Z' } },
+			]);
+			const store = usePeersStore();
+			store.peers = [peer()];
+
+			await store.ban('p1');
+
+			expect(store.peers).toHaveLength(0);
+			expect(store.bans.map(one => one.fingerprint)).toEqual(['AB:CD']);
+		});
+
+		it('never lists the same fingerprint twice', async () => {
+			// Banning a key that is already banned is somebody making sure, not an
+			// error, and the list has to read as one decision rather than two.
+			stubFetch([
+				{ body: { fingerprint: 'AB:CD', name: 'Bob', reason: 'again', bannedAt: '2026-02-03T00:00:00.000Z' } },
+			]);
+			const store = usePeersStore();
+			store.bans = [{ fingerprint: 'AB:CD', name: 'Bob', reason: null, bannedAt: '2026-02-02T00:00:00.000Z' }];
+
+			await store.banFingerprint('AB:CD');
+
+			expect(store.bans).toHaveLength(1);
+			expect(store.bans[0].reason).toBe('again');
+		});
+
+		it('lifting a ban takes it off the list and links nobody', async () => {
+			stubFetch([{ status: 204 }]);
+			const store = usePeersStore();
+			store.bans = [{ fingerprint: 'AB:CD', name: 'Bob', reason: null, bannedAt: '2026-02-02T00:00:00.000Z' }];
+
+			await store.unban('AB:CD');
+
+			expect(store.bans).toHaveLength(0);
+			expect(store.peers).toHaveLength(0);
+		});
+
+		it('answers an empty body with an empty list rather than a broken screen', async () => {
+			stubFetch([{ status: 200, body: null }]);
+			const store = usePeersStore();
+
+			await expect(store.loadBans()).resolves.toEqual([]);
+		});
+	});
+
+	describe('how far a peer may introduce', () => {
+		it('sends null to put the peer back on the gateway ceiling', async () => {
+			// Null means "follow the default", not a limit of zero — and an omitted key
+			// would be read as "leave it alone", which is a different instruction.
+			const stub = stubFetch([{ body: peer({ maxDepth: null }) }]);
+			const store = usePeersStore();
+			store.peers = [peer({ maxDepth: 4 })];
+
+			await store.setMaxDepth('p1', null);
+
+			const [, options] = stub.mock.calls[0] as [string, RequestInit];
+			expect(JSON.parse(String(options.body))).toEqual({ maxDepth: null });
+			expect(store.byId.p1.maxDepth).toBeNull();
+		});
+
+		it('keeps the answer rather than what was typed', async () => {
+			stubFetch([{ body: peer({ maxDepth: 2 }) }]);
+			const store = usePeersStore();
+			store.peers = [peer()];
+
+			await store.setMaxDepth('p1', 2);
+
+			expect(store.byId.p1.maxDepth).toBe(2);
+		});
 	});
 });

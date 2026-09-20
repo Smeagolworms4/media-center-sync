@@ -189,6 +189,7 @@
 		"category_alone": "categoría por sí sola",
 		"category_unknown": "Las categorías todavía no se han leído.",
 		"reported_name": "El servicio la llama «{name}».",
+		"derived_hint": "Deducida de la raíz indicada en el servicio. Escribe una ruta aquí solo si esta biblioteca necesita otra.",
 		"local_path": "Ruta local",
 		"local_path_hint": "Donde la pasarela ve estos archivos. Debe ser el mismo directorio que lee tu servidor multimedia.",
 		"reported_paths": "Indicadas por el servicio",
@@ -379,6 +380,12 @@
 			"token_hint_edit": "Déjalo vacío para conservar el token ya registrado.",
 			"priority": "Prioridad",
 			"priority_hint": "La más baja primero cuando el mismo contenido está disponible en varios servicios.",
+			"roots": "Dónde están sus archivos, para nosotros",
+			"roots_hint": "El servidor indica sus propias rutas. Indica su raíz una sola vez aquí y cada biblioteca deduce dónde esta pasarela alcanza los mismos archivos, en lugar de una ruta que escribir por biblioteca. Una biblioteca que necesite otra cosa conserva su propia ruta.",
+			"remote_root": "Raíz, tal como la indica el servidor",
+			"remote_root_hint": "Como la llama el servidor multimedia, por ejemplo /media",
+			"local_root": "El mismo directorio, desde aquí",
+			"local_root_hint": "Donde esta pasarela lo alcanza, por ejemplo /mnt/nas",
 			"auth_provider": "Iniciar sesión con este servicio",
 			"auth_provider_hint": "Sus cuentas se convierten en vías de acceso a esta pasarela."
 		},
@@ -487,10 +494,37 @@
 			"connect": "Conectar ahora",
 			"rename": "Renombrar",
 			"block": "Bloquear",
-			"unblock": "Desbloquear"
+			"unblock": "Desbloquear",
+			"remove": "Eliminar",
+			"ban": "Vetar",
+			"unban": "Levantar el veto"
 		},
 		"protocol": "Protocolo {version}",
-		"capabilities": "puede"
+		"capabilities": "puede",
+		"banned": "Vetado. Esa clave no puede volver por sí sola.",
+		"unbanned": "Veto levantado. Pueden volver a pedirlo.",
+		"remove_ban": "Rechazar también esta clave para siempre",
+		"remove_ban_hint": "Eliminar sin más les deja volver a pedirlo, que suele ser lo deseable cuando un amigo rehace su pasarela.",
+		"ban_title": "Vetar este par",
+		"ban_confirm": "{name} quedará desenlazado y su clave rechazada: por petición, por invitación y a través de un amigo.",
+		"ban_reason": "Motivo",
+		"ban_reason_hint": "Para quien lea esta lista dentro de un año",
+		"unban_title": "Levantar el veto",
+		"unban_confirm": "{name} podrá volver a pedirlo. Por sí solo no enlaza a nadie.",
+		"bans": {
+			"title": "Claves rechazadas",
+			"hint": "Un veto sobrevive al par del que procede: la clave no puede volver ni por petición, ni por invitación, ni a través de un amigo."
+		},
+		"depth": {
+			"hops": "a un salto | a {count} saltos",
+			"hops_via": "a un salto, a través de {peer} | a {count} saltos, a través de {peer}"
+		},
+		"max_depth": {
+			"label": "Presentaciones a través de este par",
+			"default": "Predeterminado ({count})",
+			"hops": "un salto | hasta {count} saltos",
+			"saved": "Guardado."
+		}
 	},
 	"share": {
 		"subtitle": "Lo que esta pasarela expone, decidido biblioteca por biblioteca.",
@@ -984,7 +1018,9 @@
 			"rejected": "El par ha rechazado el enlace.",
 			"awaiting_them": "Todavía no han respondido, así que no hay nada que aprobar.",
 			"protocol_unsupported": "Este par habla una versión del protocolo que esta pasarela no conoce.",
-			"method_unsupported": "Este par pidió algo que esta pasarela no implementa."
+			"method_unsupported": "Este par pidió algo que esta pasarela no implementa.",
+			"banned": "Esta huella está en la lista de vetados. Levanta el veto antes de volver a enlazar con este par.",
+			"ban_not_found": "Ningún veto corresponde a esa huella."
 		},
 		"sync": {
 			"plan_not_found": "Este plan de sincronización ya no existe.",
@@ -1007,7 +1043,8 @@
 			"public_url_invalid": "Introduce la dirección completa, con el esquema, por ejemplo https://mcs.example.org.",
 			"peer_address_invalid": "Introduce un host y un puerto, por ejemplo mcs.example.org:4210 — sin esquema.",
 			"target_path_invalid": "Introduce una ruta absoluta, por ejemplo /media/incoming.",
-			"target_path_not_writable": "La pasarela no puede escribir en esta carpeta."
+			"target_path_not_writable": "La pasarela no puede escribir en esta carpeta.",
+			"pinned": "Este ajuste lo fija la instalación y no se puede cambiar aquí."
 		},
 		"user": {
 			"not_found": "Esta cuenta ya no existe.",

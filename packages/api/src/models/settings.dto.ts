@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { NamingScheme, PlacementStrategy } from '@mcs/shared';
+import { MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy, ShareVisibility } from '@mcs/shared';
 
 /**
  * Settings.
@@ -90,10 +90,19 @@ export class UpdateSettingsDto {
 	@Max(1)
 	public matchThreshold?: number;
 
-	@ApiPropertyOptional()
+	/**
+	 * A distance in hops, not a yes or no. One means direct friends only.
+	 *
+	 * Bounded here as well as in the service because the pipe can name the field that
+	 * is wrong, while the service can only clamp: somebody asking for ten hops would
+	 * otherwise watch the value come back as the maximum with nothing said about why.
+	 */
+	@ApiPropertyOptional({ minimum: 1, maximum: MAX_PEER_MAX_DEPTH })
 	@IsOptional()
-	@IsBoolean()
-	public allowFriendsOfFriends?: boolean;
+	@IsInt()
+	@Min(1)
+	@Max(MAX_PEER_MAX_DEPTH)
+	public peerMaxDepth?: number;
 
 	@ApiPropertyOptional()
 	@IsOptional()
@@ -121,6 +130,15 @@ export class UpdateSettingsDto {
 	/**
 	 * Empty means "no name of my own", and the hostname stands. It is not a rejection.
 	 */
+	/**
+	 * Only a real visibility. There is no "unset" here: leaving the field out keeps
+	 * whatever is stored, which is what every other setting does.
+	 */
+	@ApiPropertyOptional({ enum: ShareVisibility })
+	@IsOptional()
+	@IsEnum(ShareVisibility)
+	public defaultShareVisibility?: ShareVisibility;
+
 	@ApiPropertyOptional({ description: 'What this gateway calls itself to other people.' })
 	@IsOptional()
 	@IsString()

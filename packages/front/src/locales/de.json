@@ -189,6 +189,7 @@
 		"category_alone": "eigene Kategorie",
 		"category_unknown": "Die Kategorien wurden noch nicht gelesen.",
 		"reported_name": "Der Dienst nennt sie „{name}“.",
+		"derived_hint": "Aus der auf dem Dienst angegebenen Wurzel ermittelt. Geben Sie hier nur dann einen Pfad ein, wenn diese Bibliothek einen anderen braucht.",
 		"local_path": "Lokaler Pfad",
 		"local_path_hint": "Wo das Gateway diese Dateien sieht. Es muss dasselbe Verzeichnis sein, das Ihr Medienserver liest.",
 		"reported_paths": "Vom Dienst gemeldet",
@@ -379,6 +380,12 @@
 			"token_hint_edit": "Leer lassen, um den bereits hinterlegten Token zu behalten.",
 			"priority": "Priorität",
 			"priority_hint": "Kleinster Wert zuerst, wenn dasselbe Medium auf mehreren Diensten verfügbar ist.",
+			"roots": "Wo seine Dateien für uns liegen",
+			"roots_hint": "Der Server meldet seine eigenen Pfade. Geben Sie seine Wurzel hier einmal an, und jede Bibliothek darunter ermittelt selbst, wo das Gateway dieselben Dateien erreicht — statt eines Pfades pro Bibliothek. Eine Bibliothek, die etwas anderes braucht, behält ihren eigenen Pfad.",
+			"remote_root": "Wurzel, wie der Server sie meldet",
+			"remote_root_hint": "Wie der Medienserver sie nennt, etwa /media",
+			"local_root": "Dasselbe Verzeichnis, von hier aus",
+			"local_root_hint": "Wo das Gateway es erreicht, etwa /mnt/nas",
 			"auth_provider": "Anmeldung über diesen Dienst",
 			"auth_provider_hint": "Seine Konten werden zu Zugängen für dieses Gateway."
 		},
@@ -487,10 +494,37 @@
 			"connect": "Jetzt verbinden",
 			"rename": "Umbenennen",
 			"block": "Blockieren",
-			"unblock": "Entsperren"
+			"unblock": "Entsperren",
+			"remove": "Entfernen",
+			"ban": "Sperren",
+			"unban": "Sperre aufheben"
 		},
 		"protocol": "Protokoll {version}",
-		"capabilities": "kann"
+		"capabilities": "kann",
+		"banned": "Gesperrt. Dieser Schlüssel kann nicht von selbst zurückkehren.",
+		"unbanned": "Sperre aufgehoben. Sie dürfen erneut anfragen.",
+		"remove_ban": "Diesen Schlüssel dauerhaft ablehnen",
+		"remove_ban_hint": "Ein reines Entfernen lässt sie erneut anfragen — meist genau das, was man will, wenn ein Freund sein Gateway neu aufsetzt.",
+		"ban_title": "Diesen Peer sperren",
+		"ban_confirm": "{name} wird getrennt und der Schlüssel abgelehnt — bei Anfrage, bei Einladung und über einen Freund.",
+		"ban_reason": "Grund",
+		"ban_reason_hint": "Für alle, die diese Liste in einem Jahr lesen",
+		"unban_title": "Sperre aufheben",
+		"unban_confirm": "{name} darf erneut anfragen. Das verbindet von sich aus niemanden.",
+		"bans": {
+			"title": "Abgelehnte Schlüssel",
+			"hint": "Eine Sperre überdauert den Peer, aus dem sie stammt: Der Schlüssel kann weder per Anfrage noch per Einladung noch über einen Freund zurückkehren."
+		},
+		"depth": {
+			"hops": "einen Schritt entfernt | {count} Schritte entfernt",
+			"hops_via": "einen Schritt entfernt, über {peer} | {count} Schritte entfernt, über {peer}"
+		},
+		"max_depth": {
+			"label": "Vermittlungen über diesen Peer",
+			"default": "Standard ({count})",
+			"hops": "ein Schritt | bis zu {count} Schritte",
+			"saved": "Gespeichert."
+		}
 	},
 	"share": {
 		"subtitle": "Was dieses Gateway preisgibt, Bibliothek für Bibliothek entschieden.",
@@ -984,7 +1018,9 @@
 			"rejected": "Der Peer hat die Verbindung abgelehnt.",
 			"awaiting_them": "Die Gegenseite hat noch nicht geantwortet, es gibt also nichts zu bestätigen.",
 			"protocol_unsupported": "Dieser Peer spricht eine Version des Protokolls, die dieses Gateway nicht kennt.",
-			"method_unsupported": "Dieser Peer hat etwas angefordert, das dieses Gateway nicht implementiert."
+			"method_unsupported": "Dieser Peer hat etwas angefordert, das dieses Gateway nicht implementiert.",
+			"banned": "Dieser Fingerabdruck steht auf der Sperrliste. Heben Sie die Sperre auf, bevor Sie sich erneut verbinden.",
+			"ban_not_found": "Kein Eintrag der Sperrliste passt zu diesem Fingerabdruck."
 		},
 		"sync": {
 			"plan_not_found": "Diesen Sync-Plan gibt es nicht mehr.",
@@ -1007,7 +1043,8 @@
 			"public_url_invalid": "Geben Sie die vollständige Adresse samt Schema ein, etwa https://mcs.example.org.",
 			"peer_address_invalid": "Geben Sie einen Host und einen Port ein, etwa mcs.example.org:4210 — ohne Schema.",
 			"target_path_invalid": "Geben Sie einen absoluten Pfad ein, etwa /media/incoming.",
-			"target_path_not_writable": "Das Gateway kann in diesen Ordner nicht schreiben."
+			"target_path_not_writable": "Das Gateway kann in diesen Ordner nicht schreiben.",
+			"pinned": "Diese Einstellung ist durch die Installation festgelegt und kann hier nicht geändert werden."
 		},
 		"user": {
 			"not_found": "Dieses Konto gibt es nicht mehr.",

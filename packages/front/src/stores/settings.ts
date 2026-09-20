@@ -1,6 +1,6 @@
-import type { Settings, UpdateSettingsRequest } from '@mcs/shared';
+import type { Settings, SettingsView, UpdateSettingsRequest } from '@mcs/shared';
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
 
 /**
@@ -14,11 +14,28 @@ import { useCaller } from '@/hooks/useCaller';
 export const useSettingsStore = defineStore('settings', () => {
 	const settings = ref<Settings | null>(null);
 	const loaded = ref(false);
+	/**
+	 * Fields the deployment pinned in its environment, which the form must show as
+	 * read-only.
+	 *
+	 * It travels with the values rather than being a second request: a form that
+	 * rendered before it arrived would offer an editable control for a locked field
+	 * and then take it away, and somebody will have typed in it by then.
+	 */
+	const pinned = ref<string[]>([]);
+
+	const isPinned = computed(() => (field: keyof Settings): boolean =>
+		pinned.value.includes(field as string));
 
 	const { caller } = useCaller();
 
 	async function load (): Promise<Settings> {
-		settings.value = await caller('api').get<Settings>('/settings');
+		const view = await caller('api').get<SettingsView>('/settings');
+		// Destructured so that nothing downstream has to remember that this one key is
+		// about the form rather than about the gateway.
+		const { pinned: pinnedFields, ...values } = view;
+		settings.value = values;
+		pinned.value = Array.isArray(pinnedFields) ? pinnedFields : [];
 		loaded.value = true;
 		return settings.value;
 	}
@@ -28,5 +45,5 @@ export const useSettingsStore = defineStore('settings', () => {
 		return settings.value;
 	}
 
-	return { settings, loaded, load, save };
+	return { settings, loaded, pinned, isPinned, load, save };
 });

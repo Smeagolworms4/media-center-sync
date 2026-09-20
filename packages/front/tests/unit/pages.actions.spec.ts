@@ -439,7 +439,7 @@ describe('pages/Settings saving', () => {
 		downloadRateLimit: 0,
 		uploadRateLimit: 0,
 		matchThreshold: 0.8,
-		allowFriendsOfFriends: true,
+		peerMaxDepth: 3,
 		allowSwarm: true,
 		rendezvousUrl: null,
 		transferHistoryDays: 30,

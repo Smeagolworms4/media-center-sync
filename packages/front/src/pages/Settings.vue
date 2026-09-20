@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import { NamingScheme, PlacementStrategy } from '@mcs/shared';
+	import { DEFAULT_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy } from '@mcs/shared';
 	import { computed, onMounted, reactive, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import CronHint from '@/components/common/CronHint.vue';
@@ -48,7 +48,7 @@
 		downloadRateLimit: '',
 		uploadRateLimit: '',
 		matchThreshold: 0.8,
-		allowFriendsOfFriends: true,
+		peerMaxDepth: DEFAULT_PEER_MAX_DEPTH,
 		allowSwarm: true,
 		rendezvousUrl: '',
 		instanceName: '',
@@ -80,7 +80,7 @@
 		model.downloadRateLimit = toByteSizeInput(settings.downloadRateLimit);
 		model.uploadRateLimit = toByteSizeInput(settings.uploadRateLimit);
 		model.matchThreshold = settings.matchThreshold;
-		model.allowFriendsOfFriends = settings.allowFriendsOfFriends;
+		model.peerMaxDepth = settings.peerMaxDepth;
 		model.allowSwarm = settings.allowSwarm;
 		model.rendezvousUrl = settings.rendezvousUrl ?? '';
 		// Offered, never assumed. The browser reached this gateway somehow and that
@@ -125,6 +125,22 @@
 	});
 
 	const fixedPathNeeded = computed(() => model.placement === PlacementStrategy.FIXED_PATH);
+
+	/**
+	 * The old yes/no, kept as a switch over the new number of hops.
+	 *
+	 * The setting is a distance now and deserves a control that says so, but the
+	 * wording on this screen — and the message catalogue behind it — still only knows
+	 * about friends of friends. Changing both at once would leave the interface
+	 * promising a choice of distance it cannot express, so the switch stays and writes
+	 * the default reach; replacing it is a separate piece of work with its own strings.
+	 */
+	const friendsOfFriends = computed({
+		get: () => model.peerMaxDepth > 1,
+		set: (value: boolean) => {
+			model.peerMaxDepth = value ? DEFAULT_PEER_MAX_DEPTH : 1;
+		},
+	});
 
 	/**
 	 * True only while the box still holds the suggestion and nothing has been stored.
@@ -185,7 +201,7 @@
 				downloadRateLimit: parseByteSize(model.downloadRateLimit) ?? 0,
 				uploadRateLimit: parseByteSize(model.uploadRateLimit) ?? 0,
 				matchThreshold: Number(model.matchThreshold),
-				allowFriendsOfFriends: model.allowFriendsOfFriends,
+				peerMaxDepth: Number(model.peerMaxDepth),
 				allowSwarm: model.allowSwarm,
 				rendezvousUrl: model.rendezvousUrl || null,
 				// An emptied box is a setting being cleared, which the API spells null.
@@ -472,7 +488,7 @@
 
 				<v-card-text>
 					<v-switch
-						v-model="model.allowFriendsOfFriends"
+						v-model="friendsOfFriends"
 						color="primary"
 						density="compact"
 						hide-details

@@ -189,6 +189,7 @@
 		"category_alone": "自成一个分类",
 		"category_unknown": "尚未读取分类。",
 		"reported_name": "服务称它为“{name}”。",
+		"derived_hint": "根据服务上填写的根目录推导得出。只有当该媒体库需要不同的路径时，才在此填写。",
 		"local_path": "本地路径",
 		"local_path_hint": "网关看到这些文件的位置。它必须和媒体服务器读取的目录是同一个。",
 		"reported_paths": "服务报告的路径",
@@ -379,6 +380,12 @@
 			"token_hint_edit": "留空则保留已注册的令牌。",
 			"priority": "优先级",
 			"priority_hint": "同一媒体可从多个服务获取时，数值小的优先。",
+			"roots": "它的文件对我们而言在哪里",
+			"roots_hint": "服务器报告的是它自己的路径。在这里填写一次它的根目录，其下的每个媒体库便会自行推导出网关访问同一批文件的位置，而不必为每个媒体库各写一条路径。需要例外的媒体库仍保留自己的路径。",
+			"remote_root": "根目录，按服务器的说法",
+			"remote_root_hint": "媒体服务器对它的称呼，例如 /media",
+			"local_root": "同一个目录，从这里看",
+			"local_root_hint": "网关访问它的位置，例如 /mnt/nas",
 			"auth_provider": "用此服务登录",
 			"auth_provider_hint": "它的账号将成为登录此网关的方式。"
 		},
@@ -487,10 +494,37 @@
 			"connect": "立即连接",
 			"rename": "重命名",
 			"block": "屏蔽",
-			"unblock": "解除屏蔽"
+			"unblock": "解除屏蔽",
+			"remove": "移除",
+			"ban": "封禁",
+			"unban": "解除封禁"
 		},
 		"protocol": "协议 {version}",
-		"capabilities": "支持"
+		"capabilities": "支持",
+		"banned": "已封禁。该密钥无法自行回来。",
+		"unbanned": "已解除封禁。对方可以再次请求。",
+		"remove_ban": "同时永久拒绝此密钥",
+		"remove_ban_hint": "仅移除会让对方可以再次请求——朋友重建网关时通常正需要如此。",
+		"ban_title": "封禁此对端",
+		"ban_confirm": "将断开与 {name} 的连接并拒绝其密钥——请求、邀请以及经由朋友介绍都将被拒。",
+		"ban_reason": "原因",
+		"ban_reason_hint": "供一年后翻看此列表的人参考",
+		"unban_title": "解除封禁",
+		"unban_confirm": "{name} 将可以再次请求。此操作本身不会建立任何连接。",
+		"bans": {
+			"title": "被拒绝的密钥",
+			"hint": "封禁比它所来自的对端更持久：该密钥无法通过请求、邀请或朋友介绍回来。"
+		},
+		"depth": {
+			"hops": "相距 {count} 跳",
+			"hops_via": "相距 {count} 跳，经由 {peer}"
+		},
+		"max_depth": {
+			"label": "经由该对端的介绍",
+			"default": "默认（{count}）",
+			"hops": "最多 {count} 跳",
+			"saved": "已保存。"
+		}
 	},
 	"share": {
 		"subtitle": "此网关对外公开的内容，逐个媒体库决定。",
@@ -984,7 +1018,9 @@
 			"rejected": "对等网关拒绝了连接。",
 			"awaiting_them": "对方尚未回应，因此没有可批准的内容。",
 			"protocol_unsupported": "此对等网关使用的协议版本，本网关不认识。",
-			"method_unsupported": "此对等网关请求了本网关未实现的功能。"
+			"method_unsupported": "此对等网关请求了本网关未实现的功能。",
+			"banned": "该指纹在封禁列表中。若要重新连接，请先解除封禁。",
+			"ban_not_found": "封禁列表中没有与该指纹匹配的记录。"
 		},
 		"sync": {
 			"plan_not_found": "此同步计划已不存在。",
@@ -1007,7 +1043,8 @@
 			"public_url_invalid": "请输入完整地址，包含协议，例如 https://mcs.example.org。",
 			"peer_address_invalid": "请输入主机和端口，例如 mcs.example.org:4210——不要带协议。",
 			"target_path_invalid": "请输入绝对路径，例如 /media/incoming。",
-			"target_path_not_writable": "网关无法写入此文件夹。"
+			"target_path_not_writable": "网关无法写入此文件夹。",
+			"pinned": "此设置由部署方固定，无法在此处更改。"
 		},
 		"user": {
 			"not_found": "此账号已不存在。",

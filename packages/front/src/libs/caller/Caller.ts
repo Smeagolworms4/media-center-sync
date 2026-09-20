@@ -3,7 +3,17 @@ import { SimpleObserver } from '@/libs/observer';
 import { useI18nStore } from '@/stores/i18n';
 import { useTokenStore } from '@/stores/token';
 
-export interface CallerOptions extends RequestInit {
+export interface CallerOptions extends Omit<RequestInit, 'body'> {
+	/**
+	 * Anything at all: `request` serialises a body that is not already a string.
+	 *
+	 * `RequestInit` only admits a `BodyInit`, which is narrower than what this class
+	 * has always accepted — `post`, `put` and `patch` take their body as a separate
+	 * `any` and sidestep it. `delete` has no such parameter, so a request that carries
+	 * one (unlinking a peer, which says whether to ban them too) had nowhere to put it
+	 * that typechecked, for a call the runtime handles perfectly well.
+	 */
+	body?: any;
 	/** Attach the bearer, refreshing it first when it is about to expire. */
 	useAuth?: boolean;
 	/** Do not fan the failure out to the global error observers. */

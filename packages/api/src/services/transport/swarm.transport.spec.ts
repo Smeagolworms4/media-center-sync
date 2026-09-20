@@ -12,6 +12,7 @@ function holder(overrides: Partial<ContentHolder> = {}): ContentHolder {
 		externalId: 'item-1',
 		size: 8 * 1024 * 1024,
 		trust: PeerTrust.FRIEND,
+		depth: 1,
 		viaPeerId: null,
 		...overrides,
 	};

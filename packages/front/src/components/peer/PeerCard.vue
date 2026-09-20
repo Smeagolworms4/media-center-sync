@@ -3,6 +3,7 @@
 	import { PeerDirection, PeerLinkMode, PeerStatus, PeerTrust } from '@mcs/shared';
 	import { computed } from 'vue';
 	import RelativeDate from '@/components/common/RelativeDate.vue';
+	import PeerDepthField from '@/components/peer/PeerDepthField.vue';
 
 	/**
 	 * One linked gateway.
@@ -12,15 +13,22 @@
 	 * friend we did not — and how the bytes travel, since a relayed link shares its
 	 * bandwidth with everybody else using that rendezvous.
 	 */
-	const props = defineProps<{ peer: Peer }>();
+	const props = defineProps<{
+		peer: Peer;
+		/** The gateway's own ceiling, so the row can say what "default" resolves to. */
+		ceiling: number;
+		savingDepth?: boolean;
+	}>();
 
 	const emit = defineEmits<{
-		approve: [peer: Peer];
-		connect: [peer: Peer];
-		rename: [peer: Peer];
-		block: [peer: Peer];
-		unblock: [peer: Peer];
-		remove: [peer: Peer];
+		'approve': [peer: Peer];
+		'connect': [peer: Peer];
+		'rename': [peer: Peer];
+		'block': [peer: Peer];
+		'unblock': [peer: Peer];
+		'remove': [peer: Peer];
+		'ban': [peer: Peer];
+		'max-depth': [peer: Peer, maxDepth: number | null];
 	}>();
 
 	const STATUS_COLOR: Record<PeerStatus, string> = {
@@ -45,6 +53,16 @@
 	const incoming = computed(() => pending.value && props.peer.direction === PeerDirection.INCOMING);
 	const outgoing = computed(() => pending.value && props.peer.direction === PeerDirection.OUTGOING);
 	const viaFriend = computed(() => props.peer.trust === PeerTrust.FRIEND_OF_FRIEND);
+
+	/**
+	 * What to call the distance, in words somebody recognises.
+	 *
+	 * There is no third word after "friend of a friend": past the second hop the only
+	 * honest label is the number itself. Saying "friend of a friend" for a gateway
+	 * three or four introductions away would be a comfortable phrase for a
+	 * relationship that is not one.
+	 */
+	const depth = computed(() => props.peer.depth ?? (viaFriend.value ? 2 : 1));
 
 	/*
 	 * Read through `?? null` rather than off the peer, because an older gateway — and
@@ -101,9 +119,17 @@
 				</v-chip>
 
 				<v-chip data-test="peer-trust" label size="small" variant="tonal">
-					{{ viaFriend && peer.viaPeerName
-						? $t('peer.trust.friend_of_friend_via', { peer: peer.viaPeerName })
-						: $t(`peer.trust.${peer.trust}`) }}
+					<template v-if="depth > 2">
+						{{ peer.viaPeerName
+							? $t('peer.depth.hops_via', { count: depth, peer: peer.viaPeerName }, depth)
+							: $t('peer.depth.hops', { count: depth }, depth) }}
+					</template>
+
+					<template v-else>
+						{{ viaFriend && peer.viaPeerName
+							? $t('peer.trust.friend_of_friend_via', { peer: peer.viaPeerName })
+							: $t(`peer.trust.${peer.trust}`) }}
+					</template>
 				</v-chip>
 
 				<v-chip
@@ -195,6 +221,19 @@
 
 			<v-spacer />
 
+			<!--
+				On the row, not in the settings screen: the number is about this friend
+				and not about the gateway. A pending peer has agreed to nothing and
+				introduces nobody, so there is nothing to limit yet.
+			-->
+			<PeerDepthField
+				v-if="!pending"
+				:ceiling="ceiling"
+				:peer="peer"
+				:saving="savingDepth"
+				@update="(one, value) => emit('max-depth', one, value)"
+			/>
+
 			<v-btn
 				v-if="blocked"
 				data-test="peer-unblock"
@@ -217,9 +256,20 @@
 
 			<v-btn
 				color="error"
+				data-test="peer-ban"
+				icon="mdi-cancel"
+				size="small"
+				:title="$t('peer.action.ban')"
+				variant="text"
+				@click="emit('ban', peer)"
+			/>
+
+			<v-btn
+				color="error"
 				data-test="peer-remove"
 				icon="mdi-delete-outline"
 				size="small"
+				:title="$t('peer.action.remove')"
 				variant="text"
 				@click="emit('remove', peer)"
 			/>
@@ -250,6 +300,14 @@
 			display: flex;
 			flex-wrap: wrap;
 			gap: 6px;
+		}
+
+		// The action row carries a select now, so it wraps rather than squeezing the
+		// buttons off the card on a narrow screen.
+		.v-card-actions {
+			flex-wrap: wrap;
+			gap: 4px;
+			row-gap: 8px;
 		}
 	}
 </style>

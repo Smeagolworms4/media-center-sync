@@ -45,9 +45,11 @@ import {
 /**
  * Other gateways.
  *
- * The three fixed paths — `identity`, `invites`, `accept` — are declared before the
- * parameterised ones, because Express matches in order and `identity` reaching
- * `:id` first would be read as a peer nobody has.
+ * The fixed paths — `identity`, `invites`, `accept`, `bans` — are declared before the
+ * parameterised ones, because Express matches in order and `identity` reaching `:id`
+ * first would be read as a peer nobody has. `bans` was written below `:id` once and
+ * answered 400 for a route that plainly exists: the identifier pipe rejected the word
+ * before the route it names was ever reached.
  */
 @ApiTags('peers')
 @ApiBearerAuth()
@@ -131,14 +133,6 @@ export class PeerController {
 		return this._peers.accept(body.invite, body.name);
 	}
 
-	@Get(':id')
-	@Granted(Right.PEER_READ)
-	@ApiOperation({ summary: 'One peer' })
-	@ApiOkResponse({ description: 'Peer' })
-	public read(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {
-		return this._peers.read(id);
-	}
-
 	@Get('bans')
 	@Granted(Right.PEER_READ)
 	@ApiOperation({
@@ -174,6 +168,14 @@ export class PeerController {
 	@ApiNoContentResponse()
 	public unban(@Param('fingerprint') fingerprint: string): Promise<void> {
 		return this._peers.unban(fingerprint);
+	}
+
+	@Get(':id')
+	@Granted(Right.PEER_READ)
+	@ApiOperation({ summary: 'One peer' })
+	@ApiOkResponse({ description: 'Peer' })
+	public read(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {
+		return this._peers.read(id);
 	}
 
 	@Patch(':id')

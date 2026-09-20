@@ -189,6 +189,7 @@
 		"category_alone": "categoria por si só",
 		"category_unknown": "As categorias ainda não foram lidas.",
 		"reported_name": "O serviço chama-lhe “{name}”.",
+		"derived_hint": "Deduzido da raiz indicada no serviço. Escreva um caminho aqui apenas se esta biblioteca precisar de outro.",
 		"local_path": "Caminho local",
 		"local_path_hint": "Onde o gateway vê estes ficheiros. Tem de ser o mesmo diretório que o seu servidor multimédia lê.",
 		"reported_paths": "Indicados pelo serviço",
@@ -379,6 +380,12 @@
 			"token_hint_edit": "Deixe vazio para manter o token já registado.",
 			"priority": "Prioridade",
 			"priority_hint": "A mais baixa primeiro quando o mesmo elemento está disponível em vários serviços.",
+			"roots": "Onde estão os seus ficheiros, para nós",
+			"roots_hint": "O servidor indica os seus próprios caminhos. Indique a sua raiz uma única vez aqui e cada biblioteca deduz onde o gateway alcança os mesmos ficheiros, em vez de um caminho a escrever por biblioteca. Uma biblioteca que precise de outra coisa mantém o seu próprio caminho.",
+			"remote_root": "Raiz, tal como o servidor a indica",
+			"remote_root_hint": "Como o servidor multimédia lhe chama, por exemplo /media",
+			"local_root": "O mesmo diretório, visto daqui",
+			"local_root_hint": "Onde este gateway o alcança, por exemplo /mnt/nas",
 			"auth_provider": "Iniciar sessão com este serviço",
 			"auth_provider_hint": "As suas contas passam a ser formas de entrar neste gateway."
 		},
@@ -487,10 +494,37 @@
 			"connect": "Ligar agora",
 			"rename": "Renomear",
 			"block": "Bloquear",
-			"unblock": "Desbloquear"
+			"unblock": "Desbloquear",
+			"remove": "Remover",
+			"ban": "Banir",
+			"unban": "Levantar o banimento"
 		},
 		"protocol": "Protocolo {version}",
-		"capabilities": "sabe fazer"
+		"capabilities": "sabe fazer",
+		"banned": "Banido. Essa chave não pode voltar sozinha.",
+		"unbanned": "Banimento levantado. Podem pedir de novo.",
+		"remove_ban": "Recusar também esta chave para sempre",
+		"remove_ban_hint": "Apenas remover permite que peçam de novo, o que costuma ser o desejado quando um amigo refaz a sua gateway.",
+		"ban_title": "Banir este par",
+		"ban_confirm": "{name} será desligado e a sua chave recusada — por pedido, por convite e através de um amigo.",
+		"ban_reason": "Motivo",
+		"ban_reason_hint": "Para quem ler esta lista daqui a um ano",
+		"unban_title": "Levantar o banimento",
+		"unban_confirm": "{name} poderá pedir de novo. Por si só não liga ninguém.",
+		"bans": {
+			"title": "Chaves recusadas",
+			"hint": "Um banimento sobrevive ao par de onde veio: a chave não pode voltar por pedido, por convite, nem através de um amigo."
+		},
+		"depth": {
+			"hops": "a um salto | a {count} saltos",
+			"hops_via": "a um salto, através de {peer} | a {count} saltos, através de {peer}"
+		},
+		"max_depth": {
+			"label": "Apresentações através deste par",
+			"default": "Predefinido ({count})",
+			"hops": "um salto | até {count} saltos",
+			"saved": "Guardado."
+		}
 	},
 	"share": {
 		"subtitle": "O que este gateway expõe, decidido biblioteca a biblioteca.",
@@ -984,7 +1018,9 @@
 			"rejected": "O par recusou a ligação.",
 			"awaiting_them": "Ainda não responderam, por isso não há nada para aprovar.",
 			"protocol_unsupported": "Este par fala uma versão do protocolo que este gateway não conhece.",
-			"method_unsupported": "Este par pediu algo que este gateway não implementa."
+			"method_unsupported": "Este par pediu algo que este gateway não implementa.",
+			"banned": "Esta impressão digital está na lista de banidos. Levante o banimento antes de ligar novamente.",
+			"ban_not_found": "Nenhum banimento corresponde a essa impressão digital."
 		},
 		"sync": {
 			"plan_not_found": "Este plano de sincronização já não existe.",
@@ -1007,7 +1043,8 @@
 			"public_url_invalid": "Introduza o endereço completo, com o esquema, por exemplo https://mcs.example.org.",
 			"peer_address_invalid": "Introduza um anfitrião e uma porta, por exemplo mcs.example.org:4210 — sem esquema.",
 			"target_path_invalid": "Introduza um caminho absoluto, por exemplo /media/incoming.",
-			"target_path_not_writable": "O gateway não consegue escrever nesta pasta."
+			"target_path_not_writable": "O gateway não consegue escrever nesta pasta.",
+			"pinned": "Esta definição é fixada pela instalação e não pode ser alterada aqui."
 		},
 		"user": {
 			"not_found": "Esta conta já não existe.",

@@ -13,6 +13,7 @@ import {
 	TransferTransport,
 	type MediaFileInfo,
 	type Settings,
+	ShareVisibility,
 } from '@mcs/shared';
 import { ConflictException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
@@ -42,6 +43,7 @@ import type { LibraryManager } from './library.manager';
 import { SyncManager } from './sync.manager';
 
 const SETTINGS: Settings = {
+	defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
 	placement: PlacementStrategy.BESIDE_EXISTING,
 	fixedPath: null,
 	naming: NamingScheme.SOURCE,
@@ -54,7 +56,7 @@ const SETTINGS: Settings = {
 	downloadRateLimit: 0,
 	uploadRateLimit: 0,
 	matchThreshold: 0.8,
-	allowFriendsOfFriends: false,
+	peerMaxDepth: 1,
 	allowSwarm: true,
 	rendezvousUrl: null,
 	instanceName: null,

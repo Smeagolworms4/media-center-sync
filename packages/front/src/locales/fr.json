@@ -189,6 +189,7 @@
 		"category_alone": "catégorie à elle seule",
 		"category_unknown": "Les catégories n'ont pas encore été lues.",
 		"reported_name": "Le service l'appelle « {name} ».",
+		"derived_hint": "Déduit de la racine indiquée sur le service. Ne saisissez un chemin ici que si cette bibliothèque en demande un autre.",
 		"local_path": "Chemin local",
 		"local_path_hint": "Là où la passerelle voit ces fichiers. Ce doit être le même répertoire que celui que lit votre serveur média.",
 		"reported_paths": "Signalé par le service",
@@ -379,6 +380,12 @@
 			"token_hint_edit": "Laissez vide pour conserver le jeton déjà enregistré.",
 			"priority": "Priorité",
 			"priority_hint": "La plus basse d'abord quand le même média est disponible sur plusieurs services.",
+			"roots": "Où sont ses fichiers, pour nous",
+			"roots_hint": "Le serveur annonce ses propres chemins. Indiquez sa racine une seule fois ici et chaque bibliothèque en déduit où cette passerelle atteint les mêmes fichiers — au lieu d'un chemin à saisir par bibliothèque. Une bibliothèque qui demande autre chose garde son propre chemin.",
+			"remote_root": "Racine, telle que le serveur l'annonce",
+			"remote_root_hint": "Le nom qu’en donne le serveur média, par exemple /media",
+			"local_root": "Le même répertoire, vu d’ici",
+			"local_root_hint": "Là où cette passerelle l’atteint, par exemple /mnt/nas",
 			"auth_provider": "Se connecter avec ce service",
 			"auth_provider_hint": "Ses comptes deviennent des moyens d'accès à cette passerelle."
 		},
@@ -487,10 +494,37 @@
 			"connect": "Connecter maintenant",
 			"rename": "Renommer",
 			"block": "Bloquer",
-			"unblock": "Débloquer"
+			"unblock": "Débloquer",
+			"remove": "Supprimer",
+			"ban": "Bannir",
+			"unban": "Lever le bannissement"
 		},
 		"protocol": "Protocole {version}",
-		"capabilities": "sait faire"
+		"capabilities": "sait faire",
+		"banned": "Banni. Cette clé ne peut pas revenir d'elle-même.",
+		"unbanned": "Bannissement levé. Ce pair peut redemander.",
+		"remove_ban": "Refuser aussi cette clé définitivement",
+		"remove_ban_hint": "Une simple suppression laisse ce pair redemander, ce qui est en général souhaitable quand un ami reconstruit sa passerelle.",
+		"ban_title": "Bannir ce pair",
+		"ban_confirm": "{name} sera délié et sa clé refusée — par demande, par invitation et via un ami.",
+		"ban_reason": "Motif",
+		"ban_reason_hint": "Pour qui relira cette liste dans un an",
+		"unban_title": "Lever le bannissement",
+		"unban_confirm": "{name} pourra redemander. Cela ne relie personne en soi.",
+		"bans": {
+			"title": "Clés refusées",
+			"hint": "Un bannissement survit au pair dont il vient : la clé ne peut revenir ni par demande, ni par invitation, ni via un ami."
+		},
+		"depth": {
+			"hops": "à un saut | à {count} sauts",
+			"hops_via": "à un saut, via {peer} | à {count} sauts, via {peer}"
+		},
+		"max_depth": {
+			"label": "Présentations via ce pair",
+			"default": "Par défaut ({count})",
+			"hops": "un saut | jusqu'à {count} sauts",
+			"saved": "Enregistré."
+		}
 	},
 	"share": {
 		"subtitle": "Ce que cette passerelle expose, décidé bibliothèque par bibliothèque.",
@@ -984,7 +1018,9 @@
 			"rejected": "Le pair a refusé le lien.",
 			"awaiting_them": "Ils n'ont pas encore répondu, il n'y a donc rien à approuver.",
 			"protocol_unsupported": "Ce pair parle une version du protocole que cette passerelle ne connaît pas.",
-			"method_unsupported": "Ce pair a demandé quelque chose que cette passerelle n'implémente pas."
+			"method_unsupported": "Ce pair a demandé quelque chose que cette passerelle n'implémente pas.",
+			"banned": "Cette empreinte est sur la liste des bannis. Levez le bannissement avant de relier ce pair.",
+			"ban_not_found": "Aucun bannissement ne correspond à cette empreinte."
 		},
 		"sync": {
 			"plan_not_found": "Ce plan de synchronisation n'existe plus.",
@@ -1007,7 +1043,8 @@
 			"public_url_invalid": "Saisissez l'adresse complète, protocole compris, par exemple https://mcs.example.org.",
 			"peer_address_invalid": "Saisissez un hôte et un port, par exemple mcs.example.org:4210 — sans protocole.",
 			"target_path_invalid": "Saisissez un chemin absolu, par exemple /media/incoming.",
-			"target_path_not_writable": "La passerelle ne peut pas écrire dans ce dossier."
+			"target_path_not_writable": "La passerelle ne peut pas écrire dans ce dossier.",
+			"pinned": "Ce réglage est fixé par le déploiement et ne peut pas être modifié ici."
 		},
 		"user": {
 			"not_found": "Ce compte n'existe plus.",

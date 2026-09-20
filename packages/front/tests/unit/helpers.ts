@@ -110,21 +110,38 @@ export const dialogStub = {
 	VDialog: { template: '<div class="dialog-stub"><slot /></div>' },
 };
 
+/**
+ * Statuses the Response constructor refuses to pair with a body, empty string or not.
+ *
+ * `new Response('', { status: 204 })` throws "Invalid response status code 204",
+ * which surfaces as a failure inside the helper rather than in the test — and the
+ * API really does answer 204 to a delete, so a test forced to stub 200 instead would
+ * be pinning a response shape the gateway never sends.
+ */
+const BODILESS_STATUSES = new Set([101, 103, 204, 205, 304]);
+
 /** A `fetch` that answers one queued response per call, in order. */
 export function stubFetch (
 	responses: { status?: number; body?: unknown; ok?: boolean }[],
 ): ReturnType<typeof vi.fn> {
 	const queue = [...responses];
-	const stub = vi.fn(() => {
-		const next = queue.shift() ?? { status: 200, body: null };
-		const status = next.status ?? 200;
-		return Promise.resolve(new Response(
-			next.body === undefined || next.body === null ? '' : JSON.stringify(next.body),
-			{ status, headers: { 'Content-Type': 'application/json' } },
-		));
-	});
+	const stub = vi.fn(() => Promise.resolve(answer(queue.shift() ?? { status: 200, body: null })));
 	globalThis.fetch = stub as unknown as typeof fetch;
 	return stub;
+}
+
+/** One stubbed answer, built the way the runtime allows for that status. */
+function answer (next: { status?: number; body?: unknown }): Response {
+	const status = next.status ?? 200;
+
+	if (BODILESS_STATUSES.has(status)) {
+		return new Response(null, { status });
+	}
+
+	return new Response(
+		next.body === undefined || next.body === null ? '' : JSON.stringify(next.body),
+		{ status, headers: { 'Content-Type': 'application/json' } },
+	);
 }
 
 /**
@@ -190,12 +207,8 @@ export function stubFetchRoutes (
 	const stub = vi.fn((input: any) => {
 		const url = String(typeof input === 'string' ? input : input?.url ?? '');
 		const key = keys.find(one => url.includes(one));
-		const answer = key ? routeMap[key] : { status: 404, body: { message: 'error.general' } };
-		const status = answer.status ?? 200;
-		return Promise.resolve(new Response(
-			answer.body === undefined || answer.body === null ? '' : JSON.stringify(answer.body),
-			{ status, headers: { 'Content-Type': 'application/json' } },
-		));
+		const route = key ? routeMap[key] : { status: 404, body: { message: 'error.general' } };
+		return Promise.resolve(answer(route));
 	});
 	globalThis.fetch = stub as unknown as typeof fetch;
 	return stub;

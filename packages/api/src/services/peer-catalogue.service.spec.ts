@@ -180,6 +180,9 @@ describe('PeerCatalogueService', () => {
 
 	describe('findHolders', () => {
 		function holder(overrides: Partial<ContentHolder> = {}): ContentHolder {
+			// Zero hops, because a peer answering measures from itself: this is the row
+			// a friend sends about a file it holds. Anything it relays carries a larger
+			// distance, and the service adds our own hop on top of whichever it is.
 			return {
 				peerId: '',
 				peerName: '',
@@ -187,6 +190,7 @@ describe('PeerCatalogueService', () => {
 				externalId: 'ext-1',
 				size: 100,
 				trust: PeerTrust.FRIEND,
+				depth: 0,
 				viaPeerId: null,
 				...overrides,
 			};
@@ -195,12 +199,15 @@ describe('PeerCatalogueService', () => {
 		it('marks a peer reporting its own holdings as a friend', async () => {
 			links.request.mockResolvedValue({ holders: [holder()] });
 
-			const holders = await service.findHolders('q1-abc', [peer()], {
-				allowFriendsOfFriends: false,
-			});
+			const holders = await service.findHolders('q1-abc', [peer()], { maxDepth: 1 });
 
 			expect(holders).toEqual([
-				expect.objectContaining({ peerId: 'peer-1', peerName: 'Sam', trust: PeerTrust.FRIEND }),
+				expect.objectContaining({
+					peerId: 'peer-1',
+					peerName: 'Sam',
+					trust: PeerTrust.FRIEND,
+					depth: 1,
+				}),
 			]);
 		});
 
@@ -208,50 +215,69 @@ describe('PeerCatalogueService', () => {
 			// Taking the far end's word for the trust level would let one peer promote an
 			// arbitrary machine to friend.
 			links.request.mockResolvedValue({
-				holders: [holder({ peerId: 'stranger', peerName: 'Alex', trust: PeerTrust.FRIEND })],
+				holders: [
+					holder({
+						peerId: 'stranger',
+						peerName: 'Alex',
+						trust: PeerTrust.FRIEND,
+						depth: 1,
+					}),
+				],
 			});
 
-			const holders = await service.findHolders('q1-abc', [peer()], {
-				allowFriendsOfFriends: true,
-			});
+			const holders = await service.findHolders('q1-abc', [peer()], { maxDepth: 2 });
 
 			expect(holders[0]).toMatchObject({
 				peerId: 'stranger',
 				trust: PeerTrust.FRIEND_OF_FRIEND,
+				depth: 2,
 				viaPeerId: 'peer-1',
 			});
 		});
 
-		it('drops friends of friends when the setting says no', async () => {
+		it('drops holders further away than the ceiling allows', async () => {
+			// The budget was a request. A peer that answers with more than was asked for
+			// must not be able to widen our circle by doing so.
 			links.request.mockResolvedValue({
-				holders: [holder(), holder({ peerId: 'stranger', peerName: 'Alex' })],
+				holders: [holder(), holder({ peerId: 'stranger', peerName: 'Alex', depth: 1 })],
 			});
 
-			const holders = await service.findHolders('q1-abc', [peer()], {
-				allowFriendsOfFriends: false,
-			});
+			const holders = await service.findHolders('q1-abc', [peer()], { maxDepth: 1 });
 
 			expect(holders.map((entry) => entry.peerId)).toEqual(['peer-1']);
 		});
 
-		it('asks for a second hop only when it is allowed', async () => {
+		it('asks each friend for the budget left behind them', async () => {
 			links.request.mockResolvedValue({ holders: [] });
 
-			await service.findHolders('q1-abc', [peer()], { allowFriendsOfFriends: true });
+			await service.findHolders('q1-abc', [peer()], { maxDepth: 3 });
 
 			expect(links.request).toHaveBeenCalledWith(
 				'peer-1',
 				'catalogue.holders',
-				expect.objectContaining({ depth: 1 }),
+				expect.objectContaining({ depth: 2 }),
+			);
+		});
+
+		it('prefers a peer’s own ceiling over the gateway one', async () => {
+			// The per-peer override is the whole point: one friend runs a gateway for a
+			// household and another for a club, and widening the first must not widen
+			// the second.
+			links.request.mockResolvedValue({ holders: [] });
+
+			await service.findHolders('q1-abc', [peer({ maxDepth: 1 })], { maxDepth: 3 });
+
+			expect(links.request).toHaveBeenCalledWith(
+				'peer-1',
+				'catalogue.holders',
+				expect.objectContaining({ depth: 0 }),
 			);
 		});
 
 		it('does not ask a peer we have no link to', async () => {
 			links.isLinked.mockReturnValue(false);
 
-			expect(
-				await service.findHolders('q1-abc', [peer()], { allowFriendsOfFriends: true }),
-			).toEqual([]);
+			expect(await service.findHolders('q1-abc', [peer()], { maxDepth: 2 })).toEqual([]);
 			expect(links.request).not.toHaveBeenCalled();
 		});
 
@@ -259,13 +285,13 @@ describe('PeerCatalogueService', () => {
 			// Two entries would open two connections to one machine and count its
 			// bandwidth twice when picking sources.
 			links.request.mockResolvedValue({
-				holders: [holder({ peerId: 'stranger', peerName: 'Alex' })],
+				holders: [holder({ peerId: 'stranger', peerName: 'Alex', depth: 1 })],
 			});
 
 			const holders = await service.findHolders(
 				'q1-abc',
 				[peer(), peer({ id: 'peer-2', name: 'Kim' })],
-				{ allowFriendsOfFriends: true },
+				{ maxDepth: 2 },
 			);
 
 			expect(holders.filter((entry) => entry.peerId === 'stranger')).toHaveLength(1);
@@ -274,14 +300,14 @@ describe('PeerCatalogueService', () => {
 		it('puts friends before friends of friends', async () => {
 			links.request.mockImplementation(async (peerId: string) =>
 				peerId === 'peer-1'
-					? { holders: [holder({ peerId: 'stranger', peerName: 'Alex' })] }
+					? { holders: [holder({ peerId: 'stranger', peerName: 'Alex', depth: 1 })] }
 					: { holders: [holder()] },
 			);
 
 			const holders = await service.findHolders(
 				'q1-abc',
 				[peer(), peer({ id: 'peer-2', name: 'Kim' })],
-				{ allowFriendsOfFriends: true },
+				{ maxDepth: 2 },
 			);
 
 			expect(holders[0].trust).toBe(PeerTrust.FRIEND);
@@ -289,7 +315,7 @@ describe('PeerCatalogueService', () => {
 
 		it('never asks a friend of a friend directly', async () => {
 			await service.findHolders('q1-abc', [peer({ trust: PeerTrust.FRIEND_OF_FRIEND })], {
-				allowFriendsOfFriends: true,
+				maxDepth: 2,
 			});
 
 			expect(links.request).not.toHaveBeenCalled();

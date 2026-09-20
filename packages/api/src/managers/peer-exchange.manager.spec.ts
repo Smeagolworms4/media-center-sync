@@ -85,7 +85,7 @@ interface Fakes {
 }
 
 const build = (
-	world: { items?: MediaItem[]; policies?: CataloguePolicy[] } = {},
+	world: { items?: MediaItem[]; policies?: CataloguePolicy[]; peerMaxDepth?: number } = {},
 ): { manager: PeerExchangeManager; fakes: Fakes } => {
 	const items = world.items ?? [item()];
 	const fakes: Fakes = {
@@ -127,7 +127,9 @@ const build = (
 			get: jest.fn(() => ({ openStream: fakes.openStream, getItem: fakes.getItem })),
 		} as unknown as HandlerRegistry,
 		{
-			get: jest.fn().mockResolvedValue({ allowFriendsOfFriends: false }),
+			// One hop by default, so a test that says nothing about depth still describes
+			// a gateway that relays nothing on somebody else's behalf.
+			get: jest.fn().mockResolvedValue({ peerMaxDepth: world.peerMaxDepth ?? 1 }),
 		} as unknown as SettingsService,
 		// The real bucket, uncapped: the throttling belongs to its own test, and a fake
 		// here would let the serving path stop paying for what it sends without
@@ -243,12 +245,27 @@ describe('PeerExchangeManager', () => {
 			});
 		});
 
-		it('keeps friends of friends out when the setting says so', async () => {
+		it('keeps friends of friends out when our ceiling is one hop', async () => {
+			// Asked for two hops and refused: our limit bounds what we relay, not only
+			// what we accept, or a peer could spend our friends' connections walking a
+			// network we decided not to walk.
 			const { manager, fakes } = build();
 
-			await manager.announce('peer-1', 'v1:abc:1048576');
+			await manager.announce('peer-1', 'v1:abc:1048576', 2);
 
 			expect(fakes.catalogue.findHolders).not.toHaveBeenCalled();
+		});
+
+		it('relays no further than the budget left after our own hop', async () => {
+			const { manager, fakes } = build({ peerMaxDepth: 3 });
+
+			await manager.announce('peer-1', 'v1:abc:1048576', 5);
+
+			expect(fakes.catalogue.findHolders).toHaveBeenCalledWith(
+				'v1:abc:1048576',
+				expect.anything(),
+				{ maxDepth: 2 },
+			);
 		});
 	});
 

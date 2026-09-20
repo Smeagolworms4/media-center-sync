@@ -893,7 +893,7 @@ describe('pages/Settings', () => {
 		downloadRateLimit: 0,
 		uploadRateLimit: 0,
 		matchThreshold: 0.8,
-		allowFriendsOfFriends: true,
+		peerMaxDepth: 3,
 		allowSwarm: true,
 		rendezvousUrl: null,
 		publicUrl: null,

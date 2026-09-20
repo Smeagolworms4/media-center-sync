@@ -274,7 +274,7 @@ const settings = {
 	downloadRateLimit: 1024,
 	uploadRateLimit: 0,
 	matchThreshold: 0.8,
-	allowFriendsOfFriends: true,
+	peerMaxDepth: 3,
 	allowSwarm: true,
 	rendezvousUrl: 'https://rendezvous.example.org',
 	transferHistoryDays: 30,

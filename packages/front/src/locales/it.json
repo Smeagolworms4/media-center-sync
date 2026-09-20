@@ -189,6 +189,7 @@
 		"category_alone": "categoria a sé",
 		"category_unknown": "Le categorie non sono ancora state lette.",
 		"reported_name": "Il servizio la chiama «{name}».",
+		"derived_hint": "Ricavato dalla radice indicata sul servizio. Scrivi un percorso qui solo se questa libreria ne richiede un altro.",
 		"local_path": "Percorso locale",
 		"local_path_hint": "Dove il gateway vede questi file. Deve essere la stessa cartella che legge il tuo server multimediale.",
 		"reported_paths": "Segnalati dal servizio",
@@ -379,6 +380,12 @@
 			"token_hint_edit": "Lascia vuoto per conservare il token già registrato.",
 			"priority": "Priorità",
 			"priority_hint": "Dal più basso, quando lo stesso media è disponibile da più servizi.",
+			"roots": "Dove sono i suoi file, per noi",
+			"roots_hint": "Il server segnala i propri percorsi. Indica la sua radice una sola volta qui e ogni libreria ricava da sé dove il gateway raggiunge gli stessi file, invece di un percorso da scrivere per ogni libreria. Una libreria che ha bisogno d’altro conserva il proprio percorso.",
+			"remote_root": "Radice, come la segnala il server",
+			"remote_root_hint": "Come la chiama il server multimediale, ad esempio /media",
+			"local_root": "La stessa cartella, vista da qui",
+			"local_root_hint": "Dove il gateway la raggiunge, ad esempio /mnt/nas",
 			"auth_provider": "Accedi con questo servizio",
 			"auth_provider_hint": "I suoi account diventano vie d'accesso a questo gateway."
 		},
@@ -487,10 +494,37 @@
 			"connect": "Connetti ora",
 			"rename": "Rinomina",
 			"block": "Blocca",
-			"unblock": "Sblocca"
+			"unblock": "Sblocca",
+			"remove": "Rimuovi",
+			"ban": "Blocca",
+			"unban": "Rimuovi il blocco"
 		},
 		"protocol": "Protocollo {version}",
-		"capabilities": "sa fare"
+		"capabilities": "sa fare",
+		"banned": "Bloccato. Quella chiave non può tornare da sola.",
+		"unbanned": "Blocco rimosso. Possono richiedere di nuovo.",
+		"remove_ban": "Rifiuta anche questa chiave per sempre",
+		"remove_ban_hint": "La sola rimozione permette di richiedere di nuovo, che di solito è ciò che si vuole quando un amico ricostruisce il proprio gateway.",
+		"ban_title": "Blocca questo peer",
+		"ban_confirm": "{name} sarà scollegato e la sua chiave rifiutata: per richiesta, per invito e tramite un amico.",
+		"ban_reason": "Motivo",
+		"ban_reason_hint": "Per chi leggerà questo elenco fra un anno",
+		"unban_title": "Rimuovi il blocco",
+		"unban_confirm": "{name} potrà richiedere di nuovo. Di per sé non collega nessuno.",
+		"bans": {
+			"title": "Chiavi rifiutate",
+			"hint": "Un blocco sopravvive al peer da cui proviene: la chiave non può tornare né per richiesta, né per invito, né tramite un amico."
+		},
+		"depth": {
+			"hops": "a un salto | a {count} salti",
+			"hops_via": "a un salto, tramite {peer} | a {count} salti, tramite {peer}"
+		},
+		"max_depth": {
+			"label": "Presentazioni tramite questo peer",
+			"default": "Predefinito ({count})",
+			"hops": "un salto | fino a {count} salti",
+			"saved": "Salvato."
+		}
 	},
 	"share": {
 		"subtitle": "Ciò che questo gateway espone, deciso una libreria alla volta.",
@@ -984,7 +1018,9 @@
 			"rejected": "Il peer ha rifiutato il collegamento.",
 			"awaiting_them": "Non hanno ancora risposto, quindi non c'è nulla da approvare.",
 			"protocol_unsupported": "Questo peer parla una versione del protocollo che questo gateway non conosce.",
-			"method_unsupported": "Questo peer ha chiesto qualcosa che questo gateway non implementa."
+			"method_unsupported": "Questo peer ha chiesto qualcosa che questo gateway non implementa.",
+			"banned": "Questa impronta è nell'elenco dei bloccati. Rimuovi il blocco prima di collegarti di nuovo.",
+			"ban_not_found": "Nessun blocco corrisponde a questa impronta."
 		},
 		"sync": {
 			"plan_not_found": "Questo piano di sincronizzazione non esiste più.",
@@ -1007,7 +1043,8 @@
 			"public_url_invalid": "Inserisci l'indirizzo completo, schema compreso, ad esempio https://mcs.example.org.",
 			"peer_address_invalid": "Inserisci un host e una porta, ad esempio mcs.example.org:4210 — senza schema.",
 			"target_path_invalid": "Inserisci un percorso assoluto, ad esempio /media/incoming.",
-			"target_path_not_writable": "Il gateway non può scrivere in questa cartella."
+			"target_path_not_writable": "Il gateway non può scrivere in questa cartella.",
+			"pinned": "Questa impostazione è fissata dall'installazione e non può essere modificata qui."
 		},
 		"user": {
 			"not_found": "Questo account non esiste più.",

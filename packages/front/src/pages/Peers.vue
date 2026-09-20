@@ -1,17 +1,19 @@
 <script lang="ts" setup>
-	import type { Peer } from '@mcs/shared';
-	import { PeerDirection, PeerStatus } from '@mcs/shared';
+	import type { BannedPeer, Peer } from '@mcs/shared';
+	import { DEFAULT_PEER_MAX_DEPTH, PeerDirection, PeerStatus } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import CopyField from '@/components/common/CopyField.vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
+	import RelativeDate from '@/components/common/RelativeDate.vue';
 	import Confirm from '@/components/Confirm.vue';
 	import InviteDialog from '@/components/peer/InviteDialog.vue';
 	import PeerCard from '@/components/peer/PeerCard.vue';
 	import Window from '@/components/Window.vue';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { usePeersStore } from '@/stores/peers';
+	import { useSettingsStore } from '@/stores/settings';
 
 	defineOptions({ name: 'PeersPage' });
 
@@ -25,6 +27,7 @@
 	 * slow.
 	 */
 	const peersStore = usePeersStore();
+	const settingsStore = useSettingsStore();
 	const { notify, tryCallback } = useNotifier();
 
 	const failed = ref(false);
@@ -34,13 +37,44 @@
 	const renameBusy = ref(false);
 	const removing = ref<Peer | null>(null);
 	const removeBusy = ref(false);
+	/**
+	 * Whether the removal also refuses the key for good.
+	 *
+	 * Offered on the removal rather than as a separate action, because that is where
+	 * the decision is made: somebody ejecting a peer is deciding whether they may come
+	 * back. It defaults to off — a friend who rebuilt their gateway should be able to
+	 * ask again.
+	 */
+	const removeBan = ref(false);
+	const removeReason = ref('');
+	const banning = ref<Peer | null>(null);
+	const banBusy = ref(false);
+	const banReason = ref('');
+	const depthBusy = ref<string | null>(null);
+	const unbanning = ref<BannedPeer | null>(null);
+	const unbanBusy = ref(false);
+
+	/**
+	 * The gateway ceiling, so each row can say what its "default" option resolves to.
+	 *
+	 * Falls back to the shipped default rather than to nothing: this page is readable
+	 * by somebody who may not be allowed to read the settings at all, and a row
+	 * labelled "Gateway default ()" is worse than one naming the value it almost
+	 * certainly is.
+	 */
+	const ceiling = computed(() => settingsStore.settings?.peerMaxDepth ?? DEFAULT_PEER_MAX_DEPTH);
 
 	async function load (): Promise<void> {
 		failed.value = false;
 		try {
 			await Promise.all([
 				peersStore.load(),
+				// Each of these is useful on its own, and none of them is worth failing
+				// the page for: the ban list and the ceiling are context around the
+				// peers, not the peers themselves.
 				peersStore.loadIdentity().catch(() => undefined),
+				peersStore.loadBans().catch(() => undefined),
+				settingsStore.load().catch(() => undefined),
 			]);
 		} catch {
 			failed.value = true;
@@ -106,17 +140,70 @@
 		}
 	});
 
+	function startRemove (peer: Peer): void {
+		removing.value = peer;
+		removeBan.value = false;
+		removeReason.value = '';
+	}
+
 	const confirmRemove = tryCallback(async () => {
 		if (!removing.value) {
 			return;
 		}
 		removeBusy.value = true;
 		try {
-			await peersStore.remove(removing.value.id);
+			const banned = removeBan.value;
+			await peersStore.remove(removing.value.id, {
+				ban: banned,
+				reason: banned ? removeReason.value : undefined,
+			});
 			removing.value = null;
-			void notify('peer.removed');
+			void notify(banned ? 'peer.banned' : 'peer.removed');
 		} finally {
 			removeBusy.value = false;
+		}
+	});
+
+	function startBan (peer: Peer): void {
+		banning.value = peer;
+		banReason.value = '';
+	}
+
+	const confirmBan = tryCallback(async () => {
+		if (!banning.value) {
+			return;
+		}
+		banBusy.value = true;
+		try {
+			await peersStore.ban(banning.value.id, banReason.value || undefined);
+			banning.value = null;
+			void notify('peer.banned');
+		} finally {
+			banBusy.value = false;
+		}
+	});
+
+	const confirmUnban = tryCallback(async () => {
+		if (!unbanning.value) {
+			return;
+		}
+		unbanBusy.value = true;
+		try {
+			await peersStore.unban(unbanning.value.fingerprint);
+			unbanning.value = null;
+			void notify('peer.unbanned');
+		} finally {
+			unbanBusy.value = false;
+		}
+	});
+
+	const setMaxDepth = tryCallback(async (peer: Peer, maxDepth: number | null) => {
+		depthBusy.value = peer.id;
+		try {
+			await peersStore.setMaxDepth(peer.id, maxDepth);
+			void notify('peer.max_depth.saved');
+		} finally {
+			depthBusy.value = null;
 		}
 	});
 
@@ -221,17 +308,62 @@
 					md="6"
 				>
 					<PeerCard
+						:ceiling="ceiling"
 						:peer="peer"
+						:saving-depth="depthBusy === peer.id"
 						@approve="approve"
+						@ban="startBan"
 						@block="block"
 						@connect="connect"
-						@remove="removing = $event"
+						@max-depth="setMaxDepth"
+						@remove="startRemove"
 						@rename="startRename"
 						@unblock="unblock"
 					/>
 				</v-col>
 			</v-row>
 		</template>
+
+		<!--
+			Shown only when there is something on it. A permanently visible empty list
+			of bans is a screen telling somebody about a decision they have never had
+			to make.
+		-->
+		<v-card v-if="peersStore.bans.length > 0" class="peers_bans mt-6" data-test="peer-bans">
+			<v-card-title class="text-subtitle-1">
+				<v-icon class="mr-2" icon="mdi-cancel" size="small" />
+				{{ $t('peer.bans.title') }}
+			</v-card-title>
+
+			<v-card-subtitle class="pb-2">{{ $t('peer.bans.hint') }}</v-card-subtitle>
+
+			<v-list density="compact">
+				<v-list-item
+					v-for="ban of peersStore.bans"
+					:key="ban.fingerprint"
+					data-test="peer-ban-row"
+				>
+					<v-list-item-title>{{ ban.name || ban.fingerprint }}</v-list-item-title>
+
+					<v-list-item-subtitle class="text-break-anywhere">
+						<span v-if="ban.name">{{ ban.fingerprint }} · </span>
+						<template v-if="ban.reason">{{ ban.reason }} · </template>
+						<RelativeDate :date="ban.bannedAt" />
+					</v-list-item-subtitle>
+
+					<template #append>
+						<v-btn
+							data-test="peer-unban"
+							size="small"
+							variant="text"
+							@click="unbanning = ban"
+						>
+							{{ $t('peer.action.unban') }}
+						</v-btn>
+					</template>
+				</v-list-item>
+			</v-list>
+		</v-card>
 
 		<InviteDialog v-model="inviteOpen" @linked="onLinked" />
 
@@ -261,10 +393,65 @@
 		<Confirm
 			:loading="removeBusy"
 			:model-value="removing !== null"
-			:text="$t('peer.remove_confirm', { name: removing?.name ?? '' })"
 			:title="$t('peer.remove_title')"
 			@cancel="removing = null"
 			@confirm="confirmRemove"
+		>
+			<p class="mb-3">{{ $t('peer.remove_confirm', { name: removing?.name ?? '' }) }}</p>
+
+			<!--
+				The ban is offered here rather than as a second action somebody has to
+				know to take. Removing used to be the weaker of the two ejections: it
+				deleted the row, and with it the only thing refusing them.
+			-->
+			<v-checkbox
+				v-model="removeBan"
+				data-test="peer-remove-ban"
+				density="compact"
+				hide-details
+				:label="$t('peer.remove_ban')"
+			/>
+
+			<p class="text-caption text-medium-emphasis mb-2">{{ $t('peer.remove_ban_hint') }}</p>
+
+			<v-text-field
+				v-if="removeBan"
+				v-model="removeReason"
+				data-test="peer-remove-reason"
+				density="compact"
+				hide-details
+				:label="$t('peer.ban_reason')"
+				:placeholder="$t('peer.ban_reason_hint')"
+			/>
+		</Confirm>
+
+		<Confirm
+			confirm-color="error"
+			:loading="banBusy"
+			:model-value="banning !== null"
+			:title="$t('peer.ban_title')"
+			@cancel="banning = null"
+			@confirm="confirmBan"
+		>
+			<p class="mb-3">{{ $t('peer.ban_confirm', { name: banning?.name ?? '' }) }}</p>
+
+			<v-text-field
+				v-model="banReason"
+				data-test="peer-ban-reason"
+				density="compact"
+				hide-details
+				:label="$t('peer.ban_reason')"
+				:placeholder="$t('peer.ban_reason_hint')"
+			/>
+		</Confirm>
+
+		<Confirm
+			:loading="unbanBusy"
+			:model-value="unbanning !== null"
+			:text="$t('peer.unban_confirm', { name: unbanning?.name || unbanning?.fingerprint || '' })"
+			:title="$t('peer.unban_title')"
+			@cancel="unbanning = null"
+			@confirm="confirmUnban"
 		/>
 	</div>
 </template>
