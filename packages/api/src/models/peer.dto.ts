@@ -77,25 +77,21 @@ export class RenamePeerDto {
 }
 
 /**
- * Unlink, with the option of refusing the key for good.
+ * Forbid a peer from reading anything of ours, or allow them again.
  *
- * The ban rides on the removal rather than being a separate call, because that is
- * where the decision is made: somebody ejecting a peer is deciding whether they may
- * come back, and asking them again on another screen is asking them to remember.
+ * Required rather than optional, and a flag rather than two verbs: this is one
+ * switch somebody flips back and forth, and a body that may leave it out would make
+ * `PATCH` with `{}` mean something — either "forbid" or "nothing", both of which are
+ * a screen guessing.
  */
-export class RemovePeerDto {
-	@ApiPropertyOptional({
-		description: 'Also refuse this fingerprint for good. Default false.',
+export class SetPeerReadingDto {
+	@ApiProperty({
+		description:
+			'True serves them nothing of ours. The link stays open: they stay connected on ' +
+			'their side and see an empty catalogue, and our access to their library is kept.',
 	})
-	@IsOptional()
 	@IsBoolean()
-	public ban?: boolean;
-
-	@ApiPropertyOptional({ description: 'Why, for whoever reads the ban list later.' })
-	@IsOptional()
-	@IsString()
-	@MaxLength(500)
-	public reason?: string;
+	public forbidden!: boolean;
 }
 
 export class BanPeerDto {

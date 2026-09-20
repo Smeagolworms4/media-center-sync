@@ -40,6 +40,12 @@ export interface MediaItemDigest {
 	ignored: boolean;
 }
 
+/** A parent a child points at and the index does not hold, with somewhere to file it. */
+export interface UnresolvedParent {
+	parentExternalId: string;
+	libraryId: string;
+}
+
 /** A group listing's filter, with the parent addressed as a set of items rather than one. */
 export interface GroupSeedQuery
 	extends Omit<MediaGroupQuery, 'parentId' | 'states' | 'libraryId' | 'origins'> {
@@ -75,6 +81,67 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		return externalIds.length === 0
 			? Promise.resolve([])
 			: this.find({ where: { serviceId, externalId: In(externalIds) } });
+	}
+
+	/**
+	 * Hang every unlinked child onto the parent it names, in one statement.
+	 *
+	 * The correlated subquery is the point: a library of forty thousand episodes would
+	 * otherwise be forty thousand lookups and forty thousand writes, once per scan,
+	 * for a repair that concerns a handful of rows. Written as SQL both engines accept
+	 * — a subquery in `SET` and the same one in `EXISTS`, with the outer row qualified
+	 * by the table name because neither dialect aliases the target of an `UPDATE`.
+	 *
+	 * The `EXISTS` guard is not redundant with the assignment. Without it every row
+	 * matching the filter is written, and the ones whose parent is still unknown get
+	 * `NULL` assigned over `NULL` — harmless to read, but it moves `updatedAt` on rows
+	 * nothing happened to and makes the returned count meaningless as a signal that
+	 * anything was repaired.
+	 *
+	 * Answers how many rows it linked, which is what the caller logs.
+	 */
+	public async linkKnownParents(serviceId: string): Promise<number> {
+		const parent =
+			'SELECT "parent"."id" FROM "media_items" "parent"'
+			+ ' WHERE "parent"."serviceId" = "media_items"."serviceId"'
+			+ ' AND "parent"."externalId" = "media_items"."parentExternalId"';
+
+		const result = await this.createQueryBuilder()
+			.update(MediaItem)
+			.set({ parentId: () => `(${parent})` })
+			.where('"media_items"."serviceId" = :serviceId', { serviceId })
+			.andWhere('"media_items"."parentId" IS NULL')
+			.andWhere('"media_items"."parentExternalId" IS NOT NULL')
+			.andWhere(`EXISTS (${parent})`)
+			.execute();
+
+		return result.affected ?? 0;
+	}
+
+	/**
+	 * The parents children name that this service never reported, once each.
+	 *
+	 * Grouped rather than listed: a series whose four hundred episodes all point at it
+	 * has to be asked for once, and the caller turns each row into exactly one request
+	 * to the media server. `MIN(libraryId)` picks a library to file the fetched parent
+	 * in — any child's will do, since a parent lives where its children do, and the
+	 * aggregate is only there because both engines refuse a bare column beside a
+	 * `GROUP BY`.
+	 */
+	public findUnresolvedParents(serviceId: string): Promise<UnresolvedParent[]> {
+		return this.createQueryBuilder('item')
+			.select('item.parentExternalId', 'parentExternalId')
+			.addSelect('MIN(item.libraryId)', 'libraryId')
+			.where('item.serviceId = :serviceId', { serviceId })
+			.andWhere('item.parentId IS NULL')
+			.andWhere('item.parentExternalId IS NOT NULL')
+			.andWhere(
+				'NOT EXISTS (SELECT 1 FROM "media_items" "parent"'
+				+ ' WHERE "parent"."serviceId" = item."serviceId"'
+				+ ' AND "parent"."externalId" = item."parentExternalId")',
+			)
+			.groupBy('item.parentExternalId')
+			.getRawMany<UnresolvedParent>();
 	}
 
 	/**

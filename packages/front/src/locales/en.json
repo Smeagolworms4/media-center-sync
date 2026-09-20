@@ -368,7 +368,7 @@
 		"last_probe": "Last checked",
 		"remove_title": "Remove this service?",
 		"remove_confirm": "{name} and everything indexed from it will be removed from the gateway. The files themselves are not touched.",
-		"scan_started": "A full scan has started. It reports its progress here.",
+		"scan_started": "A full scan has started. Its progress shows on the service’s row.",
 		"refresh_started": "A refresh has started.",
 		"status": {
 			"unknown": "Not checked",
@@ -434,10 +434,8 @@
 		"last_seen": "last seen",
 		"relay_hint": "This link goes through the rendezvous, whose bandwidth is shared by everyone using it.",
 		"remove_title": "Remove this peer?",
-		"remove_confirm": "The link with {name} will be dropped. Anything already pulled from them stays.",
-		"connecting": "Connecting to the peer…",
-		"blocked": "Peer blocked.",
-		"unblocked": "Peer unblocked.",
+		"remove_confirm": "The link with {name} will be dropped. Anything already pulled from them stays, and they may ask again — refusing their key for good is the ban.",
+		"connecting": "Trying to reach the peer now…",
 		"renamed": "Peer renamed.",
 		"removed": "Peer removed.",
 		"linked": "Peer linked.",
@@ -453,7 +451,7 @@
 		"direction": {
 			"incoming": "Waiting for you",
 			"outgoing": "Waiting for them",
-			"incoming_hint": "This gateway asked to link with yours. Accept it, or block them.",
+			"incoming_hint": "This gateway asked to link with yours. Accept it, or remove the request.",
 			"outgoing_hint": "Asked. Nothing to do here until they accept."
 		},
 		"add": {
@@ -468,8 +466,7 @@
 		"status": {
 			"pending": "Link pending",
 			"linked": "Linked",
-			"unreachable": "Unreachable",
-			"blocked": "Blocked"
+			"unreachable": "Unreachable"
 		},
 		"trust": {
 			"friend": "Friend",
@@ -488,7 +485,7 @@
 			"rendezvous": "Rendezvous",
 			"direct_address": "Direct address",
 			"direct_ok": "Direct connections are possible, so transfers do not go through the relay.",
-			"relay_only": "Only relayed links are possible. Everything works, but transfers share the rendezvous with everybody else using it. Making this gateway reachable — one port, the one the interface is on — would remove that."
+			"relay_only": "This gateway is not reachable from outside, so friends cannot dial it directly and every transfer goes through the rendezvous, whose bandwidth is shared between everyone using it at that moment. Forwarding the interface's port on your router fixes it. There is no second port to open: a peer link is a WebSocket upgrade on that same one."
 		},
 		"invite": {
 			"open": "Link a gateway",
@@ -512,20 +509,18 @@
 		},
 		"action": {
 			"approve": "Accept",
-			"connect": "Connect now",
+			"connect": "Try now",
 			"rename": "Rename",
-			"block": "Block",
-			"unblock": "Unblock",
 			"remove": "Remove",
 			"ban": "Ban",
-			"unban": "Lift the ban"
+			"unban": "Lift the ban",
+			"forbid_reading": "Forbid reading",
+			"allow_reading": "Allow reading"
 		},
 		"protocol": "Protocol {version}",
 		"capabilities": "can",
 		"banned": "Banned. That key cannot come back on its own.",
 		"unbanned": "Ban lifted. They may ask again.",
-		"remove_ban": "Also refuse this key for good",
-		"remove_ban_hint": "Removing alone lets them ask again, which is usually what you want when a friend rebuilds their gateway.",
 		"ban_title": "Ban this peer",
 		"ban_confirm": "{name} will be unlinked, and their key refused — by request, by invitation, and through a friend.",
 		"ban_reason": "Reason",
@@ -545,7 +540,17 @@
 			"default": "Default ({count})",
 			"hops": "one hop | up to {count} hops",
 			"saved": "Saved."
-		}
+		},
+		"connect_hint": "This gateway dials at startup and retries by itself after a drop, waiting longer each time. This tries again straight away.",
+		"unreachable_hint": "Not reachable at the moment. The gateway keeps trying on its own, waiting longer between attempts.",
+		"reading_forbidden_chip": "Sees nothing",
+		"reading_forbidden_hint": "Forbidden from reading: they stay linked and this gateway still reads from them, but everything they ask of it answers empty.",
+		"forbid_reading_title": "Forbid this peer from reading?",
+		"forbid_reading_confirm": "{name} will be served nothing of ours, whatever each library's sharing says. The link stays open on purpose: they remain connected on their side and find an empty catalogue, and this gateway can still read from theirs. One click puts it back.",
+		"allow_reading_title": "Allow this peer to read again?",
+		"allow_reading_confirm": "{name} will see what each library's sharing allows again, as before.",
+		"reading_forbidden": "This peer is now served nothing.",
+		"reading_allowed": "This peer may read again."
 	},
 	"notification": {
 		"title": "Notification channels",
@@ -710,6 +715,8 @@
 			"category_header": "Category",
 			"target_header": "Goes to",
 			"falls_back": "Falls back to {target}",
+			"merges": "Choosing a destination also files this category under that library’s name: in the library view the two are then shown as one category, not two.",
+			"merges_foreign": "These libraries are on somebody else’s server, so the name stays theirs and this category is still shown on its own. Only where new files land changes.",
 			"fallback_unset": "whatever library can take it — nothing is set above",
 			"rejected": {
 				"not_ours": "{library} on {service} cannot be offered: it is on somebody else's server, and this gateway cannot write there.",
@@ -723,16 +730,26 @@
 		"public_url_suggested": "Suggested from the address you are using right now ({origin}). Change it if your friends reach this gateway under another name.",
 		"default_target": "Fallback folder",
 		"default_target_help": "An absolute path this gateway can write to, for the case a library cannot express — a staging folder outside every library. Used only when neither a category nor the default destination library answers.",
-		"naming": "Naming",
-		"naming_value": {
-			"source": "Keep the source name",
-			"local": "Match our own library",
-			"standard": "Standard scheme"
-		},
-		"naming_help": {
-			"source": "The file arrives named as the source named it.",
-			"local": "Renamed the way your own library already names things.",
-			"standard": "Show (Year)/Season 01/Show - S01E02 - Title.ext"
+		"naming": {
+			"rule_title": "How a pulled file is named",
+			"rule_note": "Each step is tried in turn and the first one that can answer wins. The last line is a convention: it always answers, so nothing can come after it and it cannot be taken off.",
+			"convention": "Then, the convention",
+			"unused": "Not used:",
+			"move_up": "Try this one earlier",
+			"move_down": "Try this one later",
+			"drop": "Stop using this step",
+			"step": {
+				"source": "Keep the name the source used",
+				"local": "Follow what our own library already does",
+				"standard": "Spaced convention",
+				"dotted": "Dotted convention"
+			},
+			"step_help": {
+				"source": "Nothing is renamed. The folder above already tells both media servers what the file is, and every renaming scheme assumes something that is wrong on some library. Skipped only when the source sent no file name at all.",
+				"local": "An episode of the same show you already have is copied, tag for tag and separator for separator, so a library you have tidied stays tidy. Skipped when there is nothing of that show to copy.",
+				"standard": "Show - S01E02 - Title.ext",
+				"dotted": "Show.Year.S01E03.Title.ext — what scene releases and a great many Plex libraries use."
+			}
 		},
 		"pull_metadata": "Pull metadata too",
 		"pull_metadata_help": "Copies artwork, subtitles and .nfo files alongside the media.",

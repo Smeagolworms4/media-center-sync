@@ -237,6 +237,52 @@ describe('ShareManager', () => {
 		});
 	});
 
+	describe('a peer forbidden from reading', () => {
+		it('sees nothing, whatever the policies say', async () => {
+			// The gateway-wide answer, honoured here and nowhere else because this is the
+			// one funnel every peer-facing route goes through.
+			const { manager, fakes } = build();
+
+			fakes.policies.find.mockResolvedValue([policy({ visibility: ShareVisibility.FRIENDS_OF_FRIENDS })]);
+
+			await expect(manager.visiblePolicies(peer({ readingForbidden: true }))).resolves.toEqual([]);
+		});
+
+		it('outranks an explicit allow naming them by identifier', async () => {
+			// A per-library list cannot express "this person sees nothing of mine", which
+			// is exactly why this sits above `deniedPeerIds` rather than beside it.
+			const { manager, fakes } = build();
+
+			fakes.policies.find.mockResolvedValue([
+				policy({ visibility: ShareVisibility.FRIENDS, allowedPeerIds: ['peer-1'] }),
+			]);
+
+			await expect(manager.visiblePolicies(peer({ readingForbidden: true }))).resolves.toEqual([]);
+		});
+
+		it('is reported as seeing nothing by the audit too', async () => {
+			// The audit promises to answer the question the peer routes answer. Two
+			// answers to one question is how somebody reads a screen saying a peer sees
+			// three libraries while that peer is served none.
+			const { manager, fakes } = build();
+
+			fakes.policies.find.mockResolvedValue([policy()]);
+			fakes.peers.findOne.mockResolvedValue(peer({ readingForbidden: true }));
+
+			await expect(manager.audit('peer-1')).resolves.toMatchObject({ libraries: [] });
+		});
+
+		it('sees everything again the moment the flag comes off', async () => {
+			const { manager, fakes } = build();
+
+			fakes.policies.find.mockResolvedValue([policy()]);
+
+			await expect(manager.visiblePolicies(peer({ readingForbidden: false }))).resolves.toEqual([
+				expect.objectContaining({ libraryId: 'library-1' }),
+			]);
+		});
+	});
+
 	describe('audit', () => {
 		it('names the libraries this peer really would see', async () => {
 			const { manager, fakes } = build();

@@ -19,6 +19,18 @@ export class LibraryRepository extends Repository<Library> {
 			: this.find({ where: { serviceId: In(serviceIds) }, order: { name: 'ASC' } });
 	}
 
+	/**
+	 * The rows behind a list of identifiers, in one query.
+	 *
+	 * For a caller that already knows which libraries it means — the merged category
+	 * it read a moment ago — and would otherwise ask for them one at a time.
+	 */
+	public findByIds(ids: string[]): Promise<Library[]> {
+		return ids.length === 0
+			? Promise.resolve([])
+			: this.find({ where: { id: In(ids) }, order: { name: 'ASC' } });
+	}
+
 	public findByExternalId(serviceId: string, externalId: string): Promise<Library | null> {
 		return this.findOne({ where: { serviceId, externalId } });
 	}

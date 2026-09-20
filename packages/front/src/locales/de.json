@@ -368,7 +368,7 @@
 		"last_probe": "Zuletzt geprüft",
 		"remove_title": "Diesen Dienst entfernen?",
 		"remove_confirm": "{name} und alles daraus Indexierte wird aus dem Gateway entfernt. Die Dateien selbst bleiben unberührt.",
-		"scan_started": "Ein vollständiger Scan ist gestartet. Er meldet seinen Fortschritt hier.",
+		"scan_started": "Ein vollständiger Scan wurde gestartet. Der Fortschritt erscheint in der Zeile des Dienstes.",
 		"refresh_started": "Eine Aktualisierung ist gestartet.",
 		"status": {
 			"unknown": "Nicht geprüft",
@@ -434,10 +434,8 @@
 		"last_seen": "zuletzt gesehen",
 		"relay_hint": "Diese Verbindung läuft über das Rendezvous, dessen Bandbreite sich alle teilen, die es nutzen.",
 		"remove_title": "Diesen Peer entfernen?",
-		"remove_confirm": "Die Verbindung mit {name} wird gelöst. Was bereits von dort geholt wurde, bleibt.",
-		"connecting": "Verbindung zum Peer…",
-		"blocked": "Peer blockiert.",
-		"unblocked": "Peer entsperrt.",
+		"remove_confirm": "Die Verbindung mit {name} wird gelöst. Was bereits von dort geholt wurde, bleibt, und der Peer darf erneut anfragen — um seinen Schlüssel dauerhaft abzulehnen, sperren Sie ihn.",
+		"connecting": "Es wird jetzt versucht, den Peer zu erreichen…",
 		"renamed": "Peer umbenannt.",
 		"removed": "Peer entfernt.",
 		"linked": "Peer verbunden.",
@@ -453,7 +451,7 @@
 		"direction": {
 			"incoming": "Wartet auf Sie",
 			"outgoing": "Wartet auf die Gegenseite",
-			"incoming_hint": "Dieses Gateway möchte sich mit Ihrem verbinden. Nehmen Sie an, oder blockieren Sie es.",
+			"incoming_hint": "Dieses Gateway möchte sich mit Ihrem verbinden. Nehmen Sie an, oder entfernen Sie die Anfrage.",
 			"outgoing_hint": "Angefragt. Hier ist nichts zu tun, bis die Gegenseite annimmt."
 		},
 		"add": {
@@ -468,8 +466,7 @@
 		"status": {
 			"pending": "Verbindung ausstehend",
 			"linked": "Verbunden",
-			"unreachable": "Nicht erreichbar",
-			"blocked": "Blockiert"
+			"unreachable": "Nicht erreichbar"
 		},
 		"trust": {
 			"friend": "Freund",
@@ -488,7 +485,7 @@
 			"rendezvous": "Rendezvous",
 			"direct_address": "Direkte Adresse",
 			"direct_ok": "Direkte Verbindungen sind möglich, Übertragungen laufen also nicht über das Relay.",
-			"relay_only": "Möglich sind nur Verbindungen über das Relay. Alles funktioniert, aber Übertragungen teilen sich das Rendezvous mit allen anderen, die es nutzen. Dieses Gateway erreichbar zu machen — ein Port, derselbe wie der der Oberfläche — würde das beheben."
+			"relay_only": "Dieses Gateway ist von außen nicht erreichbar. Freunde können es deshalb nicht direkt anwählen, und jede Übertragung läuft über das Rendezvous, dessen Bandbreite sich alle teilen, die es gerade nutzen. Den Port der Oberfläche im Router weiterzuleiten behebt das. Einen zweiten Port gibt es nicht: Eine Peer-Verbindung ist ein WebSocket-Upgrade auf genau diesem Port."
 		},
 		"invite": {
 			"open": "Gateway verbinden",
@@ -512,20 +509,18 @@
 		},
 		"action": {
 			"approve": "Annehmen",
-			"connect": "Jetzt verbinden",
+			"connect": "Jetzt versuchen",
 			"rename": "Umbenennen",
-			"block": "Blockieren",
-			"unblock": "Entsperren",
 			"remove": "Entfernen",
 			"ban": "Sperren",
-			"unban": "Sperre aufheben"
+			"unban": "Sperre aufheben",
+			"forbid_reading": "Lesen verbieten",
+			"allow_reading": "Lesen erlauben"
 		},
 		"protocol": "Protokoll {version}",
 		"capabilities": "kann",
 		"banned": "Gesperrt. Dieser Schlüssel kann nicht von selbst zurückkehren.",
 		"unbanned": "Sperre aufgehoben. Sie dürfen erneut anfragen.",
-		"remove_ban": "Diesen Schlüssel dauerhaft ablehnen",
-		"remove_ban_hint": "Ein reines Entfernen lässt sie erneut anfragen — meist genau das, was man will, wenn ein Freund sein Gateway neu aufsetzt.",
 		"ban_title": "Diesen Peer sperren",
 		"ban_confirm": "{name} wird getrennt und der Schlüssel abgelehnt — bei Anfrage, bei Einladung und über einen Freund.",
 		"ban_reason": "Grund",
@@ -545,7 +540,17 @@
 			"default": "Standard ({count})",
 			"hops": "ein Schritt | bis zu {count} Schritte",
 			"saved": "Gespeichert."
-		}
+		},
+		"connect_hint": "Dieses Gateway verbindet sich beim Start und versucht es nach einem Abbruch von selbst erneut, mit immer längeren Pausen. Dies versucht es sofort.",
+		"unreachable_hint": "Derzeit nicht erreichbar. Das Gateway versucht es von selbst weiter und wartet dazwischen immer länger.",
+		"reading_forbidden_chip": "Sieht nichts",
+		"reading_forbidden_hint": "Lesen verboten: Die Verbindung bleibt, und dieses Gateway liest weiter aus seiner Bibliothek — aber alles, was er hier anfragt, wird leer beantwortet.",
+		"forbid_reading_title": "Diesem Peer das Lesen verbieten?",
+		"forbid_reading_confirm": "An {name} wird nichts mehr von uns ausgeliefert, unabhängig davon, was für die einzelnen Bibliotheken freigegeben ist. Die Verbindung bleibt absichtlich bestehen: Der Peer ist auf seiner Seite weiter verbunden und findet nur einen leeren Katalog, und dieses Gateway kann weiterhin aus seiner Bibliothek lesen. Ein Klick macht es rückgängig.",
+		"allow_reading_title": "Diesem Peer das Lesen wieder erlauben?",
+		"allow_reading_confirm": "{name} sieht wieder, was die Freigabe jeder Bibliothek erlaubt, wie zuvor.",
+		"reading_forbidden": "Dieser Peer bekommt jetzt nichts mehr.",
+		"reading_allowed": "Dieser Peer darf wieder lesen."
 	},
 	"notification": {
 		"title": "Benachrichtigungskanäle",
@@ -710,6 +715,8 @@
 			"category_header": "Kategorie",
 			"target_header": "Geht nach",
 			"falls_back": "Fällt zurück auf {target}",
+			"merges": "Ein Ziel zu wählen ordnet diese Kategorie auch dem Namen dieser Bibliothek zu: In der Bibliotheksansicht erscheinen beide danach als eine Kategorie und nicht als zwei.",
+			"merges_foreign": "Diese Bibliotheken liegen auf dem Server von jemand anderem, also behalten sie ihren Namen und diese Kategorie wird weiterhin für sich angezeigt. Es ändert sich nur, wohin neue Dateien gelangen.",
 			"fallback_unset": "irgendeine Bibliothek, die sie aufnehmen kann — oben ist nichts eingestellt",
 			"rejected": {
 				"not_ours": "{library} auf {service} kann nicht angeboten werden: Sie liegt auf dem Server einer anderen Person, und dieses Gateway kann dort nicht schreiben.",
@@ -723,16 +730,26 @@
 		"public_url_suggested": "Vorgeschlagen anhand der Adresse, die Sie gerade verwenden ({origin}). Ändern Sie sie, wenn Ihre Freunde dieses Gateway unter einem anderen Namen erreichen.",
 		"default_target": "Ausweichordner",
 		"default_target_help": "Ein absoluter Pfad, in den dieses Gateway schreiben kann — für den Fall, den eine Bibliothek nicht ausdrücken kann, etwa einen Zwischenordner außerhalb aller Bibliotheken. Wird nur benutzt, wenn weder eine Kategorie noch die Standard-Zielbibliothek antwortet.",
-		"naming": "Benennung",
-		"naming_value": {
-			"source": "Namen der Quelle behalten",
-			"local": "An unsere Bibliothek angleichen",
-			"standard": "Standardschema"
-		},
-		"naming_help": {
-			"source": "Die Datei kommt so an, wie die Quelle sie benannt hat.",
-			"local": "Umbenannt, wie Ihre eigene Bibliothek ohnehin benennt.",
-			"standard": "Serie (Jahr)/Staffel 01/Serie - S01E02 - Titel.ext"
+		"naming": {
+			"rule_title": "Wie eine geholte Datei benannt wird",
+			"rule_note": "Jeder Schritt wird der Reihe nach versucht, und der erste, der antworten kann, gewinnt. Die letzte Zeile ist eine Konvention: Sie antwortet immer, deshalb kann nichts nach ihr kommen und sie lässt sich nicht entfernen.",
+			"convention": "Dann die Konvention",
+			"unused": "Nicht verwendet:",
+			"move_up": "Früher versuchen",
+			"move_down": "Später versuchen",
+			"drop": "Diesen Schritt nicht mehr verwenden",
+			"step": {
+				"source": "Namen der Quelle behalten",
+				"local": "Dem folgen, was unsere eigene Bibliothek schon tut",
+				"standard": "Konvention mit Leerzeichen",
+				"dotted": "Konvention mit Punkten"
+			},
+			"step_help": {
+				"source": "Es wird nichts umbenannt. Der Ordner darüber sagt beiden Medienservern bereits, was die Datei ist, und jedes Umbenennungsschema nimmt etwas an, das in irgendeiner Bibliothek falsch ist. Wird nur übersprungen, wenn die Quelle gar keinen Dateinamen geschickt hat.",
+				"local": "Eine vorhandene Folge derselben Serie wird übernommen, Kennung für Kennung und Trennzeichen für Trennzeichen, damit eine aufgeräumte Bibliothek aufgeräumt bleibt. Wird übersprungen, wenn es von dieser Serie nichts zu übernehmen gibt.",
+				"standard": "Serie - S01E02 - Titel.ext",
+				"dotted": "Serie.Jahr.S01E03.Titel.ext — das, was Scene-Releases und sehr viele Plex-Bibliotheken verwenden."
+			}
 		},
 		"pull_metadata": "Metadaten mitholen",
 		"pull_metadata_help": "Kopiert Artwork, Untertitel und .nfo-Dateien neben das Medium.",

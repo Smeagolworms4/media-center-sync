@@ -79,6 +79,83 @@ describe('MediaItemRepository', () => {
 		await expect(items.findByExternalId('another-service', 'jellyfin-42')).resolves.toBeNull();
 	});
 
+	describe('reconciling parents', () => {
+		it('links every child that names a parent the index already holds', async () => {
+			const series = await anItem({ kind: MediaKind.SERIES, externalId: 'series-1' });
+			const season = await anItem({
+				kind: MediaKind.SEASON,
+				externalId: 'season-1',
+				parentExternalId: 'series-1',
+			});
+			const film = await anItem({ kind: MediaKind.MOVIE, externalId: 'film-1' });
+
+			await expect(items.linkKnownParents(service.id)).resolves.toBe(1);
+			await expect(items.findOne({ where: { id: season.id } })).resolves.toMatchObject({
+				parentId: series.id,
+			});
+			// A film names no parent and must not acquire one.
+			await expect(items.findOne({ where: { id: film.id } })).resolves.toMatchObject({
+				parentId: null,
+			});
+		});
+
+		it('writes nothing for a child whose parent is still unknown', async () => {
+			// The count is the signal a scan logs, so a statement that rewrote every
+			// candidate row with the null it already held would report a repair that
+			// never happened.
+			await anItem({ externalId: 'episode-1', parentExternalId: 'season-nobody-sent' });
+
+			await expect(items.linkKnownParents(service.id)).resolves.toBe(0);
+		});
+
+		it('never links across services, whatever the identifiers look like', async () => {
+			// Two media servers number their items from one, so `series-1` exists on
+			// both — and filing our season under a friend's show would be silent.
+			const services = new MediaServiceRepository(dataSource);
+			const other = await services.save(
+				services.create({
+					name: 'friend',
+					type: MediaServiceType.PLEX,
+					scope: MediaServiceScope.REMOTE,
+					baseUrl: 'http://friend.test',
+				}),
+			);
+
+			await anItem({ serviceId: other.id, kind: MediaKind.SERIES, externalId: 'series-1' });
+
+			const season = await anItem({ externalId: 'season-1', parentExternalId: 'series-1' });
+
+			await expect(items.linkKnownParents(service.id)).resolves.toBe(0);
+			await expect(items.findOne({ where: { id: season.id } })).resolves.toMatchObject({
+				parentId: null,
+			});
+		});
+
+		it('names each missing parent once, however many children point at it', async () => {
+			await anItem({ externalId: 'episode-1', parentExternalId: 'season-1' });
+			await anItem({ externalId: 'episode-2', parentExternalId: 'season-1' });
+			await anItem({ externalId: 'episode-3', parentExternalId: 'season-2' });
+			await anItem({ kind: MediaKind.SERIES, externalId: 'series-1' });
+
+			const missing = await items.findUnresolvedParents(service.id);
+
+			expect(missing.map((entry) => entry.parentExternalId).sort()).toEqual([
+				'season-1',
+				'season-2',
+			]);
+			expect(missing.every((entry) => entry.libraryId === library.id)).toBe(true);
+		});
+
+		it('says nothing is missing once the parents are there', async () => {
+			await anItem({ kind: MediaKind.SERIES, externalId: 'series-1' });
+			await anItem({ externalId: 'season-1', parentExternalId: 'series-1' });
+
+			await items.linkKnownParents(service.id);
+
+			await expect(items.findUnresolvedParents(service.id)).resolves.toEqual([]);
+		});
+	});
+
 	it('paginates a search and reports the total, not the page size', async () => {
 		for (let index = 0; index < 5; index += 1) {
 			await anItem({ title: `Title ${index}`, normalizedTitle: `title ${index}` });

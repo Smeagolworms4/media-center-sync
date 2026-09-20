@@ -38,9 +38,9 @@ export class NotificationChannels1758430000000 implements MigrationInterface {
 					{ name: 'events', type: 'text', isNullable: false, default: "'[]'" },
 					{ name: 'config', type: 'text', isNullable: false, default: "'{}'" },
 					{ name: 'lastError', type: 'varchar', length: '1024', isNullable: true },
-					{ name: 'lastSentAt', type: 'datetime', isNullable: true },
-					{ name: 'createdAt', type: 'datetime', default: 'CURRENT_TIMESTAMP' },
-					{ name: 'updatedAt', type: 'datetime', default: 'CURRENT_TIMESTAMP' },
+					{ name: 'lastSentAt', type: this._dateTime(queryRunner), isNullable: true },
+					{ name: 'createdAt', type: this._dateTime(queryRunner), default: 'CURRENT_TIMESTAMP' },
+					{ name: 'updatedAt', type: this._dateTime(queryRunner), default: 'CURRENT_TIMESTAMP' },
 				],
 			}),
 			true,
@@ -49,5 +49,16 @@ export class NotificationChannels1758430000000 implements MigrationInterface {
 
 	public async down(queryRunner: QueryRunner): Promise<void> {
 		await queryRunner.dropTable('notification_channels', true);
+	}
+
+	/**
+	 * `datetime` on SQLite, `timestamp` on PostgreSQL. The one type they disagree on.
+	 *
+	 * The compatibility shim in `postgres-compat.ts` translates `datetime` for columns
+	 * the entities declare, and it does not reach here: a `Table` passed to a query
+	 * runner carries the type as written, straight into the `CREATE TABLE`.
+	 */
+	private _dateTime(queryRunner: QueryRunner): string {
+		return queryRunner.connection.options.type === 'postgres' ? 'timestamp' : 'datetime';
 	}
 }

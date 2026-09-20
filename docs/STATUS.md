@@ -52,7 +52,7 @@ Three states are used:
 | Ordered sources, falling back to the configured priority | built |
 | Preview that runs the same planning code as the run | built |
 | Placement: beside the existing copy, a default library, a fixed path | built |
-| Naming: source, imitate the local library, standard | built |
+| Naming: an order — keep the source name, imitate the local library, a convention | built |
 | Artwork, subtitles and `.nfo` pulled alongside | built |
 | Jobs with counters, cancellable | built |
 

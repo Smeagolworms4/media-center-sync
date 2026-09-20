@@ -90,6 +90,7 @@ const peer = {
 	status: PeerStatus.LINKED,
 	direction: null,
 	trust: PeerTrust.FRIEND,
+	readingForbidden: false,
 	linkMode: null,
 	address: null,
 	viaPeerId: null,
@@ -181,13 +182,12 @@ describe('pages/Peers actions', () => {
 			body: { fingerprint: 'AB', name: 'me', rendezvous: 'wss://r', directAddress: '1.2.3.4:4210', directReachable: true },
 		},
 		'/api/peers/p1/connect': { body: peer },
-		'/api/peers/p1/unblock': { body: peer },
-		'/api/peers/p1/block': { body: { ...peer, status: PeerStatus.BLOCKED } },
+		'/api/peers/p1/reading': { body: { ...peer, readingForbidden: true } },
 		'/api/peers/p1': { body: { ...peer, name: 'Robert' } },
 		'/api/peers': { body: [peer] },
 	};
 
-	it('connects, blocks and unblocks the peer a card belongs to', async () => {
+	it('tries the link again for the peer a card belongs to', async () => {
 		const stub = stubFetchRoutes(routes);
 		const { wrapper } = mountWithApp(Peers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
@@ -196,15 +196,58 @@ describe('pages/Peers actions', () => {
 
 		await wrapper.find('[data-test="peer-connect"]').trigger('click');
 		await settle();
-		await wrapper.find('[data-test="peer-block"]').trigger('click');
-		await settle();
 
 		expect(called(stub, '/peers/p1/connect')).toBe(true);
-		expect(called(stub, '/peers/p1/block')).toBe(true);
+	});
 
-		await wrapper.find('[data-test="peer-unblock"]').trigger('click');
+	it('asks before forbidding a peer to read, then sends the flag', async () => {
+		// Confirmed rather than done on the click, because the consequence is
+		// counter-intuitive: the link is kept and the peer keeps talking to us.
+		const stub = stubFetchRoutes(routes);
+		const { wrapper } = mountWithApp(Peers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
 		await settle();
-		expect(called(stub, '/peers/p1/unblock')).toBe(true);
+
+		await wrapper.find('[data-test="peer-forbid-reading"]').trigger('click');
+		await settle(2);
+
+		expect((wrapper.vm as any).reading).toMatchObject({ forbid: true });
+		expect(called(stub, '/peers/p1/reading')).toBe(false);
+
+		await (wrapper.vm as any).confirmReading();
+		await settle();
+
+		const patch = stub.mock.calls.find(call => String(call[0]).includes('/peers/p1/reading'));
+
+		expect(patch?.[1]?.method).toBe('PATCH');
+		expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ forbidden: true });
+	});
+
+	it('offers the way back on a peer that is already forbidden', async () => {
+		const stub = stubFetchRoutes({
+			...routes,
+			'/api/peers/p1/reading': { body: { ...peer, readingForbidden: false } },
+			'/api/peers': { body: [{ ...peer, readingForbidden: true }] },
+		});
+		const { wrapper } = mountWithApp(Peers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		// The card says so as well as offering the way out: the trade is what somebody
+		// forgets a week later.
+		expect(wrapper.find('[data-test="peer-reading-forbidden"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="peer-forbid-reading"]').exists()).toBe(false);
+
+		await wrapper.find('[data-test="peer-allow-reading"]').trigger('click');
+		await settle(2);
+		await (wrapper.vm as any).confirmReading();
+		await settle();
+
+		const patch = stub.mock.calls.find(call => String(call[0]).includes('/peers/p1/reading'));
+
+		expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ forbidden: false });
 	});
 
 	it('renames a peer to whatever the viewer calls them', async () => {
@@ -224,7 +267,7 @@ describe('pages/Peers actions', () => {
 		expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ name: 'Robert' });
 	});
 
-	it('asks before dropping a link, then drops it', async () => {
+	it('asks before dropping a link, then drops it without refusing the key', async () => {
 		const stub = stubFetchRoutes(routes);
 		const { wrapper } = mountWithApp(Peers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
@@ -233,10 +276,18 @@ describe('pages/Peers actions', () => {
 
 		await wrapper.find('[data-test="peer-remove"]').trigger('click');
 		await settle(2);
+
+		// The checkbox that used to offer a ban here is gone: the standalone action
+		// made it a second way to reach the same outcome.
+		expect(wrapper.find('[data-test="peer-remove-ban"]').exists()).toBe(false);
+
 		await (wrapper.vm as any).confirmRemove();
 		await settle();
 
-		expect(stub.mock.calls.some(call => call[1]?.method === 'DELETE')).toBe(true);
+		const removal = stub.mock.calls.find(call => call[1]?.method === 'DELETE');
+
+		expect(removal).toBeDefined();
+		expect(removal?.[1]?.body ?? null).toBeNull();
 	});
 
 	it('reloads once an invitation has linked somebody', async () => {
@@ -430,7 +481,7 @@ describe('pages/Settings saving', () => {
 	const settings = {
 		placement: PlacementStrategy.BESIDE_EXISTING,
 		fixedPath: null,
-		naming: NamingScheme.STANDARD,
+		namingOrder: [NamingScheme.SOURCE, NamingScheme.STANDARD],
 		pullMetadata: true,
 		preferSourceMetadata: false,
 		maxParallelTransfers: 2,
@@ -554,8 +605,82 @@ describe('pages/Settings saving', () => {
 		expect(body.categoryTargets).toEqual({ shows: 'l2' });
 		expect(body.defaultTargetLibraryId).toBe('l1');
 		// Alongside, not instead of: one form saves the whole page.
-		expect(body.naming).toBe(NamingScheme.STANDARD);
+		expect(body.namingOrder).toEqual([NamingScheme.SOURCE, NamingScheme.STANDARD]);
 		expect(body.cacheTtlSeconds).toBe(60);
+	});
+
+	/**
+	 * The naming order, which is a chain on screen and has to be one in the request.
+	 *
+	 * The control replaced a select of three exclusive values, so the thing worth
+	 * pinning is that an order survives the round trip in the order it was read in:
+	 * a screen that showed a chain and saved a single step would be exactly the lie
+	 * the select was.
+	 */
+	it('reads the naming chain as a numbered list, steps and convention', async () => {
+		stubFetchRoutes({ '/api/settings': { body: settings } });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const rows = wrapper.findAll('[data-test="settings-naming-order"] > li');
+
+		// Two stored steps plus the convention's own line, in the stored order.
+		expect(rows).toHaveLength(2);
+		expect(wrapper.find('[data-test="settings-naming-step-source"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="settings-naming-convention"]').exists()).toBe(true);
+		// The step nobody chose is offered rather than hidden, or somebody concludes
+		// that imitating their own library is not something this gateway can do.
+		expect(wrapper.find('[data-test="settings-naming-add-local"]').exists()).toBe(true);
+	});
+
+	it('saves the order somebody moved a step in', async () => {
+		const stub = stubFetchRoutes({ '/api/settings': { body: settings } });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="settings-naming-add-local"]').trigger('click');
+		await settle();
+		await wrapper.find('[data-test="settings-naming-up-local"]').trigger('click');
+		await settle();
+
+		await (wrapper.vm as any).form.handle();
+		await settle();
+
+		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+		const body = JSON.parse(String(patch?.[1]?.body));
+
+		expect(body.namingOrder).toEqual([
+			NamingScheme.LOCAL,
+			NamingScheme.SOURCE,
+			NamingScheme.STANDARD,
+		]);
+	});
+
+	it('keeps the convention last when another one is chosen', async () => {
+		// Nothing may follow it: every step behind a convention is a step that can
+		// never run, and the API refuses such an order.
+		const stub = stubFetchRoutes({ '/api/settings': { body: settings } });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const select = wrapper.findComponent({ name: 'NamingOrderField' })
+			.findComponent({ name: 'VSelect' });
+		select.vm.$emit('update:modelValue', NamingScheme.DOTTED);
+		await settle();
+
+		await (wrapper.vm as any).form.handle();
+		await settle();
+
+		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+		const body = JSON.parse(String(patch?.[1]?.body));
+
+		expect(body.namingOrder).toEqual([NamingScheme.SOURCE, NamingScheme.DOTTED]);
 	});
 
 	it('sends the sizes as byte counts and an empty cap as no cap', async () => {

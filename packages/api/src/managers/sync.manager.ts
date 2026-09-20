@@ -1207,7 +1207,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				settings,
 				libraries,
 				relativeName: (libraryRoot) =>
-					this._naming.render(settings.naming, nameable, { libraryRoot, siblingPath }),
+					this._naming.render(settings.namingOrder, nameable, { libraryRoot, siblingPath }),
 				existingPath: entry.local?.file?.path ?? null,
 				/*
 				 * Our own copy of *this version* is the only file this pull may replace.

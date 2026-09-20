@@ -24,8 +24,8 @@
 		'approve': [peer: Peer];
 		'connect': [peer: Peer];
 		'rename': [peer: Peer];
-		'block': [peer: Peer];
-		'unblock': [peer: Peer];
+		'forbid-reading': [peer: Peer];
+		'allow-reading': [peer: Peer];
 		'remove': [peer: Peer];
 		'ban': [peer: Peer];
 		'max-depth': [peer: Peer, maxDepth: number | null];
@@ -35,11 +35,21 @@
 		[PeerStatus.LINKED]: 'state-in-sync',
 		[PeerStatus.PENDING]: 'state-outdated',
 		[PeerStatus.UNREACHABLE]: 'state-conflict',
-		[PeerStatus.BLOCKED]: 'state-unknown',
 	};
 
 	const statusColor = computed(() => STATUS_COLOR[props.peer.status] ?? 'state-unknown');
-	const blocked = computed(() => props.peer.status === PeerStatus.BLOCKED);
+
+	/**
+	 * They are still a peer and the link is still open — they are simply served
+	 * nothing.
+	 *
+	 * Shown as a state of its own rather than folded into the status chip, because it
+	 * is not a state of the link: a peer can be forbidden and connected at the same
+	 * time, and that pair is exactly what somebody has to be able to read off the card
+	 * to understand what the action did.
+	 */
+	const forbidden = computed(() => props.peer.readingForbidden);
+	const unreachable = computed(() => props.peer.status === PeerStatus.UNREACHABLE);
 
 	/**
 	 * A pending link is two different situations wearing one word.
@@ -152,6 +162,18 @@
 				</v-chip>
 
 				<v-chip
+					v-if="forbidden"
+					color="state-conflict"
+					data-test="peer-reading-forbidden"
+					label
+					size="small"
+					variant="flat"
+				>
+					<v-icon class="mr-1" icon="mdi-eye-off-outline" size="x-small" />
+					{{ $t('peer.reading_forbidden_chip') }}
+				</v-chip>
+
+				<v-chip
 					v-if="peer.linkMode"
 					:color="relayed ? 'state-outdated' : undefined"
 					data-test="peer-link-mode"
@@ -173,6 +195,29 @@
 
 			<p v-if="relayed" class="text-caption text-medium-emphasis mt-2 mb-0">
 				{{ $t('peer.relay_hint') }}
+			</p>
+
+			<!--
+				Stated on the card, not only in the dialog that set it. The trade is the
+				part somebody forgets a week later: the peer is still connected on their
+				side and this gateway still reads from theirs, and only what we answer
+				is empty.
+			-->
+			<p v-if="forbidden" class="text-caption mt-2 mb-0" data-test="peer-reading-hint">
+				{{ $t('peer.reading_forbidden_hint') }}
+			</p>
+
+			<!--
+				Why nothing needs pressing. Before links redialled themselves this line
+				would have been a lie, and the only cure for an unreachable peer was the
+				button below.
+			-->
+			<p
+				v-if="unreachable"
+				class="text-caption text-medium-emphasis mt-2 mb-0"
+				data-test="peer-unreachable-hint"
+			>
+				{{ $t('peer.unreachable_hint') }}
 			</p>
 
 			<!--
@@ -215,12 +260,18 @@
 				{{ $t('peer.action.approve') }}
 			</v-btn>
 
+			<!--
+				"Try now", not "connect": the gateway dials at startup and redials after a
+				drop on its own. What this is for is the person who knows their friend has
+				just come back and does not want to wait out a backoff that has grown to a
+				quarter of an hour.
+			-->
 			<v-btn
 				v-if="!pending"
 				data-test="peer-connect"
-				:disabled="blocked"
 				prepend-icon="mdi-lan-connect"
 				size="small"
+				:title="$t('peer.connect_hint')"
 				variant="text"
 				@click="emit('connect', peer)"
 			>
@@ -253,24 +304,31 @@
 				@update="(one, value) => emit('max-depth', one, value)"
 			/>
 
+			<!--
+				One switch, two labels. A pending peer is offered neither: they are served
+				nothing already, and forbidding a link nobody has agreed to is a decision
+				about a relationship that does not exist yet.
+			-->
 			<v-btn
-				v-if="blocked"
-				data-test="peer-unblock"
+				v-if="forbidden"
+				data-test="peer-allow-reading"
+				prepend-icon="mdi-eye-outline"
 				size="small"
 				variant="text"
-				@click="emit('unblock', peer)"
+				@click="emit('allow-reading', peer)"
 			>
-				{{ $t('peer.action.unblock') }}
+				{{ $t('peer.action.allow_reading') }}
 			</v-btn>
 
 			<v-btn
-				v-else
-				data-test="peer-block"
+				v-else-if="!pending"
+				data-test="peer-forbid-reading"
+				prepend-icon="mdi-eye-off-outline"
 				size="small"
 				variant="text"
-				@click="emit('block', peer)"
+				@click="emit('forbid-reading', peer)"
 			>
-				{{ $t('peer.action.block') }}
+				{{ $t('peer.action.forbid_reading') }}
 			</v-btn>
 
 			<v-btn

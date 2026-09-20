@@ -166,7 +166,7 @@ describe('Peers', () => {
 	});
 
 	describe('reading', () => {
-		it('lists every peer, linked, pending or blocked', async () => {
+		it('lists every peer, linked, pending or unreachable', async () => {
 			const response = await get('').expect(200);
 
 			expect((response.body as Peer[]).length).toBeGreaterThan(0);
@@ -265,37 +265,46 @@ describe('Peers', () => {
 			expect(((await get(`/${id}`).expect(200)).body as Peer).status).toBe(PeerStatus.PENDING);
 		});
 
-		it('refuses to approve somebody who was blocked', async () => {
-			const id = await seed({ status: PeerStatus.BLOCKED });
-
-			const response = await post(`/${id}/approve`).expect(401);
-
-			expect(response.body).toMatchObject({ message: 'error.peer.rejected' });
-		});
-
 		it('answers a key for a peer nobody linked to', async () => {
 			await post(`/${ABSENT}/approve`).expect(404);
 		});
 	});
 
-	describe('blocking', () => {
-		it('blocks, and unblocks to unreachable rather than to linked', async () => {
+	describe('forbidding a peer to read', () => {
+		const setReading = (id: string, forbidden: boolean): request.Test =>
+			request(context.app.getHttpServer())
+				.patch(`/api/peers/${id}/reading`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ forbidden });
+
+		it('forbids and allows again, leaving the link exactly where it was', async () => {
 			const id = await seed();
 
-			expect((await post(`/${id}/block`).expect(200)).body as Peer).toMatchObject({
-				status: PeerStatus.BLOCKED,
+			expect((await setReading(id, true).expect(200)).body as Peer).toMatchObject({
+				readingForbidden: true,
+				// The link is deliberately kept: blocking used to close it, which cut our
+				// own access to their library at the same time.
+				status: PeerStatus.LINKED,
 			});
 
-			// No socket is open, and claiming a link that was never re-established would
-			// show a peer as connected until somebody tried to pull from it.
-			expect((await post(`/${id}/unblock`).expect(200)).body as Peer).toMatchObject({
-				status: PeerStatus.UNREACHABLE,
+			expect((await setReading(id, false).expect(200)).body as Peer).toMatchObject({
+				readingForbidden: false,
+				status: PeerStatus.LINKED,
 			});
 		});
 
+		it('wants a flag, not an empty body that could mean either thing', async () => {
+			const id = await seed();
+
+			await request(context.app.getHttpServer())
+				.patch(`/api/peers/${id}/reading`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({})
+				.expect(400);
+		});
+
 		it('answers a key for a peer nobody linked to', async () => {
-			await post(`/${ABSENT}/block`).expect(404);
-			await post(`/${ABSENT}/unblock`).expect(404);
+			await setReading(ABSENT, true).expect(404);
 		});
 	});
 
@@ -677,7 +686,11 @@ describe('Peers', () => {
 
 			await post('', { fingerprint: fingerprint() }, user).expect(403);
 			await post(`/${id}/approve`, {}, user).expect(403);
-			await post(`/${id}/block`, {}, user).expect(403);
+			await request(context.app.getHttpServer())
+				.patch(`/api/peers/${id}/reading`)
+				.set('Authorization', `Bearer ${user.token}`)
+				.send({ forbidden: true })
+				.expect(403);
 			await post('/invites', {}, user).expect(403);
 			await post('/accept', { invite: 'anything' }, user).expect(403);
 			await request(context.app.getHttpServer())
@@ -704,8 +717,9 @@ describe('Peers', () => {
 				.send(body);
 
 		it('a removed peer may come back, a banned one may not', async () => {
-			// The hole this closes: removing used to be the weaker of the two ejections.
-			// It deleted the row, and with it the only thing refusing them.
+			// The two remaining ejections, and they do not overlap. Removing used to be
+			// able to ban as well, through a checkbox on its dialog; that went when the
+			// standalone action made it a second way to reach the same outcome.
 			const ordinary = fingerprint();
 			const id = await seed({ fingerprint: ordinary });
 
@@ -715,8 +729,28 @@ describe('Peers', () => {
 			const refused = fingerprint();
 			const banishedId = await seed({ fingerprint: refused });
 
-			await del(`/${banishedId}`, { ban: true, reason: 'flooded us' }).expect(204);
+			await request(context.app.getHttpServer())
+				.post(`/api/peers/${banishedId}/ban`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ reason: 'flooded us' })
+				.expect(200);
 			await post('', { fingerprint: refused }).expect(409);
+		});
+
+		it('bans nobody, even when an older interface still sends the checkbox', async () => {
+			// The route reads no body at all now, so `ban: true` from a cached bundle is
+			// simply not a thing that can happen — which is the safe direction to fail
+			// in: the worst outcome is a peer who can ask again, not one refused for
+			// good by a flag nobody meant to send.
+			const ordinary = fingerprint();
+			const id = await seed({ fingerprint: ordinary });
+
+			await del(`/${id}`, { ban: true, reason: 'stale bundle' }).expect(204);
+
+			const listed = (await get('/bans').expect(200)).body as BannedPeer[];
+
+			expect(listed.map(one => one.fingerprint)).not.toContain(ordinary);
+			await post('', { fingerprint: ordinary }).expect(201);
 		});
 
 		it('lists what is refused, with the name it had and why', async () => {

@@ -62,9 +62,12 @@ export class PeerGuard implements CanActivate {
 		const [, fingerprint, token] = match;
 		const peer = await this._peers.findByFingerprint(fingerprint);
 
-		// A blocked peer is refused here rather than at every route: blocking is the
-		// answer to somebody abusing the link, and it has to take effect on the next
-		// request and not on the next restart.
+		// Only an established link may call these routes, and that is about the link
+		// alone. A peer forbidden from reading is *not* refused here on purpose: they
+		// stay linked, their requests are answered, and every one of those answers is
+		// empty because `ShareManager.visiblePolicies` shows them nothing. Refusing
+		// them at the door instead would close the link in both directions, which is
+		// precisely the behaviour that action was rewritten to stop.
 		if (peer === null || peer.status !== PeerStatus.LINKED) {
 			throw new UnauthorizedException(ErrorKey.PEER_REJECTED);
 		}

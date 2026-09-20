@@ -37,8 +37,13 @@ export interface NamingContext {
 	/**
 	 * File names our own library already uses for this show, most relevant first.
 	 *
-	 * The `LOCAL` scheme is nothing but "do what these do", and with none of them it
-	 * has nothing to imitate.
+	 * The `LOCAL` step is nothing but "do what these do", and with none of them it has
+	 * nothing to imitate and hands on to the next step.
+	 *
+	 * Optional because `siblingPath` already carries one: a caller that found a local
+	 * copy to file this beside has, by definition, found a file whose name can be
+	 * imitated. Passing samples is how a caller offers several, or offers names from
+	 * somewhere other than the sibling it chose.
 	 */
 	samples?: string[];
 
@@ -74,15 +79,20 @@ const MAX_COMPONENT_LENGTH = 200;
 /**
  * Renders the name a pulled file lands under.
  *
- * `SOURCE` is the default and looks like the worst of the three, because the names
- * it produces are the ugly scene names nobody would choose. It is the safe one
- * precisely because it chooses nothing: the file arrives with the name the source's
- * own library already scrapes correctly, so whatever agent identified it there
- * identifies it here. Every renaming scheme encodes assumptions — that the episode
- * numbering matches the one the scraper uses, that the year is the one the metadata
- * agent picked, that a two-part episode is `S01E01-E02` — and each assumption is
- * wrong on some library, where it turns a correctly identified file into an
- * unrecognised one sitting in the wrong folder. Ugly and right beats tidy and
+ * Both halves of the answer are chains, and neither is a choice between exclusive
+ * options. The folders come from `_directory`, which imitates the destination
+ * library's own spelling and falls back to a template. The file name comes from the
+ * order in the settings, each step either answering or handing on.
+ *
+ * `SOURCE` leads that order by default and looks like the worst step in it, because
+ * the names it produces are the ugly scene names nobody would choose. It is the safe
+ * one precisely because it chooses nothing: the file arrives with the name the
+ * source's own library already scrapes correctly, so whatever agent identified it
+ * there identifies it here. Every renaming scheme encodes assumptions — that the
+ * episode numbering matches the one the scraper uses, that the year is the one the
+ * metadata agent picked, that a two-part episode is `S01E01-E02` — and each
+ * assumption is wrong on some library, where it turns a correctly identified file
+ * into an unrecognised one sitting in the wrong folder. Ugly and right beats tidy and
  * occasionally invisible.
  */
 @Injectable()
@@ -90,17 +100,17 @@ export class NamingService {
 	/**
 	 * The path relative to the destination library root, directories included.
 	 *
-	 * A relative path rather than a bare name because `STANDARD` genuinely needs
+	 * A relative path rather than a bare name because the conventions genuinely need
 	 * folders — a show whose episodes all land in the library root is not a library —
 	 * and because the placement service is the only thing that should know the root.
 	 */
 	public render(
-		scheme: NamingScheme,
+		order: NamingScheme[],
 		item: NameableItem,
 		context: NamingContext = {},
 	): string {
 		const extension = this._extension(item.sourcePath);
-		const name = this._fileName(scheme, item, context, extension);
+		const name = this._fileName(order, item, context, extension);
 		const directory = this._directory(item, context);
 
 		return directory === '' ? name : `${directory}/${name}`;
@@ -126,6 +136,10 @@ export class NamingService {
 	 * `attempt` counts from one and only ever grows: the caller retries until the path
 	 * is free, so this has to keep producing new names — two 2160p encodes of one cut
 	 * exist, and the label alone would collide with itself for ever.
+	 *
+	 * A dotted name is the case that needed handling separately, and it is not a rare
+	 * one: it is what the dotted convention produces and what every scene-named source
+	 * file already looks like. See `_tagged`.
 	 */
 	public disambiguate(relativeName: string, marks: VersionMarks, attempt: number): string {
 		const cut = relativeName.replace(/\\/g, '/');
@@ -135,39 +149,86 @@ export class NamingService {
 		const extension = this._extension(name);
 		const stem = extension === '' ? name : name.slice(0, name.length - extension.length);
 		const label = this._versionLabel(marks);
+		const rendered = label === null ? null : this._tagged(label.text, label.edition);
 
 		// A source whose own name already carries the label is the case where repeating
 		// it would produce `Film {edition-Extended} - {edition-Extended}.mkv` and still
 		// collide. The counter is the only thing left that is guaranteed to differ.
 		const usable =
-			label !== null && !stem.toLowerCase().includes(label.toLowerCase()) ? label : null;
+			rendered !== null && !stem.toLowerCase().includes(rendered.toLowerCase()) ? label : null;
 
-		const suffix =
+		const counted =
 			usable === null
 				? String(attempt + 1)
 				: attempt === 1
-					? usable
-					: `${usable} (${attempt})`;
+					? usable.text
+					: `${usable.text} (${attempt})`;
+
+		// The counter goes inside the tag rather than after it. Outside, the `(2)` is
+		// what Plex is left holding once it has stripped the tag, and it is read as
+		// more title.
+		const suffix = this._tagged(counted, this._isDotted(stem) || (usable?.edition ?? false));
 
 		return `${directory}${this.sanitise(`${stem} - ${suffix}${extension}`)}`;
 	}
 
-	private _versionLabel(marks: VersionMarks): string | null {
+	/**
+	 * Does this name write its words with dots rather than spaces?
+	 *
+	 * Read off the name rather than taken from the settings, because the name may have
+	 * come from the source or from an imitated sibling: the setting says what this
+	 * gateway would have produced, not what is actually on the line.
+	 */
+	private _isDotted(stem: string): boolean {
+		return !stem.includes(' ') && stem.includes('.');
+	}
+
+	/**
+	 * A marker in the form the name it is glued to cannot swallow.
+	 *
+	 * The separator before it stays ` - ` whatever the name looks like, because that is
+	 * the one Jellyfin reads a version name after and there is no dotted equivalent:
+	 * `Film.1982.2160p.mkv` beside `Film.1982.mkv` gives Jellyfin two files and no
+	 * statement that they are one film. What a dotted name changes is the *content* of
+	 * the marker.
+	 *
+	 * In a spaced name the marker reads as a distinct trailing field and both servers
+	 * treat it as one. In a dotted name every word is already separated by a dot, both
+	 * scanners normalise those dots to spaces before matching a title, and ` - 2` then
+	 * arrives as two more title words: `Some.Film - 2.mkv` is matched as *Some Film 2*,
+	 * a sequel — which is exactly how two versions of one film become two films. So a
+	 * dotted name has its marker wrapped in the `{edition-…}` tag, which Plex strips
+	 * unconditionally before matching, while Jellyfin still finds a version name after
+	 * the last ` - `. Jellyfin then shows the version as `{edition-2160p}` rather than
+	 * `2160p`, which is ugly and is the right trade: a clumsily labelled version is a
+	 * version, and a second film is a second film for ever.
+	 */
+	private _tagged(text: string, tag: boolean): string {
+		return tag ? `{edition-${text}}` : text;
+	}
+
+	/**
+	 * What tells this copy from the one already there, and whether it is an edition.
+	 *
+	 * The edition travels with the flag rather than pre-wrapped because the counter
+	 * has to be able to go inside the tag with it.
+	 */
+	private _versionLabel(marks: VersionMarks): { text: string; edition: boolean } | null {
 		const edition = marks.edition?.trim();
 
 		if (edition) {
-			return `{edition-${this.sanitise(edition)}}`;
+			return { text: this.sanitise(edition), edition: true };
 		}
 
 		const quality = marks.quality?.trim();
 
-		return quality ? this.sanitise(quality) : null;
+		return quality ? { text: this.sanitise(quality), edition: false } : null;
 	}
 
 	/**
 	 * Where the file goes, which is a separate question from what it is called.
 	 *
-	 * The scheme decides the name and nothing else. Folders are not negotiable: a
+	 * The naming order decides the name and nothing else. Folders are not negotiable: a
 	 * library whose episodes land in its root is not a library, and both media servers
 	 * identify a file partly by the folders above it — a season folder is how they know
 	 * which season, when the filename is ambiguous. Dropping files flat was what the
@@ -257,21 +318,52 @@ export class NamingService {
 		return segments.join('/');
 	}
 
+	/**
+	 * The first step of the order that can answer.
+	 *
+	 * The standard convention closes the chain whatever the order says, because a
+	 * caller is entitled to a name: an order that ends in a step which handed on —
+	 * saved before the validator existed, or hand-edited into the settings table —
+	 * would otherwise leave a finished download with nothing to be called. The
+	 * settings refuse such an order on the way in; this is what makes the refusal a
+	 * validation rather than the only thing standing between a pull and a crash.
+	 */
 	private _fileName(
-		scheme: NamingScheme,
+		order: NamingScheme[],
 		item: NameableItem,
 		context: NamingContext,
 		extension: string,
 	): string {
-		switch (scheme) {
+		for (const step of order) {
+			const candidate = this._step(step, item, context, extension);
+
+			if (candidate !== null) {
+				return candidate;
+			}
+		}
+
+		return this._standard(item, extension);
+	}
+
+	/** One step's answer, or null when it has nothing to go on and the next takes over. */
+	private _step(
+		step: NamingScheme,
+		item: NameableItem,
+		context: NamingContext,
+		extension: string,
+	): string | null {
+		switch (step) {
 			case NamingScheme.SOURCE:
-				return this._fromSource(item, extension);
+				return this._fromSource(item);
 
 			case NamingScheme.LOCAL:
 				return this._fromLocal(item, context, extension);
 
 			case NamingScheme.STANDARD:
 				return this._standard(item, extension);
+
+			case NamingScheme.DOTTED:
+				return this._dotted(item, extension);
 		}
 	}
 
@@ -300,17 +392,11 @@ export class NamingService {
 		return RESERVED_NAMES.test(stripExtension(trimmed)) ? `_${trimmed}` : trimmed;
 	}
 
-	private _fromSource(item: NameableItem, extension: string): string {
+	/** Null when the source sent no path — a peer that shared metadata and no file. */
+	private _fromSource(item: NameableItem): string | null {
 		const name = item.sourcePath ? basename(item.sourcePath) : '';
 
-		if (name !== '') {
-			return this.sanitise(name);
-		}
-
-		// No source path at all — a peer that only sent us metadata. There is nothing
-		// to keep, so the standard scheme is the honest fallback rather than a name
-		// invented here.
-		return this._standard(item, extension);
+		return name === '' ? null : this.sanitise(name);
 	}
 
 	/**
@@ -322,12 +408,22 @@ export class NamingService {
 	 * tag becomes ours, its episode title becomes ours. Everything else, including
 	 * whatever quality suffix and separator convention the library uses, survives
 	 * untouched because it was never parsed.
+	 *
+	 * The sibling is used when the caller offered no samples of its own. Without that
+	 * this step was unreachable in practice — the one caller in the application finds
+	 * the local copy to file beside and passes it as `siblingPath`, so imitation was
+	 * configured, looked configured, and every pull quietly took the fallback.
 	 */
-	private _fromLocal(item: NameableItem, context: NamingContext, extension: string): string {
-		const sample = context.samples?.find((candidate) => candidate.trim() !== '');
+	private _fromLocal(
+		item: NameableItem,
+		context: NamingContext,
+		extension: string,
+	): string | null {
+		const offered = context.samples?.length ? context.samples : [context.siblingPath ?? ''];
+		const sample = offered.find((candidate) => candidate.trim() !== '');
 
 		if (!sample) {
-			return this._standard(item, extension);
+			return null;
 		}
 
 		const sampleName = stripExtension(basename(sample));
@@ -335,9 +431,9 @@ export class NamingService {
 
 		if (!tag || item.seasonNumber === null || item.episodeNumber === null) {
 			// The sample carries no episode tag, or we have no numbers to put in one.
-			// Copying the sample verbatim would overwrite it, so the standard scheme
-			// takes over rather than the gateway guessing.
-			return this._standard(item, extension);
+			// Copying the sample verbatim would overwrite the very file we took as a
+			// model, so the next step takes over rather than the gateway guessing.
+			return null;
 		}
 
 		const replacement = `S${this._pad(item.seasonNumber ?? 0)}E${this._pad(item.episodeNumber ?? 0)}`;
@@ -358,7 +454,12 @@ export class NamingService {
 		return this.sanitise(`${assembled}${extension}`);
 	}
 
-	/** `Show - S01E02 - Title.ext`, the shape both servers read. Folders are `_directory`'s. */
+	/**
+	 * `Show - S01E02 - Title.ext`, the spaced convention both servers read.
+	 *
+	 * It closes the chain when nothing above answered, so it never returns null.
+	 * Folders are `_directory`'s.
+	 */
 	private _standard(item: NameableItem, extension: string): string {
 		if (item.kind === MediaKind.EPISODE) {
 			const series = this.sanitise(item.seriesTitle?.trim() || item.title);
@@ -373,6 +474,49 @@ export class NamingService {
 		const named = item.year ? `${title} (${item.year})` : title;
 
 		return this.sanitise(`${named}${extension}`);
+	}
+
+	/**
+	 * `Show.Year.S01E03.Title.ext`, the dotted convention.
+	 *
+	 * A different convention from `_standard`, not a prettier one: it is what scene
+	 * releases carry and what a great many Plex libraries are entirely made of, and
+	 * both servers read it. Somebody whose library already looks like this does not
+	 * want one file in it spelled with spaces.
+	 *
+	 * Dots everywhere, including in place of the ` - ` the spaced convention uses,
+	 * because a name that mixes the two is neither: the whole point of the convention
+	 * is that every separator in it means the same thing to a parser.
+	 */
+	private _dotted(item: NameableItem, extension: string): string {
+		if (item.kind === MediaKind.EPISODE) {
+			const series = item.seriesTitle?.trim() || item.title;
+			const tag = `S${this._pad(item.seasonNumber ?? 0)}E${this._pad(item.episodeNumber ?? 0)}`;
+
+			return this.sanitise(
+				`${this._dots([series, item.year, tag, item.title])}${extension}`,
+			);
+		}
+
+		return this.sanitise(`${this._dots([item.title, item.year])}${extension}`);
+	}
+
+	/**
+	 * The parts joined the way the dotted convention joins them.
+	 *
+	 * Each part is sanitised before its spaces become dots, so an illegal character
+	 * turns into a separator rather than vanishing — `Batman: Begins` is
+	 * `Batman.Begins` and not `BatmanBegins`. Empty parts drop out entirely: a missing
+	 * year would otherwise leave `Show..S01E02`, which both scanners read as a title
+	 * with an empty word in it.
+	 */
+	private _dots(parts: (string | number | null | undefined)[]): string {
+		return parts
+			.map((part) => (typeof part === 'number' ? String(part) : (part ?? '').trim()))
+			.filter((part) => part !== '')
+			.map((part) => this.sanitise(part).replace(/\s+/g, '.'))
+			.join('.')
+			.replace(/\.{2,}/g, '.');
 	}
 
 	private _pad(value: number): string {

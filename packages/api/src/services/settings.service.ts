@@ -1,7 +1,9 @@
 import { isAbsolute } from 'node:path';
 import {
+	DEFAULT_NAMING_ORDER,
 	DEFAULT_PEER_MAX_DEPTH,
 	ErrorKey,
+	isNamingConvention,
 	MAX_PEER_MAX_DEPTH,
 	NamingScheme,
 	PlacementStrategy,
@@ -38,7 +40,11 @@ export const DEFAULT_SETTINGS: Settings = {
 	// to the library that happens to be marked as the default target would look like the
 	// same behaviour and then diverge the day somebody moves that flag.
 	defaultTargetLibraryId: null,
-	naming: NamingScheme.SOURCE,
+	// The source name first, because that is what every gateway already does and a
+	// default that renamed files would rename them on somebody who never asked. See
+	// `DEFAULT_NAMING_ORDER`, and `migrateNamingOrder` for what happens to a gateway
+	// that chose one of the old exclusive schemes.
+	namingOrder: [...DEFAULT_NAMING_ORDER],
 	pullMetadata: true,
 	// Off: writing into somebody's library is not something to start doing unasked,
 	// and a household that curates its own documents would find them replaced by ours.
@@ -179,6 +185,71 @@ export const normaliseTargetPath = (value: string | null | undefined): string | 
 };
 
 /**
+ * The naming order as the rest of the application is allowed to assume it is.
+ *
+ * Null rather than a thrown refusal, because the two callers want opposite things
+ * from the same question: a write is rejected so the person sees which field was
+ * wrong, and a read falls back to the default so a gateway whose table somebody
+ * hand-edited still starts — starting is how it gets fixed.
+ *
+ * The rules are what make the chain a chain. A step that appears twice is a step
+ * that can never run the second time, and a convention anywhere but at the end kills
+ * every step behind it: both are orders somebody wrote meaning something the gateway
+ * would not do, and an order that quietly does less than it says is the defect this
+ * whole rebuild exists to end. The last step has to be a convention because a chain
+ * whose every step may hand on has no answer, and "no answer" arrives at the end of a
+ * completed download.
+ */
+export const checkedNamingOrder = (value: unknown): NamingScheme[] | null => {
+	if (!Array.isArray(value) || value.length === 0) {
+		return null;
+	}
+
+	const steps = value as NamingScheme[];
+	const known = Object.values(NamingScheme);
+
+	if (steps.some((step) => !known.includes(step)) || new Set(steps).size !== steps.length) {
+		return null;
+	}
+
+	if (!isNamingConvention(steps[steps.length - 1]) || steps.slice(0, -1).some((step) => isNamingConvention(step))) {
+		return null;
+	}
+
+	return steps;
+};
+
+/**
+ * The order a gateway that chose one of the old exclusive schemes should keep.
+ *
+ * Settings are key/value rows, so an upgraded gateway simply has no `namingOrder`
+ * row and would take the default — which for somebody who deliberately picked
+ * `standard` means every future pull is suddenly named after its source instead.
+ * That is a setting changing itself during an upgrade, discovered from files, so the
+ * old row is read once and turned into the chain that does what it used to do.
+ *
+ * `source` maps to the full default rather than to `[SOURCE, STANDARD]`: what it
+ * gains is imitation for the one case the old scheme had no answer for — a peer that
+ * sent metadata and no path — and landing that file beside its siblings rather than
+ * under a template name is the behaviour the old scheme was reaching for anyway.
+ */
+export const namingOrderFromScheme = (legacy: unknown): NamingScheme[] | null => {
+	switch (legacy) {
+		case NamingScheme.SOURCE:
+			return [...DEFAULT_NAMING_ORDER];
+
+		case NamingScheme.LOCAL:
+			return [NamingScheme.LOCAL, NamingScheme.STANDARD];
+
+		case NamingScheme.STANDARD:
+			return [NamingScheme.STANDARD];
+
+		default:
+			return null;
+	}
+};
+
+/**
  * The text settings that are stored in a shape rather than as typed.
  *
  * Kept as a table so that the write path and the read path cannot drift: one refuses
@@ -210,6 +281,14 @@ const TEXT_NORMALISERS = {
  * it was simply gone.
  */
 const fitsTheShapeOf = (value: unknown, fallback: unknown): boolean => {
+	// A list before a table, because an array is an object and would otherwise be
+	// refused by the branch below — which is how the naming order, whose whole value is
+	// that it is an order, would have been dropped on the way out of the database and
+	// come back as the default after every restart.
+	if (Array.isArray(fallback)) {
+		return Array.isArray(value);
+	}
+
 	// A table has no sensible "unset": every reader indexes into it, so a stored null
 	// would turn the first lookup into a thrown error, where an empty table already
 	// says that nothing has been answered for.
@@ -357,6 +436,13 @@ export class SettingsService {
 			}
 		}
 
+		// A gateway upgraded from the single naming scheme has no order row at all, and
+		// taking the default there would silently rename every future pull for somebody
+		// who had deliberately chosen otherwise.
+		if (stored.namingOrder === undefined) {
+			merged.namingOrder = namingOrderFromScheme(stored.naming) ?? merged.namingOrder;
+		}
+
 		// Pins are applied last, over the clamped value. A pinned field that is also out
 		// of bounds is a contradiction the deployment created, and the bound wins: a
 		// gateway that refused to start over its own environment would be unfixable
@@ -371,7 +457,11 @@ export class SettingsService {
 	 * as capable of holding nonsense as a form is, and a pinned nonsense value cannot
 	 * be corrected from the interface — which is the whole point of pinning it.
 	 */
-	private _resolvePins(peers: PeersConfig): Partial<Settings> {
+	/**
+	 * Takes only the field it reads, so the fallback below does not have to invent
+	 * values for the rest of `PeersConfig` — none of which pins a setting.
+	 */
+	private _resolvePins(peers: Pick<PeersConfig, 'maxDepth'>): Partial<Settings> {
 		const pinned: Partial<Settings> = {};
 
 		if (peers.maxDepth !== null) {
@@ -440,8 +530,8 @@ export class SettingsService {
 			throw new BadRequestException({ key: ErrorKey.SETTINGS_INVALID, field: 'placement' });
 		}
 
-		if (!Object.values(NamingScheme).includes(candidate.naming)) {
-			throw new BadRequestException({ key: ErrorKey.SETTINGS_INVALID, field: 'naming' });
+		if (checkedNamingOrder(candidate.namingOrder) === null) {
+			throw new BadRequestException({ key: ErrorKey.SETTINGS_INVALID, field: 'namingOrder' });
 		}
 
 		for (const [key, bounds] of Object.entries(NUMERIC_BOUNDS)) {
@@ -482,6 +572,17 @@ export class SettingsService {
 				Math.max(value, bounds.min),
 				bounds.max,
 			);
+		}
+
+		// An order that does not hold together is repaired rather than obeyed: a chain
+		// ending on a step that can hand on would leave a finished transfer with no name,
+		// which fails far from here and looks like a transfer bug.
+		const order = checkedNamingOrder(clamped.namingOrder);
+
+		if (order === null) {
+			this._logger.warn('Setting "namingOrder" is not a usable chain, falling back to its default');
+
+			clamped.namingOrder = [...DEFAULT_NAMING_ORDER];
 		}
 
 		// The same rule one type over. A public URL that got into the table some other

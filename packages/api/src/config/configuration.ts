@@ -74,6 +74,19 @@ export interface PeersConfig {
 	 * the container's environment is one the account holders cannot quietly lift.
 	 */
 	maxDepth: number | null;
+	/**
+	 * Whether the gateway dials its linked peers by itself.
+	 *
+	 * On, because the alternative is what this replaced: a container restart — which
+	 * is every image update — left every friend unreachable until somebody clicked a
+	 * button, and a gateway with no live link has no remote catalogue and no swarm.
+	 *
+	 * Off under test, and that is the only reason the switch exists: the functional
+	 * suite boots the whole application over seeded rows, and dialling them would open
+	 * real sockets to addresses that belong to nobody. Anyone else turning it off is
+	 * choosing to connect by hand.
+	 */
+	autoConnect: boolean;
 }
 
 export interface AppConfig {
@@ -215,6 +228,7 @@ export const configuration = (): AppConfig => {
 		}),
 		peers: Object.freeze({
 			maxDepth: readOptionalNumber('MCS_PEER_MAX_DEPTH'),
+			autoConnect: readBoolean('MCS_PEER_AUTO_CONNECT', env !== 'test'),
 		}),
 		staticRoot: readString('MCS_STATIC_ROOT', ''),
 		docs: Object.freeze({

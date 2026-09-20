@@ -116,6 +116,37 @@ describe('configuration', () => {
 		expect(configuration().port).toBe(4200);
 	});
 
+	it('dials peers by itself everywhere but under test', () => {
+		// On, because the alternative is what this replaced: a container restart — which
+		// is every image update — left every friend unreachable until somebody clicked.
+		// Off under test, because the functional suite boots the whole application over
+		// seeded rows and dialling them would open real sockets to nobody's address.
+		delete process.env.MCS_PEER_AUTO_CONNECT;
+		process.env.NODE_ENV = 'production';
+		process.env.MCS_JWT_SECRET = 'a-secret';
+
+		expect(configuration().peers.autoConnect).toBe(true);
+
+		process.env.NODE_ENV = 'test';
+
+		expect(configuration().peers.autoConnect).toBe(false);
+	});
+
+	it('lets the environment turn the dialling off, in any of the ways people say no', () => {
+		process.env.NODE_ENV = 'development';
+		process.env.MCS_PEER_AUTO_CONNECT = 'false';
+
+		expect(configuration().peers.autoConnect).toBe(false);
+
+		process.env.MCS_PEER_AUTO_CONNECT = '0';
+
+		expect(configuration().peers.autoConnect).toBe(false);
+
+		process.env.MCS_PEER_AUTO_CONNECT = '1';
+
+		expect(configuration().peers.autoConnect).toBe(true);
+	});
+
 	it('is frozen, so nothing can rewrite it after startup', () => {
 		const config = configuration();
 

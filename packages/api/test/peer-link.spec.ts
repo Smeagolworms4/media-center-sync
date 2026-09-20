@@ -279,26 +279,35 @@ describe('The peer link endpoint', () => {
 			});
 		});
 
-		it('refuses a peer that has been blocked', async () => {
-			const blocked = gateway();
+		it('lets in a peer forbidden from reading, because the link is theirs to keep', async () => {
+			// The correction this makes to blocking, at the level where blocking used to
+			// act: the socket is not refused. They are heard, and they are told nothing,
+			// which also leaves our own access to their library intact.
+			const outcast = gateway();
 			const peers = context.app.get(PeerRepository);
 			const links = context.app.get(PeerLinkService);
-			const fingerprint = links.fingerprintOf(blocked.publicKey);
+			const fingerprint = links.fingerprintOf(outcast.publicKey);
 
 			await peers.save(
 				peers.create({
 					name: 'Mallory',
 					fingerprint,
-					publicKey: blocked.publicKey,
-					status: PeerStatus.BLOCKED,
+					publicKey: outcast.publicKey,
+					status: PeerStatus.LINKED,
+					readingForbidden: true,
 					trust: PeerTrust.FRIEND,
 				}),
 			);
 
-			await expect(opened(connect(headers(blocked, fingerprint)))).rejects.toThrow('401');
-			// Still blocked afterwards: knocking is not a way out of it.
+			const socket = connect(headers(outcast, fingerprint));
+
+			await expect(opened(socket)).resolves.toBeUndefined();
+
+			socket.close();
+
 			expect(await peers.findByFingerprint(fingerprint)).toMatchObject({
-				status: PeerStatus.BLOCKED,
+				status: PeerStatus.LINKED,
+				readingForbidden: true,
 			});
 		});
 

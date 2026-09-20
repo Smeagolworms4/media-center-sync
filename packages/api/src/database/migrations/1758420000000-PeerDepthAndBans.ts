@@ -38,8 +38,8 @@ export class PeerDepthAndBans1758420000000 implements MigrationInterface {
 					{ name: 'fingerprint', type: 'varchar', isNullable: false },
 					{ name: 'name', type: 'varchar', isNullable: true },
 					{ name: 'reason', type: 'varchar', length: '500', isNullable: true },
-					{ name: 'createdAt', type: 'datetime', default: 'CURRENT_TIMESTAMP' },
-					{ name: 'updatedAt', type: 'datetime', default: 'CURRENT_TIMESTAMP' },
+					{ name: 'createdAt', type: this._dateTime(queryRunner), default: 'CURRENT_TIMESTAMP' },
+					{ name: 'updatedAt', type: this._dateTime(queryRunner), default: 'CURRENT_TIMESTAMP' },
 				],
 			}),
 			true,
@@ -62,5 +62,19 @@ export class PeerDepthAndBans1758420000000 implements MigrationInterface {
 		await queryRunner.dropTable('banned_peers', true);
 		await queryRunner.dropColumn('peers', 'maxDepth');
 		await queryRunner.dropColumn('peers', 'depth');
+	}
+
+	/**
+	 * `datetime` on SQLite, `timestamp` on PostgreSQL. The one type they disagree on.
+	 *
+	 * The compatibility shim in `postgres-compat.ts` translates `datetime` for columns
+	 * the entities declare, and it does not reach here: a `Table` passed to a query
+	 * runner carries the type as written, straight into the `CREATE TABLE`. Hardcoding
+	 * it left this migration failing on PostgreSQL with `type "datetime" does not
+	 * exist` — at startup, on a gateway that had been running for weeks on SQLite, so
+	 * nothing caught it until somebody moved engines.
+	 */
+	private _dateTime(queryRunner: QueryRunner): string {
+		return queryRunner.connection.options.type === 'postgres' ? 'timestamp' : 'datetime';
 	}
 }

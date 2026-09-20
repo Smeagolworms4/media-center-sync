@@ -221,9 +221,16 @@ export class PeerExchangeManager implements PeerMethodHandler {
 		const peer = await this._requirePeer(peerId);
 		const policies = await this._shares.visiblePolicies(peer);
 		const answer = await this.announce(peerId, contentId, budget);
-		const mine = await this._items.find({
-			where: { libraryId: In(policies.map((policy) => policy.libraryId)) },
-		});
+		// Nothing visible means nothing of ours to report, and the query is not merely
+		// pointless: `In([])` is a predicate over an empty set, which the two drivers do
+		// not render alike, and a caller who sees none of our libraries must not be the
+		// one to find that out.
+		const mine =
+			policies.length === 0
+				? []
+				: await this._items.find({
+					where: { libraryId: In(policies.map((policy) => policy.libraryId)) },
+				});
 
 		// Distance zero, because these are measured from us and the caller adds their
 		// own hop. Reporting one here is the mistake that makes every chain read one
@@ -442,6 +449,15 @@ export class PeerExchangeManager implements PeerMethodHandler {
 	): Promise<AnnouncementAnswer> {
 		const peer = await this._requirePeer(peerId);
 		const policies = await this._shares.visiblePolicies(peer);
+
+		// A caller who may see none of our libraries is told nothing and asked nothing
+		// on their behalf. Walking the swarm for them would spend our friends'
+		// connections answering somebody we serve no bytes to, and the set of gateways
+		// we are linked to is itself something they would be learning about us.
+		if (policies.length === 0) {
+			return { contentId, held: false, holders: [] };
+		}
+
 		const settings = await this._settings.get();
 
 		// Only the libraries whose files are shared count as holding it: announcing

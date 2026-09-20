@@ -38,8 +38,8 @@ import {
 	BanPeerDto,
 	CreatePeerInviteDto,
 	PeerMaxDepthDto,
-	RemovePeerDto,
 	RenamePeerDto,
+	SetPeerReadingDto,
 } from '@/models';
 
 /**
@@ -59,7 +59,7 @@ export class PeerController {
 
 	@Get()
 	@Granted(Right.PEER_READ)
-	@ApiOperation({ summary: 'Every peer, linked, pending or blocked' })
+	@ApiOperation({ summary: 'Every peer, linked, pending or unreachable' })
 	@ApiOkResponse({ description: 'Peer[]' })
 	public list(): Promise<Peer[]> {
 		return this._peers.list();
@@ -192,13 +192,16 @@ export class PeerController {
 	@Delete(':id')
 	@Granted(Right.PEER_MANAGE)
 	@HttpCode(HttpStatus.NO_CONTENT)
-	@ApiOperation({ summary: 'Unlink a peer and forget the services it exposed' })
+	@ApiOperation({
+		summary: 'Unlink a peer and forget the services it exposed',
+		description:
+			'It refuses nobody: they may ask again, which is what somebody nearly always ' +
+			'means when a friend rebuilds their gateway. Refusing the key for good is ' +
+			'POST /peers/:id/ban, an action of its own.',
+	})
 	@ApiNoContentResponse()
-	public remove(
-		@Param('id', ParseUUIDPipe) id: string,
-		@Body() body: RemovePeerDto,
-	): Promise<void> {
-		return this._peers.remove(id, { ban: body.ban, reason: body.reason });
+	public remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+		return this._peers.remove(id);
 	}
 
 	@Post(':id/ban')
@@ -207,8 +210,8 @@ export class PeerController {
 	@ApiOperation({
 		summary: 'Refuse a peer for good, and unlink them',
 		description:
-			'Unlike a block, which is a status on a row that stays: a ban survives the row, ' +
-			'so the same key cannot return through a request, an invitation or a friend.',
+			'The durable ejection: a ban survives the row, so the same key cannot return ' +
+			'through a request, an invitation or a friend. Removing alone lets them ask again.',
 	})
 	@ApiOkResponse({ description: 'BannedPeer' })
 	public ban(
@@ -234,31 +237,33 @@ export class PeerController {
 		return this._peers.setMaxDepth(id, body.maxDepth);
 	}
 
-	@Post(':id/block')
+	@Patch(':id/reading')
 	@Granted(Right.PEER_MANAGE)
-	@HttpCode(HttpStatus.OK)
 	@ApiOperation({
-		summary: 'Refuse a peer, from the next request',
-		description: 'The live link is closed too: blocking that waits for a restart blocks nothing.',
+		summary: 'Forbid a peer from reading anything of ours, or allow them again',
+		description:
+			'The link stays open, on purpose: they remain connected on their side and see ' +
+			'an empty catalogue, and we keep our own access to their library. Gateway-wide, ' +
+			'where a share policy\'s deniedPeerIds is per library.',
 	})
 	@ApiOkResponse({ description: 'Peer' })
-	public block(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {
-		return this._peers.block(id);
-	}
-
-	@Post(':id/unblock')
-	@Granted(Right.PEER_MANAGE)
-	@HttpCode(HttpStatus.OK)
-	@ApiOperation({ summary: 'Allow a peer again, without reconnecting to it' })
-	@ApiOkResponse({ description: 'Peer' })
-	public unblock(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {
-		return this._peers.unblock(id);
+	public setReading(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: SetPeerReadingDto,
+	): Promise<Peer> {
+		return this._peers.setReadingForbidden(id, body.forbidden);
 	}
 
 	@Post(':id/connect')
 	@Granted(Right.PEER_MANAGE)
 	@HttpCode(HttpStatus.OK)
-	@ApiOperation({ summary: 'Open the link now, direct if it can be, relayed if it cannot' })
+	@ApiOperation({
+		summary: 'Try the link now rather than waiting for the next attempt',
+		description:
+			'Links are dialled at boot and redialled after a drop with a capped exponential ' +
+			'backoff, so this is a sooner rather than the only way. Direct if it can be, ' +
+			'relayed if it cannot.',
+	})
 	@ApiOkResponse({ description: 'Peer' })
 	@ApiServiceUnavailableResponse({ description: 'error.peer.unreachable' })
 	public connect(@Param('id', ParseUUIDPipe) id: string): Promise<Peer> {

@@ -1,5 +1,10 @@
 <script lang="ts" setup>
-	import type { CreateMediaServiceRequest, MediaService, MediaServiceProbe } from '@mcs/shared';
+	import type {
+		CreateMediaServiceRequest,
+		MediaService,
+		MediaServiceProbe,
+		ProbeMediaServiceRequest,
+	} from '@mcs/shared';
 	import { MediaServiceScope, MediaServiceType } from '@mcs/shared';
 	import { computed, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -101,6 +106,25 @@
 	}
 
 	/**
+	 * What a probe needs, and nothing else.
+	 *
+	 * Separate from `request()` on purpose. A probe answers "do I reach this server
+	 * with these credentials"; a name, a priority or a root mapping say nothing about
+	 * whether it answers, and the route rightly declares none of them. Sending the
+	 * whole form made it refuse six fields by name — for a body the very next request
+	 * would have accepted verbatim — and the honest reading of that refusal is that
+	 * the caller was sending something the route does not handle, not that the route
+	 * was too strict.
+	 */
+	function probeRequest (): ProbeMediaServiceRequest {
+		return {
+			type: model.type,
+			baseUrl: model.baseUrl,
+			...(model.token ? { token: model.token } : {}),
+		};
+	}
+
+	/**
 	 * An edit with no new token cannot use `/services/probe`: that route takes the
 	 * credentials in the body, and the registered token is never given back to us.
 	 * The service's own probe route is the one that can use what is stored.
@@ -110,7 +134,7 @@
 		try {
 			const result = editing.value && !model.token
 				? await servicesStore.probeService(props.service!.id)
-				: await servicesStore.probe(request());
+				: await servicesStore.probe(probeRequest());
 			probe.value = result;
 			return result;
 		} finally {

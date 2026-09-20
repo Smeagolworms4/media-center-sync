@@ -19,6 +19,7 @@ export * from './placed-by';
 export * from './peer-catalogue.service';
 export * from './peer-gateway.service';
 export * from './peer-link.service';
+export * from './peer-reconnect.service';
 export * from './placement.service';
 export * from './quality.service';
 export * from './rendezvous.client';
@@ -48,6 +49,7 @@ import { NOTIFICATION_HANDLER_PROVIDERS } from './notifications';
 import { PeerCatalogueService } from './peer-catalogue.service';
 import { PeerGatewayService } from './peer-gateway.service';
 import { PeerLinkService } from './peer-link.service';
+import { PeerReconnectService } from './peer-reconnect.service';
 import { PlacementService } from './placement.service';
 import { QualityService } from './quality.service';
 import { RendezvousClient } from './rendezvous.client';
@@ -84,6 +86,7 @@ export const SERVICE_PROVIDERS = [
 	RevalidationService,
 	RendezvousClient,
 	PeerLinkService,
+	PeerReconnectService,
 	PeerGatewayService,
 	PeerCatalogueService,
 	TransferEngineService,

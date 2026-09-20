@@ -105,6 +105,23 @@ export class Peer extends Timestampable {
 	@Column({ type: 'int', nullable: true })
 	public maxDepth!: number | null;
 
+	/**
+	 * They stay a peer, the link stays open, and they are served nothing of ours.
+	 *
+	 * On the peer row rather than in the share policies because it is a statement
+	 * about the person and not about a library: `SharePolicy.deniedPeerIds` is per
+	 * library, so cutting somebody off with it meant editing every policy — and
+	 * missing the one written next week. Honoured in exactly one place,
+	 * `ShareManager.visiblePolicies`, which every peer-facing route already reads.
+	 *
+	 * It does not close the socket, and that is the correction it exists to make.
+	 * The status it replaces did, which cut both directions at once: punishing
+	 * somebody also took away our own access to their library.
+	 */
+	@ApiProperty()
+	@Column({ type: 'boolean', default: false })
+	public readingForbidden!: boolean;
+
 	@ApiProperty({ enum: PeerLinkMode, nullable: true })
 	@Column({ type: 'varchar', nullable: true })
 	public linkMode!: PeerLinkMode | null;

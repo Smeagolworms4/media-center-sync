@@ -69,9 +69,7 @@ describe('stores/services', () => {
 		const store = useServicesStore();
 
 		const result = await store.probe({
-			name: 'New',
 			type: MediaServiceType.PLEX,
-			scope: MediaServiceScope.REMOTE,
 			baseUrl: 'http://10.0.0.3:32400',
 			token: 'secret',
 		});
@@ -79,6 +77,13 @@ describe('stores/services', () => {
 		expect(result.reachable).toBe(true);
 		expect(String(stub.mock.calls[0][0])).toContain('/api/services/probe');
 		expect(stub.mock.calls[0][1]?.method).toBe('POST');
+
+		// Only what a probe reads. The route declares these five fields and refuses
+		// anything else, which is how sending the whole form came back as six
+		// "property … should not exist" lines on a body the very next request would
+		// have accepted verbatim.
+		expect(Object.keys(JSON.parse(String(stub.mock.calls[0][1]?.body))))
+			.toEqual(['type', 'baseUrl', 'token']);
 	});
 
 	it('adds a created service to the list without a reload', async () => {

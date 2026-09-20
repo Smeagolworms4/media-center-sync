@@ -179,6 +179,38 @@ describe('components/settings/CategoryTargetsTable', () => {
 		expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ shows: 'l2' });
 	});
 
+	it('says on the row what choosing a destination will do, before it is chosen', () => {
+		// The interface fault this fixes: "goes to" reads as "is filed under", somebody
+		// mapped a category expecting one category in the library view, and got two with
+		// no hint anywhere that the two things were separate. Said on the row rather
+		// than in a tooltip, because a tooltip is read after the choice or never.
+		const { wrapper } = mountTable();
+		const note = wrapper.find('[data-category="movies"] [data-test="category-target-merges"]');
+
+		expect(note.exists()).toBe(true);
+		expect(note.text()).toContain('one category');
+	});
+
+	it('keeps saying it once the row is answered, since the consequence stands', () => {
+		const { wrapper } = mountTable({ modelValue: { movies: 'l2' } });
+
+		expect(wrapper.find('[data-category="movies"] [data-test="category-target-merges"]').exists())
+			.toBe(true);
+	});
+
+	it('promises no merge for a category that is nobody’s but a friend’s', () => {
+		// The gateway will not rename somebody else's library, so the row must not say
+		// it will: a promise the API deliberately refuses is worse than no promise.
+		const { wrapper } = mountTable({
+			categories: [category({ key: 'series', name: 'Séries', local: false })],
+		});
+
+		const note = wrapper.find('[data-category="series"] [data-test="category-target-merges"]');
+
+		expect(note.text()).toContain('somebody else');
+		expect(note.text()).not.toContain('one category');
+	});
+
 	it('says there is no category rather than showing an empty table', () => {
 		const { wrapper } = mountTable({ categories: [] });
 

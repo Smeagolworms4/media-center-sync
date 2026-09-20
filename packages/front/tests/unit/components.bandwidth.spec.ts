@@ -18,7 +18,7 @@ function settings (overrides: Record<string, unknown> = {}) {
 	return {
 		placement: PlacementStrategy.BESIDE_EXISTING,
 		fixedPath: null,
-		naming: NamingScheme.STANDARD,
+		namingOrder: [NamingScheme.STANDARD],
 		pullMetadata: true,
 		preferSourceMetadata: false,
 		maxParallelTransfers: 2,

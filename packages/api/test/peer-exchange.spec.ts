@@ -461,16 +461,6 @@ describe('The peer protocol', () => {
 			expect(response.body).toMatchObject({ message: 'error.peer.rejected' });
 		});
 
-		it('refuses a peer that was blocked, from the next request rather than the next restart', async () => {
-			const peers = context.app.get(PeerRepository);
-			const blocked = await link('Mallory', PeerTrust.FRIEND);
-
-			await peers.setStatus(blocked.id, PeerStatus.BLOCKED);
-
-			const response = await call('/catalogue', blocked.credential).expect(401);
-
-			expect(response.body).toMatchObject({ message: 'error.peer.rejected' });
-		});
 
 		it('refuses a peer that has only asked, and not been accepted', async () => {
 			const peers = context.app.get(PeerRepository);
@@ -479,6 +469,88 @@ describe('The peer protocol', () => {
 			await peers.setStatus(pending.id, PeerStatus.PENDING);
 
 			await call('/catalogue', pending.credential).expect(401);
+		});
+	});
+
+	/**
+	 * A peer forbidden from reading, over every path that answers a peer.
+	 *
+	 * The claim is not that one route filters: it is that *all* of them do, because
+	 * they all go through `ShareManager.visiblePolicies`, and that the link is
+	 * untouched while they do — the peer keeps talking to us and keeps being answered,
+	 * with nothing in every answer. That is the whole trade this replaced blocking
+	 * with, and the only place it can be shown is here, over the real guard.
+	 */
+	describe('a peer forbidden from reading', () => {
+		let outcast: { fingerprint: string; credential: string; id: string };
+
+		beforeAll(async () => {
+			const peers = context.app.get(PeerRepository);
+
+			outcast = await link('Mallory', PeerTrust.FRIEND);
+
+			const row = await peers.findByFingerprint(outcast.fingerprint);
+
+			row!.readingForbidden = true;
+			await peers.save(row!);
+		});
+
+		it('is still let in, because the link is deliberately kept open', async () => {
+			// Not a 401. They stay connected on their side; what changes is what they
+			// are served, not whether they are heard.
+			await call('/catalogue', outcast.credential).expect(200);
+		});
+
+		it('is served an empty catalogue', async () => {
+			const response = await call('/catalogue', outcast.credential).expect(200);
+
+			expect(response.body as CatalogueEntry[]).toEqual([]);
+		});
+
+		it('cannot see an item a friend can', async () => {
+			// Not found rather than forbidden: a peer able to tell the two apart can map
+			// out what somebody holds without being allowed to see any of it.
+			await call(`/items/${sharedItemId}`, friend.credential).expect(200);
+			await call(`/items/${sharedItemId}`, outcast.credential).expect(404);
+		});
+
+		it('cannot pull the bytes of an item a friend can', async () => {
+			await call(`/items/${sharedItemId}/content`, outcast.credential).expect(404);
+		});
+
+		it('is told we hold nothing, and is given nobody else to ask', async () => {
+			const answer = await call(`/announce/${CONTENT_ID}`, outcast.credential).expect(200);
+
+			expect(answer.body).toMatchObject({ held: false, holders: [] });
+
+			// And the same question from a friend still finds it, so the emptiness above
+			// is about this peer and not about the gateway having nothing.
+			const theirs = await call(`/announce/${CONTENT_ID}`, friend.credential).expect(200);
+
+			expect(theirs.body).toMatchObject({ held: true });
+		});
+
+		it('is told nothing by a revalidation either', async () => {
+			await request(context.app.getHttpServer())
+				.post('/api/peer/revalidate')
+				.set('Authorization', outcast.credential)
+				.send({ itemId: sharedItemId })
+				.expect(404);
+		});
+
+		it('sees everything again the moment it is allowed', async () => {
+			const peers = context.app.get(PeerRepository);
+			const row = await peers.findByFingerprint(outcast.fingerprint);
+
+			row!.readingForbidden = false;
+			await peers.save(row!);
+
+			const response = await call('/catalogue', outcast.credential).expect(200);
+
+			expect((response.body as CatalogueEntry[]).length).toBeGreaterThan(0);
+
+			row!.readingForbidden = true;
+			await peers.save(row!);
 		});
 	});
 });

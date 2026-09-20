@@ -30,6 +30,7 @@ import {
 	EventGatewayService,
 	HandlerRegistry,
 	QualityService,
+	type MediaServiceHandler,
 	type NormalisedLibrary,
 	type NormalisedMediaItem,
 	type ServiceConnection,
@@ -37,6 +38,16 @@ import {
 import { LibraryManager } from './library.manager';
 import { toLibrary, toMediaService } from './mappers';
 import { MediaManager } from './media.manager';
+
+/**
+ * How many times one reconciliation may climb the tree.
+ *
+ * Episode to season to series is two hops, and the third is slack for a service that
+ * models one level more. It is a ceiling rather than a `while`: a far end answering
+ * with a cycle — an item claiming its own child as its parent — would otherwise hang
+ * a scan with no error anywhere.
+ */
+const PARENT_HOPS = 3;
 
 /** Testing a connection that nothing has registered yet. */
 export interface ProbeRequest {
@@ -303,6 +314,7 @@ export class ServiceManager {
 		const handler = this._handlers.get(service.type);
 		const connection = this._connection(service);
 		const libraries = await this._libraries.findByService(service.id);
+		const walked: { library: LibraryEntity; itemsSeen: number }[] = [];
 
 		for (const library of libraries) {
 			const described = this._describe(library);
@@ -336,6 +348,22 @@ export class ServiceManager {
 				await this._libraries.setScanCursor(library.id, refresh.cursor);
 			}
 
+			walked.push({ library, itemsSeen });
+		}
+
+		/*
+		 * Between the walk and the summaries, and it has to be both.
+		 *
+		 * After, because a parent may be enumerated at any point — or in another
+		 * library of the same service — so nothing can be concluded about a missing
+		 * link until the whole service has been read. Before, because `_recompute`
+		 * derives the child counts and the quality rollup from `parentId`: run it
+		 * first and every season linked here would carry a summary of nothing until
+		 * somebody scanned again.
+		 */
+		await this._reconcileParents(service, handler, connection, libraries);
+
+		for (const { library, itemsSeen } of walked) {
 			await this._fingerprint(library);
 			await this._recompute(library);
 			this._progress(service.id, library.id, itemsSeen, true);
@@ -426,10 +454,14 @@ export class ServiceManager {
 	 * Write one item, creating it the first time we see it.
 	 *
 	 * The parent is resolved by looking its external identifier up in our own rows,
-	 * which works because a handler yields parents before children. When it does not —
-	 * a refresh that reports one new episode of a series we have never seen — the item
-	 * lands with a null parent and the next full scan puts it in its place. Failing
-	 * instead would drop the episode entirely.
+	 * which only succeeds when the parent happens to have been written already. That
+	 * is a coincidence and nothing here depends on it: the identifier the service
+	 * reported is stored on the row, so the link can be made whenever the parent turns
+	 * up. Order is not a dependency — `_reconcileParents` closes the gap after the
+	 * walk, whichever way round the service listed things.
+	 *
+	 * Failing here instead would drop the episode entirely, which is a worse answer
+	 * than an item that sits at the root until the pass at the end of the scan.
 	 */
 	private async _persist(
 		service: MediaServiceEntity,
@@ -452,6 +484,17 @@ export class ServiceManager {
 
 		row.libraryId = library.id;
 		row.parentId = parent?.id ?? row.parentId ?? null;
+		/*
+		 * The link and the identifier behind it are kept or replaced together.
+		 *
+		 * A report that names no parent is far more often a thin payload — a refresh
+		 * answering with fewer fields than a scan — than a genuine reparenting, and
+		 * unfiling a whole season on that basis costs more than keeping a stale link
+		 * for one pass. `parentId` already worked this way; letting the identifier
+		 * follow a different rule would leave the two describing different parents,
+		 * and the reconciliation would then undo what this line just protected.
+		 */
+		row.parentExternalId = item.parentExternalId ?? row.parentExternalId ?? null;
 		row.kind = item.kind;
 		row.title = item.title;
 		row.normalizedTitle = item.normalizedTitle;
@@ -482,6 +525,113 @@ export class ServiceManager {
 	}
 
 	/**
+	 * Make the tree agree with what the items said, whatever order they arrived in.
+	 *
+	 * This exists because the obvious fix does not work. A child can only be linked to
+	 * a parent that already has a row, and no media server offers an enumeration where
+	 * that is guaranteed: Jellyfin pages by `SortName` because index paging is only
+	 * stable under a stable sort, and alphabetically `Season 1` precedes
+	 * `The Expanse`. Sorting by kind instead does not save it either — a refresh
+	 * legitimately reports one new episode of a series nobody has ever seen. So the
+	 * order is not made right, it is made irrelevant: every row carries the parent it
+	 * names, and the link is derived from that afterwards.
+	 *
+	 * Two steps, cheapest first.
+	 *
+	 * The first is a single statement per service that links every child whose parent
+	 * is already in the index. That is the case that actually happens, and it has to
+	 * cost one query rather than one per row: a library of forty thousand episodes
+	 * would otherwise turn every scan into forty thousand round trips for a repair
+	 * touching a handful of rows.
+	 *
+	 * The second is for a parent the service never enumerated at all. It is asked for
+	 * by identifier, once per distinct missing parent — never once per child, which is
+	 * the same forty thousand requests wearing a different hat — and the real row
+	 * comes back with the server's own title, year and artwork. Nothing is synthesised
+	 * from what a child says about its parent: a made-up row would have to be
+	 * recognised and merged the day the real one appears, and there is no need for
+	 * either when the server can simply be asked.
+	 *
+	 * The loop walks up: fetching a season can reveal that its series is missing too.
+	 * It is bounded because a service answering with a cycle — by accident or
+	 * otherwise — must not hang a scan, and because episode to season to series is the
+	 * deepest tree this model has.
+	 */
+	private async _reconcileParents(
+		service: MediaServiceEntity,
+		handler: MediaServiceHandler,
+		connection: ServiceConnection,
+		libraries: LibraryEntity[],
+	): Promise<void> {
+		const byId = new Map(libraries.map((library) => [library.id, library]));
+		const asked = new Set<string>();
+
+		for (let hop = 0; ; hop += 1) {
+			const linked = await this._items.linkKnownParents(service.id);
+
+			if (linked > 0) {
+				this._logger.log(`Linked ${linked} item(s) of ${service.name} to a parent that came later`);
+			}
+
+			if (hop >= PARENT_HOPS) {
+				return;
+			}
+
+			// Identifiers already asked for are skipped rather than retried: a parent the
+			// service does not return stays missing for the whole pass, and asking again
+			// on every hop would multiply the requests by the depth of the tree.
+			const missing = (await this._items.findUnresolvedParents(service.id)).filter(
+				(entry) => !asked.has(entry.parentExternalId),
+			);
+
+			if (missing.length === 0) {
+				return;
+			}
+
+			let fetched = 0;
+
+			for (const entry of missing) {
+				asked.add(entry.parentExternalId);
+
+				const library = byId.get(entry.libraryId);
+
+				if (library === undefined) {
+					continue;
+				}
+
+				/*
+				 * A fetch that fails must not fail the scan.
+				 *
+				 * A server that has gone slow, or that deleted the series after listing
+				 * its episodes, leaves the children exactly where they were — present and
+				 * unlinked. Showing an episode at the root of a library is a visible
+				 * annoyance; losing it because one request timed out is a hole in the
+				 * index nobody would think to look for.
+				 */
+				const parent = await handler
+					.getItem(connection, entry.parentExternalId)
+					.catch(() => null);
+
+				if (parent === null) {
+					continue;
+				}
+
+				// Filed in the library its children are in. A parent lives where its
+				// children do, and the alternative — asking which library holds it —
+				// costs a request per parent to answer a question nothing downstream asks.
+				await this._persist(service, library, parent);
+				fetched += 1;
+			}
+
+			if (fetched === 0) {
+				return;
+			}
+
+			this._logger.log(`Fetched ${fetched} parent(s) that ${service.name} did not enumerate`);
+		}
+	}
+
+	/**
 	 * Drop what a full scan no longer saw.
 	 *
 	 * A media service never says that a file is gone; it simply stops listing it.
@@ -495,10 +645,65 @@ export class ServiceManager {
 			return;
 		}
 
-		this._logger.log(`${stale.length} items disappeared from ${library.name}`);
+		const removable = await this._withoutLivingChildren(library, stale);
 
-		await this._matches.deleteForItems(stale.map((item) => item.id));
-		await this._items.remove(stale);
+		if (removable.length === 0) {
+			return;
+		}
+
+		this._logger.log(`${removable.length} items disappeared from ${library.name}`);
+
+		await this._matches.deleteForItems(removable.map((item) => item.id));
+		await this._items.remove(removable);
+	}
+
+	/**
+	 * Of the rows a walk did not report, the ones nothing still hangs from.
+	 *
+	 * Not every service enumerates every level. One that lists seasons and episodes
+	 * but not the series has its series rows fetched by the reconciliation, by
+	 * identifier — so they are never in what the walk saw, and the plain rule would
+	 * delete them at the very next scan. That is not a cosmetic loss: the children
+	 * keep pointing at a row that no longer exists, which makes them neither roots nor
+	 * reachable under anything, and a whole show disappears from the library screen
+	 * without a single error.
+	 *
+	 * A show that was genuinely removed still goes: its episodes stopped being
+	 * reported too, so they are stale in the same pass and spare nothing.
+	 *
+	 * Decided in memory over the library's rows, which is the same read `_recompute`
+	 * is about to do and the same tradeoff: a query per stale row would be thousands
+	 * of round trips for a pass whose whole job is a handful of deletions.
+	 */
+	private async _withoutLivingChildren(
+		library: LibraryEntity,
+		stale: MediaItem[],
+	): Promise<MediaItem[]> {
+		const doomed = new Set(stale.map((item) => item.id));
+		const rows = await this._items.find({ where: { libraryId: library.id } });
+		const byId = new Map(rows.map((item) => [item.id, item]));
+
+		for (const row of rows) {
+			if (doomed.has(row.id)) {
+				continue;
+			}
+
+			let parentId = row.parentId;
+
+			// Everything above something that survives survives with it, and the climb
+			// continues past each row it spares so a grandparent is reached too. Bounded
+			// like every other walk up this tree: a service answering with a cycle must
+			// not hang a scan.
+			for (let hop = 0; hop < PARENT_HOPS && parentId !== null; hop += 1) {
+				if (!doomed.delete(parentId)) {
+					break;
+				}
+
+				parentId = byId.get(parentId)?.parentId ?? null;
+			}
+		}
+
+		return stale.filter((item) => doomed.has(item.id));
 	}
 
 	/**

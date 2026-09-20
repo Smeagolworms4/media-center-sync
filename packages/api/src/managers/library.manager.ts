@@ -186,6 +186,83 @@ export class LibraryManager {
 	}
 
 	/**
+	 * Make one category read as the category a destination library belongs to.
+	 *
+	 * Two mechanisms decide two different things and only one of them had a control.
+	 * `Settings.categoryTargets` says where a *new* pull lands; `Library.alias` is what
+	 * libraries merge on, and so what makes two shelves one category. Somebody who
+	 * pointed `Séries` at their `Shows` library read that as "Séries is Shows here",
+	 * saved, and still saw two categories — because nothing had touched an alias. This
+	 * is the second half of that sentence: the libraries of `key` take the destination
+	 * category's name, and `categories()` then folds them together on its own.
+	 *
+	 * Three cases write nothing rather than something wrong:
+	 *
+	 * - a destination whose category cannot be read — an identifier left over from a
+	 *   library that has since gone — because the name to adopt would be the empty
+	 *   string, and an empty alias is a category with no name rather than no alias;
+	 * - a destination already in the category being mapped, which would alias a thing
+	 *   to itself and rewrite every row for nothing;
+	 * - **any library on a service that is not ours.** The alias is local, but folding
+	 *   a friend's shelf into one of ours is not a naming choice, it is claiming their
+	 *   media as filed in our library — and their items would then be counted in a
+	 *   category whose destination they can never be. `check()` and the destination
+	 *   list already draw the line at `MediaServiceMode.LOCAL`; this draws it in the
+	 *   same place. The same test on the destination, for the mirror image: a
+	 *   destination on somebody else's server would fold *our* shelf into theirs.
+	 *
+	 * Returns the name the libraries now read as, or null when nothing was touched.
+	 */
+	public async mergeCategoryInto(key: string, destinationLibraryId: string): Promise<string | null> {
+		const categories = await this.categories();
+		const destination = categories.find((category) =>
+			category.libraryIds.includes(destinationLibraryId),
+		);
+		const source = categories.find((category) => category.key === key);
+
+		if (destination === undefined || source === undefined || destination.key === source.key) {
+			return null;
+		}
+
+		const name = destination.name.trim();
+
+		if (name === '') {
+			return null;
+		}
+
+		const ours = await this._ourServiceIds();
+		const libraries = await this._libraries.findByIds([
+			destinationLibraryId,
+			...source.libraryIds,
+		]);
+		const target = libraries.find((library) => library.id === destinationLibraryId);
+
+		if (target === undefined || !ours.has(target.serviceId)) {
+			return null;
+		}
+
+		let renamed = 0;
+
+		for (const library of libraries) {
+			if (library.id === destinationLibraryId || !ours.has(library.serviceId)) {
+				continue;
+			}
+
+			library.alias = name;
+
+			await this._libraries.save(library);
+
+			renamed += 1;
+		}
+
+		if (renamed > 0) {
+			this._logger.log(`Category ${key} now reads as ${name}: ${renamed} libraries renamed`);
+		}
+
+		return renamed === 0 ? null : name;
+	}
+
+	/**
 	 * Which category each library belongs to, by library identifier.
 	 *
 	 * The inverse of `librariesOfCategory`, for the caller that starts from an item
@@ -321,6 +398,23 @@ export class LibraryManager {
 		for (const library of await this._libraries.findByService(service.id)) {
 			await this._deriveFor(library, service);
 		}
+	}
+
+	/**
+	 * The services whose libraries are ours to write into and to rename.
+	 *
+	 * `serviceMode` rather than the scope alone, because a service reached through a
+	 * peer is somebody else's machine however its scope happens to read — see the note
+	 * there, which is the same reason `check()` refuses to probe them.
+	 */
+	private async _ourServiceIds(): Promise<Set<string>> {
+		const services = await this._services.find();
+
+		return new Set(
+			services
+				.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
+				.map((service) => service.id),
+		);
 	}
 
 	/**

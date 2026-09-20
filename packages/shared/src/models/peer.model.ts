@@ -11,7 +11,6 @@ export enum PeerStatus {
 	LINKED = 'linked',
 	/** Linked, but unreachable at the moment. */
 	UNREACHABLE = 'unreachable',
-	BLOCKED = 'blocked',
 }
 
 /**
@@ -114,6 +113,23 @@ export interface Peer {
 	 * quietly becomes a public one.
 	 */
 	maxDepth: number | null;
+	/**
+	 * They are a peer, the link stays open, and they are served nothing of ours.
+	 *
+	 * The gateway-wide answer to "stop showing them my library", sitting a cut above
+	 * `SharePolicy.deniedPeerIds`: that list is per library, so cutting somebody off
+	 * with it meant editing every policy and missing the one written next week. This
+	 * is read once, in `ShareManager.visiblePolicies`, and every peer-facing route
+	 * goes through it.
+	 *
+	 * It deliberately does not close the link, which is what the old block did.
+	 * Closing the socket cut *both* directions, so punishing somebody also took away
+	 * our own access to their library — nobody wanted that, and people stopped using
+	 * the action rather than pay for it. The consequence to accept, and the one the
+	 * interface has to state, is that they stay connected on their side and simply
+	 * find an empty catalogue.
+	 */
+	readingForbidden: boolean;
 	linkMode: PeerLinkMode | null;
 	/** Last address a link was established on. Informational only. */
 	address: string | null;
@@ -261,12 +277,13 @@ export interface PeerIdentity {
 /**
  * A fingerprint this gateway refuses, whether or not a peer row exists for it.
  *
- * Blocking sets a status on a peer we still keep; banning outlives the row. The
- * distinction exists because removing a peer used to be the *weaker* of the two
- * actions: it deleted the row, and with it the only thing that had been refusing
- * them, so the next request from the same key arrived as a fresh introduction to
- * accept. Somebody ejecting a peer means to be rid of them, not to reset the
- * relationship.
+ * The last of three outcomes that do not overlap: forbidding a peer from reading
+ * keeps them and the link, removing them lets them ask again, and a ban refuses the
+ * key whether or not a row exists. It outlives the row because removing a peer used
+ * to be the *weaker* action: it deleted the row, and with it the only thing that had
+ * been refusing them, so the next request from the same key arrived as a fresh
+ * introduction to accept. Somebody banning a peer means to be rid of them, not to
+ * reset the relationship.
  *
  * Keyed by fingerprint rather than by peer, because that is the part that survives:
  * a name is a label we chose, an address changes, and a node identifier is
@@ -289,14 +306,13 @@ export interface BanPeerRequest {
 }
 
 /**
- * Unlinking, with or without a ban.
+ * Forbidding, or allowing again, what a peer may read of us.
  *
- * Defaulting `ban` to false keeps the ordinary case ordinary — a peer removed
- * because a friend rebuilt their gateway should be able to come back by asking. The
- * interface offers the ban as a checkbox on the removal, where the decision belongs,
- * rather than as a second action somebody has to know to take afterwards.
+ * One request with a flag rather than two routes, because it is one switch somebody
+ * flips back and forth: two verbs would each need their own idempotency story, and a
+ * screen would have to know which of the two applies before it could draw a button.
  */
-export interface RemovePeerRequest {
-	ban?: boolean;
-	reason?: string;
+export interface SetPeerReadingRequest {
+	/** True serves them nothing of ours; the link and the peer row stay as they are. */
+	forbidden: boolean;
 }

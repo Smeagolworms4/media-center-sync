@@ -433,6 +433,7 @@ describe('pages/LibraryItem', () => {
 					status: PeerStatus.LINKED,
 					direction: null,
 					trust: PeerTrust.FRIEND_OF_FRIEND,
+					readingForbidden: false,
 					linkMode: null,
 					address: null,
 					viaPeerId: 'p0',

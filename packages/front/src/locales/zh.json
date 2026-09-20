@@ -368,7 +368,7 @@
 		"last_probe": "上次检查",
 		"remove_title": "移除此服务？",
 		"remove_confirm": "{name} 以及从它索引到的一切都将从网关移除。文件本身不会被动。",
-		"scan_started": "完整扫描已开始。进度会在这里显示。",
+		"scan_started": "已开始完整扫描。进度显示在该服务所在的行。",
 		"refresh_started": "刷新已开始。",
 		"status": {
 			"unknown": "未检查",
@@ -434,10 +434,8 @@
 		"last_seen": "上次出现",
 		"relay_hint": "此连接经由会合服务器，它的带宽由所有使用者共享。",
 		"remove_title": "移除此对等网关？",
-		"remove_confirm": "与 {name} 的连接将被断开。已经拉取过来的内容会保留。",
-		"connecting": "正在连接对等网关…",
-		"blocked": "对等网关已屏蔽。",
-		"unblocked": "对等网关已解除屏蔽。",
+		"remove_confirm": "与 {name} 的连接将被断开。已经拉取过来的内容会保留，对方也可以再次请求——若要永久拒绝其密钥，需要封禁。",
+		"connecting": "正在立即尝试连接对等网关…",
 		"renamed": "对等网关已重命名。",
 		"removed": "对等网关已移除。",
 		"linked": "对等网关已连接。",
@@ -453,7 +451,7 @@
 		"direction": {
 			"incoming": "等你处理",
 			"outgoing": "等对方处理",
-			"incoming_hint": "这个网关请求与你相连。接受它，或屏蔽对方。",
+			"incoming_hint": "这个网关请求与你相连。接受它，或移除该请求。",
 			"outgoing_hint": "已发出请求。在对方接受之前，这里无事可做。"
 		},
 		"add": {
@@ -468,8 +466,7 @@
 		"status": {
 			"pending": "等待连接",
 			"linked": "已连接",
-			"unreachable": "无法连接",
-			"blocked": "已屏蔽"
+			"unreachable": "无法连接"
 		},
 		"trust": {
 			"friend": "朋友",
@@ -488,7 +485,7 @@
 			"rendezvous": "会合服务器",
 			"direct_address": "直连地址",
 			"direct_ok": "可以直接连接，因此传输不经过中继。",
-			"relay_only": "只能经由中继连接。一切都能用，但传输要和所有其他使用者共享会合服务器。让本网关可被访问——只需一个端口，就是界面所用的那个——可以消除这一点。"
+			"relay_only": "本网关无法从外部访问，因此朋友无法直接连上来，每一次传输都要经过会合服务器，而它的带宽由当时所有使用者共享。在路由器上转发界面所用的端口即可解决。不需要开第二个端口：对等连接就是在同一个端口上的 WebSocket 升级。"
 		},
 		"invite": {
 			"open": "连接一个网关",
@@ -512,20 +509,18 @@
 		},
 		"action": {
 			"approve": "接受",
-			"connect": "立即连接",
+			"connect": "立即重试",
 			"rename": "重命名",
-			"block": "屏蔽",
-			"unblock": "解除屏蔽",
 			"remove": "移除",
 			"ban": "封禁",
-			"unban": "解除封禁"
+			"unban": "解除封禁",
+			"forbid_reading": "禁止读取",
+			"allow_reading": "允许读取"
 		},
 		"protocol": "协议 {version}",
 		"capabilities": "支持",
 		"banned": "已封禁。该密钥无法自行回来。",
 		"unbanned": "已解除封禁。对方可以再次请求。",
-		"remove_ban": "同时永久拒绝此密钥",
-		"remove_ban_hint": "仅移除会让对方可以再次请求——朋友重建网关时通常正需要如此。",
 		"ban_title": "封禁此对端",
 		"ban_confirm": "将断开与 {name} 的连接并拒绝其密钥——请求、邀请以及经由朋友介绍都将被拒。",
 		"ban_reason": "原因",
@@ -545,7 +540,17 @@
 			"default": "默认（{count}）",
 			"hops": "最多 {count} 跳",
 			"saved": "已保存。"
-		}
+		},
+		"connect_hint": "本网关会在启动时连接，断开后也会自行重试，每次等待更久。此按钮立即再试一次。",
+		"unreachable_hint": "目前无法连接。网关会自行继续尝试，并逐次拉长间隔。",
+		"reading_forbidden_chip": "什么也看不到",
+		"reading_forbidden_hint": "已禁止读取：连接仍然保持，本网关也照常读取对方，但对方向这里发出的一切请求都只会得到空的回应。",
+		"forbid_reading_title": "禁止此对等网关读取？",
+		"forbid_reading_confirm": "无论各媒体库的共享设置如何，都不会再向 {name} 提供任何内容。连接会特意保持：对方那一侧仍然连着，只会看到一个空目录，而本网关依旧可以读取对方的媒体库。点一下即可恢复。",
+		"allow_reading_title": "重新允许此对等网关读取？",
+		"allow_reading_confirm": "{name} 将像以前一样，重新看到各媒体库共享设置所允许的内容。",
+		"reading_forbidden": "已不再向此对等网关提供任何内容。",
+		"reading_allowed": "此对等网关又可以读取了。"
 	},
 	"notification": {
 		"title": "通知渠道",
@@ -710,6 +715,8 @@
 			"category_header": "类别",
 			"target_header": "归入",
 			"falls_back": "回退到 {target}",
+			"merges": "选择目标位置也会把这个分类归到该媒体库的名下：在媒体库视图中，两者随后会显示为一个分类，而不是两个。",
+			"merges_foreign": "这些媒体库在别人的服务器上，名称仍然归他们所有，这个分类也会继续单独显示。改变的只是新文件的存放位置。",
 			"fallback_unset": "任何能够容纳它的媒体库——上面尚未设置",
 			"rejected": {
 				"not_ours": "{library}（位于 {service}）无法作为目标：它在别人的服务器上，本网关无法写入。",
@@ -723,16 +730,26 @@
 		"public_url_suggested": "根据您此刻正在使用的地址推荐（{origin}）。如果朋友以别的名称访问此网关，请改成那个地址。",
 		"default_target": "后备文件夹",
 		"default_target_help": "本网关可写入的绝对路径，用于媒体库无法表达的情况——位于所有媒体库之外的暂存文件夹。只有在类别和默认目标媒体库都没有答案时才会使用。",
-		"naming": "命名",
-		"naming_value": {
-			"source": "沿用来源的名称",
-			"local": "与我们自己的媒体库一致",
-			"standard": "标准方案"
-		},
-		"naming_help": {
-			"source": "文件按来源给出的名称到达。",
-			"local": "按你自己的媒体库已有的命名方式重命名。",
-			"standard": "剧集名 (年份)/Season 01/剧集名 - S01E02 - 标题.ext"
+		"naming": {
+			"rule_title": "获取到的文件如何命名",
+			"rule_note": "各步骤依次尝试，第一个能给出答案的胜出。最后一行是一种约定：它总能给出答案，因此其后不能再有步骤，也无法移除。",
+			"convention": "然后是约定",
+			"unused": "未使用：",
+			"move_up": "更早尝试",
+			"move_down": "更晚尝试",
+			"drop": "不再使用此步骤",
+			"step": {
+				"source": "沿用来源的名称",
+				"local": "沿用我们自己媒体库已有的做法",
+				"standard": "空格约定",
+				"dotted": "点号约定"
+			},
+			"step_help": {
+				"source": "不做任何重命名。上层文件夹已经告诉两种媒体服务器这是什么文件，而任何重命名方案都会作出在某些媒体库上并不成立的假设。仅当来源根本没有发来文件名时才跳过。",
+				"local": "照抄同一剧集中你已经拥有的一集，标签对标签、分隔符对分隔符，让已经整理好的媒体库保持整齐。当这部剧没有可照抄的文件时跳过。",
+				"standard": "剧集名 - S01E02 - 标题.ext",
+				"dotted": "剧集名.年份.S01E03.标题.ext —— scene 发布和许多 Plex 媒体库使用的写法。"
+			}
 		},
 		"pull_metadata": "一并拉取元数据",
 		"pull_metadata_help": "连同媒体一起复制封面、字幕和 .nfo 文件。",

@@ -143,6 +143,23 @@ export interface CreateMediaServiceRequest {
 
 export type UpdateMediaServiceRequest = Partial<CreateMediaServiceRequest>;
 
+/**
+ * Trying a connection before anything is written.
+ *
+ * Deliberately not `CreateMediaServiceRequest`. A probe answers one question — is
+ * this server reachable with these credentials — and a name, a priority or a root
+ * mapping say nothing about whether it answers. Sending the whole form made the
+ * route refuse six fields by name, and the honest reading of that refusal is that
+ * the caller was sending what the route does not handle.
+ */
+export interface ProbeMediaServiceRequest {
+	type: MediaServiceType;
+	baseUrl: string;
+	token?: string;
+	username?: string;
+	password?: string;
+}
+
 /** Result of a connection probe, before or after registration. */
 export interface MediaServiceProbe {
 	reachable: boolean;

@@ -32,6 +32,7 @@ interface Fakes {
 	libraries: {
 		find: jest.Mock;
 		findOne: jest.Mock;
+		findByIds: jest.Mock;
 		findByService: jest.Mock;
 		save: jest.Mock;
 		clearDefaultTarget: jest.Mock;
@@ -47,6 +48,9 @@ const build = (
 		libraries: {
 			find: jest.fn().mockResolvedValue(rows),
 			findOne: jest.fn().mockResolvedValue(rows[0]),
+			findByIds: jest.fn((ids: string[]) =>
+				Promise.resolve(rows.filter((one) => ids.includes(one.id))),
+			),
 			findByService: jest.fn().mockResolvedValue(rows),
 			save: jest.fn((value: Library) => Promise.resolve(value)),
 			clearDefaultTarget: jest.fn().mockResolvedValue(undefined),
@@ -390,6 +394,195 @@ describe('LibraryManager', () => {
 			const [category] = await manager.categories();
 
 			expect(category.local).toBe(false);
+		});
+	});
+
+	describe('following a destination onto the names', () => {
+		/*
+		 * The bug this whole block is about: mapping `Séries` onto the `Shows` library
+		 * decided where new files land and nothing else, so the library screen went on
+		 * showing two categories and the fourteen items stayed in the first one. A
+		 * destination is also a statement about what the category is, and these are the
+		 * cases where acting on that statement would be wrong.
+		 */
+		const ours = [
+			{ id: 'jellyfin', scope: MediaServiceScope.LOCAL, peerId: null },
+			{ id: 'plex', scope: MediaServiceScope.LOCAL, peerId: null },
+		];
+
+		it('gives the mapped category the destination’s name, so the two become one', async () => {
+			const { manager, fakes } = build([
+				library({ id: 'series', serviceId: 'jellyfin', name: 'Séries', itemCount: 14 }),
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows', itemCount: 24 }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBe('Shows');
+			expect(fakes.libraries.save).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'series', alias: 'Shows' }),
+			);
+
+			// The point of all of it: one category, holding what both held.
+			const categories = await manager.categories();
+
+			expect(categories).toHaveLength(1);
+			expect(categories[0]).toMatchObject({ name: 'Shows', itemCount: 38 });
+		});
+
+		it('renames every library of the category, not only the first', async () => {
+			const { manager, fakes } = build([
+				library({ id: 'series-a', serviceId: 'jellyfin', name: 'Séries' }),
+				library({ id: 'series-b', serviceId: 'plex', name: 'series' }),
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows' }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await manager.mergeCategoryInto('series', 'shows');
+
+			expect(fakes.libraries.save.mock.calls.map(([one]: [Library]) => one.id).sort()).toEqual([
+				'series-a',
+				'series-b',
+			]);
+		});
+
+		it('leaves a library on somebody else’s server alone', async () => {
+			// The alias is local, but folding a friend's shelf into one of ours claims
+			// their media as filed in our library — and counts their items in a category
+			// whose destination they can never be.
+			const { manager, fakes } = build([
+				library({ id: 'theirs', serviceId: 'friend', name: 'Séries', itemCount: 7 }),
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows', itemCount: 24 }),
+			]);
+
+			fakes.services.find.mockResolvedValue([
+				...ours,
+				{ id: 'friend', scope: MediaServiceScope.REMOTE, peerId: null },
+			]);
+
+			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBeNull();
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+			await expect(manager.categories()).resolves.toHaveLength(2);
+		});
+
+		it('leaves a library reached through a peer alone, whatever its scope says', async () => {
+			// A peer's service can carry any scope at all; it is still somebody else's
+			// machine, which is why `serviceMode` puts the peer test first.
+			const { manager, fakes } = build([
+				library({ id: 'theirs', serviceId: 'lab', name: 'Séries' }),
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows' }),
+			]);
+
+			fakes.services.find.mockResolvedValue([
+				...ours,
+				{ id: 'lab', scope: MediaServiceScope.LOCAL, peerId: 'peer-1' },
+			]);
+
+			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBeNull();
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('renames ours and skips theirs when the category holds both', async () => {
+			const { manager, fakes } = build([
+				library({ id: 'mine', serviceId: 'jellyfin', name: 'Séries' }),
+				library({ id: 'theirs', serviceId: 'friend', name: 'séries' }),
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows' }),
+			]);
+
+			fakes.services.find.mockResolvedValue([
+				...ours,
+				{ id: 'friend', scope: MediaServiceScope.REMOTE, peerId: null },
+			]);
+
+			await manager.mergeCategoryInto('series', 'shows');
+
+			expect(fakes.libraries.save.mock.calls.map(([one]: [Library]) => one.id)).toEqual(['mine']);
+		});
+
+		it('does nothing when the destination is on somebody else’s server', async () => {
+			// The mirror image: aliasing our libraries to their shelf's name would fold
+			// ours into theirs, which is the same claim made backwards.
+			const { manager, fakes } = build([
+				library({ id: 'mine', serviceId: 'jellyfin', name: 'Séries' }),
+				library({ id: 'theirs', serviceId: 'friend', name: 'Shows' }),
+			]);
+
+			fakes.services.find.mockResolvedValue([
+				...ours,
+				{ id: 'friend', scope: MediaServiceScope.REMOTE, peerId: null },
+			]);
+
+			await expect(manager.mergeCategoryInto('series', 'theirs')).resolves.toBeNull();
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('does nothing when the destination is already in that category', async () => {
+			// Aliasing a thing to itself rewrites every row of the category to the name it
+			// already has, and the first rescan would look like somebody renamed them.
+			const { manager, fakes } = build([
+				library({ id: 'shows-a', serviceId: 'jellyfin', name: 'Shows' }),
+				library({ id: 'shows-b', serviceId: 'plex', name: 'shows' }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await expect(manager.mergeCategoryInto('shows', 'shows-b')).resolves.toBeNull();
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('does nothing when the destination belongs to no category the gateway knows', async () => {
+			// A library that has since gone, whose identifier is still in the table: the
+			// name to adopt would be nothing at all, and an empty alias is a category with
+			// no name rather than no alias.
+			const { manager, fakes } = build([
+				library({ id: 'series', serviceId: 'jellyfin', name: 'Séries' }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await expect(manager.mergeCategoryInto('series', 'gone')).resolves.toBeNull();
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('does nothing when the mapped category holds nothing', async () => {
+			const { manager, fakes } = build([
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows' }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await expect(manager.mergeCategoryInto('animes', 'shows')).resolves.toBeNull();
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('never writes an empty alias, even from a library the service named nothing', async () => {
+			const { manager, fakes } = build([
+				library({ id: 'series', serviceId: 'jellyfin', name: 'Séries' }),
+				library({ id: 'nameless', serviceId: 'plex', name: '  ' }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await expect(manager.mergeCategoryInto('series', 'nameless')).resolves.toBeNull();
+			expect(fakes.libraries.save).not.toHaveBeenCalled();
+		});
+
+		it('leaves the destination’s own hand-typed alias exactly where it is', async () => {
+			// The name somebody chose is what the whole category now reads as; rewriting
+			// it from the reported name would undo their rename on the way past.
+			const { manager, fakes } = build([
+				library({ id: 'series', serviceId: 'jellyfin', name: 'Séries' }),
+				library({ id: 'shows', serviceId: 'plex', name: 'Video2', alias: 'Documentaires' }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await expect(manager.mergeCategoryInto('series', 'shows')).resolves.toBe('Documentaires');
+			expect(fakes.libraries.save).toHaveBeenCalledTimes(1);
+			expect(fakes.libraries.save).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'series', alias: 'Documentaires' }),
+			);
 		});
 	});
 

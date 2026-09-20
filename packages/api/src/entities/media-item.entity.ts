@@ -55,6 +55,20 @@ export class MediaItem extends Timestampable {
 	@Column({ type: 'uuid', nullable: true })
 	public parentId!: string | null;
 
+	/**
+	 * The parent as the service names it, kept beside the link it produces.
+	 *
+	 * `parentId` can only be filled once the parent has a row of ours, and whether it
+	 * does at that moment depends on the order the service enumerated in — an order no
+	 * media server guarantees anything about. This column is the fact the service
+	 * actually stated, so the link can be made whenever the parent turns up instead of
+	 * only if it happened to arrive first. Without it a child written too early is
+	 * unrepairable: nothing left on the row says what it was supposed to hang from.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public parentExternalId!: string | null;
+
 	@ApiProperty({ enum: MediaKind })
 	@Column({ type: 'varchar' })
 	public kind!: MediaKind;

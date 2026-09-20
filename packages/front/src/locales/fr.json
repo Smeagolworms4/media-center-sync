@@ -368,7 +368,7 @@
 		"last_probe": "Dernière vérification",
 		"remove_title": "Supprimer ce service ?",
 		"remove_confirm": "{name} et tout ce qui en a été indexé seront retirés de la passerelle. Les fichiers eux-mêmes ne sont pas touchés.",
-		"scan_started": "Une analyse complète a démarré. Sa progression s'affiche ici.",
+		"scan_started": "Une analyse complète a démarré. Sa progression s'affiche sur la ligne du service.",
 		"refresh_started": "Un rafraîchissement a démarré.",
 		"status": {
 			"unknown": "Non vérifié",
@@ -434,10 +434,8 @@
 		"last_seen": "vu",
 		"relay_hint": "Ce lien passe par le rendez-vous, dont la bande passante est partagée par tous ceux qui l'utilisent.",
 		"remove_title": "Supprimer ce pair ?",
-		"remove_confirm": "Le lien avec {name} sera rompu. Ce qui a déjà été récupéré reste.",
-		"connecting": "Connexion au pair…",
-		"blocked": "Pair bloqué.",
-		"unblocked": "Pair débloqué.",
+		"remove_confirm": "Le lien avec {name} sera rompu. Ce qui a déjà été récupéré reste, et ce pair pourra redemander — pour refuser sa clé définitivement, il faut le bannir.",
+		"connecting": "Nouvelle tentative de connexion au pair…",
 		"renamed": "Pair renommé.",
 		"removed": "Pair supprimé.",
 		"linked": "Pair lié.",
@@ -453,7 +451,7 @@
 		"direction": {
 			"incoming": "En attente de vous",
 			"outgoing": "En attente d'eux",
-			"incoming_hint": "Cette passerelle demande à se relier à la vôtre. Acceptez, ou bloquez-la.",
+			"incoming_hint": "Cette passerelle demande à se relier à la vôtre. Acceptez, ou supprimez la demande.",
 			"outgoing_hint": "Demande envoyée. Rien à faire ici tant qu'ils n'ont pas accepté."
 		},
 		"add": {
@@ -468,8 +466,7 @@
 		"status": {
 			"pending": "Lien en attente",
 			"linked": "Lié",
-			"unreachable": "Injoignable",
-			"blocked": "Bloqué"
+			"unreachable": "Injoignable"
 		},
 		"trust": {
 			"friend": "Ami",
@@ -488,7 +485,7 @@
 			"rendezvous": "Rendez-vous",
 			"direct_address": "Adresse directe",
 			"direct_ok": "Les connexions directes sont possibles : les transferts ne passent pas par le relais.",
-			"relay_only": "Seuls les liens relayés sont possibles. Tout fonctionne, mais les transferts partagent le rendez-vous avec tous les autres. Rendre cette passerelle joignable — un seul port, celui de l'interface — supprimerait cette limite."
+			"relay_only": "Cette passerelle n'est pas joignable depuis l'extérieur : vos amis ne peuvent pas s'y connecter directement et chaque transfert passe par le rendez-vous, dont la bande passante est partagée entre tous ceux qui l'utilisent au même moment. Rediriger le port de l'interface sur votre box règle le problème. Il n'y a pas de second port à ouvrir : un lien entre pairs est une connexion WebSocket sur celui-là même."
 		},
 		"invite": {
 			"open": "Relier une passerelle",
@@ -512,20 +509,18 @@
 		},
 		"action": {
 			"approve": "Accepter",
-			"connect": "Connecter maintenant",
+			"connect": "Réessayer maintenant",
 			"rename": "Renommer",
-			"block": "Bloquer",
-			"unblock": "Débloquer",
 			"remove": "Supprimer",
 			"ban": "Bannir",
-			"unban": "Lever le bannissement"
+			"unban": "Lever le bannissement",
+			"forbid_reading": "Interdire la lecture",
+			"allow_reading": "Autoriser la lecture"
 		},
 		"protocol": "Protocole {version}",
 		"capabilities": "sait faire",
 		"banned": "Banni. Cette clé ne peut pas revenir d'elle-même.",
 		"unbanned": "Bannissement levé. Ce pair peut redemander.",
-		"remove_ban": "Refuser aussi cette clé définitivement",
-		"remove_ban_hint": "Une simple suppression laisse ce pair redemander, ce qui est en général souhaitable quand un ami reconstruit sa passerelle.",
 		"ban_title": "Bannir ce pair",
 		"ban_confirm": "{name} sera délié et sa clé refusée — par demande, par invitation et via un ami.",
 		"ban_reason": "Motif",
@@ -545,7 +540,17 @@
 			"default": "Par défaut ({count})",
 			"hops": "un saut | jusqu'à {count} sauts",
 			"saved": "Enregistré."
-		}
+		},
+		"connect_hint": "Cette passerelle se connecte au démarrage et retente seule après une coupure, en attendant de plus en plus longtemps. Ceci réessaie tout de suite.",
+		"unreachable_hint": "Injoignable pour le moment. La passerelle continue d'essayer seule, en espaçant les tentatives.",
+		"reading_forbidden_chip": "Ne voit rien",
+		"reading_forbidden_hint": "Lecture interdite : le lien est maintenu et cette passerelle lit toujours la sienne, mais tout ce que ce pair demande reçoit une réponse vide.",
+		"forbid_reading_title": "Interdire la lecture à ce pair ?",
+		"forbid_reading_confirm": "{name} ne recevra plus rien de nous, quels que soient les partages de chaque bibliothèque. Le lien reste ouvert, volontairement : ce pair reste connecté de son côté et ne voit qu'un catalogue vide, et cette passerelle continue de lire la sienne. Un clic suffit pour revenir en arrière.",
+		"allow_reading_title": "Autoriser à nouveau la lecture ?",
+		"allow_reading_confirm": "{name} verra de nouveau ce que le partage de chaque bibliothèque autorise, comme avant.",
+		"reading_forbidden": "Ce pair ne reçoit plus rien.",
+		"reading_allowed": "Ce pair peut de nouveau lire."
 	},
 	"notification": {
 		"title": "Canaux de notification",
@@ -710,6 +715,8 @@
 			"category_header": "Catégorie",
 			"target_header": "Va vers",
 			"falls_back": "Se rabat sur {target}",
+			"merges": "Choisir une destination classe aussi cette catégorie sous le nom de cette bibliothèque : dans la vue des bibliothèques, les deux n’en forment plus qu’une, et non deux.",
+			"merges_foreign": "Ces bibliothèques sont sur le serveur de quelqu’un d’autre : leur nom reste le leur et cette catégorie continue d’apparaître à part. Seule la destination des nouveaux fichiers change.",
 			"fallback_unset": "n’importe quelle bibliothèque capable de l’accueillir — rien n’est défini ci-dessus",
 			"rejected": {
 				"not_ours": "{library} sur {service} ne peut pas être proposée : elle est sur le serveur de quelqu’un d’autre, et cette passerelle ne peut pas y écrire.",
@@ -723,16 +730,26 @@
 		"public_url_suggested": "Proposée d'après l'adresse que vous utilisez en ce moment ({origin}). Changez-la si vos amis joignent cette passerelle sous un autre nom.",
 		"default_target": "Dossier de repli",
 		"default_target_help": "Un chemin absolu dans lequel cette passerelle peut écrire, pour le cas qu’une bibliothèque ne sait pas exprimer — un dossier d’attente en dehors de toute bibliothèque. Utilisé seulement quand ni une catégorie ni la bibliothèque de destination par défaut ne répond.",
-		"naming": "Nommage",
-		"naming_value": {
-			"source": "Garder le nom de la source",
-			"local": "Suivre notre propre médiathèque",
-			"standard": "Schéma standard"
-		},
-		"naming_help": {
-			"source": "Le fichier arrive avec le nom que la source lui donne.",
-			"local": "Renommé comme votre propre médiathèque nomme déjà les choses.",
-			"standard": "Série (Année)/Saison 01/Série - S01E02 - Titre.ext"
+		"naming": {
+			"rule_title": "Comment un fichier récupéré est nommé",
+			"rule_note": "Chaque étape est essayée à son tour et la première qui sait répondre l'emporte. La dernière ligne est une convention : elle répond toujours, donc rien ne peut venir après elle et on ne peut pas l'enlever.",
+			"convention": "Puis, la convention",
+			"unused": "Non utilisé :",
+			"move_up": "Essayer celle-ci plus tôt",
+			"move_down": "Essayer celle-ci plus tard",
+			"drop": "Ne plus utiliser cette étape",
+			"step": {
+				"source": "Garder le nom de la source",
+				"local": "Suivre ce que fait déjà notre propre médiathèque",
+				"standard": "Convention avec espaces",
+				"dotted": "Convention avec points"
+			},
+			"step_help": {
+				"source": "Rien n'est renommé. Le dossier au-dessus dit déjà aux deux serveurs multimédias ce qu'est le fichier, et tout schéma de renommage suppose quelque chose qui est faux sur une médiathèque ou une autre. Ignorée seulement si la source n'a envoyé aucun nom de fichier.",
+				"local": "Un épisode de la même série que vous avez déjà est recopié, balise pour balise et séparateur pour séparateur, pour qu'une médiathèque que vous avez rangée le reste. Ignorée quand il n'y a rien de cette série à recopier.",
+				"standard": "Série - S01E02 - Titre.ext",
+				"dotted": "Série.Année.S01E03.Titre.ext — ce qu'utilisent les releases scene et bien des médiathèques Plex."
+			}
 		},
 		"pull_metadata": "Récupérer aussi les métadonnées",
 		"pull_metadata_help": "Copie les jaquettes, les sous-titres et les fichiers .nfo à côté du média.",

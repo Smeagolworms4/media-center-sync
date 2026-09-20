@@ -194,16 +194,7 @@ export class ShareManager {
 	 */
 	public async audit(peerId: string): Promise<ShareAudit> {
 		const peer = await this._requirePeer(peerId);
-		const resolved = await this._resolve();
-
-		const visible = resolved.filter((share) =>
-			this._catalogue.isVisible(share.policy, {
-				id: peer.id,
-				name: peer.name,
-				trust: peer.trust,
-				viaPeerId: peer.viaPeerId,
-			}),
-		);
+		const visible = await this._visibleShares(peer);
 
 		// Read once for the whole answer. This list is not merged by name — it says what
 		// one peer would be served, which is decided per library — so two rows called
@@ -231,18 +222,38 @@ export class ShareManager {
 
 	/** The policies a peer may see, already filtered. Used by the peer-facing routes. */
 	public async visiblePolicies(peer: PeerEntity): Promise<CataloguePolicy[]> {
-		const resolved = await this._resolve();
+		return (await this._visibleShares(peer)).map((share) => share.policy);
+	}
 
-		return resolved
-			.map((share) => share.policy)
-			.filter((policy) =>
-				this._catalogue.isVisible(policy, {
-					id: peer.id,
-					name: peer.name,
-					trust: peer.trust,
-					viaPeerId: peer.viaPeerId,
-				}),
-			);
+	/**
+	 * The libraries one peer may see, which is where every answer to that question
+	 * starts — the peer routes, and the audit that promises to say what they would get.
+	 *
+	 * **A peer forbidden from reading sees nothing, whatever the policies say.** The
+	 * flag is read here and nowhere else on purpose: this is the one funnel
+	 * `PeerExchangeManager` puts its catalogue, libraries, holders, announcements and
+	 * per-item lookups through, so a second check elsewhere could only ever be a second
+	 * place to forget. It sits a cut above `SharePolicy.deniedPeerIds`, which is per
+	 * library and therefore cannot express "this person sees nothing of mine" without
+	 * being edited into every policy that exists today and every one written next week.
+	 *
+	 * Nothing here touches the link. Forbidding reading leaves the socket open, so we
+	 * keep pulling from them while they get an empty catalogue from us — the previous
+	 * answer closed the connection and cut both directions at once.
+	 */
+	private async _visibleShares(peer: PeerEntity): Promise<ResolvedShare[]> {
+		if (peer.readingForbidden) {
+			return [];
+		}
+
+		return (await this._resolve()).filter((share) =>
+			this._catalogue.isVisible(share.policy, {
+				id: peer.id,
+				name: peer.name,
+				trust: peer.trust,
+				viaPeerId: peer.viaPeerId,
+			}),
+		);
 	}
 
 	/**

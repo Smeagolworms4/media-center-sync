@@ -7,6 +7,7 @@ import {
 	PeerStatus,
 	PeerTrust,
 } from '@mcs/shared';
+import { ServiceUnavailableException } from '@nestjs/common';
 import type { Peer, PeerInvite } from '@/entities';
 import type {
 	BannedPeerRepository,
@@ -17,7 +18,14 @@ import type {
 	PeerInviteRepository,
 	PeerRepository,
 } from '@/repositories';
-import type { EventGatewayService, PeerLinkService, SettingsService } from '@/services';
+import type { ConfigService } from '@nestjs/config';
+import {
+	PeerDialOutcome,
+	type EventGatewayService,
+	type PeerLinkService,
+	type PeerReconnectService,
+	type SettingsService,
+} from '@/services';
 import { PeerManager } from './peer.manager';
 import type { NotificationManager } from './notification.manager';
 import type { ServiceManager } from './service.manager';
@@ -60,6 +68,7 @@ interface Fakes {
 		verifyCredential: jest.Mock;
 		hello: jest.Mock;
 		sign: jest.Mock;
+		onLinkLost: jest.Mock;
 		fingerprint: string;
 		publicKey: string;
 	};
@@ -74,6 +83,20 @@ interface Fakes {
 	items: { countByService: jest.Mock; findStale: jest.Mock; remove: jest.Mock };
 	serviceManager: { probe: jest.Mock; scan: jest.Mock; refresh: jest.Mock };
 	notifications: { notify: jest.Mock };
+	/**
+	 * The retry schedule, faked down to "dial once and tell me what happened".
+	 *
+	 * `now` runs the dial the manager registered, which is exactly what the real
+	 * service does for a manual attempt — so a test can observe the outcome the
+	 * backoff would have acted on without a timer or a socket anywhere near it.
+	 */
+	reconnects: {
+		onDial: jest.Mock;
+		schedule: jest.Mock;
+		cancel: jest.Mock;
+		now: jest.Mock;
+		dial(peerId: string): Promise<PeerDialOutcome>;
+	};
 }
 
 const peerRow = (overrides: Partial<Peer> = {}): Peer =>
@@ -86,6 +109,7 @@ const peerRow = (overrides: Partial<Peer> = {}): Peer =>
 		trust: PeerTrust.FRIEND,
 		depth: 1,
 		maxDepth: null,
+		readingForbidden: false,
 		linkMode: null,
 		address: null,
 		viaPeerId: null,
@@ -95,7 +119,9 @@ const peerRow = (overrides: Partial<Peer> = {}): Peer =>
 		...overrides,
 	}) as Peer;
 
-const build = (): { manager: PeerManager; fakes: Fakes } => {
+const build = (
+	{ autoConnect = false }: { autoConnect?: boolean } = {},
+): { manager: PeerManager; fakes: Fakes } => {
 	const fakes: Fakes = {
 		peers: {
 			find: jest.fn().mockResolvedValue([]),
@@ -136,6 +162,7 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 				capabilities: [PeerCapability.CONTENT],
 			})),
 			sign: jest.fn((payload: string) => `signed:${payload}`),
+			onLinkLost: jest.fn(),
 			fingerprint: OUR_FINGERPRINT,
 			publicKey: 'our-public-key',
 		},
@@ -181,7 +208,19 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 			),
 			unban: jest.fn().mockResolvedValue(true),
 		},
+		reconnects: {
+			onDial: jest.fn(),
+			schedule: jest.fn(),
+			cancel: jest.fn(),
+			now: jest.fn(),
+			dial: () => Promise.resolve(PeerDialOutcome.REFUSED),
+		},
 	};
+
+	fakes.reconnects.onDial.mockImplementation((dial: (peerId: string) => Promise<PeerDialOutcome>) => {
+		fakes.reconnects.dial = dial;
+	});
+	fakes.reconnects.now.mockImplementation((peerId: string) => fakes.reconnects.dial(peerId));
 
 	const manager = new PeerManager(
 		fakes.peers as unknown as PeerRepository,
@@ -198,7 +237,14 @@ const build = (): { manager: PeerManager; fakes: Fakes } => {
 		fakes.matches as unknown as MediaMatchRepository,
 		fakes.serviceManager as unknown as ServiceManager,
 		fakes.notifications as unknown as NotificationManager,
+		fakes.reconnects as unknown as PeerReconnectService,
+		{ getOrThrow: () => ({ maxDepth: null, autoConnect }) } as unknown as ConfigService,
 	);
+
+	// What the module lifecycle does for real. Without it nothing has registered a
+	// dial, and every `connect` in this file would answer "refused" for the wrong
+	// reason.
+	manager.onModuleInit();
 
 	return { manager, fakes };
 };
@@ -396,12 +442,14 @@ describe('PeerManager', () => {
 			);
 		});
 
-		it('refuses a peer that is blocked', async () => {
+		it('admits a peer forbidden from reading, because the link is theirs to keep', async () => {
+			// The whole point of forbidding rather than blocking: they stay connected,
+			// we keep reading from them, and every answer they get from us is empty.
 			const { manager, fakes } = build();
 
-			fakes.peers.findByFingerprint.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
+			fakes.peers.findByFingerprint.mockResolvedValue(peerRow({ readingForbidden: true }));
 
-			await expect(manager.admit(credential)).resolves.toBeNull();
+			await expect(manager.admit(credential)).resolves.toMatchObject({ peerId: 'peer-1' });
 		});
 
 		it('settles our own outgoing request when they answer by connecting', async () => {
@@ -580,16 +628,18 @@ describe('PeerManager', () => {
 			expect(saved.direction).toBe(PeerDirection.INCOMING);
 		});
 
-		it('answers a blocked peer with nothing at all', async () => {
-			// Answering differently would let somebody learn they are blocked by watching
-			// what happens, which is more than they should be able to find out.
+		it('answers a banned fingerprint with nothing at all', async () => {
+			// Silence, and the ban list is the only thing that refuses here now. An
+			// answer that said "banned" would let anybody map out the list by watching
+			// what happens.
 			const { manager, fakes } = build();
 
-			fakes.peers.findByFingerprint.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
+			fakes.bans.isBanned.mockResolvedValue(true);
 
 			await manager.requested('abc123', 'Bob', null);
 
 			expect(fakes.peers.save).not.toHaveBeenCalled();
+			expect(fakes.peers.findByFingerprint).not.toHaveBeenCalled();
 		});
 
 		it('settles our own outgoing request when they ask back', async () => {
@@ -606,35 +656,34 @@ describe('PeerManager', () => {
 			expect(saved.status).toBe(PeerStatus.LINKED);
 		});
 
-		it('refuses to approve a peer that was blocked', async () => {
-			const { manager, fakes } = build();
-
-			fakes.peers.findOne.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
-
-			await expect(manager.approve('peer-1')).rejects.toThrow(ErrorKey.PEER_REJECTED);
-		});
 	});
 
-	describe('blocking', () => {
-		it('closes the live link, so blocking does not wait for a restart', async () => {
+	describe('forbidding a peer to read', () => {
+		it('keeps the link open, which is the whole difference from the block it replaced', async () => {
 			const { manager, fakes } = build();
 
 			fakes.peers.findOne.mockResolvedValue(peerRow());
 
-			await manager.block('peer-1');
+			const peer = await manager.setReadingForbidden('peer-1', true);
 
-			expect(fakes.links.disconnect).toHaveBeenCalledWith('peer-1');
-			expect(fakes.peers.setStatus).toHaveBeenCalledWith('peer-1', PeerStatus.BLOCKED);
+			expect(peer.readingForbidden).toBe(true);
+			expect(peer.status).toBe(PeerStatus.LINKED);
+			// Closing the socket is what cut our own access to their library. Nothing
+			// here may reach for it.
+			expect(fakes.links.disconnect).not.toHaveBeenCalled();
+			expect(fakes.peers.setStatus).not.toHaveBeenCalled();
 		});
 
-		it('unblocks to unreachable rather than to linked, because no socket is open', async () => {
+		it('is reversible in one call, with nothing else changed', async () => {
 			const { manager, fakes } = build();
 
-			fakes.peers.findOne.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
+			fakes.peers.findOne.mockResolvedValue(peerRow({ readingForbidden: true }));
 
-			await manager.unblock('peer-1');
+			const peer = await manager.setReadingForbidden('peer-1', false);
 
-			expect(fakes.peers.setStatus).toHaveBeenCalledWith('peer-1', PeerStatus.UNREACHABLE);
+			expect(peer.readingForbidden).toBe(false);
+			expect(peer.status).toBe(PeerStatus.LINKED);
+			expect(fakes.links.connect).not.toHaveBeenCalled();
 		});
 	});
 
@@ -649,6 +698,100 @@ describe('PeerManager', () => {
 			await expect(manager.connect('peer-1')).rejects.toThrow(ErrorKey.PEER_UNREACHABLE);
 			expect(fakes.peers.setStatus).toHaveBeenCalledWith('peer-1', PeerStatus.UNREACHABLE);
 		});
+
+		it('reports a peer nobody answered for as unreachable, so it is tried again', async () => {
+			const { fakes } = build();
+
+			fakes.peers.findWithPublicKey.mockResolvedValue(peerRow());
+			fakes.peers.findOne.mockResolvedValue(peerRow({ status: PeerStatus.UNREACHABLE }));
+			fakes.links.connect.mockRejectedValue(new Error('connect ETIMEDOUT'));
+
+			await expect(fakes.reconnects.dial('peer-1')).resolves.toBe(PeerDialOutcome.UNREACHABLE);
+		});
+
+		it('reports a far end that refused us as refused, so it is never redialled', async () => {
+			// Knocking again after being told no is how a gateway gets itself banned at
+			// the other end for good.
+			const { fakes } = build();
+
+			fakes.peers.findWithPublicKey.mockResolvedValue(peerRow());
+			fakes.peers.findOne.mockResolvedValue(peerRow({ status: PeerStatus.UNREACHABLE }));
+			fakes.links.connect.mockRejectedValue(
+				new ServiceUnavailableException({ key: ErrorKey.PEER_REJECTED }),
+			);
+
+			await expect(fakes.reconnects.dial('peer-1')).resolves.toBe(PeerDialOutcome.REFUSED);
+		});
+
+		it('reports a protocol version neither end speaks as refused', async () => {
+			const { fakes } = build();
+
+			fakes.peers.findWithPublicKey.mockResolvedValue(peerRow());
+			fakes.peers.findOne.mockResolvedValue(peerRow({ status: PeerStatus.UNREACHABLE }));
+			fakes.links.connect.mockRejectedValue(
+				new ServiceUnavailableException({ key: ErrorKey.PEER_PROTOCOL_UNSUPPORTED }),
+			);
+
+			await expect(fakes.reconnects.dial('peer-1')).resolves.toBe(PeerDialOutcome.REFUSED);
+		});
+
+		it('refuses a banned fingerprint without opening a socket at all', async () => {
+			const { fakes } = build();
+
+			fakes.peers.findWithPublicKey.mockResolvedValue(peerRow());
+			fakes.bans.isBanned.mockResolvedValue(true);
+
+			await expect(fakes.reconnects.dial('peer-1')).resolves.toBe(PeerDialOutcome.REFUSED);
+			expect(fakes.links.connect).not.toHaveBeenCalled();
+		});
+
+		it('refuses a row that went away under a timer, rather than rearming one', async () => {
+			const { fakes } = build();
+
+			fakes.peers.findWithPublicKey.mockResolvedValue(null);
+
+			await expect(fakes.reconnects.dial('peer-1')).resolves.toBe(PeerDialOutcome.REFUSED);
+		});
+	});
+
+	describe('reconnecting by itself', () => {
+		it('schedules every linked peer at boot rather than dialling them in turn', async () => {
+			// A friend who is switched off takes the whole connection timeout to fail,
+			// and a dozen of those in sequence would hold the boot for minutes.
+			const { manager, fakes } = build({ autoConnect: true });
+
+			fakes.peers.findLinked.mockResolvedValue([peerRow(), peerRow({ id: 'peer-2' })]);
+
+			manager.onApplicationBootstrap();
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(fakes.reconnects.schedule.mock.calls.map((call) => call[0])).toEqual([
+				'peer-1',
+				'peer-2',
+			]);
+			expect(fakes.links.connect).not.toHaveBeenCalled();
+		});
+
+		it('schedules a retry when a live link drops', async () => {
+			const { fakes } = build();
+			const lost = fakes.links.onLinkLost.mock.calls[0]?.[0] as (peerId: string) => void;
+
+			lost('peer-1');
+
+			expect(fakes.reconnects.schedule).toHaveBeenCalledWith('peer-1');
+			expect(fakes.peers.setStatus).toHaveBeenCalledWith('peer-1', PeerStatus.UNREACHABLE);
+		});
+
+		it('stops trying a peer that has been removed', async () => {
+			const { manager, fakes } = build();
+
+			fakes.peers.findOne.mockResolvedValue(peerRow());
+
+			await manager.remove('peer-1');
+
+			expect(fakes.reconnects.cancel).toHaveBeenCalledWith('peer-1');
+		});
 	});
 
 	describe('verifying a peer credential', () => {
@@ -661,10 +804,10 @@ describe('PeerManager', () => {
 			await expect(manager.verify(THEIR_FINGERPRINT, 'signature')).resolves.toBe(false);
 		});
 
-		it('refuses a blocked peer before looking at the signature at all', async () => {
+		it('refuses a peer that is not linked before looking at the signature at all', async () => {
 			const { manager, fakes } = build();
 
-			fakes.peers.findByFingerprint.mockResolvedValue(peerRow({ status: PeerStatus.BLOCKED }));
+			fakes.peers.findByFingerprint.mockResolvedValue(peerRow({ status: PeerStatus.PENDING }));
 
 			await expect(manager.verify(THEIR_FINGERPRINT, 'signature')).resolves.toBe(false);
 			expect(fakes.links.verify).not.toHaveBeenCalled();
@@ -686,12 +829,12 @@ describe('PeerManager', () => {
 	});
 
 	describe('banning, which outlives the row', () => {
-		it('records the fingerprint when a peer is removed with a ban', async () => {
+		it('records the fingerprint and unlinks, when a peer is banned', async () => {
 			const { manager, fakes } = build();
 
 			fakes.peers.findOne.mockResolvedValue(peerRow());
 
-			await manager.remove('peer-1', { ban: true, reason: 'flooded us' });
+			await manager.ban('peer-1', 'flooded us');
 
 			expect(fakes.bans.ban).toHaveBeenCalledWith(THEIR_FINGERPRINT, {
 				name: 'Alice',
@@ -702,7 +845,9 @@ describe('PeerManager', () => {
 
 		it('records nothing when a peer is simply removed', async () => {
 			// The ordinary case has to stay ordinary: a friend who rebuilt their gateway
-			// should be able to come back by asking.
+			// should be able to come back by asking. Removal carries no ban at all since
+			// the checkbox that offered one went: the standalone action made it a second
+			// way to reach the same outcome.
 			const { manager, fakes } = build();
 
 			fakes.peers.findOne.mockResolvedValue(peerRow());
@@ -710,6 +855,7 @@ describe('PeerManager', () => {
 			await manager.remove('peer-1');
 
 			expect(fakes.bans.ban).not.toHaveBeenCalled();
+			expect(fakes.peers.delete).toHaveBeenCalledWith({ id: 'peer-1' });
 		});
 
 		it('records the ban before deleting anything', async () => {
@@ -720,10 +866,15 @@ describe('PeerManager', () => {
 			const order: string[] = [];
 
 			fakes.peers.findOne.mockResolvedValue(peerRow());
-			fakes.bans.ban.mockImplementation(() => {
+			fakes.bans.ban.mockImplementation((fingerprint: string) => {
 				order.push('ban');
 
-				return Promise.resolve({ fingerprint: THEIR_FINGERPRINT });
+				return Promise.resolve({
+					fingerprint,
+					name: null,
+					reason: null,
+					createdAt: new Date('2026-01-01T00:00:00.000Z'),
+				});
 			});
 			fakes.peers.delete.mockImplementation(() => {
 				order.push('delete');
@@ -731,7 +882,7 @@ describe('PeerManager', () => {
 				return Promise.resolve(undefined);
 			});
 
-			await manager.remove('peer-1', { ban: true });
+			await manager.ban('peer-1');
 
 			expect(order).toEqual(['ban', 'delete']);
 		});

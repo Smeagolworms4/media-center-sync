@@ -2,7 +2,18 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
-import { NamingScheme, PlacementStrategy, UserRole, type Settings } from '@mcs/shared';
+import {
+	LibraryKind,
+	MediaServiceScope,
+	MediaServiceType,
+	NamingScheme,
+	PlacementStrategy,
+	UserRole,
+	type Library,
+	type MediaCategory,
+	type Settings,
+} from '@mcs/shared';
+import { LibraryRepository, MediaServiceRepository } from '@/repositories';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
 
 /**
@@ -41,7 +52,7 @@ describe('PATCH /api/settings', () => {
 		const before = (await patch({
 			placement: PlacementStrategy.FIXED_PATH,
 			fixedPath: '/mnt/media',
-			naming: NamingScheme.STANDARD,
+			namingOrder: [NamingScheme.STANDARD],
 			maxParallelTransfers: 4,
 		}).expect(200)) as { body: Settings };
 
@@ -52,7 +63,7 @@ describe('PATCH /api/settings', () => {
 		expect(after.body.uploadRateLimit).toBe(2_097_152);
 		expect(after.body.placement).toBe(before.body.placement);
 		expect(after.body.fixedPath).toBe(before.body.fixedPath);
-		expect(after.body.naming).toBe(before.body.naming);
+		expect(after.body.namingOrder).toEqual(before.body.namingOrder);
 		expect(after.body.maxParallelTransfers).toBe(before.body.maxParallelTransfers);
 	});
 
@@ -68,7 +79,7 @@ describe('PATCH /api/settings', () => {
 		expect(settings.downloadRateLimit).toBe(1_048_576);
 		expect(settings.placement).toBe(PlacementStrategy.FIXED_PATH);
 		expect(settings.fixedPath).toBe('/mnt/media');
-		expect(settings.naming).toBe(NamingScheme.STANDARD);
+		expect(settings.namingOrder).toEqual([NamingScheme.STANDARD]);
 	});
 
 	it('still refuses a value out of bounds', async () => {
@@ -277,5 +288,189 @@ describe('PATCH /api/settings — where a pull lands', () => {
 		await patch({ categoryTargets: { films: 'nonsense' } }).expect(400);
 
 		expect(((await read()).body as Settings).categoryTargets).toEqual({ films: library });
+	});
+});
+
+/**
+ * A destination says what a category *is*, not only where its files go.
+ *
+ * The report: `Séries` was mapped onto the `Shows` library in the table above, and the
+ * library screen went on showing two categories with fourteen episodes stranded in the
+ * first. Two mechanisms, one control — `categoryTargets` places files, `Library.alias`
+ * is what categories merge on — and nothing on the screen said so.
+ *
+ * Over HTTP and end to end on purpose: the assertion that matters is not that a
+ * manager was called, it is that `GET /libraries/categories` answers one category
+ * holding the items of both afterwards, which is exactly what somebody expected and
+ * did not get.
+ */
+describe('PATCH /api/settings — a destination that also names the category', () => {
+	let context: TestApp;
+	let admin: TestIdentity;
+	let seriesId: string;
+	let showsId: string;
+	let theirSeriesId: string;
+
+	beforeAll(async () => {
+		context = await createTestApp();
+		admin = await signInAs(context, UserRole.ADMIN);
+
+		const services = context.app.get(MediaServiceRepository);
+		const libraries = context.app.get(LibraryRepository);
+
+		const jellyfin = await services.save(
+			services.create({
+				name: 'Jellyfin (local)',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: 'http://127.0.0.1:51',
+			}),
+		);
+
+		const plex = await services.save(
+			services.create({
+				name: 'Plex (mine)',
+				type: MediaServiceType.PLEX,
+				scope: MediaServiceScope.LOCAL,
+				baseUrl: 'http://127.0.0.1:52',
+			}),
+		);
+
+		// A friend's server, holding a library of the same name as ours. Renaming it
+		// would fold their shelf into our category and count their episodes as filed in
+		// a library they can never be filed in.
+		const friend = await services.save(
+			services.create({
+				name: 'Jellyfin (a friend)',
+				type: MediaServiceType.JELLYFIN,
+				scope: MediaServiceScope.REMOTE,
+				baseUrl: 'http://127.0.0.1:53',
+			}),
+		);
+
+		seriesId = (
+			await libraries.save(
+				libraries.create({
+					serviceId: jellyfin.id,
+					externalId: 'lib-series',
+					name: 'Séries',
+					kind: LibraryKind.SHOWS,
+					paths: ['/media/series'],
+					itemCount: 14,
+				}),
+			)
+		).id;
+
+		showsId = (
+			await libraries.save(
+				libraries.create({
+					serviceId: plex.id,
+					externalId: 'lib-shows',
+					name: 'Shows',
+					kind: LibraryKind.SHOWS,
+					paths: ['/media/shows'],
+					itemCount: 24,
+				}),
+			)
+		).id;
+
+		theirSeriesId = (
+			await libraries.save(
+				libraries.create({
+					serviceId: friend.id,
+					externalId: 'lib-series',
+					name: 'Séries',
+					kind: LibraryKind.SHOWS,
+					paths: ['/srv/series'],
+					itemCount: 7,
+				}),
+			)
+		).id;
+	});
+
+	afterAll(async () => {
+		await context.close();
+	});
+
+	const patch = (body: Record<string, unknown>) =>
+		request(context.app.getHttpServer())
+			.patch('/api/settings')
+			.set('Authorization', `Bearer ${admin.token}`)
+			.send(body);
+
+	const categories = async (): Promise<MediaCategory[]> =>
+		(
+			await request(context.app.getHttpServer())
+				.get('/api/libraries/categories')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200)
+		).body as MediaCategory[];
+
+	const library = async (id: string): Promise<Library> =>
+		(
+			await request(context.app.getHttpServer())
+				.get(`/api/libraries/${id}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200)
+		).body as Library;
+
+	it('starts as the gateway that was reported: two categories, nothing merged', async () => {
+		const before = await categories();
+
+		expect(before.map((category) => category.key).sort()).toEqual(['series', 'shows']);
+		expect(before.find((category) => category.key === 'series')).toMatchObject({
+			name: 'Séries',
+			itemCount: 21,
+		});
+		expect(before.find((category) => category.key === 'shows')).toMatchObject({ itemCount: 24 });
+		expect((await library(seriesId)).alias).toBeNull();
+	});
+
+	it('makes the two one category, holding the items of both', async () => {
+		await patch({ categoryTargets: { series: showsId } }).expect(200);
+
+		const after = await categories();
+		const shows = after.find((category) => category.key === 'shows');
+
+		// Fourteen and twenty-four, under one name, from the two libraries that are
+		// ours. This is the whole point: the mapping said Séries is Shows here, and the
+		// library screen now reads that way instead of showing two shelves for one.
+		expect(shows).toMatchObject({ name: 'Shows', itemCount: 38 });
+		expect(shows?.libraryIds.sort()).toEqual([seriesId, showsId].sort());
+		expect((await library(seriesId)).alias).toBe('Shows');
+	});
+
+	it('leaves the friend’s library in its own category, under its own name', async () => {
+		const after = await categories();
+		const series = after.find((category) => category.key === 'series');
+
+		expect(series).toMatchObject({ itemCount: 7, libraryIds: [theirSeriesId] });
+		expect((await library(theirSeriesId)).alias).toBeNull();
+	});
+
+	it('keeps the name when the destination is cleared, and still stops placing there', async () => {
+		// The decision written down in `SettingsManager._followCategoryTargets`: an alias
+		// somebody may have typed by hand is indistinguishable from one a mapping wrote,
+		// so clearing an unrelated setting must not destroy a name. Coming back is one
+		// rename on the libraries screen.
+		await patch({ categoryTargets: {} }).expect(200);
+
+		const after = await categories();
+
+		expect(after.find((category) => category.key === 'shows')).toMatchObject({ itemCount: 38 });
+		expect((await library(seriesId)).alias).toBe('Shows');
+	});
+
+	it('leaves a name somebody typed by hand alone when a mapping is cleared', async () => {
+		await request(context.app.getHttpServer())
+			.patch(`/api/libraries/${showsId}`)
+			.set('Authorization', `Bearer ${admin.token}`)
+			.send({ alias: 'Séries et animés' })
+			.expect(200);
+
+		await patch({ categoryTargets: { animes: seriesId } }).expect(200);
+		await patch({ categoryTargets: {} }).expect(200);
+
+		expect((await library(showsId)).alias).toBe('Séries et animés');
 	});
 });

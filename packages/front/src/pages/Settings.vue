@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import { DEFAULT_PEER_MAX_DEPTH, MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy, ShareVisibility } from '@mcs/shared';
+	import { DEFAULT_NAMING_ORDER, DEFAULT_PEER_MAX_DEPTH, MAX_PEER_MAX_DEPTH, PlacementStrategy, ShareVisibility } from '@mcs/shared';
 	import { computed, onMounted, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import CronHint from '@/components/common/CronHint.vue';
@@ -10,6 +10,7 @@
 	import CategoryList from '@/components/library/CategoryList.vue';
 	import CategoryTargetsTable from '@/components/settings/CategoryTargetsTable.vue';
 	import DestinationLibraryField from '@/components/settings/DestinationLibraryField.vue';
+	import NamingOrderField from '@/components/settings/NamingOrderField.vue';
 	import NotificationChannels from '@/components/settings/NotificationChannels.vue';
 	import ShareRateSummary from '@/components/share/ShareRateSummary.vue';
 	import { useByteSize } from '@/composables/useByteSize';
@@ -49,7 +50,7 @@
 		fixedPath: '',
 		categoryTargets: {} as Record<string, string>,
 		defaultTargetLibraryId: null as string | null,
-		naming: NamingScheme.STANDARD,
+		namingOrder: [...DEFAULT_NAMING_ORDER],
 		pullMetadata: true,
 		writeNfo: false,
 		preferSourceMetadata: false,
@@ -87,7 +88,10 @@
 		// else that reads the settings.
 		model.categoryTargets = { ...settings.categoryTargets };
 		model.defaultTargetLibraryId = settings.defaultTargetLibraryId ?? null;
-		model.naming = settings.naming;
+		// Copied for the reason the table above it is: the field replaces the array on
+		// every move, and sharing the store's own would make an unsaved reordering look
+		// stored everywhere else that reads the settings.
+		model.namingOrder = [...settings.namingOrder];
 		model.pullMetadata = settings.pullMetadata;
 		model.writeNfo = settings.writeNfo;
 		model.preferSourceMetadata = settings.preferSourceMetadata;
@@ -240,7 +244,7 @@
 				fixedPath: model.fixedPath || null,
 				categoryTargets: model.categoryTargets,
 				defaultTargetLibraryId: model.defaultTargetLibraryId || null,
-				naming: model.naming,
+				namingOrder: model.namingOrder,
 				pullMetadata: model.pullMetadata,
 				writeNfo: model.writeNfo,
 				preferSourceMetadata: model.preferSourceMetadata,
@@ -275,16 +279,6 @@
 		title: t(`share.visibility_value.${value}`),
 	})));
 
-	const namingItems = computed(() => Object.values(NamingScheme).map(value => ({
-		value,
-		title: t(`settings.naming_value.${value}`),
-	})));
-	/**
-	 * Each choice is explained under its field rather than inside the menu: the
-	 * explanation is what somebody needs while deciding, and it stays readable once
-	 * the menu is closed again.
-	 */
-	const namingHelp = computed(() => t(`settings.naming_help.${model.naming}`));
 	/** Whether the folder picker is open for the fallback folder. */
 	const browsingDefaultTarget = ref(false);
 
@@ -306,7 +300,7 @@
 				'categoryTargets',
 				'defaultTargetLibraryId',
 				'defaultTargetPath',
-				'naming',
+				'namingOrder',
 				'writeNfo',
 			],
 		},
@@ -323,7 +317,6 @@
 				'transferHistoryDays',
 			],
 		},
-		{ key: 'categories', fields: [] },
 		/*
 		 * No fields, for the same reason the categories tab has none.
 		 *
@@ -526,16 +519,15 @@
 							@choose="model.defaultTargetPath = $event"
 						/>
 
-						<v-select
-							v-model="model.naming"
-							class="mt-4"
-							data-test="settings-naming"
-							:hint="namingHelp"
-							item-title="title"
-							item-value="value"
-							:items="namingItems"
-							:label="$t('settings.naming')"
-							persistent-hint
+						<!--
+							The second half of the same rule, stated the same way: the folders
+							are decided above, the name is decided here, and both are chains
+							whose steps are readable before anything is touched.
+						-->
+						<NamingOrderField
+							v-model="model.namingOrder"
+							class="mt-6"
+							:loading="loading"
 						/>
 
 						<v-switch
@@ -570,6 +562,37 @@
 						<p class="text-caption text-medium-emphasis mb-0">
 							{{ $t('settings.prefer_source_metadata_help') }}
 						</p>
+					</v-card-text>
+				</v-card>
+
+				<!--
+					The merge the table above is built on, shown here rather than behind a
+					tab of its own. It held one list and a link, and a tab somebody opens
+					to find a link is a tab that teaches them the screen is bigger than it
+					is. Setting a correspondence and then hunting for what it did is how a
+					setting gets changed twice and understood never.
+				-->
+				<v-card class="settings_card">
+					<v-card-title class="text-subtitle-1">{{ $t('settings.group.categories') }}</v-card-title>
+
+					<v-card-text>
+						<p class="text-body-2 text-medium-emphasis">{{ $t('settings.categories_help') }}</p>
+
+						<CategoryList
+							:categories="librariesStore.orderedCategories"
+							:loading="loading"
+						/>
+
+						<v-btn
+							class="mt-2"
+							data-test="settings-categories-services"
+							prepend-icon="mdi-server-network"
+							size="small"
+							:to="{ name: 'services' }"
+							variant="text"
+						>
+							{{ $t('settings.categories_edit') }}
+						</v-btn>
 					</v-card-text>
 				</v-card>
 
@@ -704,33 +727,6 @@
 								/>
 							</v-col>
 						</v-row>
-					</v-card-text>
-				</v-card>
-
-			</div>
-
-			<div v-show="tab === 'categories'">
-				<v-card class="settings_card">
-					<v-card-title class="text-subtitle-1">{{ $t('settings.group.categories') }}</v-card-title>
-
-					<v-card-text>
-						<p class="text-body-2 text-medium-emphasis">{{ $t('settings.categories_help') }}</p>
-
-						<CategoryList
-							:categories="librariesStore.orderedCategories"
-							:loading="loading"
-						/>
-
-						<v-btn
-							class="mt-2"
-							data-test="settings-categories-services"
-							prepend-icon="mdi-server-network"
-							size="small"
-							:to="{ name: 'services' }"
-							variant="text"
-						>
-							{{ $t('settings.categories_edit') }}
-						</v-btn>
 					</v-card-text>
 				</v-card>
 

@@ -492,9 +492,9 @@ export class PeerGatewayService implements OnModuleDestroy {
 		});
 
 		if (admission === null) {
-			// The same answer for an unknown fingerprint, a bad signature and a blocked
-			// peer. Telling them apart would let somebody learn they are blocked by
-			// watching what happens, which is more than they should know.
+			// The same answer for an unknown fingerprint, a bad signature and a key on
+			// the ban list. Telling them apart would let somebody discover they are
+			// refused by watching what happens, which is more than they should know.
 			this._refuse(socket, 401, 'peer refused');
 
 			return;

@@ -133,18 +133,31 @@ class PeerLink {
 	private readonly _pending = new Map<number, PendingRequest>();
 	private _nextRequestId = 1;
 
+	/**
+	 * Whether this link was closed by us rather than lost.
+	 *
+	 * The difference is the whole reason the flag exists: a link that dropped is one
+	 * to dial again, and a link we hung up — because the peer was removed, banned, or
+	 * the process is shutting down — is one that must never be dialled again. Without
+	 * it, removing a peer would schedule a reconnection to a row that no longer exists.
+	 */
+	private _closedByUs = false;
+	private _reported = false;
+
 	public constructor(
 		public readonly peerId: string,
 		public readonly mode: PeerLinkMode,
 		public readonly address: string | null,
 		private readonly _socket: WebSocket,
 		private readonly _logger: Logger,
+		/** Called once when the link is lost, and never when we closed it ourselves. */
+		private readonly _onLost: (peerId: string) => void = () => undefined,
 	) {
 		this._socket.on('message', (data: Buffer, isBinary: boolean) =>
 			this._onMessage(data, isBinary),
 		);
-		this._socket.on('close', () => this._failAll(new Error('link closed')));
-		this._socket.on('error', (error) => this._failAll(error));
+		this._socket.on('close', () => this._lost(new Error('link closed')));
+		this._socket.on('error', (error) => this._lost(error));
 	}
 
 	public get connected(): boolean {
@@ -160,8 +173,27 @@ class PeerLink {
 	}
 
 	public close(): void {
+		this._closedByUs = true;
 		this._failAll(new Error('link closed'));
 		this._socket.close();
+	}
+
+	/**
+	 * The socket went away. Fail what was in flight, and say so exactly once.
+	 *
+	 * `ws` emits `error` and then `close` for the same failure, so a listener wired to
+	 * both would schedule two reconnections for one drop — which halves the backoff
+	 * that was chosen to protect a friend's gateway.
+	 */
+	private _lost(error: Error): void {
+		this._failAll(error);
+
+		if (this._closedByUs || this._reported) {
+			return;
+		}
+
+		this._reported = true;
+		this._onLost(this.peerId);
 	}
 
 	private _send<T>(method: string, params: unknown, streaming: boolean): Promise<T | Readable> {
@@ -289,6 +321,16 @@ class PeerLink {
 export class PeerLinkService implements OnModuleDestroy {
 	private readonly _logger = new Logger(PeerLinkService.name);
 	private readonly _links = new Map<string, PeerLink>();
+
+	/**
+	 * Told when a link is lost, so something above can decide whether to dial again.
+	 *
+	 * A callback handed in rather than a decision made here: this class knows a socket
+	 * closed, and nothing else. Whether that peer is still linked, still welcome, and
+	 * worth another attempt is a business question, and answering it here would put a
+	 * repository behind a class whose whole job is holding sockets.
+	 */
+	private _onLost: ((peerId: string) => void) | null = null;
 
 	private readonly _privateKeyPem: string;
 	private readonly _publicKeyPem: string;
@@ -544,6 +586,17 @@ export class PeerLinkService implements OnModuleDestroy {
 		return this._toState(relayed);
 	}
 
+	/**
+	 * Register the one listener told when a link drops.
+	 *
+	 * One rather than a list: there is exactly one thing in the application that
+	 * reconnects, and a set of listeners would invite a second one to appear and dial
+	 * the same peer twice.
+	 */
+	public onLinkLost(listener: (peerId: string) => void): void {
+		this._onLost = listener;
+	}
+
 	public state(peerId: string): PeerLinkState | null {
 		const link = this._links.get(peerId);
 
@@ -568,6 +621,12 @@ export class PeerLinkService implements OnModuleDestroy {
 		return this._link(peerId).requestStream(method, params);
 	}
 
+	/**
+	 * Hang up deliberately, which is never a reason to dial again.
+	 *
+	 * The link marks itself as closed by us, so the drop listener stays quiet — a peer
+	 * we removed or banned must not come back through the reconnection loop.
+	 */
 	public disconnect(peerId: string): void {
 		this._links.get(peerId)?.close();
 		this._links.delete(peerId);
@@ -644,7 +703,13 @@ export class PeerLinkService implements OnModuleDestroy {
 			});
 		});
 
-		const link = new PeerLink(peer.id, mode, address, socket, this._logger);
+		const link = new PeerLink(peer.id, mode, address, socket, this._logger, (peerId) => {
+			// Dropped from the map here rather than by the listener: a closed socket must
+			// not stay in it, whether or not anybody is listening, or `isLinked` would
+			// keep answering true for a link that can no longer carry a byte.
+			this._links.delete(peerId);
+			this._onLost?.(peerId);
+		});
 
 		// The address came from somewhere we do not control, so the far end proves it
 		// holds the key behind the fingerprint before anything else happens. A machine

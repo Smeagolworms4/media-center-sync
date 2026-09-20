@@ -59,7 +59,7 @@ component somebody actually wrote — so journeys use `field0(name)` rather than
 | `companion-marks`, `item-companions`, `item-companions-scan` | library pages | what sits beside the file, and the scan offered when it has never been read |
 | `peer-list`, `peer-row`, `peer-invite` | peers page | the peers; a row carries `data-status` and `data-direction`, which is what tells a request we are waiting on from one somebody here owes an answer to |
 | `peer-status`, `peer-approve`, `peer-incoming-hint` | `PeerCard.vue` | a pending link, and the answer an incoming one needs |
-| `peer-trust`, `peer-link-mode`, `peer-connect`, `peer-rename`, `peer-block`, `peer-unblock`, `peer-remove` | `PeerCard.vue` | who this is, how the bytes travel, and everything that can be done about it |
+| `peer-trust`, `peer-link-mode`, `peer-reading-forbidden`, `peer-reading-hint`, `peer-unreachable-hint`, `peer-connect`, `peer-rename`, `peer-forbid-reading`, `peer-allow-reading`, `peer-remove`, `peer-ban` | `PeerCard.vue` | who this is, how the bytes travel, and everything that can be done about it — the three outcomes do not overlap: forbidding reading keeps the link, removing lets them ask again, banning refuses the key for good |
 | `invite-tab-create`, `invite-tab-accept`, `invite-tab-fingerprint` | `InviteDialog.vue` | the three ways to link two gateways |
 | `invite-dialog`, `invite-create`, `invite-code`, `invite-name`, `invite-accept` | `InviteDialog.vue` | handing out an invitation, and using one somebody handed you |
 | `peer-fingerprint`, `peer-name`, `peer-address`, `peer-add` | `InviteDialog.vue` | linking by fingerprint, with no code |

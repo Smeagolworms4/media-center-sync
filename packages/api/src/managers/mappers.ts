@@ -359,6 +359,7 @@ export const toPeer = (
 	trust: peer.trust,
 	depth: peer.depth,
 	maxDepth: peer.maxDepth,
+	readingForbidden: peer.readingForbidden ?? false,
 	linkMode: peer.linkMode,
 	address: peer.address,
 	viaPeerId: peer.viaPeerId,

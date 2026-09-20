@@ -30,6 +30,11 @@ import { LibraryManager } from './library.manager';
  * has to be probed before it is believed. That probe lives with the library paths,
  * which is why a manager reaches for another manager here: two probes of the same
  * question drift apart, and this one already answers it.
+ *
+ * The fourth is the category table, whose entries say what a category *is* and not
+ * only where its files go — see `_followCategoryTargets`. It lives here, at the one
+ * place settings are written, rather than in the controller or the screen, so that a
+ * gateway configured over the API behaves like one configured from the interface.
  */
 @Injectable()
 export class SettingsManager {
@@ -67,7 +72,18 @@ export class SettingsManager {
 			await this._requireWritable(normaliseTargetPath(patch.defaultTargetPath));
 		}
 
+		// Read before the write, because the table is replaced wholesale and the alias
+		// rule below only acts on the entries this particular patch moved.
+		const before =
+			patch.categoryTargets === undefined
+				? null
+				: (await this._settings.get()).categoryTargets;
+
 		const settings = await this._settings.update(patch);
+
+		if (before !== null) {
+			await this._followCategoryTargets(before, settings.categoryTargets);
+		}
 
 		if (patch.refreshIntervalMinutes !== undefined || patch.fullScanCron !== undefined) {
 			await this._scheduler.reload();
@@ -86,6 +102,48 @@ export class SettingsManager {
 		}
 
 		return settings;
+	}
+
+	/**
+	 * A destination is also a statement about what a category is called.
+	 *
+	 * Saying "Séries goes to the Shows library" is saying that Séries *is* Shows on this
+	 * gateway. Only half of that was ever acted on: `categoryTargets` decides where a
+	 * new pull lands, `Library.alias` decides what merges into one category, and they
+	 * are two mechanisms with one control. Somebody mapped their `Séries` onto `Shows`,
+	 * expected one category, and kept seeing two with fourteen items stranded in the
+	 * first — a reasonable reading the product did not support. So a mapping now names
+	 * the category too.
+	 *
+	 * Only the entries that moved: re-applying the whole table on every unrelated save
+	 * would put back an alias somebody deliberately removed on the libraries screen,
+	 * hours later, with nothing on screen connecting the two.
+	 *
+	 * **Clearing a mapping leaves the alias alone**, and that is a decision rather than
+	 * an omission. Once written, the alias that came from a mapping is indistinguishable
+	 * from one somebody typed by hand — nothing records which wrote it, and adding that
+	 * record would be a column that lies the first time the two are set in either order.
+	 * Undoing it here would therefore rename libraries and re-split a category on the
+	 * strength of an unrelated field being emptied, and the name somebody chose would be
+	 * gone for good. Leaving it costs a stale grouping that one rename on the libraries
+	 * screen undoes; destroying a name costs the name. Emptying the destination stops
+	 * new files going there, which is exactly what the field says it does.
+	 */
+	private async _followCategoryTargets(
+		before: Record<string, string>,
+		after: Record<string, string>,
+	): Promise<void> {
+		for (const [key, libraryId] of Object.entries(after)) {
+			if (before[key] === libraryId) {
+				continue;
+			}
+
+			const name = await this._libraries.mergeCategoryInto(key, libraryId);
+
+			if (name !== null) {
+				this._logger.log(`Category ${key} now reads as ${name}, from its destination`);
+			}
+		}
 	}
 
 	/**

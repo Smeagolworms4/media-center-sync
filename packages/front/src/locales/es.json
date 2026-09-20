@@ -368,7 +368,7 @@
 		"last_probe": "Última comprobación",
 		"remove_title": "¿Eliminar este servicio?",
 		"remove_confirm": "{name} y todo lo indexado desde él se retirarán de la pasarela. Los archivos en sí no se tocan.",
-		"scan_started": "Ha empezado un análisis completo. Su progreso se muestra aquí.",
+		"scan_started": "Se ha iniciado un análisis completo. Su progreso aparece en la fila del servicio.",
 		"refresh_started": "Ha empezado una actualización.",
 		"status": {
 			"unknown": "Sin comprobar",
@@ -434,10 +434,8 @@
 		"last_seen": "visto",
 		"relay_hint": "Este enlace pasa por el punto de encuentro, cuyo ancho de banda comparten todos los que lo usan.",
 		"remove_title": "¿Eliminar este par?",
-		"remove_confirm": "Se romperá el enlace con {name}. Lo que ya se haya traído de él se queda.",
-		"connecting": "Conectando con el par…",
-		"blocked": "Par bloqueado.",
-		"unblocked": "Par desbloqueado.",
+		"remove_confirm": "Se romperá el enlace con {name}. Lo que ya se haya traído de él se queda, y podrá volver a pedirlo: para rechazar su clave para siempre hay que vetarlo.",
+		"connecting": "Intentando contactar con el par ahora…",
 		"renamed": "Par renombrado.",
 		"removed": "Par eliminado.",
 		"linked": "Par enlazado.",
@@ -453,7 +451,7 @@
 		"direction": {
 			"incoming": "A la espera de ti",
 			"outgoing": "A la espera de ellos",
-			"incoming_hint": "Esta pasarela ha pedido enlazarse con la tuya. Acéptala, o bloquéala.",
+			"incoming_hint": "Esta pasarela ha pedido enlazarse con la tuya. Acéptala, o elimina la solicitud.",
 			"outgoing_hint": "Solicitud enviada. Nada que hacer aquí hasta que acepten."
 		},
 		"add": {
@@ -468,8 +466,7 @@
 		"status": {
 			"pending": "Enlace pendiente",
 			"linked": "Enlazado",
-			"unreachable": "Inaccesible",
-			"blocked": "Bloqueado"
+			"unreachable": "Inaccesible"
 		},
 		"trust": {
 			"friend": "Amigo",
@@ -488,7 +485,7 @@
 			"rendezvous": "Punto de encuentro",
 			"direct_address": "Dirección directa",
 			"direct_ok": "Las conexiones directas son posibles, así que las transferencias no pasan por el relé.",
-			"relay_only": "Solo son posibles los enlaces con relé. Todo funciona, pero las transferencias comparten el punto de encuentro con todos los demás. Hacer accesible esta pasarela — un solo puerto, el de la interfaz — eliminaría esa limitación."
+			"relay_only": "Esta pasarela no es accesible desde fuera, así que tus amigos no pueden conectarse a ella directamente y cada transferencia pasa por el punto de encuentro, cuyo ancho de banda se reparte entre todos los que lo estén usando en ese momento. Redirigir en el router el puerto de la interfaz lo soluciona. No hay un segundo puerto que abrir: un enlace entre pares es una conexión WebSocket sobre ese mismo puerto."
 		},
 		"invite": {
 			"open": "Enlazar una pasarela",
@@ -512,20 +509,18 @@
 		},
 		"action": {
 			"approve": "Aceptar",
-			"connect": "Conectar ahora",
+			"connect": "Intentar ahora",
 			"rename": "Renombrar",
-			"block": "Bloquear",
-			"unblock": "Desbloquear",
 			"remove": "Eliminar",
 			"ban": "Vetar",
-			"unban": "Levantar el veto"
+			"unban": "Levantar el veto",
+			"forbid_reading": "Prohibir la lectura",
+			"allow_reading": "Permitir la lectura"
 		},
 		"protocol": "Protocolo {version}",
 		"capabilities": "puede",
 		"banned": "Vetado. Esa clave no puede volver por sí sola.",
 		"unbanned": "Veto levantado. Pueden volver a pedirlo.",
-		"remove_ban": "Rechazar también esta clave para siempre",
-		"remove_ban_hint": "Eliminar sin más les deja volver a pedirlo, que suele ser lo deseable cuando un amigo rehace su pasarela.",
 		"ban_title": "Vetar este par",
 		"ban_confirm": "{name} quedará desenlazado y su clave rechazada: por petición, por invitación y a través de un amigo.",
 		"ban_reason": "Motivo",
@@ -545,7 +540,17 @@
 			"default": "Predeterminado ({count})",
 			"hops": "un salto | hasta {count} saltos",
 			"saved": "Guardado."
-		}
+		},
+		"connect_hint": "Esta pasarela se conecta al arrancar y reintenta sola tras una caída, esperando cada vez más. Esto lo intenta ahora mismo.",
+		"unreachable_hint": "Inaccesible por ahora. La pasarela sigue intentándolo sola, espaciando los intentos.",
+		"reading_forbidden_chip": "No ve nada",
+		"reading_forbidden_hint": "Lectura prohibida: el enlace se mantiene y esta pasarela sigue leyendo la suya, pero todo lo que pida aquí se responde vacío.",
+		"forbid_reading_title": "¿Prohibir a este par que lea?",
+		"forbid_reading_confirm": "A {name} no se le servirá nada nuestro, diga lo que diga la compartición de cada biblioteca. El enlace se mantiene a propósito: seguirá conectado por su lado y solo encontrará un catálogo vacío, y esta pasarela podrá seguir leyendo la suya. Un clic lo deshace.",
+		"allow_reading_title": "¿Permitir que este par vuelva a leer?",
+		"allow_reading_confirm": "{name} volverá a ver lo que permita la compartición de cada biblioteca, como antes.",
+		"reading_forbidden": "A este par ya no se le sirve nada.",
+		"reading_allowed": "Este par puede volver a leer."
 	},
 	"notification": {
 		"title": "Canales de notificación",
@@ -710,6 +715,8 @@
 			"category_header": "Categoría",
 			"target_header": "Va a",
 			"falls_back": "Recae en {target}",
+			"merges": "Elegir un destino también archiva esta categoría con el nombre de esa biblioteca: en la vista de bibliotecas las dos pasan a mostrarse como una sola categoría, no como dos.",
+			"merges_foreign": "Estas bibliotecas están en el servidor de otra persona, así que el nombre sigue siendo suyo y esta categoría se sigue mostrando aparte. Solo cambia dónde aterrizan los archivos nuevos.",
 			"fallback_unset": "cualquier biblioteca que pueda recibirlo: arriba no hay nada fijado",
 			"rejected": {
 				"not_ours": "{library} en {service} no se puede ofrecer: está en el servidor de otra persona y esta pasarela no puede escribir allí.",
@@ -723,16 +730,26 @@
 		"public_url_suggested": "Sugerida a partir de la dirección que estás usando ahora mismo ({origin}). Cámbiala si tus amigos llegan a esta pasarela con otro nombre.",
 		"default_target": "Carpeta de reserva",
 		"default_target_help": "Una ruta absoluta en la que esta pasarela puede escribir, para el caso que una biblioteca no sabe expresar: una carpeta de paso fuera de toda biblioteca. Solo se usa cuando ni una categoría ni la biblioteca de destino predeterminada responden.",
-		"naming": "Nomenclatura",
-		"naming_value": {
-			"source": "Conservar el nombre de la fuente",
-			"local": "Seguir nuestra propia biblioteca",
-			"standard": "Esquema estándar"
-		},
-		"naming_help": {
-			"source": "El archivo llega con el nombre que le dio la fuente.",
-			"local": "Renombrado como ya nombra las cosas tu propia biblioteca.",
-			"standard": "Serie (Año)/Temporada 01/Serie - S01E02 - Título.ext"
+		"naming": {
+			"rule_title": "Cómo se nombra un archivo descargado",
+			"rule_note": "Cada paso se prueba por turno y gana el primero que sabe responder. La última línea es una convención: siempre responde, así que nada puede ir después de ella y no se puede quitar.",
+			"convention": "Luego, la convención",
+			"unused": "Sin usar:",
+			"move_up": "Probar este antes",
+			"move_down": "Probar este después",
+			"drop": "Dejar de usar este paso",
+			"step": {
+				"source": "Conservar el nombre de la fuente",
+				"local": "Seguir lo que ya hace nuestra propia biblioteca",
+				"standard": "Convención con espacios",
+				"dotted": "Convención con puntos"
+			},
+			"step_help": {
+				"source": "No se renombra nada. La carpeta de encima ya les dice a ambos servidores multimedia qué es el archivo, y todo esquema de renombrado supone algo que resulta falso en alguna biblioteca. Solo se omite si la fuente no envió ningún nombre de archivo.",
+				"local": "Se copia un episodio que ya tienes de la misma serie, etiqueta por etiqueta y separador por separador, para que una biblioteca que has ordenado siga ordenada. Se omite cuando no hay nada de esa serie que copiar.",
+				"standard": "Serie - S01E02 - Título.ext",
+				"dotted": "Serie.Año.S01E03.Título.ext — lo que usan los lanzamientos scene y muchísimas bibliotecas de Plex."
+			}
 		},
 		"pull_metadata": "Traer también los metadatos",
 		"pull_metadata_help": "Copia las carátulas, los subtítulos y los archivos .nfo junto al contenido.",

@@ -38,15 +38,15 @@
 	const removing = ref<Peer | null>(null);
 	const removeBusy = ref(false);
 	/**
-	 * Whether the removal also refuses the key for good.
+	 * Which way the reading switch is about to be thrown, and for whom.
 	 *
-	 * Offered on the removal rather than as a separate action, because that is where
-	 * the decision is made: somebody ejecting a peer is deciding whether they may come
-	 * back. It defaults to off — a friend who rebuilt their gateway should be able to
-	 * ask again.
+	 * One dialog rather than two, because it is one decision read from two sides.
+	 * Holding the peer and the direction together also means the confirmation can name
+	 * both without the template guessing from the row's current state, which is what
+	 * would be stale for the instant between the call and the answer.
 	 */
-	const removeBan = ref(false);
-	const removeReason = ref('');
+	const reading = ref<{ peer: Peer; forbid: boolean } | null>(null);
+	const readingBusy = ref(false);
 	const banning = ref<Peer | null>(null);
 	const banBusy = ref(false);
 	const banReason = ref('');
@@ -111,14 +111,27 @@
 		void notify('peer.approved');
 	});
 
-	const block = tryCallback(async (peer: Peer) => {
-		await peersStore.block(peer.id);
-		void notify('peer.blocked');
-	});
+	function startForbidReading (peer: Peer): void {
+		reading.value = { peer, forbid: true };
+	}
 
-	const unblock = tryCallback(async (peer: Peer) => {
-		await peersStore.unblock(peer.id);
-		void notify('peer.unblocked');
+	function startAllowReading (peer: Peer): void {
+		reading.value = { peer, forbid: false };
+	}
+
+	const confirmReading = tryCallback(async () => {
+		if (!reading.value) {
+			return;
+		}
+		readingBusy.value = true;
+		try {
+			const { peer, forbid } = reading.value;
+			await peersStore.setReadingForbidden(peer.id, forbid);
+			reading.value = null;
+			void notify(forbid ? 'peer.reading_forbidden' : 'peer.reading_allowed');
+		} finally {
+			readingBusy.value = false;
+		}
 	});
 
 	function startRename (peer: Peer): void {
@@ -142,8 +155,6 @@
 
 	function startRemove (peer: Peer): void {
 		removing.value = peer;
-		removeBan.value = false;
-		removeReason.value = '';
 	}
 
 	const confirmRemove = tryCallback(async () => {
@@ -152,13 +163,9 @@
 		}
 		removeBusy.value = true;
 		try {
-			const banned = removeBan.value;
-			await peersStore.remove(removing.value.id, {
-				ban: banned,
-				reason: banned ? removeReason.value : undefined,
-			});
+			await peersStore.remove(removing.value.id);
 			removing.value = null;
-			void notify(banned ? 'peer.banned' : 'peer.removed');
+			void notify('peer.removed');
 		} finally {
 			removeBusy.value = false;
 		}
@@ -311,14 +318,14 @@
 						:ceiling="ceiling"
 						:peer="peer"
 						:saving-depth="depthBusy === peer.id"
+						@allow-reading="startAllowReading"
 						@approve="approve"
 						@ban="startBan"
-						@block="block"
 						@connect="connect"
+						@forbid-reading="startForbidReading"
 						@max-depth="setMaxDepth"
 						@remove="startRemove"
 						@rename="startRename"
-						@unblock="unblock"
 					/>
 				</v-col>
 			</v-row>
@@ -390,40 +397,35 @@
 			</template>
 		</Window>
 
+		<!--
+			Removal alone, with no ban on it any more. The checkbox that used to sit here
+			made this dialog explain a decision most people were not making, and it was a
+			second way to reach an outcome the ban action already reaches.
+		-->
 		<Confirm
 			:loading="removeBusy"
 			:model-value="removing !== null"
+			:text="$t('peer.remove_confirm', { name: removing?.name ?? '' })"
 			:title="$t('peer.remove_title')"
 			@cancel="removing = null"
 			@confirm="confirmRemove"
-		>
-			<p class="mb-3">{{ $t('peer.remove_confirm', { name: removing?.name ?? '' }) }}</p>
+		/>
 
-			<!--
-				The ban is offered here rather than as a second action somebody has to
-				know to take. Removing used to be the weaker of the two ejections: it
-				deleted the row, and with it the only thing refusing them.
-			-->
-			<v-checkbox
-				v-model="removeBan"
-				data-test="peer-remove-ban"
-				density="compact"
-				hide-details
-				:label="$t('peer.remove_ban')"
-			/>
-
-			<p class="text-caption text-medium-emphasis mb-2">{{ $t('peer.remove_ban_hint') }}</p>
-
-			<v-text-field
-				v-if="removeBan"
-				v-model="removeReason"
-				data-test="peer-remove-reason"
-				density="compact"
-				hide-details
-				:label="$t('peer.ban_reason')"
-				:placeholder="$t('peer.ban_reason_hint')"
-			/>
-		</Confirm>
+		<!--
+			The one dialog that has to spell out a consequence, because the consequence
+			is counter-intuitive: the link is kept, so the peer sees an empty catalogue
+			rather than a closed door, and nothing stops us reading from them.
+		-->
+		<Confirm
+			:loading="readingBusy"
+			:model-value="reading !== null"
+			:text="reading?.forbid
+				? $t('peer.forbid_reading_confirm', { name: reading?.peer.name ?? '' })
+				: $t('peer.allow_reading_confirm', { name: reading?.peer.name ?? '' })"
+			:title="reading?.forbid ? $t('peer.forbid_reading_title') : $t('peer.allow_reading_title')"
+			@cancel="reading = null"
+			@confirm="confirmReading"
+		/>
 
 		<Confirm
 			confirm-color="error"

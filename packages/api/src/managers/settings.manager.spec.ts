@@ -14,7 +14,7 @@ interface Fakes {
 	scheduler: { reload: jest.Mock };
 	engine: { applyRateLimits: jest.Mock };
 	bandwidth: { apply: jest.Mock };
-	libraries: { probe: jest.Mock };
+	libraries: { probe: jest.Mock; mergeCategoryInto: jest.Mock };
 }
 
 const build = (): { manager: SettingsManager; fakes: Fakes } => {
@@ -30,6 +30,7 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 		engine: { applyRateLimits: jest.fn() },
 		bandwidth: { apply: jest.fn() },
 		libraries: {
+			mergeCategoryInto: jest.fn().mockResolvedValue('Shows'),
 			probe: jest.fn().mockResolvedValue({
 				exists: true,
 				readable: true,
@@ -158,6 +159,94 @@ describe('SettingsManager', () => {
 		await manager.write({ publicUrl: 'https://mcs.example.org' });
 
 		expect(fakes.libraries.probe).not.toHaveBeenCalled();
+	});
+
+	describe('a destination that also names the category', () => {
+		/*
+		 * The report this exists for: `Séries` was pointed at the `Shows` library, the
+		 * screen kept showing two categories, and the fourteen episodes stayed in the
+		 * first. Placement and grouping are two mechanisms and the table only drove one.
+		 */
+		const withTargets = (current: Record<string, string> = {}) => {
+			const made = build();
+
+			made.fakes.settings.get.mockResolvedValue({
+				...DEFAULT_SETTINGS,
+				categoryTargets: current,
+			});
+
+			return made;
+		};
+
+		it('makes the mapped category read as its destination', async () => {
+			const { manager, fakes } = withTargets();
+
+			await manager.write({ categoryTargets: { series: 'library-shows' } });
+
+			expect(fakes.libraries.mergeCategoryInto).toHaveBeenCalledWith('series', 'library-shows');
+		});
+
+		it('acts on every entry the save moved, not only the first', async () => {
+			const { manager, fakes } = withTargets({ series: 'library-shows' });
+
+			await manager.write({
+				categoryTargets: { series: 'library-shows', animes: 'library-shows' },
+			});
+
+			expect(fakes.libraries.mergeCategoryInto).toHaveBeenCalledTimes(1);
+			expect(fakes.libraries.mergeCategoryInto).toHaveBeenCalledWith('animes', 'library-shows');
+		});
+
+		it('leaves the names alone when an unrelated setting is saved', async () => {
+			const { manager, fakes } = withTargets({ series: 'library-shows' });
+
+			await manager.write({ maxParallelTransfers: 8 });
+
+			expect(fakes.libraries.mergeCategoryInto).not.toHaveBeenCalled();
+		});
+
+		it('does not rewrite a name that a save left exactly as it was', async () => {
+			// Re-applying the whole table would put back an alias somebody removed on the
+			// libraries screen, on the strength of an unrelated field being saved.
+			const { manager, fakes } = withTargets({ series: 'library-shows' });
+
+			await manager.write({ categoryTargets: { series: 'library-shows' } });
+
+			expect(fakes.libraries.mergeCategoryInto).not.toHaveBeenCalled();
+		});
+
+		it('keeps the name when the destination is cleared, which is the decision', async () => {
+			// Clearing says nothing new lands there. It does not say the category was
+			// never that name — and the alias a mapping wrote is indistinguishable from
+			// one somebody typed, so undoing it here would destroy a name somebody chose.
+			const { manager, fakes } = withTargets({ series: 'library-shows' });
+
+			await manager.write({ categoryTargets: {} });
+
+			expect(fakes.libraries.mergeCategoryInto).not.toHaveBeenCalled();
+			expect(fakes.settings.update).toHaveBeenCalledWith({ categoryTargets: {} });
+		});
+
+		it('keeps it when the whole table is replaced by one about another category', async () => {
+			const { manager, fakes } = withTargets({ series: 'library-shows' });
+
+			await manager.write({ categoryTargets: { animes: 'library-animes' } });
+
+			expect(fakes.libraries.mergeCategoryInto).toHaveBeenCalledTimes(1);
+			expect(fakes.libraries.mergeCategoryInto).toHaveBeenCalledWith('animes', 'library-animes');
+		});
+
+		it('saves the setting even when nothing was renamed', async () => {
+			// Every guard in the manager below answers null, and a destination is still a
+			// destination: the file has to land there whether or not a name moved.
+			const { manager, fakes } = withTargets();
+
+			fakes.libraries.mergeCategoryInto.mockResolvedValue(null);
+
+			const settings = await manager.write({ categoryTargets: { series: 'library-theirs' } });
+
+			expect(settings.categoryTargets).toEqual({ series: 'library-theirs' });
+		});
 	});
 
 	it('reads through to the service that owns the defaults', async () => {

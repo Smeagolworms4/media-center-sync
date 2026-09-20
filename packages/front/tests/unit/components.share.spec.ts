@@ -37,6 +37,7 @@ const peers: Peer[] = [{
 	trust: PeerTrust.FRIEND,
 	depth: 1,
 	maxDepth: null,
+	readingForbidden: false,
 	linkMode: null,
 	address: null,
 	viaPeerId: null,

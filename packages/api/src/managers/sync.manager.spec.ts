@@ -51,7 +51,7 @@ const SETTINGS: Settings = {
 	fixedPath: null,
 	categoryTargets: {},
 	defaultTargetLibraryId: null,
-	naming: NamingScheme.SOURCE,
+	namingOrder: [NamingScheme.SOURCE, NamingScheme.STANDARD],
 	pullMetadata: false,
 	writeNfo: false,
 	preferSourceMetadata: false,

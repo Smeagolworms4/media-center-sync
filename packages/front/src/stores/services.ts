@@ -3,6 +3,7 @@ import type {
 	Library,
 	MediaService,
 	MediaServiceProbe,
+	ProbeMediaServiceRequest,
 	ScanProgress,
 	UpdateMediaServiceRequest,
 } from '@mcs/shared';
@@ -107,7 +108,7 @@ export const useServicesStore = defineStore('services', () => {
 	 * still typing it, rather than after they have saved a service that does not
 	 * work and wondered why their library stays empty.
 	 */
-	function probe (request: CreateMediaServiceRequest): Promise<MediaServiceProbe> {
+	function probe (request: ProbeMediaServiceRequest): Promise<MediaServiceProbe> {
 		return caller('api').post<MediaServiceProbe>('/services/probe', request);
 	}
 

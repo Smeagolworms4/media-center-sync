@@ -368,7 +368,7 @@
 		"last_probe": "Ultimo controllo",
 		"remove_title": "Rimuovere questo servizio?",
 		"remove_confirm": "{name} e tutto ciò che è stato indicizzato da lì saranno rimossi dal gateway. I file in sé non vengono toccati.",
-		"scan_started": "Una scansione completa è partita. Riporta qui i suoi progressi.",
+		"scan_started": "È iniziata una scansione completa. Il suo avanzamento appare sulla riga del servizio.",
 		"refresh_started": "Un aggiornamento è partito.",
 		"status": {
 			"unknown": "Non controllato",
@@ -434,10 +434,8 @@
 		"last_seen": "visto l'ultima volta",
 		"relay_hint": "Questo collegamento passa dal rendezvous, la cui banda è condivisa da tutti quelli che lo usano.",
 		"remove_title": "Rimuovere questo peer?",
-		"remove_confirm": "Il collegamento con {name} verrà interrotto. Ciò che è già stato recuperato resta.",
-		"connecting": "Connessione al peer…",
-		"blocked": "Peer bloccato.",
-		"unblocked": "Peer sbloccato.",
+		"remove_confirm": "Il collegamento con {name} verrà interrotto. Ciò che è già stato recuperato resta, e potrà richiedere di nuovo: per rifiutare la sua chiave per sempre bisogna bloccarlo.",
+		"connecting": "Tentativo di raggiungere il peer adesso…",
 		"renamed": "Peer rinominato.",
 		"removed": "Peer rimosso.",
 		"linked": "Peer collegato.",
@@ -453,7 +451,7 @@
 		"direction": {
 			"incoming": "In attesa di te",
 			"outgoing": "In attesa di loro",
-			"incoming_hint": "Questo gateway ha chiesto di collegarsi al tuo. Accetta, oppure bloccalo.",
+			"incoming_hint": "Questo gateway ha chiesto di collegarsi al tuo. Accetta, oppure rimuovi la richiesta.",
 			"outgoing_hint": "Richiesta inviata. Niente da fare qui finché non accettano."
 		},
 		"add": {
@@ -468,8 +466,7 @@
 		"status": {
 			"pending": "Collegamento in attesa",
 			"linked": "Collegato",
-			"unreachable": "Irraggiungibile",
-			"blocked": "Bloccato"
+			"unreachable": "Irraggiungibile"
 		},
 		"trust": {
 			"friend": "Amico",
@@ -488,7 +485,7 @@
 			"rendezvous": "Rendezvous",
 			"direct_address": "Indirizzo diretto",
 			"direct_ok": "Le connessioni dirette sono possibili, quindi i trasferimenti non passano dal relay.",
-			"relay_only": "Sono possibili solo collegamenti tramite relay. Tutto funziona, ma i trasferimenti condividono il rendezvous con tutti gli altri. Rendere raggiungibile questo gateway — una sola porta, quella dell'interfaccia — eliminerebbe questo limite."
+			"relay_only": "Questo gateway non è raggiungibile dall'esterno, quindi gli amici non possono collegarsi direttamente e ogni trasferimento passa dal rendezvous, la cui banda è divisa fra tutti quelli che lo stanno usando in quel momento. Inoltrare sul router la porta dell'interfaccia risolve. Non c'è una seconda porta da aprire: un collegamento fra peer è una connessione WebSocket su quella stessa porta."
 		},
 		"invite": {
 			"open": "Collega un gateway",
@@ -512,20 +509,18 @@
 		},
 		"action": {
 			"approve": "Accetta",
-			"connect": "Connetti ora",
+			"connect": "Riprova ora",
 			"rename": "Rinomina",
-			"block": "Blocca",
-			"unblock": "Sblocca",
 			"remove": "Rimuovi",
 			"ban": "Blocca",
-			"unban": "Rimuovi il blocco"
+			"unban": "Rimuovi il blocco",
+			"forbid_reading": "Vieta la lettura",
+			"allow_reading": "Consenti la lettura"
 		},
 		"protocol": "Protocollo {version}",
 		"capabilities": "sa fare",
 		"banned": "Bloccato. Quella chiave non può tornare da sola.",
 		"unbanned": "Blocco rimosso. Possono richiedere di nuovo.",
-		"remove_ban": "Rifiuta anche questa chiave per sempre",
-		"remove_ban_hint": "La sola rimozione permette di richiedere di nuovo, che di solito è ciò che si vuole quando un amico ricostruisce il proprio gateway.",
 		"ban_title": "Blocca questo peer",
 		"ban_confirm": "{name} sarà scollegato e la sua chiave rifiutata: per richiesta, per invito e tramite un amico.",
 		"ban_reason": "Motivo",
@@ -545,7 +540,17 @@
 			"default": "Predefinito ({count})",
 			"hops": "un salto | fino a {count} salti",
 			"saved": "Salvato."
-		}
+		},
+		"connect_hint": "Questo gateway si collega all'avvio e riprova da solo dopo un'interruzione, aspettando ogni volta di più. Questo riprova subito.",
+		"unreachable_hint": "Irraggiungibile al momento. Il gateway continua a provarci da solo, distanziando i tentativi.",
+		"reading_forbidden_chip": "Non vede nulla",
+		"reading_forbidden_hint": "Lettura vietata: il collegamento resta e questo gateway continua a leggere dal suo, ma tutto ciò che chiede qui riceve una risposta vuota.",
+		"forbid_reading_title": "Vietare la lettura a questo peer?",
+		"forbid_reading_confirm": "A {name} non verrà servito nulla di nostro, qualunque cosa dica la condivisione di ogni libreria. Il collegamento resta aperto di proposito: dalla sua parte resta connesso e trova solo un catalogo vuoto, e questo gateway continua a leggere dal suo. Basta un clic per tornare indietro.",
+		"allow_reading_title": "Consentire di nuovo la lettura a questo peer?",
+		"allow_reading_confirm": "{name} tornerà a vedere ciò che la condivisione di ogni libreria permette, come prima.",
+		"reading_forbidden": "A questo peer non viene più servito nulla.",
+		"reading_allowed": "Questo peer può leggere di nuovo."
 	},
 	"notification": {
 		"title": "Canali di notifica",
@@ -710,6 +715,8 @@
 			"category_header": "Categoria",
 			"target_header": "Va in",
 			"falls_back": "Ripiega su {target}",
+			"merges": "Scegliere una destinazione archivia anche questa categoria sotto il nome di quella libreria: nella vista delle librerie le due compaiono poi come una sola categoria, non due.",
+			"merges_foreign": "Queste librerie sono sul server di qualcun altro, quindi il nome resta il loro e questa categoria continua a comparire per conto suo. Cambia solo dove finiscono i nuovi file.",
 			"fallback_unset": "una qualunque libreria che possa accoglierlo: sopra non è impostato niente",
 			"rejected": {
 				"not_ours": "{library} su {service} non può essere proposta: è sul server di qualcun altro e questo gateway non può scriverci.",
@@ -723,16 +730,26 @@
 		"public_url_suggested": "Suggerito dall'indirizzo che stai usando in questo momento ({origin}). Cambialo se i tuoi amici raggiungono questo gateway con un altro nome.",
 		"default_target": "Cartella di ripiego",
 		"default_target_help": "Un percorso assoluto in cui questo gateway può scrivere, per il caso che una libreria non sa esprimere: una cartella di transito fuori da ogni libreria. Usata solo quando né una categoria né la libreria di destinazione predefinita rispondono.",
-		"naming": "Denominazione",
-		"naming_value": {
-			"source": "Mantieni il nome della sorgente",
-			"local": "Segui la nostra libreria",
-			"standard": "Schema standard"
-		},
-		"naming_help": {
-			"source": "Il file arriva con il nome che gli ha dato la sorgente.",
-			"local": "Rinominato come la tua libreria nomina già le cose.",
-			"standard": "Serie (Anno)/Stagione 01/Serie - S01E02 - Titolo.ext"
+		"naming": {
+			"rule_title": "Come viene nominato un file scaricato",
+			"rule_note": "Ogni passo viene provato a turno e vince il primo che sa rispondere. L'ultima riga è una convenzione: risponde sempre, quindi nulla può venire dopo di essa e non si può togliere.",
+			"convention": "Poi, la convenzione",
+			"unused": "Non usato:",
+			"move_up": "Provare questo prima",
+			"move_down": "Provare questo dopo",
+			"drop": "Smetti di usare questo passo",
+			"step": {
+				"source": "Mantieni il nome della sorgente",
+				"local": "Segui ciò che la nostra libreria fa già",
+				"standard": "Convenzione con spazi",
+				"dotted": "Convenzione con punti"
+			},
+			"step_help": {
+				"source": "Non viene rinominato nulla. La cartella sopra dice già a entrambi i server multimediali che cos'è il file, e ogni schema di rinomina presuppone qualcosa che su qualche libreria è falso. Saltato solo se la sorgente non ha inviato alcun nome di file.",
+				"local": "Viene ricopiato un episodio della stessa serie che hai già, tag per tag e separatore per separatore, perché una libreria che hai messo in ordine resti in ordine. Saltato quando di quella serie non c'è nulla da ricopiare.",
+				"standard": "Serie - S01E02 - Titolo.ext",
+				"dotted": "Serie.Anno.S01E03.Titolo.ext — quello che usano le release scene e moltissime librerie Plex."
+			}
 		},
 		"pull_metadata": "Recupera anche i metadati",
 		"pull_metadata_help": "Copia locandine, sottotitoli e file .nfo insieme al media.",

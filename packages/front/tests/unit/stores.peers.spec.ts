@@ -17,6 +17,7 @@ function peer (overrides: Partial<Peer> = {}): Peer {
 		trust: PeerTrust.FRIEND,
 		depth: 1,
 		maxDepth: null,
+		readingForbidden: false,
 		linkMode: PeerLinkMode.DIRECT,
 		address: '203.0.113.9:4210',
 		viaPeerId: null,
@@ -69,15 +70,34 @@ describe('stores/peers', () => {
 		expect(store.peers.map(one => one.id)).toEqual(['p2']);
 	});
 
-	it('replaces the peer a block answered with', async () => {
-		stubFetch([{ body: [peer()] }, { body: peer({ status: PeerStatus.BLOCKED }) }]);
+	it('replaces the peer forbidding it to read answered with, and keeps it linked', async () => {
+		// The link is deliberately kept open, so the row has to come back linked and
+		// forbidden at once — a store that dropped it, or marked it unreachable, would
+		// describe the behaviour this action was written to stop.
+		stubFetch([{ body: [peer()] }, { body: peer({ readingForbidden: true }) }]);
 		const store = usePeersStore();
 		await store.load();
 
-		await store.block('p1');
+		await store.setReadingForbidden('p1', true);
 
-		expect(store.byId.p1.status).toBe(PeerStatus.BLOCKED);
+		expect(store.byId.p1.readingForbidden).toBe(true);
+		expect(store.byId.p1.status).toBe(PeerStatus.LINKED);
 		expect(store.peers).toHaveLength(1);
+	});
+
+	it('sends the flag rather than guessing from the row it holds', async () => {
+		const stub = stubFetch([{ body: peer({ readingForbidden: false }) }]);
+		const store = usePeersStore();
+		store.peers = [peer({ readingForbidden: true })];
+
+		await store.setReadingForbidden('p1', false);
+
+		const [url, options] = stub.mock.calls[0] as [string, RequestInit];
+
+		expect(url).toContain('/peers/p1/reading');
+		expect(options.method).toBe('PATCH');
+		expect(JSON.parse(String(options.body))).toEqual({ forbidden: false });
+		expect(store.byId.p1.readingForbidden).toBe(false);
 	});
 
 	it('applies a status frame without re-reading the list', async () => {
@@ -108,31 +128,24 @@ describe('stores/peers', () => {
 	});
 
 	describe('bans, which outlive the peer row', () => {
-		it('sends the ban with the removal, because that is where the decision is', async () => {
-			const stub = stubFetch([{ status: 204 }, { body: [] }]);
-			const store = usePeersStore();
-			store.peers = [peer()];
-
-			await store.remove('p1', { ban: true, reason: 'flooded us' });
-
-			expect(store.peers).toHaveLength(0);
-			const [url, options] = stub.mock.calls[0] as [string, RequestInit];
-			expect(url).toContain('/peers/p1');
-			expect(options.method).toBe('DELETE');
-			expect(JSON.parse(String(options.body))).toEqual({ ban: true, reason: 'flooded us' });
-		});
-
-		it('does not refuse the key when the peer is simply removed', async () => {
+		it('refuses nobody when a peer is removed: the ban is its own action now', async () => {
+			// The checkbox that used to ride on the removal is gone, so this call can no
+			// longer carry one — which is the safe direction to fail in.
 			const stub = stubFetch([{ status: 204 }]);
 			const store = usePeersStore();
 			store.peers = [peer()];
 
 			await store.remove('p1');
 
+			expect(store.peers).toHaveLength(0);
 			// One call, so nothing went looking for a ban list that was never written.
 			expect(stub).toHaveBeenCalledTimes(1);
-			const [, options] = stub.mock.calls[0] as [string, RequestInit];
-			expect(JSON.parse(String(options.body))).toEqual({});
+
+			const [url, options] = stub.mock.calls[0] as [string, RequestInit];
+
+			expect(url).toContain('/peers/p1');
+			expect(options.method).toBe('DELETE');
+			expect(options.body ?? null).toBeNull();
 		});
 
 		it('drops the peer from the list and adds it to the bans', async () => {

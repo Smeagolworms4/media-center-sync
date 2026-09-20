@@ -368,7 +368,7 @@
 		"last_probe": "Última verificação",
 		"remove_title": "Remover este serviço?",
 		"remove_confirm": "{name} e tudo o que foi indexado a partir dele serão retirados do gateway. Os ficheiros em si não são tocados.",
-		"scan_started": "Começou uma análise completa. O progresso é comunicado aqui.",
+		"scan_started": "Foi iniciada uma análise completa. O progresso aparece na linha do serviço.",
 		"refresh_started": "Começou uma atualização.",
 		"status": {
 			"unknown": "Não verificado",
@@ -434,10 +434,8 @@
 		"last_seen": "visto",
 		"relay_hint": "Esta ligação passa pelo ponto de encontro, cuja largura de banda é partilhada por todos os que o usam.",
 		"remove_title": "Remover este par?",
-		"remove_confirm": "A ligação com {name} será cortada. O que já foi transferido dele fica.",
-		"connecting": "A ligar ao par…",
-		"blocked": "Par bloqueado.",
-		"unblocked": "Par desbloqueado.",
+		"remove_confirm": "A ligação com {name} será cortada. O que já foi transferido dele fica, e poderá pedir de novo — para recusar a chave para sempre, tem de o banir.",
+		"connecting": "A tentar contactar o par agora…",
 		"renamed": "Par renomeado.",
 		"removed": "Par removido.",
 		"linked": "Par ligado.",
@@ -453,7 +451,7 @@
 		"direction": {
 			"incoming": "À sua espera",
 			"outgoing": "À espera deles",
-			"incoming_hint": "Este gateway pediu para se ligar ao seu. Aceite, ou bloqueie-o.",
+			"incoming_hint": "Este gateway pediu para se ligar ao seu. Aceite, ou remova o pedido.",
 			"outgoing_hint": "Pedido enviado. Nada a fazer aqui até que aceitem."
 		},
 		"add": {
@@ -468,8 +466,7 @@
 		"status": {
 			"pending": "Ligação pendente",
 			"linked": "Ligado",
-			"unreachable": "Inacessível",
-			"blocked": "Bloqueado"
+			"unreachable": "Inacessível"
 		},
 		"trust": {
 			"friend": "Amigo",
@@ -488,7 +485,7 @@
 			"rendezvous": "Ponto de encontro",
 			"direct_address": "Endereço direto",
 			"direct_ok": "As ligações diretas são possíveis, por isso as transferências não passam pela retransmissão.",
-			"relay_only": "Só são possíveis ligações retransmitidas. Tudo funciona, mas as transferências partilham o ponto de encontro com todos os outros. Tornar este gateway acessível — uma só porta, a da interface — acabaria com isso."
+			"relay_only": "Esta gateway não é acessível a partir do exterior, por isso os amigos não conseguem ligar-se diretamente e todas as transferências passam pelo ponto de encontro, cuja largura de banda é repartida por todos os que o estiverem a usar nesse momento. Encaminhar no router a porta da interface resolve. Não há uma segunda porta para abrir: uma ligação entre pares é uma ligação WebSocket nessa mesma porta."
 		},
 		"invite": {
 			"open": "Ligar um gateway",
@@ -512,20 +509,18 @@
 		},
 		"action": {
 			"approve": "Aceitar",
-			"connect": "Ligar agora",
+			"connect": "Tentar agora",
 			"rename": "Renomear",
-			"block": "Bloquear",
-			"unblock": "Desbloquear",
 			"remove": "Remover",
 			"ban": "Banir",
-			"unban": "Levantar o banimento"
+			"unban": "Levantar o banimento",
+			"forbid_reading": "Proibir a leitura",
+			"allow_reading": "Permitir a leitura"
 		},
 		"protocol": "Protocolo {version}",
 		"capabilities": "sabe fazer",
 		"banned": "Banido. Essa chave não pode voltar sozinha.",
 		"unbanned": "Banimento levantado. Podem pedir de novo.",
-		"remove_ban": "Recusar também esta chave para sempre",
-		"remove_ban_hint": "Apenas remover permite que peçam de novo, o que costuma ser o desejado quando um amigo refaz a sua gateway.",
 		"ban_title": "Banir este par",
 		"ban_confirm": "{name} será desligado e a sua chave recusada — por pedido, por convite e através de um amigo.",
 		"ban_reason": "Motivo",
@@ -545,7 +540,17 @@
 			"default": "Predefinido ({count})",
 			"hops": "um salto | até {count} saltos",
 			"saved": "Guardado."
-		}
+		},
+		"connect_hint": "Esta gateway liga-se no arranque e tenta de novo sozinha depois de uma quebra, esperando cada vez mais. Isto tenta já.",
+		"unreachable_hint": "Inacessível de momento. A gateway continua a tentar sozinha, espaçando as tentativas.",
+		"reading_forbidden_chip": "Não vê nada",
+		"reading_forbidden_hint": "Leitura proibida: a ligação mantém-se e esta gateway continua a ler da dele, mas tudo o que ele pedir aqui é respondido vazio.",
+		"forbid_reading_title": "Proibir este par de ler?",
+		"forbid_reading_confirm": "A {name} não será servido nada de nosso, diga o que disser a partilha de cada biblioteca. A ligação fica aberta de propósito: continua ligado do lado dele e encontra apenas um catálogo vazio, e esta gateway continua a poder ler da dele. Um clique desfaz.",
+		"allow_reading_title": "Permitir que este par volte a ler?",
+		"allow_reading_confirm": "{name} voltará a ver o que a partilha de cada biblioteca permitir, como antes.",
+		"reading_forbidden": "A este par já não é servido nada.",
+		"reading_allowed": "Este par pode voltar a ler."
 	},
 	"notification": {
 		"title": "Canais de notificação",
@@ -710,6 +715,8 @@
 			"category_header": "Categoria",
 			"target_header": "Vai para",
 			"falls_back": "Recorre a {target}",
+			"merges": "Escolher um destino também arquiva esta categoria com o nome dessa biblioteca: na vista das bibliotecas as duas passam a aparecer como uma só categoria, e não duas.",
+			"merges_foreign": "Estas bibliotecas estão no servidor de outra pessoa, por isso o nome continua a ser delas e esta categoria continua a aparecer à parte. Só muda para onde vão os ficheiros novos.",
 			"fallback_unset": "qualquer biblioteca que o possa receber: acima não há nada definido",
 			"rejected": {
 				"not_ours": "{library} em {service} não pode ser oferecida: está no servidor de outra pessoa e este gateway não consegue escrever lá.",
@@ -723,16 +730,26 @@
 		"public_url_suggested": "Sugerido a partir do endereço que está a usar neste momento ({origin}). Altere-o se os seus amigos chegarem a este gateway com outro nome.",
 		"default_target": "Pasta de recurso",
 		"default_target_help": "Um caminho absoluto onde este gateway consegue escrever, para o caso que uma biblioteca não consegue exprimir: uma pasta de passagem fora de qualquer biblioteca. Só é usada quando nem uma categoria nem a biblioteca de destino predefinida respondem.",
-		"naming": "Nomenclatura",
-		"naming_value": {
-			"source": "Manter o nome da fonte",
-			"local": "Seguir a nossa própria biblioteca",
-			"standard": "Esquema padrão"
-		},
-		"naming_help": {
-			"source": "O ficheiro chega com o nome que a fonte lhe deu.",
-			"local": "Renomeado como a sua própria biblioteca já nomeia as coisas.",
-			"standard": "Série (Ano)/Temporada 01/Série - S01E02 - Título.ext"
+		"naming": {
+			"rule_title": "Como é nomeado um ficheiro obtido",
+			"rule_note": "Cada passo é tentado por sua vez e ganha o primeiro que consegue responder. A última linha é uma convenção: responde sempre, por isso nada pode vir depois dela e não pode ser retirada.",
+			"convention": "Depois, a convenção",
+			"unused": "Sem uso:",
+			"move_up": "Tentar este mais cedo",
+			"move_down": "Tentar este mais tarde",
+			"drop": "Deixar de usar este passo",
+			"step": {
+				"source": "Manter o nome da fonte",
+				"local": "Seguir o que a nossa própria biblioteca já faz",
+				"standard": "Convenção com espaços",
+				"dotted": "Convenção com pontos"
+			},
+			"step_help": {
+				"source": "Nada é renomeado. A pasta acima já diz aos dois servidores multimédia o que é o ficheiro, e qualquer esquema de renomeação assume algo que é falso nalguma biblioteca. Só é ignorado se a fonte não enviou nome de ficheiro nenhum.",
+				"local": "Copia-se um episódio da mesma série que já tem, etiqueta a etiqueta e separador a separador, para que uma biblioteca que arrumou continue arrumada. Ignorado quando não há nada dessa série para copiar.",
+				"standard": "Série - S01E02 - Título.ext",
+				"dotted": "Série.Ano.S01E03.Título.ext — o que usam os lançamentos scene e muitíssimas bibliotecas Plex."
+			}
 		},
 		"pull_metadata": "Transferir também os metadados",
 		"pull_metadata_help": "Copia as capas, as legendas e os ficheiros .nfo ao lado do ficheiro.",

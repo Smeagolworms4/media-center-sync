@@ -341,10 +341,46 @@ the file, reports success and shows it to nobody.
 | GET | `/peers/:id` | — | `Peer` | `PEER_READ` |
 | PATCH | `/peers/:id` | `RenamePeerDto` | `Peer` | `PEER_MANAGE` |
 | DELETE | `/peers/:id` | — | `204` | `PEER_MANAGE` |
-| POST | `/peers/:id/block` | — | `Peer` | `PEER_MANAGE` |
-| POST | `/peers/:id/unblock` | — | `Peer` | `PEER_MANAGE` |
+| PATCH | `/peers/:id/reading` | `SetPeerReadingDto` | `Peer` | `PEER_MANAGE` |
+| PATCH | `/peers/:id/max-depth` | `PeerMaxDepthDto` | `Peer` | `PEER_MANAGE` |
+| POST | `/peers/:id/ban` | `BanPeerDto` | `BannedPeer` | `PEER_MANAGE` |
+| GET | `/peers/bans` | — | `BannedPeer[]` | `PEER_READ` |
+| POST | `/peers/bans` | `BanFingerprintDto` | `BannedPeer` | `PEER_MANAGE` |
+| DELETE | `/peers/bans/:fingerprint` | — | `204` | `PEER_MANAGE` |
 | POST | `/peers/:id/connect` | — | `Peer` | `PEER_MANAGE` |
 | GET | `/peers/:id/services` | — | `MediaService[]` | `PEER_READ` |
+
+**Three ways to withdraw from a peer, and they do not overlap.**
+
+- `PATCH /peers/:id/reading` with `{"forbidden": true}` **forbids them from reading**.
+  They stay a peer, the link stays open, and they are served nothing of ours whatever
+  the per-library visibilities say — one flag on the row, honoured in
+  `ShareManager.visiblePolicies`, which every peer-facing route already goes through.
+  It sits a cut above a share policy's `deniedPeerIds`, which is per library and so
+  cannot express "this person sees nothing of mine" without being written into every
+  policy that exists. Reversible with the same call and `false`.
+
+  **The link is deliberately not closed.** The status this replaces, `blocked`, closed
+  the socket in both directions, so punishing somebody also cut off our own access to
+  *their* library. The consequence to accept is that they remain connected on their
+  side and find an empty catalogue.
+- `DELETE /peers/:id` **removes** them: the link goes, their services, libraries, rows
+  and matches go, and nothing of ours does. They may ask again, which is what somebody
+  nearly always means when a friend rebuilds their gateway. It takes no body; the
+  checkbox that used to offer a ban here is gone, because the standalone action below
+  was a second way to reach the same outcome.
+- `POST /peers/:id/ban` **refuses the key for good** and unlinks them. A ban outlives
+  the row, so the same fingerprint cannot come back through a request, an invitation or
+  an introduction by a friend. `POST /peers/bans` refuses a key nobody ever linked to.
+
+**Links dial themselves.** Every linked peer is dialled shortly after boot, and a link
+that drops is redialled with a capped exponential backoff — five seconds, doubling, to
+a ceiling of fifteen minutes. A peer that *refused* us — a banned key, a rejected
+handshake, a protocol version neither end speaks — is never redialled on a timer,
+because from the far end a gateway that keeps knocking after being told no is
+indistinguishable from one trying to get in. `POST /peers/:id/connect` therefore means
+"try now rather than wait for the next attempt" rather than "connect"; it answers `503
+error.peer.unreachable` when the attempt fails, whichever way it failed.
 
 **There are two ways to link, and the code is the convenience rather than the rule.**
 `POST /peers` takes a fingerprint: you paste your friend's, they get a request showing
@@ -356,8 +392,7 @@ chat log. Both are offered; neither is mandatory.
 `/peers/:id/approve` settles a request **somebody made of us**, and answers `409
 error.peer.rejected` on one we made ourselves. Approving our own would declare a link
 the far end never agreed to, and the first pull would then fail with an authentication
-error rather than with the honest answer, which is that they have not answered yet. A
-blocked peer is refused as well, with `401 error.peer.rejected`.
+error rather than with the honest answer, which is that they have not answered yet.
 
 `/peers/identity` is what you hand to somebody so they can find you: the fingerprint,
 the rendezvous, and whether a direct connection is possible at all. The last one is
@@ -479,6 +514,18 @@ local path it is probed and refused when it cannot be written
 (`error.settings.target_path_not_writable`), because a fallback the gateway cannot write
 into is discovered at the end of a completed download.
 
+**`categoryTargets` names a category as well as placing its files.** Pointing `Séries`
+at the `Shows` library says that Séries *is* Shows on this gateway, so the write also
+gives every library of that category the destination category's name as its `alias` —
+which is what `GET /libraries/categories` merges on. Without it the setting moved
+placement only, the library screen went on showing two categories, and nothing said
+why. Four cases write no alias: a destination whose category cannot be read, a
+destination already in that category, a library on a service that is not ours, and a
+destination on one — a friend's shelf is not ours to fold into one of ours, in either
+direction. **Clearing a mapping keeps the alias**: it is indistinguishable from one
+somebody typed on the libraries screen, and emptying a destination must not destroy a
+name. `PATCH /libraries/:id` with `alias: null` is how a category is split again.
+
 These four refusals answer `400` with `{ key, field }` rather than a plain key: they are
 saved from one form, and without the field the interface can only say that something was
 refused.
@@ -514,8 +561,10 @@ anything is allocated for it:
 The key has to hash to the fingerprint, the signature has to verify, and the challenge
 has to be recent — without the last one a signature lifted off the wire would open a
 link forever. An unknown fingerprint is recorded as a pending request and refused, the
-same answer a blocked peer gets: telling them apart would let somebody learn they are
-blocked by watching what happens.
+same answer a key on the ban list gets: telling them apart would let somebody discover
+they are refused by watching what happens. A peer forbidden from reading is *not*
+refused here — the link is theirs to keep, and it is every answer over it that is
+empty.
 
 ### The handshake
 

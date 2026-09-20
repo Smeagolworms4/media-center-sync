@@ -120,18 +120,15 @@ export const usePeersStore = defineStore('peers', () => {
 	}
 
 	/**
-	 * Unlink, optionally refusing the key for good.
+	 * Unlink. It refuses nobody: they may ask again.
 	 *
-	 * The ban rides on the removal rather than being a second action, because that is
-	 * where the decision is made: somebody ejecting a peer is deciding whether they
-	 * may come back, and asking again on another screen is asking them to remember.
+	 * That is what somebody nearly always means when a friend rebuilds their gateway,
+	 * and refusing the key for good is `ban`, an action of its own with its own
+	 * confirmation. The two used to be one call with a checkbox on it.
 	 */
-	async function remove (id: string, options: { ban?: boolean; reason?: string } = {}): Promise<void> {
-		await caller('api').delete(`/peers/${id}`, { body: options });
+	async function remove (id: string): Promise<void> {
+		await caller('api').delete(`/peers/${id}`);
 		peers.value = peers.value.filter(one => one.id !== id);
-		if (options.ban) {
-			await loadBans();
-		}
 	}
 
 	async function loadBans (): Promise<BannedPeer[]> {
@@ -143,9 +140,8 @@ export const usePeersStore = defineStore('peers', () => {
 	/**
 	 * Refuse a peer for good, and unlink them.
 	 *
-	 * Unlike blocking, which is a reversible status on a row that stays: this survives
-	 * the row, so the same key cannot return through a request, an invitation or an
-	 * introduction by a friend.
+	 * The durable one of the three: it survives the row, so the same key cannot return
+	 * through a request, an invitation or an introduction by a friend.
 	 */
 	async function ban (id: string, reason?: string): Promise<BannedPeer> {
 		const banned = await caller('api').post<BannedPeer>(`/peers/${id}/ban`, { reason });
@@ -180,18 +176,26 @@ export const usePeersStore = defineStore('peers', () => {
 		return peer;
 	}
 
-	async function block (id: string): Promise<Peer> {
-		const peer = await caller('api').post<Peer>(`/peers/${id}/block`);
+	/**
+	 * Serve this peer nothing of ours, or start serving them again.
+	 *
+	 * The link is deliberately kept: they stay connected on their side and find an
+	 * empty catalogue, and this gateway keeps reading from theirs. One flag rather
+	 * than two calls, because it is one switch somebody flips back and forth.
+	 */
+	async function setReadingForbidden (id: string, forbidden: boolean): Promise<Peer> {
+		const peer = await caller('api').patch<Peer>(`/peers/${id}/reading`, { forbidden });
 		replace(peer);
 		return peer;
 	}
 
-	async function unblock (id: string): Promise<Peer> {
-		const peer = await caller('api').post<Peer>(`/peers/${id}/unblock`);
-		replace(peer);
-		return peer;
-	}
-
+	/**
+	 * Try the link now rather than waiting for the next attempt.
+	 *
+	 * The gateway dials at startup and redials by itself after a drop, waiting longer
+	 * each time; this is the shortcut for somebody who knows their friend has just
+	 * come back and does not want to wait out a backoff.
+	 */
 	async function connect (id: string): Promise<Peer> {
 		const peer = await caller('api').post<Peer>(`/peers/${id}/connect`);
 		replace(peer);
@@ -238,8 +242,7 @@ export const usePeersStore = defineStore('peers', () => {
 		banFingerprint,
 		unban,
 		setMaxDepth,
-		block,
-		unblock,
+		setReadingForbidden,
 		connect,
 		services,
 	};

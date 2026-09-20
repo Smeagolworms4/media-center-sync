@@ -46,13 +46,96 @@ describe('SettingsService', () => {
 
 	it('overlays what has been stored on top of the defaults', async () => {
 		stored.set('maxParallelTransfers', '6');
-		stored.set('naming', '"standard"');
+		stored.set('namingOrder', '["local","standard"]');
 
 		const settings = await service.get();
 
 		expect(settings.maxParallelTransfers).toBe(6);
-		expect(settings.naming).toBe(NamingScheme.STANDARD);
+		expect(settings.namingOrder).toEqual([NamingScheme.LOCAL, NamingScheme.STANDARD]);
 		expect(settings.chunkSize).toBe(DEFAULT_SETTINGS.chunkSize);
+	});
+
+	/**
+	 * The naming chain replaced a single exclusive scheme, and the row is still there.
+	 *
+	 * Settings are key/value rows, so an upgraded gateway has no order row at all and
+	 * would take the default — which for somebody who deliberately chose to rename
+	 * everything means every future pull is suddenly named after its source instead.
+	 * A setting that changes itself during an upgrade is found from the files, weeks
+	 * later.
+	 */
+	describe('the naming order', () => {
+		it('keeps doing what the old exclusive scheme did', async () => {
+			stored.set('naming', '"standard"');
+
+			expect((await service.get()).namingOrder).toEqual([NamingScheme.STANDARD]);
+		});
+
+		it('turns the old local scheme into the chain it always meant', async () => {
+			// `local` never had an answer for "nothing to imitate" and silently produced
+			// a standard name. The chain says so out loud instead.
+			stored.set('naming', '"local"');
+
+			expect((await service.get()).namingOrder).toEqual([
+				NamingScheme.LOCAL,
+				NamingScheme.STANDARD,
+			]);
+		});
+
+		it('lets a stored order win over the scheme it was migrated from', async () => {
+			stored.set('naming', '"standard"');
+			stored.set('namingOrder', '["source","dotted"]');
+
+			expect((await service.get()).namingOrder).toEqual([
+				NamingScheme.SOURCE,
+				NamingScheme.DOTTED,
+			]);
+		});
+
+		it('refuses an order whose last step can hand on, naming the field', async () => {
+			// A chain of steps that may all decline has no answer, and the place that
+			// finds out is a completed download with nowhere to be written.
+			await expect(
+				service.update({ namingOrder: [NamingScheme.SOURCE, NamingScheme.LOCAL] }),
+			).rejects.toMatchObject({
+				response: { key: 'error.settings.invalid', field: 'namingOrder' },
+			});
+		});
+
+		it('refuses a convention with steps behind it, which could never run', async () => {
+			await expect(
+				service.update({ namingOrder: [NamingScheme.STANDARD, NamingScheme.SOURCE] }),
+			).rejects.toMatchObject({
+				response: { key: 'error.settings.invalid', field: 'namingOrder' },
+			});
+		});
+
+		it('refuses a step repeated, which is a step that can never run twice', async () => {
+			await expect(
+				service.update({
+					namingOrder: [NamingScheme.SOURCE, NamingScheme.SOURCE, NamingScheme.STANDARD],
+				}),
+			).rejects.toMatchObject({
+				response: { key: 'error.settings.invalid', field: 'namingOrder' },
+			});
+		});
+
+		it('repairs a row that got in some other way rather than refusing to start', async () => {
+			// Writes are rejected and reads are repaired: a gateway that would not boot
+			// over its own table cannot be fixed from the only screen that could fix it.
+			stored.set('namingOrder', '["source"]');
+
+			expect((await service.get()).namingOrder).toEqual(DEFAULT_SETTINGS.namingOrder);
+		});
+
+		it('accepts an order the screen can actually produce', async () => {
+			const saved = await service.update({
+				namingOrder: [NamingScheme.LOCAL, NamingScheme.DOTTED],
+			});
+
+			expect(saved.namingOrder).toEqual([NamingScheme.LOCAL, NamingScheme.DOTTED]);
+			expect(stored.get('namingOrder')).toBe('["local","dotted"]');
+		});
 	});
 
 	it('reads the database once and then answers from memory', async () => {

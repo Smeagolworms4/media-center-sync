@@ -121,6 +121,23 @@
 							@update:model-value="choose(category.key, $event)"
 						/>
 
+						<!--
+							Said on the row, in front of the control, and not in a tooltip.
+							Somebody mapped a category here expecting the library view to
+							show one category afterwards and got two — a reasonable reading
+							of "goes to", and one the screen never contradicted or
+							confirmed. Stating the consequence where the choice is made is
+							the fix; the alias it writes is the other half.
+						-->
+						<p
+							class="text-caption text-medium-emphasis mt-1 mb-0"
+							data-test="category-target-merges"
+						>
+							{{ category.local
+								? $t('settings.destination.merges')
+								: $t('settings.destination.merges_foreign') }}
+						</p>
+
 						<p
 							v-if="!targets[category.key]"
 							class="text-caption text-medium-emphasis mt-1 mb-0"

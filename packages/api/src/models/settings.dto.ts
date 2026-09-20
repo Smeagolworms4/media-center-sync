@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+	ArrayMaxSize,
+	ArrayNotEmpty,
+	IsArray,
 	IsBoolean,
 	IsEnum,
 	IsInt,
@@ -19,6 +22,15 @@ import {
 	PlacementStrategy,
 	ShareVisibility,
 } from '@mcs/shared';
+
+/**
+ * The naming order can never be longer than the steps there are.
+ *
+ * Bounded here rather than left to the rule below so that a body carrying ten
+ * thousand steps is refused before anything walks it — the rule that matters runs in
+ * the service, and this only keeps the cheap refusal cheap.
+ */
+const NAMING_STEP_LIMIT = Object.keys(NamingScheme).length;
 
 /**
  * Refuse from inside the validator, rather than letting the pipe word it.
@@ -142,10 +154,29 @@ export class UpdateSettingsDto {
 	@IsLibraryChoice()
 	public defaultTargetLibraryId?: string | null;
 
-	@ApiPropertyOptional({ enum: NamingScheme })
+	/**
+	 * The naming chain, in the order the steps are tried.
+	 *
+	 * An array and not a scheme, because a single value could only say "rename like
+	 * this" and never "keep the source name, and follow my own library when it has
+	 * something to follow". The shape is all this can check — that the order holds
+	 * together, one convention and only at the end, is a rule and lives in the
+	 * service, which answers `{ key, field }` the same way this does.
+	 */
+	@ApiPropertyOptional({
+		isArray: true,
+		enum: NamingScheme,
+		description:
+			'How a placed file is named, as the order the steps are tried in. The first step ' +
+			'that can answer wins, and the last one has to be a convention because it always ' +
+			'answers.',
+	})
 	@IsOptional()
-	@IsEnum(NamingScheme)
-	public naming?: NamingScheme;
+	@IsArray()
+	@ArrayNotEmpty()
+	@ArrayMaxSize(NAMING_STEP_LIMIT)
+	@IsEnum(NamingScheme, { each: true })
+	public namingOrder?: NamingScheme[];
 
 	@ApiPropertyOptional()
 	@IsOptional()

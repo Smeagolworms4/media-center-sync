@@ -825,7 +825,7 @@ describe('pages/Sync', () => {
 });
 
 describe('pages/Peers', () => {
-	it('says when only relayed links are possible, next to the identity', async () => {
+	it('says plainly what to do when only relayed links are possible', async () => {
 		stubFetchRoutes({
 			'/api/peers/identity': {
 				body: {
@@ -841,8 +841,86 @@ describe('pages/Peers', () => {
 		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
 		await settle();
 
-		expect(wrapper.find('[data-test="peer-reachability"]').text()).toContain('relayed');
+		const warning = wrapper.find('[data-test="peer-reachability"]').text();
+
+		// The owner read the old wording and could not tell what to do about it, which
+		// is the whole reason this is pinned: the cause, the cost, the fix, and why
+		// there is no second port to forward.
+		expect(warning).toContain('not reachable from outside');
+		expect(warning).toContain('rendezvous');
+		expect(warning).toContain('router');
+		expect(warning).toContain('no second port');
 		expect(wrapper.find('[data-test="peer-identity"]').text()).toContain('AB:CD');
+	});
+
+	function linkedPeer (overrides: Record<string, unknown> = {}) {
+		return {
+			id: 'p1',
+			name: 'Bob',
+			fingerprint: 'EF',
+			status: PeerStatus.LINKED,
+			direction: null,
+			trust: PeerTrust.FRIEND,
+			readingForbidden: false,
+			linkMode: null,
+			address: null,
+			viaPeerId: null,
+			viaPeerName: null,
+			serviceCount: 1,
+			sharedItemCount: 3,
+			lastSeenAt: null,
+			createdAt: '2026-01-01T00:00:00.000Z',
+			updatedAt: '2026-01-01T00:00:00.000Z',
+			...overrides,
+		};
+	}
+
+	const withPeers = (rows: Record<string, unknown>[]): Record<string, { body: unknown }> => ({
+		'/api/peers/identity': {
+			body: { fingerprint: 'AB', name: 'me', rendezvous: 'wss://r', directAddress: null, directReachable: true },
+		},
+		'/api/peers': { body: rows },
+	});
+
+	it('says the link is kept when a peer is forbidden from reading', async () => {
+		// The counter-intuitive half, and the one somebody forgets a week later: they
+		// stay connected on their side, this gateway still reads from theirs, and only
+		// what we answer them is empty.
+		stubFetchRoutes(withPeers([linkedPeer({ readingForbidden: true })]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		const hint = wrapper.find('[data-test="peer-reading-hint"]').text();
+
+		expect(wrapper.find('[data-test="peer-reading-forbidden"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="peer-status"]').text()).toContain('Linked');
+		expect(hint).toContain('stay linked');
+		expect(hint).toContain('empty');
+	});
+
+	it('says nothing about reading on a peer nobody has forbidden', async () => {
+		stubFetchRoutes(withPeers([linkedPeer()]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="peer-reading-forbidden"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="peer-reading-hint"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="peer-forbid-reading"]').exists()).toBe(true);
+	});
+
+	it('tells an unreachable peer it is being retried, and offers to try sooner', async () => {
+		// The button used to be the only cure for this row. Now it is a shortcut, and
+		// the card has to say so or somebody sits watching a peer they think is stuck.
+		stubFetchRoutes(withPeers([linkedPeer({ status: PeerStatus.UNREACHABLE })]));
+		const { wrapper } = mountWithApp(Peers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		expect(wrapper.find('[data-test="peer-unreachable-hint"]').text()).toContain('keeps trying');
+
+		const button = wrapper.find('[data-test="peer-connect"]');
+
+		expect(button.text()).toContain('Try now');
+		expect(button.attributes('disabled')).toBeUndefined();
 	});
 
 	it('shows a friend of a friend as one, and through whom', async () => {
@@ -1073,7 +1151,7 @@ describe('pages/Settings', () => {
 		fixedPath: null,
 		categoryTargets: {},
 		defaultTargetLibraryId: null,
-		naming: NamingScheme.STANDARD,
+		namingOrder: [NamingScheme.STANDARD],
 		pullMetadata: true,
 		preferSourceMetadata: false,
 		maxParallelTransfers: 2,

@@ -179,6 +179,8 @@ interface ItemFakes {
 	/** The index as it stands, so a test can assert what a scan actually wrote. */
 	rows: MediaItem[];
 	findByExternalId: jest.Mock;
+	linkKnownParents: jest.Mock;
+	findUnresolvedParents: jest.Mock;
 	findStale: jest.Mock;
 	findFingerprintable: jest.Mock;
 	countByService: jest.Mock;
@@ -221,6 +223,69 @@ const itemStore = (seed: MediaItem[] = []): ItemFakes => {
 				) ?? null,
 			),
 		),
+		/*
+		 * The reconciliation's two queries, kept as set operations over the whole store.
+		 *
+		 * They are written this way on purpose: what the tests need to pin down is that
+		 * the pass costs a fixed number of calls whatever the library holds, and a fake
+		 * that answered one row at a time would let a per-item implementation pass.
+		 */
+		linkKnownParents: jest.fn((serviceId: string) => {
+			let linked = 0;
+
+			for (const candidate of rows) {
+				if (
+					candidate.serviceId !== serviceId ||
+					candidate.parentId !== null ||
+					candidate.parentExternalId === null ||
+					candidate.parentExternalId === undefined
+				) {
+					continue;
+				}
+
+				const parent = rows.find(
+					(other) =>
+						other.serviceId === serviceId &&
+						other.externalId === candidate.parentExternalId,
+				);
+
+				if (parent !== undefined) {
+					candidate.parentId = parent.id;
+					linked += 1;
+				}
+			}
+
+			return Promise.resolve(linked);
+		}),
+		findUnresolvedParents: jest.fn((serviceId: string) => {
+			const grouped = new Map<string, string>();
+
+			for (const candidate of rows) {
+				const wanted = candidate.parentExternalId;
+
+				if (
+					candidate.serviceId !== serviceId ||
+					candidate.parentId !== null ||
+					wanted === null ||
+					wanted === undefined ||
+					grouped.has(wanted)
+				) {
+					continue;
+				}
+
+				const known = rows.some(
+					(other) => other.serviceId === serviceId && other.externalId === wanted,
+				);
+
+				if (!known) {
+					grouped.set(wanted, candidate.libraryId);
+				}
+			}
+
+			return Promise.resolve(
+				[...grouped].map(([parentExternalId, libraryId]) => ({ parentExternalId, libraryId })),
+			);
+		}),
 		findStale: jest.fn((libraryId: string, seen: string[]) =>
 			Promise.resolve(
 				rows.filter(
@@ -305,7 +370,7 @@ interface Fakes {
 	};
 	matches: { deleteForService: jest.Mock; deleteForItems: jest.Mock };
 	items: ItemFakes;
-	handler: { probe: jest.Mock; scanLibrary: jest.Mock; refreshLibrary: jest.Mock };
+	handler: { probe: jest.Mock; scanLibrary: jest.Mock; refreshLibrary: jest.Mock; getItem: jest.Mock };
 	fingerprints: { fingerprint: jest.Mock; contentId: jest.Mock };
 	quality: { summarise: jest.Mock };
 	media: { correlateService: jest.Mock };
@@ -349,6 +414,10 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 			probe: probeFake,
 			scanLibrary: jest.fn(() => yielding([])),
 			refreshLibrary: jest.fn().mockResolvedValue({ items: [], cursor: null }),
+			// Null is what a service says about an item it does not hold, and the
+			// default here: a test about anything else must not have parents appear
+			// out of nowhere.
+			getItem: jest.fn().mockResolvedValue(null),
 		},
 		fingerprints: {
 			fingerprint: jest.fn().mockResolvedValue({ quickHash: 'hash', size: 1_000 }),
@@ -864,10 +933,9 @@ describe('ServiceManager', () => {
 		});
 
 		it('resolves a child onto the parent the same walk just wrote', async () => {
-			// A handler yields parents before children, and the link is made by looking
-			// the parent's external identifier up in our own rows — so the season has to
-			// find the series that was written a moment earlier, not the one a previous
-			// scan left behind.
+			// The cheap path: the parent is already in the index when the child is
+			// written, so the link is made there and then and the reconciliation finds
+			// nothing left to do.
 			const { manager, fakes } = build();
 
 			fakes.libraries.findByService.mockResolvedValue([library()]);
@@ -891,10 +959,116 @@ describe('ServiceManager', () => {
 			expect(season.parentId).toBe(series.id);
 		});
 
-		it('keeps an episode rather than dropping it when its series is unknown', async () => {
+		it('keeps the parent identifier a service reported, linked or not', async () => {
+			// The column is the whole repair: without it a child written before its
+			// parent carries nothing that names what it should hang from, and no later
+			// pass can tell it apart from a film.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					reported({
+						externalId: 'season',
+						parentExternalId: 'series',
+						kind: MediaKind.SEASON,
+						title: 'Season 1',
+					}),
+					reported({ externalId: 'series', kind: MediaKind.SERIES, title: 'The Expanse' }),
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			const season = fakes.items.rows.find((item) => item.externalId === 'season');
+
+			expect(season?.parentExternalId).toBe('series');
+		});
+
+		it('links a child that was written before its parent', async () => {
+			// The bug this pass exists for. Jellyfin pages by `SortName` because index
+			// paging is only stable under a stable sort, and `Season 1` sorts before
+			// `The Expanse` — so the season was written while its series did not exist
+			// yet and appeared at the root of the library screen beside the show.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					reported({
+						externalId: 'season',
+						parentExternalId: 'series',
+						kind: MediaKind.SEASON,
+						title: 'Season 1',
+					}),
+					reported({ externalId: 'series', kind: MediaKind.SERIES, title: 'The Expanse' }),
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			const season = fakes.items.rows.find((item) => item.externalId === 'season');
+			const series = fakes.items.rows.find((item) => item.externalId === 'series');
+
+			expect(season?.parentId).toBe(series?.id);
+			// And the series is still the only thing at the root, which is what the
+			// library screen renders.
+			expect(fakes.items.rows.filter((item) => item.parentId === null)).toHaveLength(1);
+		});
+
+		it('reconciles the whole service in a fixed number of queries', async () => {
+			// One query per service, never one per item: a library of forty thousand
+			// episodes would otherwise turn every scan into forty thousand round trips
+			// for a repair that concerns a handful of rows.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					...Array.from({ length: 50 }, (_ignored, index) =>
+						reported({
+							externalId: `episode-${index}`,
+							parentExternalId: 'series',
+							kind: MediaKind.EPISODE,
+							title: `Episode ${index}`,
+						}),
+					),
+					reported({ externalId: 'series', kind: MediaKind.SERIES, title: 'The Expanse' }),
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.items.rows.filter((item) => item.parentId === null)).toHaveLength(1);
+			expect(fakes.items.linkKnownParents).toHaveBeenCalledTimes(1);
+			expect(fakes.items.findUnresolvedParents).toHaveBeenCalledTimes(1);
+		});
+
+		it('leaves a row that is already linked alone', async () => {
+			// The statement filters on a null parent, and it matters twice over: a
+			// correction that reassigned a season by hand must not be undone by a pass
+			// that re-derives the link from what the service said.
+			const { manager, fakes } = build([
+				row({ id: 'row-child', externalId: 'child', parentId: 'row-kept', parentExternalId: 'series' }),
+				row({ id: 'row-series', externalId: 'series', kind: MediaKind.SERIES }),
+			]);
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+
+			await manager.refresh('service-1');
+			await settle(manager);
+
+			expect(fakes.items.rows.find((item) => item.id === 'row-child')?.parentId).toBe('row-kept');
+		});
+
+		it('keeps an episode rather than dropping it when nobody can produce its series', async () => {
 			// A refresh reporting one new episode of a series we have never seen is the
-			// ordinary case. The row lands with no parent and the next full scan puts it
-			// in its place; failing instead would lose the episode entirely.
+			// ordinary case. Asked for it, the service answers that it holds no such
+			// item — so the row stays where it is, unlinked and present. Failing the
+			// scan instead would lose the episode entirely.
 			const { manager, fakes } = build();
 
 			fakes.libraries.findByService.mockResolvedValue([library()]);
@@ -908,6 +1082,130 @@ describe('ServiceManager', () => {
 
 			expect(fakes.items.rows).toHaveLength(1);
 			expect(fakes.items.rows[0].parentId).toBeNull();
+			expect(fakes.items.rows[0].parentExternalId).toBe('never-seen');
+		});
+
+		it('carries on when asking for a missing parent fails', async () => {
+			// A media server that has gone slow, or that deleted the series after
+			// listing its episodes, must not take the scan down with it.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.getItem.mockRejectedValue(new Error('gateway timeout'));
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					reported({
+						externalId: 'season',
+						parentExternalId: 'series',
+						kind: MediaKind.SEASON,
+						title: 'Season 1',
+					}),
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.items.rows).toHaveLength(1);
+			expect(fakes.items.rows[0].parentId).toBeNull();
+			// The rest of the pass still ran, which is what tells us the failure was
+			// swallowed where it happens rather than aborting the walk.
+			expect(fakes.media.correlateService).toHaveBeenCalledWith('service-1');
+		});
+
+		it('fetches a parent the service never enumerated, once for all its children', async () => {
+			// The other half of the fix. A series absent from the enumeration cannot be
+			// linked to anything, and inventing one from what the children say would
+			// leave a made-up row to recognise and merge the day the real one appears —
+			// so the service is asked for it instead, and answers with the real title.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.getItem.mockImplementation((_connection: unknown, externalId: string) =>
+				Promise.resolve(
+					externalId === 'series'
+						? reported({
+							externalId: 'series',
+							kind: MediaKind.SERIES,
+							title: 'The Expanse',
+							normalizedTitle: 'expanse',
+						})
+						: null,
+				),
+			);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					reported({
+						externalId: 'season-1',
+						parentExternalId: 'series',
+						kind: MediaKind.SEASON,
+						title: 'Season 1',
+					}),
+					reported({
+						externalId: 'season-3',
+						parentExternalId: 'series',
+						kind: MediaKind.SEASON,
+						title: 'Season 3',
+					}),
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			const series = fakes.items.rows.find((item) => item.externalId === 'series');
+
+			expect(series?.title).toBe('The Expanse');
+			expect(series?.libraryId).toBe('library-1');
+			expect(
+				fakes.items.rows
+					.filter((item) => item.kind === MediaKind.SEASON)
+					.map((item) => item.parentId),
+			).toEqual([series?.id, series?.id]);
+			// Once for the parent, not once per child holding it.
+			expect(fakes.handler.getItem).toHaveBeenCalledTimes(1);
+		});
+
+		it('climbs to a grandparent the service did not enumerate either', async () => {
+			// Fetching the season reveals that its series is missing too, which is only
+			// visible once the season has a row. One hop would leave the season at the
+			// root and the episode under it, which looks fixed and is not.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.getItem.mockImplementation((_connection: unknown, externalId: string) =>
+				Promise.resolve(
+					externalId === 'season'
+						? reported({
+							externalId: 'season',
+							parentExternalId: 'series',
+							kind: MediaKind.SEASON,
+							title: 'Season 1',
+						})
+						: reported({
+							externalId: 'series',
+							kind: MediaKind.SERIES,
+							title: 'The Expanse',
+						}),
+				),
+			);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					reported({
+						externalId: 'episode',
+						parentExternalId: 'season',
+						kind: MediaKind.EPISODE,
+						title: 'Dulcinea',
+					}),
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			const roots = fakes.items.rows.filter((item) => item.parentId === null);
+
+			expect(roots.map((item) => item.externalId)).toEqual(['series']);
 		});
 
 		it('does not orphan an item when a later pass reports it without its parent', async () => {
@@ -1031,6 +1329,66 @@ describe('ServiceManager', () => {
 			// A match names services on both sides and only one of them cascades, so the
 			// rows a deletion cannot reach have to be removed by hand.
 			expect(fakes.matches.deleteForItems).toHaveBeenCalledWith(['row-gone']);
+		});
+
+		it('keeps a parent the walk never reported while its children are still there', async () => {
+			// A service that lists seasons but not series has its series rows fetched by
+			// identifier, so they are in no enumeration and the plain rule would delete
+			// them at the very next scan — leaving the seasons pointing at nothing,
+			// which is neither a root nor reachable under anything.
+			const { manager, fakes } = build([
+				row({ id: 'row-series', externalId: 'series', kind: MediaKind.SERIES }),
+				row({
+					id: 'row-season',
+					externalId: 'season',
+					kind: MediaKind.SEASON,
+					parentId: 'row-series',
+					parentExternalId: 'series',
+				}),
+			]);
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					reported({
+						externalId: 'season',
+						parentExternalId: 'series',
+						kind: MediaKind.SEASON,
+					}),
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.items.rows.map((item) => item.externalId).sort()).toEqual([
+				'season',
+				'series',
+			]);
+			expect(fakes.matches.deleteForItems).not.toHaveBeenCalled();
+		});
+
+		it('drops a show whose children stopped being reported along with it', async () => {
+			// The other side of the same rule: a series kept by a child that is itself
+			// stale would never be deleted at all.
+			const { manager, fakes } = build([
+				row({ id: 'row-series', externalId: 'series', kind: MediaKind.SERIES }),
+				row({
+					id: 'row-season',
+					externalId: 'season',
+					kind: MediaKind.SEASON,
+					parentId: 'row-series',
+				}),
+				row({ id: 'row-film', externalId: 'film' }),
+			]);
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(yielding([reported({ externalId: 'film' })]));
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.items.rows.map((item) => item.externalId)).toEqual(['film']);
 		});
 
 		it('never lets a refresh delete the rows it did not ask about', async () => {

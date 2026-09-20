@@ -12,15 +12,72 @@ export enum PlacementStrategy {
 	FIXED_PATH = 'fixed_path',
 }
 
-/** How the file is named once placed. */
+/**
+ * One step of the chain that names a placed file.
+ *
+ * These were three exclusive values behind a single select, which could not say what
+ * people actually want — "keep the source name, but follow my own library when it has
+ * something to follow" is an order, not a choice — and hid the fallbacks: `LOCAL` with
+ * no sibling to imitate silently produced a standard name that nobody had asked for.
+ * Each value is now a step that either answers or hands on to the next.
+ *
+ * Only the folders are not negotiable. Where a file goes is the placement rule's
+ * question and is decided before any of this; these decide what it is called.
+ */
 export enum NamingScheme {
-	/** Keep the name the source used. */
+	/**
+	 * Keep the name the source used. Answers unless the source sent no path at all.
+	 *
+	 * The safe one, and the reason it is first by default: it chooses nothing. The
+	 * folder above already tells both media servers what the file is, so renaming it
+	 * buys little and every renaming scheme encodes an assumption that is wrong on
+	 * some library. See the doc block on `NamingService`.
+	 */
 	SOURCE = 'source',
-	/** Rename to match what our own library already does. */
+	/**
+	 * Rename to match what our own library already does. Answers when it has a
+	 * sibling file to imitate, and hands on when it has none.
+	 */
 	LOCAL = 'local',
-	/** `Show (Year)/Season 01/Show - S01E02 - Title.ext` */
+	/** `Show - S01E02 - Title.ext` — the spaced convention. Always answers. */
 	STANDARD = 'standard',
+	/**
+	 * `Show.Year.S01E03.Title.ext` — the dotted convention scene releases use and a
+	 * great many Plex libraries are filled with. Always answers.
+	 */
+	DOTTED = 'dotted',
 }
+
+/**
+ * The steps that cannot fail to produce a name, so one of them has to come last.
+ *
+ * A chain whose last step may hand on has no answer for the case where every step
+ * does, and "no answer" at the end of a completed download is a file with nowhere to
+ * land. Kept beside the enum rather than spelled out in the service, the validator
+ * and the settings screen, because three copies would disagree the day a convention
+ * is added.
+ */
+export const NAMING_CONVENTIONS: NamingScheme[] = [NamingScheme.STANDARD, NamingScheme.DOTTED];
+
+/** Whether a step always answers, and therefore may only appear last. */
+export const isNamingConvention = (step: NamingScheme): boolean =>
+	NAMING_CONVENTIONS.includes(step);
+
+/**
+ * Keep the source name; failing that follow our own library; failing that the spaced
+ * convention.
+ *
+ * The source name stays first because that is what every gateway already does and
+ * changing it would rename files somebody is not expecting to be renamed. What the
+ * middle step adds is the case that had no good answer before: a peer that sent
+ * metadata and no path used to get a template-built name even when the library right
+ * there had a dozen episodes to copy the spelling from.
+ */
+export const DEFAULT_NAMING_ORDER: NamingScheme[] = [
+	NamingScheme.SOURCE,
+	NamingScheme.LOCAL,
+	NamingScheme.STANDARD,
+];
 
 export interface Settings {
 	placement: PlacementStrategy;
@@ -64,7 +121,28 @@ export interface Settings {
 	 * in that order: category, then this, then the path, then whatever is writable.
 	 */
 	defaultTargetLibraryId: string | null;
-	naming: NamingScheme;
+	/**
+	 * How a placed file is named, as the order the steps are tried in.
+	 *
+	 * An order rather than one chosen scheme, for the reason the destination is a
+	 * chain and not a strategy: the honest answer to "how should this be named" is
+	 * "like this, and like that when the first has nothing to go on". The old single
+	 * value could not express it and hid what it did instead — `LOCAL` with no sibling
+	 * fell through to a standard name with nothing on screen saying so.
+	 *
+	 * The first step that can answer wins. `SOURCE` answers unless the source sent no
+	 * path, `LOCAL` answers only when there is a sibling file to imitate, and the
+	 * conventions always answer — which is why one of them has to be last and why a
+	 * convention anywhere else is refused: every step behind it would be dead.
+	 *
+	 * Imitation belongs ahead of a convention whenever both are on, because a library
+	 * somebody has already tidied should stay tidy: a convention applied over it
+	 * produces one file spelled differently from its neighbours, which is how a season
+	 * ends up looking like two.
+	 *
+	 * See `DEFAULT_NAMING_ORDER` for what a gateway nobody has configured does.
+	 */
+	namingOrder: NamingScheme[];
 	/** Also copy artwork, subtitles and `.nfo` files alongside the media. */
 	pullMetadata: boolean;
 	/**

@@ -269,6 +269,80 @@ describe('PeerExchangeManager', () => {
 		});
 	});
 
+	/**
+	 * Every path a peer can reach, against a gateway that shares nothing with them.
+	 *
+	 * `visiblePolicies` answering nothing is what forbidding somebody to read looks
+	 * like from here, and the claim is that *no* path decides visibility a second way
+	 * — so every one of them has to be exercised, not the catalogue alone.
+	 */
+	describe('a peer who may see no library at all', () => {
+		const nothing = (): ReturnType<typeof build> => {
+			const built = build();
+
+			built.fakes.shares.visiblePolicies.mockResolvedValue([]);
+
+			return built;
+		};
+
+		it('is served an empty catalogue', async () => {
+			const { manager } = nothing();
+
+			await expect(manager.catalogue('peer-1')).resolves.toEqual([]);
+		});
+
+		it('is served no libraries', async () => {
+			const { manager } = nothing();
+
+			await expect(manager.libraries('peer-1')).resolves.toEqual([]);
+		});
+
+		it('cannot describe an item, and is told it does not exist', async () => {
+			// Not found rather than forbidden: a peer that can tell the two apart maps
+			// out what somebody holds without being allowed to see any of it.
+			const { manager } = nothing();
+
+			await expect(manager.describe('peer-1', 'item-1')).rejects.toThrow(ErrorKey.MEDIA_NOT_FOUND);
+		});
+
+		it('cannot pull the bytes either', async () => {
+			const { manager } = nothing();
+
+			await expect(manager.content('peer-1', 'item-1')).rejects.toThrow(ErrorKey.MEDIA_NOT_FOUND);
+		});
+
+		it('cannot have an item revalidated', async () => {
+			const { manager } = nothing();
+
+			await expect(manager.revalidate('peer-1', 'item-1')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_FOUND,
+			);
+		});
+
+		it('is told we hold nothing, and is asked nothing on their behalf', async () => {
+			// Walking the swarm for somebody we serve no bytes to would spend our
+			// friends' connections, and the set of gateways we are linked to is itself
+			// something they would be learning about us.
+			const { manager, fakes } = nothing();
+
+			await expect(manager.announce('peer-1', 'v1:abc:1048576', 2)).resolves.toEqual({
+				contentId: 'v1:abc:1048576',
+				held: false,
+				holders: [],
+			});
+			expect(fakes.catalogue.findHolders).not.toHaveBeenCalled();
+		});
+
+		it('is given no holders, not even ourselves', async () => {
+			const { manager, fakes } = nothing();
+
+			await expect(manager.holders('peer-1', 'v1:abc:1048576')).resolves.toEqual([]);
+			// And no query went out over an empty set of libraries, which the two
+			// drivers do not render alike.
+			expect(fakes.items.find).not.toHaveBeenCalled();
+		});
+	});
+
 	it('refuses a caller no peer row matches', async () => {
 		const { manager, fakes } = build();
 

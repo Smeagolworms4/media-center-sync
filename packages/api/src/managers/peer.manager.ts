@@ -23,12 +23,16 @@ import {
 } from '@mcs/shared';
 import {
 	ConflictException,
+	HttpException,
 	Injectable,
 	Logger,
 	NotFoundException,
+	OnApplicationBootstrap,
+	OnModuleInit,
 	ServiceUnavailableException,
 	UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type {
 	BannedPeer as BannedPeerEntity,
 	MediaService as MediaServiceEntity,
@@ -43,10 +47,13 @@ import {
 	PeerInviteRepository,
 	PeerRepository,
 } from '@/repositories';
+import type { AppConfig } from '@/config';
 import type { PeerCredentialVerifier } from '@/security';
 import {
 	EventGatewayService,
+	PeerDialOutcome,
 	PeerLinkService,
+	PeerReconnectService,
 	SettingsService,
 	peerBaseUrl,
 	type PeerAdmission,
@@ -89,8 +96,12 @@ const INVITE_SCHEME = 'mcs://invite/';
  * that a code had already been redeemed.
  */
 @Injectable()
-export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
+export class PeerManager
+implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicationBootstrap {
 	private readonly _logger = new Logger(PeerManager.name);
+
+	/** Whether this gateway dials by itself. Off under test; see `PeersConfig`. */
+	private readonly _autoConnect: boolean;
 
 	public constructor(
 		private readonly _peers: PeerRepository,
@@ -113,7 +124,68 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		 * handshake by having an unreachable mail server on our side of it.
 		 */
 		private readonly _notifications: NotificationManager,
-	) {}
+		/**
+		 * Holds the retry timers, and decides nothing.
+		 *
+		 * The split is deliberate: when to try again is a schedule, whether a peer is
+		 * still linked and whether a failure was a refusal is a decision, and a service
+		 * that read peer rows to answer the second would be a manager with a timer in it.
+		 */
+		private readonly _reconnects: PeerReconnectService,
+		config: ConfigService,
+	) {
+		this._autoConnect = config.getOrThrow<AppConfig['peers']>('peers').autoConnect;
+	}
+
+	/**
+	 * Wire the reconnection before anything can drop.
+	 *
+	 * In `onModuleInit` rather than at bootstrap because the peer gateway accepts
+	 * incoming links as soon as the module is up: a listener registered later would
+	 * miss the first drop, and that drop would never be retried.
+	 */
+	public onModuleInit(): void {
+		this._reconnects.onDial((peerId) => this._dial(peerId));
+		this._links.onLinkLost((peerId) => {
+			this._logger.log(`Link with peer ${peerId} dropped, retrying`);
+			void this._peers.setStatus(peerId, PeerStatus.UNREACHABLE);
+			this._reconnects.schedule(peerId);
+		});
+	}
+
+	/**
+	 * Dial every linked peer, in the background, without holding the boot.
+	 *
+	 * Detached on purpose. A friend whose gateway is switched off takes the whole
+	 * connection timeout to fail, and awaiting a dozen of those would leave the
+	 * interface unanswerable for minutes after a restart — for peers whose absence
+	 * changes nothing about whether this gateway can serve its own library.
+	 */
+	public onApplicationBootstrap(): void {
+		if (!this._autoConnect) {
+			return;
+		}
+
+		void this._dialLinkedPeers();
+	}
+
+	private async _dialLinkedPeers(): Promise<void> {
+		try {
+			const peers = await this._peers.findLinked();
+
+			for (const peer of peers) {
+				// Straight to the schedule rather than dialling here, so one unreachable
+				// friend cannot delay the next: `schedule` arms a timer and returns.
+				this._reconnects.schedule(peer.id);
+			}
+
+			if (peers.length > 0) {
+				this._logger.log(`Reconnecting to ${peers.length} linked peers`);
+			}
+		} catch (error) {
+			this._logger.warn(`Could not list peers to reconnect to: ${String(error)}`);
+		}
+	}
 
 	public async list(): Promise<Peer[]> {
 		const peers = await this._peers.find({ order: { name: 'ASC' } });
@@ -318,7 +390,7 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 				: Object.assign(existing, {
 					name: request.name ?? existing.name,
 					address: request.address ?? existing.address,
-					status: existing.status === PeerStatus.BLOCKED ? existing.status : PeerStatus.PENDING,
+					status: PeerStatus.PENDING,
 					direction: PeerDirection.OUTGOING,
 				}),
 		);
@@ -362,10 +434,6 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	 * to remember.
 	 */
 	private async _settle(peer: PeerEntity): Promise<PeerEntity> {
-		if (peer.status === PeerStatus.BLOCKED) {
-			throw new UnauthorizedException(ErrorKey.PEER_REJECTED);
-		}
-
 		peer.status = PeerStatus.LINKED;
 		peer.direction = null;
 		peer.trust = PeerTrust.FRIEND;
@@ -394,18 +462,18 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		// The ban outlives the row, which is the whole reason it exists: removing a peer
 		// used to delete the only thing refusing them, so the next request from the same
 		// key arrived as a fresh introduction to accept. Checked before the row is even
-		// looked for, and answered with silence for the same reason a block is.
+		// looked for, and answered with silence: an answer that said "banned" would let
+		// anybody map out the list by watching what happens.
 		if (await this._bans.isBanned(fingerprint)) {
 			return;
 		}
 
-		const existing = await this._peers.findByFingerprint(fingerprint);
+		// The ban list is the only thing that refuses a fingerprint here. There used to
+		// be a second silent refusal, for a peer whose status was blocked, and it goes
+		// with that status: forbidding somebody to read keeps them a peer on purpose, so
+		// refusing their announcement would close the link the point was to keep open.
 
-		if (existing !== null && existing.status === PeerStatus.BLOCKED) {
-			// Blocked means blocked. Answering differently would let somebody learn they
-			// are blocked by watching what happens, which is more than they should know.
-			return;
-		}
+		const existing = await this._peers.findByFingerprint(fingerprint);
 
 		// A request answering one of ours settles it: both sides have now named each
 		// other, which is exactly what a link is.
@@ -469,34 +537,31 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	}
 
 	/**
-	 * Refuse a peer, now rather than at the next restart.
+	 * Serve this peer nothing of ours, or start serving them again.
 	 *
-	 * Blocking is the answer to somebody abusing the link, so the live connection goes
-	 * with the status — leaving the socket open would let whatever prompted the block
-	 * carry on until the process is restarted.
+	 * **The link is deliberately left open**, and that is the correction this makes to
+	 * the blocking it replaces. Blocking closed the socket in both directions, so
+	 * punishing somebody also took away our own access to *their* library — which
+	 * nobody wanted, and which made the action cost more than the problem it solved.
+	 * The consequence to accept, and the one the interface states in so many words, is
+	 * that they stay connected on their side and find an empty catalogue.
+	 *
+	 * One flag on the row, honoured in one place — `ShareManager.visiblePolicies` —
+	 * because that is the funnel every peer-facing route already goes through. It sits
+	 * a cut above `SharePolicy.deniedPeerIds`, which is per library and so cannot say
+	 * "this person sees nothing of mine" without being written into every policy that
+	 * exists today and every one somebody adds next week.
 	 */
-	public async block(id: string): Promise<Peer> {
+	public async setReadingForbidden(id: string, forbidden: boolean): Promise<Peer> {
 		const peer = await this._require(id);
 
-		this._links.disconnect(peer.id);
-		await this._peers.setStatus(peer.id, PeerStatus.BLOCKED);
+		peer.readingForbidden = forbidden;
 
-		return this.read(id);
-	}
+		const saved = await this._peers.save(peer);
 
-	/**
-	 * Unblocked, but not reconnected.
-	 *
-	 * `UNREACHABLE` rather than `LINKED`: no socket is open, and claiming a link that
-	 * has not been established would show a peer as connected until somebody tried to
-	 * pull something from it.
-	 */
-	public async unblock(id: string): Promise<Peer> {
-		const peer = await this._require(id);
+		this._emit(saved);
 
-		await this._peers.setStatus(peer.id, PeerStatus.UNREACHABLE);
-
-		return this.read(id);
+		return this._present(saved);
 	}
 
 	/**
@@ -508,20 +573,19 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	 * of the two is reached by a foreign key, so unlinking used to leave rows pointing
 	 * at media that no longer exists. Doing it here also means it happens identically
 	 * on both engines rather than depending on whether foreign keys are enforced.
+	 *
+	 * It refuses nobody. A peer removed because a friend rebuilt their gateway can ask
+	 * again, which is what somebody nearly always means; refusing the key for good is
+	 * `ban`, a separate action with its own confirmation. The two used to be one call
+	 * with a checkbox on it, and the checkbox went when the standalone ban made it a
+	 * second way to do the same thing.
 	 */
-	public async remove(id: string, options: { ban?: boolean; reason?: string } = {}): Promise<void> {
+	public async remove(id: string): Promise<void> {
 		const peer = await this._require(id);
 
-		// Recorded before anything is deleted, because after the row is gone there is
-		// nothing left to take the fingerprint and the name from — and a ban recorded
-		// from a half-deleted peer is a ban on whatever survived the failure.
-		if (options.ban === true) {
-			await this._bans.ban(peer.fingerprint, {
-				name: peer.name,
-				reason: options.reason?.trim() || null,
-			});
-		}
-
+		// Cancelled first: a timer left armed for a row that is about to be deleted
+		// wakes up into `PEER_NOT_FOUND` every fifteen minutes until the process ends.
+		this._reconnects.cancel(peer.id);
 		this._links.disconnect(peer.id);
 
 		for (const service of await this._services.findByPeer(peer.id)) {
@@ -664,12 +728,53 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		}
 	}
 
-	/** Open the link now, so a screen can say whether it is direct or relayed. */
+	/**
+	 * Try the link now rather than waiting for the next scheduled attempt.
+	 *
+	 * That is what the button behind this route means since links redial themselves:
+	 * the gateway is already trying, and somebody who knows their friend has just come
+	 * back should not have to wait out a backoff that has grown to a quarter of an
+	 * hour. Going through the reconnection service rather than dialling directly is
+	 * what makes it a *sooner*, not a second attempt running beside the scheduled one.
+	 */
 	public async connect(id: string): Promise<Peer> {
+		await this._require(id);
+
+		const outcome = await this._reconnects.now(id);
+
+		if (outcome !== PeerDialOutcome.LINKED) {
+			// One answer for unreachable and for refused. The far end's reason is theirs
+			// to know: telling a caller that a peer rejected them, rather than that it
+			// could not be reached, is a fact about somebody else's decision.
+			throw new ServiceUnavailableException(ErrorKey.PEER_UNREACHABLE);
+		}
+
+		return this.read(id);
+	}
+
+	/**
+	 * Open the link, and say plainly which of the three things happened.
+	 *
+	 * The distinction is the whole reason this is not just `connect`. A peer nobody
+	 * answered for is tried again, further away each time; a peer who *refused* us —
+	 * a banned key, a rejected handshake, a protocol neither end speaks — is never
+	 * tried again on a timer, because from the far end a gateway that keeps knocking
+	 * after being told no is indistinguishable from one trying to get in, and that is
+	 * how you get banned there for good.
+	 */
+	private async _dial(id: string): Promise<PeerDialOutcome> {
 		const peer = await this._peers.findWithPublicKey(id);
 
 		if (peer === null) {
-			throw new NotFoundException(ErrorKey.PEER_NOT_FOUND);
+			// The row went while a timer was in flight. Refused, so nothing rearms it.
+			return PeerDialOutcome.REFUSED;
+		}
+
+		// Checked before a socket is opened rather than after the far end refuses us:
+		// a key we ourselves banned is one we must stop calling, and finding that out
+		// by being rejected costs a connection and tells the far end we are still here.
+		if (await this._bans.isBanned(peer.fingerprint)) {
+			return PeerDialOutcome.REFUSED;
 		}
 
 		const rendezvous = await this._settings.getValue('rendezvousUrl');
@@ -701,12 +806,18 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 				});
 			}
 		} catch (error) {
-			this._logger.warn(`Peer ${peer.name} could not be reached: ${String(error)}`);
+			const refused = this._isRefusal(error);
+
+			this._logger.warn(
+				refused
+					? `Peer ${peer.name} refused the link, not trying again: ${String(error)}`
+					: `Peer ${peer.name} could not be reached: ${String(error)}`,
+			);
 
 			await this._peers.setStatus(peer.id, PeerStatus.UNREACHABLE);
 			this._emit(await this._require(peer.id));
 
-			throw new ServiceUnavailableException(ErrorKey.PEER_UNREACHABLE);
+			return refused ? PeerDialOutcome.REFUSED : PeerDialOutcome.UNREACHABLE;
 		}
 
 		const refreshed = await this._require(peer.id);
@@ -716,7 +827,25 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		await this._adoptServices(refreshed);
 		this._emit(refreshed);
 
-		return this._present(refreshed);
+		return PeerDialOutcome.LINKED;
+	}
+
+	/**
+	 * Did the far end say no, as opposed to say nothing?
+	 *
+	 * Read off the error key the link service raises, which is the only place that
+	 * knows the difference: a handshake whose proof did not verify and a protocol
+	 * version we cannot speak are both answers, given by a machine that was reached.
+	 */
+	private _isRefusal(error: unknown): boolean {
+		if (!(error instanceof HttpException)) {
+			return false;
+		}
+
+		const response = error.getResponse() as { key?: string } | string;
+		const key = typeof response === 'string' ? response : response?.key;
+
+		return key === ErrorKey.PEER_REJECTED || key === ErrorKey.PEER_PROTOCOL_UNSUPPORTED;
 	}
 
 	public async services(id: string): Promise<MediaService[]> {
@@ -776,8 +905,8 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 		const peer = await this._peers.findByFingerprint(credential.fingerprint);
 
 		if (peer === null || (peer.status !== PeerStatus.LINKED && peer.status !== PeerStatus.UNREACHABLE)) {
-			// One answer for an unknown fingerprint, a peer still pending and a blocked
-			// one. Telling them apart would let somebody learn they are blocked by
+			// One answer for an unknown fingerprint and for a peer still pending. Telling
+			// them apart would let a stranger learn whether they are known here by
 			// watching what happens.
 			return null;
 		}
@@ -951,11 +1080,15 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	/**
 	 * Refuse a fingerprint for good, and take the peer with it.
 	 *
-	 * Distinct from `block`, which sets a status on a row we keep: a block is
-	 * reversible from the peers list and leaves their services and their history in
-	 * place, while a ban is the durable half — it survives the row, so the same key
-	 * cannot come back through a new request, an invitation, or an introduction by a
-	 * friend.
+	 * The last of three outcomes that do not overlap. Forbidding somebody to read
+	 * keeps them and their link and serves them nothing; removing them drops the link
+	 * and lets them ask again; a ban survives the row, so the same key cannot come
+	 * back through a new request, an invitation, or an introduction by a friend.
+	 *
+	 * A standalone action rather than a checkbox on the removal, which is where it
+	 * used to live. Two ways to reach one outcome meant two confirmations to keep in
+	 * step and a removal dialog that had to explain a decision most people were not
+	 * making; the checkbox went, this stayed.
 	 *
 	 * Removing the peer is part of it rather than a separate step somebody has to
 	 * remember: a banned peer still listed among the others is a row that can be
@@ -964,12 +1097,17 @@ export class PeerManager implements PeerCredentialVerifier, PeerLinkAuthority {
 	public async ban(id: string, reason?: string): Promise<BannedPeer> {
 		const peer = await this._require(id);
 
-		await this.remove(peer.id, { ban: true, reason });
+		// Recorded before anything is deleted, because once the row is gone there is
+		// nothing left to take the fingerprint and the name from — and a ban recorded
+		// from a half-deleted peer is a ban on whatever survived the failure.
+		const banned = await this._bans.ban(peer.fingerprint, {
+			name: peer.name,
+			reason: reason?.trim() || null,
+		});
 
-		return this._presentBan(
-			(await this._bans.findByFingerprint(peer.fingerprint)) ??
-				(await this._bans.ban(peer.fingerprint, { name: peer.name })),
-		);
+		await this.remove(peer.id);
+
+		return this._presentBan(banned);
 	}
 
 	/**
