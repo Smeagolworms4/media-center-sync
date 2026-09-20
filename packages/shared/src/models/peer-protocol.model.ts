@@ -103,8 +103,8 @@ export const negotiateProtocol = (
 /**
  * The first exchange on a link, and the only one that happens before trust.
  *
- * It carries the hello and the proof in one frame on purpose. The initiator picked
- * the address out of a rendezvous answer it does not control, so the machine that
+ * It carries the hello and the proof in one frame on purpose. The initiator may have
+ * picked the address out of an introduction it does not control, so the machine that
  * answered has to prove it holds the private key behind the fingerprint that was
  * asked for — and it has to prove it before the version is agreed, before a
  * capability is believed, and before a single catalogue row is asked for.
