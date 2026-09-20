@@ -192,11 +192,18 @@ export class MetadataService {
 	 * local media server re-identifies the episode from its filename. That is how a
 	 * correctly named episode is filed under a different series of the same name.
 	 *
-	 * Never overwrites an existing document unless the settings say the source knows
-	 * better. Somebody's own corrected `.nfo` is work they did, and a sync that
-	 * silently replaces it is a sync they turn off. A source that copied its own
-	 * `.nfo` through `apply` has therefore already won, which is the right order: a
-	 * real document beats one we assembled.
+	 * **Never overwrites an existing document. Not under any setting.**
+	 *
+	 * `preferSourceMetadata` does not reach here, and the asymmetry with `apply` is
+	 * the point. That setting says a companion the source really has may be richer
+	 * than ours — a poster, a subtitle, a `.nfo` somebody curated at the other end —
+	 * and it is a fair thing to prefer. This document is not one of those: it is
+	 * assembled from fields we hold, and losing a `.nfo` somebody wrote to a summary
+	 * we generated is a loss with nothing gained. So the local file wins, full stop.
+	 *
+	 * The order also follows from it: `apply` runs first and may legitimately place
+	 * the source's own document, and this then finds a file and declines. A real
+	 * document beats an assembled one whichever side it came from.
 	 *
 	 * Returns the name written, or null when nothing was.
 	 */
@@ -224,7 +231,7 @@ export class MetadataService {
 				() => false,
 			);
 
-			if (exists && !settings.preferSourceMetadata) {
+			if (exists) {
 				return null;
 			}
 

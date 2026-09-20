@@ -4,7 +4,6 @@ import type { SettingRepository } from '@/repositories';
 import { CacheService } from './cache.service';
 import {
 	DEFAULT_SETTINGS,
-	normalisePeerAddress,
 	normalisePublicUrl,
 	normaliseTargetPath,
 	SettingsService,
@@ -180,21 +179,10 @@ describe('SettingsService', () => {
 		expect((await service.get()).publicUrl).toBeNull();
 	});
 
-	it('clears the peer address and the fallback target the same way', async () => {
-		await service.update({ peerAddress: '   ', defaultTargetPath: '  ' });
+	it('clears the fallback target rather than storing an empty string', async () => {
+		await service.update({ defaultTargetPath: '  ' });
 
-		const settings = await service.get();
-
-		expect(settings.peerAddress).toBeNull();
-		expect(settings.defaultTargetPath).toBeNull();
-	});
-
-	it('refuses a peer address written as a URL', async () => {
-		await expect(
-			service.update({ peerAddress: 'https://mcs.example.org:4210' }),
-		).rejects.toMatchObject({
-			response: { key: 'error.settings.peer_address_invalid', field: 'peerAddress' },
-		});
+		expect((await service.get()).defaultTargetPath).toBeNull();
 	});
 
 	it('refuses a fallback target that is not absolute', async () => {
@@ -298,31 +286,6 @@ describe('normalisePublicUrl', () => {
 		['not a url'],
 	])('refuses %p', (input) => {
 		expect(() => normalisePublicUrl(input)).toThrow();
-	});
-});
-
-describe('normalisePeerAddress', () => {
-	it.each([
-		['mcs.example.org:4210', 'mcs.example.org:4210'],
-		['192.168.0.12:4210', '192.168.0.12:4210'],
-		['[2001:db8::1]:4210', '[2001:db8::1]:4210'],
-		['MCS.Example.ORG:4210', 'mcs.example.org:4210'],
-		['', null],
-		[null, null],
-	])('normalises %p to %p', (input, expected) => {
-		expect(normalisePeerAddress(input)).toBe(expected);
-	});
-
-	it.each([
-		// No default port to fall back on: peer traffic is not HTTP.
-		['mcs.example.org'],
-		['https://mcs.example.org:4210'],
-		['mcs.example.org:0'],
-		['mcs.example.org:70000'],
-		['mcs.example.org:port'],
-		['mcs.example.org:4210/path'],
-	])('refuses %p', (input) => {
-		expect(() => normalisePeerAddress(input)).toThrow();
 	});
 });
 

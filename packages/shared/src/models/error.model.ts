@@ -169,8 +169,6 @@ export const ErrorKey = {
 	 * probably never had to write down before.
 	 */
 	SETTINGS_PUBLIC_URL_INVALID: 'error.settings.public_url_invalid',
-	/** `host:port`, and neither half may be guessed — a scheme here is the usual slip. */
-	SETTINGS_PEER_ADDRESS_INVALID: 'error.settings.peer_address_invalid',
 	SETTINGS_TARGET_PATH_INVALID: 'error.settings.target_path_invalid',
 	/**
 	 * The fallback target exists and this gateway cannot write into it.

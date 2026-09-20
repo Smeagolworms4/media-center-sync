@@ -62,7 +62,6 @@ const SETTINGS: Settings = {
 	rendezvousUrl: null,
 	instanceName: null,
 	publicUrl: null,
-	peerAddress: null,
 	defaultTargetPath: null,
 	transferHistoryDays: 30,
 	refreshIntervalMinutes: 15,

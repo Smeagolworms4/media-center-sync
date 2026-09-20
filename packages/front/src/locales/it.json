@@ -643,8 +643,6 @@
 		"public_url": "Indirizzo pubblico",
 		"public_url_help": "Come gli amici raggiungono questo gateway dall'esterno — solo l'indirizzo, ad esempio https://mcs.example.org. È ciò che portano con sé un invito, un collegamento di condivisione e un annuncio; senza di esso un invito nomina questo gateway senza dare a nessuno il modo di raggiungerlo.",
 		"public_url_suggested": "Suggerito dall'indirizzo che stai usando in questo momento ({origin}). Cambialo se i tuoi amici raggiungono questo gateway con un altro nome.",
-		"peer_address": "Indirizzo dei peer",
-		"peer_address_help": "host:porta per il traffico tra peer, ad esempio mcs.example.org:4210. Lascialo vuoto per ricavarlo dall'indirizzo pubblico qui sopra.",
 		"default_target": "Cartella predefinita",
 		"default_target_help": "Un percorso assoluto in cui questo gateway può scrivere, dove atterra un download quando nient'altro lo decide — una categoria senza una libreria scrivibile, ad esempio.",
 		"naming": "Denominazione",
@@ -1077,7 +1075,6 @@
 		"settings": {
 			"invalid": "Queste impostazioni sono state rifiutate.",
 			"public_url_invalid": "Inserisci l'indirizzo completo, schema compreso, ad esempio https://mcs.example.org.",
-			"peer_address_invalid": "Inserisci un host e una porta, ad esempio mcs.example.org:4210 — senza schema.",
 			"target_path_invalid": "Inserisci un percorso assoluto, ad esempio /media/incoming.",
 			"target_path_not_writable": "Il gateway non può scrivere in questa cartella.",
 			"pinned": "Questa impostazione è fissata dall'installazione e non può essere modificata qui."

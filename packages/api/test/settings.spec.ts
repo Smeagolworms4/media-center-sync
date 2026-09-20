@@ -120,37 +120,33 @@ describe('PATCH /api/settings — the gateway’s address and its fallback folde
 			.set('Authorization', `Bearer ${admin.token}`)
 			.expect(200);
 
-	it('accepts all three, stores them normalised and reads them back', async () => {
+	it('accepts both, stores them normalised and reads them back', async () => {
 		await patch({
 			publicUrl: 'https://mcs.example.org/',
-			peerAddress: 'MCS.example.org:4210',
 			defaultTargetPath: `${writable}/`,
 		}).expect(200);
 
 		const settings = (await read()).body as Settings;
 
 		expect(settings.publicUrl).toBe('https://mcs.example.org');
-		expect(settings.peerAddress).toBe('mcs.example.org:4210');
 		expect(settings.defaultTargetPath).toBe(writable);
 	});
 
-	it('changes one of them and leaves the other two alone', async () => {
+	it('changes one of them and leaves the other alone', async () => {
 		await patch({ publicUrl: 'http://192.168.0.12:4200' }).expect(200);
 
 		const settings = (await read()).body as Settings;
 
 		expect(settings.publicUrl).toBe('http://192.168.0.12:4200');
-		expect(settings.peerAddress).toBe('mcs.example.org:4210');
 		expect(settings.defaultTargetPath).toBe(writable);
 	});
 
 	it('takes an empty string as a clearing and not as an empty value', async () => {
-		await patch({ publicUrl: '', peerAddress: '', defaultTargetPath: '' }).expect(200);
+		await patch({ publicUrl: '', defaultTargetPath: '' }).expect(200);
 
 		const settings = (await read()).body as Settings;
 
 		expect(settings.publicUrl).toBeNull();
-		expect(settings.peerAddress).toBeNull();
 		expect(settings.defaultTargetPath).toBeNull();
 	});
 

@@ -643,8 +643,6 @@
 		"public_url": "Dirección pública",
 		"public_url_help": "Por dónde llegan tus amigos a esta pasarela desde fuera — solo la dirección, por ejemplo https://mcs.example.org. Es lo que llevan una invitación, un enlace de compartición y un anuncio; sin ella, una invitación nombra esta pasarela sin dar a nadie la forma de alcanzarla.",
 		"public_url_suggested": "Sugerida a partir de la dirección que estás usando ahora mismo ({origin}). Cámbiala si tus amigos llegan a esta pasarela con otro nombre.",
-		"peer_address": "Dirección de pares",
-		"peer_address_help": "host:puerto para el tráfico entre pares, por ejemplo mcs.example.org:4210. Déjala vacía para deducirla de la dirección pública de arriba.",
 		"default_target": "Carpeta por defecto",
 		"default_target_help": "Una ruta absoluta en la que esta pasarela pueda escribir, donde aterriza una descarga cuando nada más lo decide — una categoría sin biblioteca escribible, por ejemplo.",
 		"naming": "Nomenclatura",
@@ -1077,7 +1075,6 @@
 		"settings": {
 			"invalid": "Estos ajustes han sido rechazados.",
 			"public_url_invalid": "Introduce la dirección completa, con el esquema, por ejemplo https://mcs.example.org.",
-			"peer_address_invalid": "Introduce un host y un puerto, por ejemplo mcs.example.org:4210 — sin esquema.",
 			"target_path_invalid": "Introduce una ruta absoluta, por ejemplo /media/incoming.",
 			"target_path_not_writable": "La pasarela no puede escribir en esta carpeta.",
 			"pinned": "Este ajuste lo fija la instalación y no se puede cambiar aquí."

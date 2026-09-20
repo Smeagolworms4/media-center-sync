@@ -245,7 +245,12 @@ describe('MetadataService', () => {
 			expect(await readFile(existing, 'utf8')).toContain('Mine');
 		});
 
-		it('replaces it when the source is declared to know better', async () => {
+		it('keeps it even when the source is declared to know better', async () => {
+			// The asymmetry with `apply` is the point. That setting says a companion the
+			// source really has may be richer than ours, which is fair. This document is
+			// not one of those — it is assembled from fields we hold — and losing a
+			// `.nfo` somebody wrote to a summary we generated is a loss with nothing
+			// gained. The local file wins, full stop.
 			const media = join(target, 'Show - S01E01.mkv');
 			const existing = join(target, 'Show - S01E01.nfo');
 
@@ -256,8 +261,8 @@ describe('MetadataService', () => {
 				media,
 				facts,
 				settings({ writeNfo: true, preferSourceMetadata: true }),
-			)).toBe('Show - S01E01.nfo');
-			expect(await readFile(existing, 'utf8')).toContain('Dulcinea');
+			)).toBeNull();
+			expect(await readFile(existing, 'utf8')).toContain('Mine');
 		});
 
 		it('leaves no half-written document behind on a failure', async () => {

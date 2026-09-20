@@ -205,6 +205,14 @@ export class ShareManager {
 			}),
 		);
 
+		// Read once for the whole answer. This list is not merged by name — it says what
+		// one peer would be served, which is decided per library — so two rows called
+		// `Movies` are ordinary here, and without the server beside them they read as a
+		// rendering fault rather than as two libraries.
+		const serviceNames = new Map(
+			(await this._services.find()).map((service) => [service.id, service.name]),
+		);
+
 		return {
 			peerId: peer.id,
 			peerName: peer.name,
@@ -212,6 +220,7 @@ export class ShareManager {
 			libraries: visible.map((share) => ({
 				libraryId: share.library.id,
 				name: share.library.name,
+				serviceName: serviceNames.get(share.library.serviceId) ?? '',
 				itemCount: share.library.itemCount,
 				// Worth saying plainly in an audit: this one costs us, and hands on an
 				// access somebody gave to us rather than to them.

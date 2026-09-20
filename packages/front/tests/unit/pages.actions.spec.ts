@@ -467,6 +467,46 @@ describe('pages/Settings saving', () => {
 		expect(body.fullScanCron).toBe('0 4 * * *');
 	});
 
+	it('switches pane when a tab is clicked', async () => {
+		stubFetchRoutes({ '/api/settings': { body: settings } });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		expect((wrapper.vm as any).tab).toBe('placement');
+
+		await wrapper.find('[data-test="settings-tab-transfers"]').trigger('click');
+		await settle();
+
+		expect((wrapper.vm as any).tab).toBe('transfers');
+	});
+
+	it('opens the tab holding a refused field, and marks it', async () => {
+		// One form saves every setting at once, so a refusal can land on a tab nobody
+		// is looking at: the screen would say the settings were refused, show nothing
+		// visible, and leave somebody pressing save again.
+		stubFetchRoutes({ '/api/settings': { body: settings } });
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		expect(wrapper.find('[data-test="settings-tab-error"]').exists()).toBe(false);
+
+		stubFetchRoutes({
+			'/api/settings': {
+				status: 400,
+				body: { key: 'error.settings.invalid', field: 'peerMaxDepth' },
+			},
+		});
+		await (wrapper.vm as any).form.handle();
+		await settle();
+
+		expect(wrapper.find('[data-test="settings-tab-error"]').exists()).toBe(true);
+		expect((wrapper.vm as any).tab).toBe('peers');
+	});
+
 	it('puts a refusal under the field it names, wherever it sits on the page', async () => {
 		// One form saves every setting at once. A refusal that only reached the top of
 		// the screen would leave somebody with twenty boxes and no idea which to change.

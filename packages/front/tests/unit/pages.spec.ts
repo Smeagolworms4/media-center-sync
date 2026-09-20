@@ -1034,30 +1034,28 @@ describe('pages/Settings', () => {
 		expect(wrapper.find('[data-test="settings-public-url-suggested"]').exists()).toBe(false);
 	});
 
-	it('fills the peer address and the fallback folder from what is stored', async () => {
-		const { wrapper } = await openSettings({
-			peerAddress: 'mcs.example.org:4210',
-			defaultTargetPath: '/media/incoming',
-		});
+	it('fills the fallback folder from what is stored', async () => {
+		const { wrapper } = await openSettings({ defaultTargetPath: '/media/incoming' });
 
-		expect(valueOf(wrapper, 'settings-peer-address')).toBe('mcs.example.org:4210');
 		expect(valueOf(wrapper, 'settings-default-target')).toBe('/media/incoming');
 	});
 
 	it('sends an emptied box as a clearing rather than as an empty string', async () => {
+		// An empty box is somebody clearing the setting, not a setting whose value is
+		// nothing: an empty path joined to a filename is a relative path.
 		const stub = stubFetchRoutes({
-			'/api/settings': { body: settingsBody({ peerAddress: 'mcs.example.org:4210' }) },
+			'/api/settings': { body: settingsBody({ defaultTargetPath: '/media/incoming' }) },
 		});
 		const { wrapper } = mountWithApp(Settings, { global: { stubs: tooltipStub } });
 		await settle();
 
-		await wrapper.find('[data-test="settings-peer-address"] input').setValue('');
+		await wrapper.find('[data-test="settings-default-target"] input').setValue('');
 		await wrapper.find('form').trigger('submit');
 		await settle();
 
 		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
 
-		expect(JSON.parse(String(patch?.[1]?.body)).peerAddress).toBeNull();
+		expect(JSON.parse(String(patch?.[1]?.body)).defaultTargetPath).toBeNull();
 	});
 });
 

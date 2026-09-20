@@ -643,8 +643,6 @@
 		"public_url": "Öffentliche Adresse",
 		"public_url_help": "Wie Freunde dieses Gateway von außen erreichen — nur die Adresse, etwa https://mcs.example.org. Sie ist das, was eine Einladung, ein Freigabelink und eine Ankündigung mit sich tragen; ohne sie nennt eine Einladung dieses Gateway, ohne jemandem einen Weg dorthin zu geben.",
 		"public_url_suggested": "Vorgeschlagen anhand der Adresse, die Sie gerade verwenden ({origin}). Ändern Sie sie, wenn Ihre Freunde dieses Gateway unter einem anderen Namen erreichen.",
-		"peer_address": "Peer-Adresse",
-		"peer_address_help": "host:port für den Peer-Verkehr, etwa mcs.example.org:4210. Leer lassen, um sie aus der öffentlichen Adresse oben abzuleiten.",
 		"default_target": "Standardordner",
 		"default_target_help": "Ein absoluter Pfad, in den dieses Gateway schreiben kann und in dem ein Abruf landet, wenn nichts anderes darüber entscheidet — etwa eine Kategorie ohne beschreibbare Bibliothek.",
 		"naming": "Benennung",
@@ -1077,7 +1075,6 @@
 		"settings": {
 			"invalid": "Diese Einstellungen wurden abgelehnt.",
 			"public_url_invalid": "Geben Sie die vollständige Adresse samt Schema ein, etwa https://mcs.example.org.",
-			"peer_address_invalid": "Geben Sie einen Host und einen Port ein, etwa mcs.example.org:4210 — ohne Schema.",
 			"target_path_invalid": "Geben Sie einen absoluten Pfad ein, etwa /media/incoming.",
 			"target_path_not_writable": "Das Gateway kann in diesen Ordner nicht schreiben.",
 			"pinned": "Diese Einstellung ist durch die Installation festgelegt und kann hier nicht geändert werden."

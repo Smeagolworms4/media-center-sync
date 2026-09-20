@@ -132,16 +132,6 @@ export interface Settings {
 	 */
 	publicUrl: string | null;
 
-	/**
-	 * Where peers connect, when that is not the public URL's host and the peer port.
-	 *
-	 * `host:port`. Peer traffic does not go through the web server — it is its own
-	 * listener on its own port — so a gateway behind a reverse proxy, or with the peer
-	 * port forwarded to a different external one, cannot have this derived from the
-	 * URL above. Null means: take the public URL's host and the configured peer port,
-	 * which is right whenever somebody has not gone out of their way.
-	 */
-	peerAddress: string | null;
 
 	/**
 	 * Where a pull lands when nothing else decides.

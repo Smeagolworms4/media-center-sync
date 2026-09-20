@@ -70,7 +70,7 @@ const build = (): { manager: ShareManager; fakes: Fakes } => {
 		peers: { findOne: jest.fn().mockResolvedValue(peer()) },
 		services: {
 			find: jest.fn().mockResolvedValue([
-				{ id: 'service-1', scope: MediaServiceScope.LOCAL, peerId: null },
+				{ id: 'service-1', name: 'Living room', scope: MediaServiceScope.LOCAL, peerId: null },
 			]),
 		},
 		settings: {
@@ -139,7 +139,15 @@ describe('ShareManager', () => {
 			const audit = await manager.audit('peer-1');
 
 			expect(audit.libraries).toEqual([
-				{ libraryId: 'library-1', name: 'Shows', itemCount: 120, throughUs: false },
+				{
+					libraryId: 'library-1',
+					name: 'Shows',
+					// Named because this list is not merged: two rows called `Shows` with
+					// nothing to tell them apart read as a rendering fault.
+					serviceName: 'Living room',
+					itemCount: 120,
+					throughUs: false,
+				},
 			]);
 		});
 
@@ -239,7 +247,15 @@ describe('ShareManager', () => {
 
 			expect(audit.peerName).toBe('Alice');
 			expect(audit.libraries).toEqual([
-				{ libraryId: 'library-1', name: 'Shows', itemCount: 120, throughUs: false },
+				{
+					libraryId: 'library-1',
+					name: 'Shows',
+					// Named because this list is not merged: two rows called `Shows` with
+					// nothing to tell them apart read as a rendering fault.
+					serviceName: 'Living room',
+					itemCount: 120,
+					throughUs: false,
+				},
 			]);
 		});
 

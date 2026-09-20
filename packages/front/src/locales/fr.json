@@ -643,8 +643,6 @@
 		"public_url": "Adresse publique",
 		"public_url_help": "Par où vos amis joignent cette passerelle depuis l'extérieur — l'adresse seule, par exemple https://mcs.example.org. C'est ce que transportent une invitation, un lien de partage et une annonce ; sans elle, une invitation nomme cette passerelle sans donner à personne le moyen de l'atteindre.",
 		"public_url_suggested": "Proposée d'après l'adresse que vous utilisez en ce moment ({origin}). Changez-la si vos amis joignent cette passerelle sous un autre nom.",
-		"peer_address": "Adresse des pairs",
-		"peer_address_help": "hôte:port pour le trafic entre pairs, par exemple mcs.example.org:4210. Laissez vide pour la déduire de l'adresse publique ci-dessus.",
 		"default_target": "Dossier par défaut",
 		"default_target_help": "Un chemin absolu où cette passerelle peut écrire, là où atterrit un téléchargement quand rien d'autre n'en décide — une catégorie sans médiathèque accessible en écriture, par exemple.",
 		"naming": "Nommage",
@@ -1077,7 +1075,6 @@
 		"settings": {
 			"invalid": "Ces paramètres ont été refusés.",
 			"public_url_invalid": "Saisissez l'adresse complète, protocole compris, par exemple https://mcs.example.org.",
-			"peer_address_invalid": "Saisissez un hôte et un port, par exemple mcs.example.org:4210 — sans protocole.",
 			"target_path_invalid": "Saisissez un chemin absolu, par exemple /media/incoming.",
 			"target_path_not_writable": "La passerelle ne peut pas écrire dans ce dossier.",
 			"pinned": "Ce réglage est fixé par le déploiement et ne peut pas être modifié ici."

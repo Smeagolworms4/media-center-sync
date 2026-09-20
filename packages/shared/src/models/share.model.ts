@@ -76,6 +76,17 @@ export interface ShareAudit {
 	libraries: {
 		libraryId: string;
 		name: string;
+		/**
+		 * Which server it sits on, shown beside the name.
+		 *
+		 * Libraries of the same name are one category everywhere else in this
+		 * application, but this list is deliberately not merged: it answers what a
+		 * given peer would be served, and that is decided per library. Two rows called
+		 * `Movies` and two called `Shows`, with nothing to tell them apart, read as a
+		 * rendering bug — and the one question somebody has here, which of their
+		 * servers is exposed, has no answer on the screen.
+		 */
+		serviceName: string;
 		itemCount: number;
 		/** True when they would be pulling through us rather than from us. */
 		throughUs: boolean;

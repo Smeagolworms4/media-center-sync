@@ -164,16 +164,6 @@ export class UpdateSettingsDto {
 
 	@ApiPropertyOptional({
 		description:
-			'host:port for peer traffic. Empty derives it from the public URL and the ' +
-			'configured peer port.',
-	})
-	@IsOptional()
-	@IsString()
-	@MaxLength(255)
-	public peerAddress?: string | null;
-
-	@ApiPropertyOptional({
-		description:
 			'Absolute path a pull lands in when nothing else decides. Probed, and refused ' +
 			'when it cannot be written. Empty clears it.',
 	})

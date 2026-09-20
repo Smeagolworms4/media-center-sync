@@ -86,8 +86,28 @@
 					v-for="library of audit.libraries"
 					:key="library.libraryId"
 					data-test="audit-library"
-					:title="library.name"
 				>
+					<v-list-item-title>
+						{{ library.name }}
+
+						<!--
+							This list is not merged by name, unlike every other library
+							screen: it answers what one peer would be served, which is
+							decided per library. Two rows called `Movies` are ordinary
+							here, and without the server beside them they read as a bug.
+						-->
+						<v-chip
+							v-if="library.serviceName"
+							class="ml-2"
+							data-test="audit-service"
+							label
+							size="x-small"
+							variant="tonal"
+						>
+							{{ library.serviceName }}
+						</v-chip>
+					</v-list-item-title>
+
 					<template #append>
 						<span class="text-caption text-medium-emphasis">
 							{{ $t('library.item_count', { count: library.itemCount }, library.itemCount) }}

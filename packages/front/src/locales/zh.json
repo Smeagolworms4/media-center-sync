@@ -643,8 +643,6 @@
 		"public_url": "公开地址",
 		"public_url_help": "朋友从外部访问此网关的方式——只填地址，例如 https://mcs.example.org。邀请、分享链接和广播都携带它；没有它，邀请虽写明了这个网关，却没人知道该往哪里连。",
 		"public_url_suggested": "根据您此刻正在使用的地址推荐（{origin}）。如果朋友以别的名称访问此网关，请改成那个地址。",
-		"peer_address": "对等端地址",
-		"peer_address_help": "对等流量的 主机:端口，例如 mcs.example.org:4210。留空则由上方的公开地址推导。",
 		"default_target": "默认文件夹",
 		"default_target_help": "此网关可写入的绝对路径；当没有其他规则决定去向时，拉取的文件就落在这里——例如某个分类没有可写的媒体库。",
 		"naming": "命名",
@@ -1077,7 +1075,6 @@
 		"settings": {
 			"invalid": "这些设置被拒绝。",
 			"public_url_invalid": "请输入完整地址，包含协议，例如 https://mcs.example.org。",
-			"peer_address_invalid": "请输入主机和端口，例如 mcs.example.org:4210——不要带协议。",
 			"target_path_invalid": "请输入绝对路径，例如 /media/incoming。",
 			"target_path_not_writable": "网关无法写入此文件夹。",
 			"pinned": "此设置由部署方固定，无法在此处更改。"

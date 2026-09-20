@@ -61,7 +61,6 @@ export const DEFAULT_SETTINGS: Settings = {
 	// wrong exactly on the installations that need this set. The interface offers its
 	// own origin instead, where somebody can see it before accepting it.
 	publicUrl: null,
-	peerAddress: null,
 	defaultTargetPath: null,
 	transferHistoryDays: 30,
 	refreshIntervalMinutes: 15,
@@ -146,41 +145,6 @@ export const normalisePublicUrl = (value: string | null | undefined): string | n
 };
 
 /**
- * `host:port`, with a port that has to be written out.
- *
- * A scheme is the usual slip here — peer traffic is not HTTP and has no default port
- * to fall back on — so `https://host:4210` is refused rather than quietly stripped:
- * silently accepting it teaches somebody a shape that is wrong everywhere else.
- */
-const PEER_ADDRESS = new RegExp(
-	'^(?:' +
-		// A bracketed IPv6 literal, or a hostname or IPv4 address in labels.
-		'\\[[0-9a-f:.]+\\]' +
-		'|[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*' +
-		'):(\\d{1,5})$',
-	'i',
-);
-
-export const normalisePeerAddress = (value: string | null | undefined): string | null => {
-	const candidate = cleared(value);
-
-	if (candidate === null) {
-		return null;
-	}
-
-	const match = PEER_ADDRESS.exec(candidate);
-	const port = match === null ? 0 : Number(match[1]);
-
-	if (port < 1 || port > 65_535) {
-		throw refuse('peerAddress', ErrorKey.SETTINGS_PEER_ADDRESS_INVALID);
-	}
-
-	// Lowercased because a hostname is case-insensitive and two rows that differ only
-	// in case would otherwise read as two different gateways.
-	return candidate.toLowerCase();
-};
-
-/**
  * An absolute path with no trailing slash and no way out of itself.
  *
  * Relative is refused for the reason a library path is: it resolves against whatever
@@ -213,7 +177,6 @@ export const normaliseTargetPath = (value: string | null | undefined): string | 
  */
 const TEXT_NORMALISERS = {
 	publicUrl: normalisePublicUrl,
-	peerAddress: normalisePeerAddress,
 	defaultTargetPath: normaliseTargetPath,
 } as const;
 
