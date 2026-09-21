@@ -32,8 +32,18 @@
 	 */
 	const props = withDefaults(defineProps<{
 		service?: MediaService | null;
+		/**
+		 * The kind, already chosen on the add screen above the form.
+		 *
+		 * The select is hidden rather than shown disabled: a second control naming the
+		 * kind, a few pixels under the first, invites changing the wrong one — and a
+		 * Plex typed here after choosing Jellyfin above would be registered as neither
+		 * of the two things the screen says.
+		 */
+		lockedType?: MediaServiceType | null;
 	}>(), {
 		service: null,
+		lockedType: null,
 	});
 
 	const emit = defineEmits<{
@@ -53,7 +63,7 @@
 
 	const model = reactive<CreateMediaServiceRequest & { rootMappings: RootMapping[] }>({
 		name: props.service?.name ?? '',
-		type: props.service?.type ?? MediaServiceType.JELLYFIN,
+		type: props.lockedType ?? props.service?.type ?? MediaServiceType.JELLYFIN,
 		/*
 		 * A new service is shared; an existing one keeps whatever it already says.
 		 *
@@ -302,7 +312,7 @@
 			:label="$t('service.field.name')"
 		/>
 
-		<v-row density="compact">
+		<v-row v-if="!lockedType" density="compact">
 			<v-col cols="12">
 				<v-select
 					v-model="model.type"

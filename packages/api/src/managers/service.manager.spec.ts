@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+	ConnectionRoute,
 	ErrorKey,
 	EventName,
 	LibraryKind,
@@ -12,7 +13,7 @@ import {
 	type MediaServiceProbe,
 	type QualitySummary,
 } from '@mcs/shared';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import type { Library, MediaItem, MediaService } from '@/entities';
 import type {
 	LibraryRepository,
@@ -21,6 +22,8 @@ import type {
 	MediaServiceRepository,
 } from '@/repositories';
 import type {
+	DirectoryRegistry,
+	DirectoryServer,
 	EventGatewayService,
 	FingerprintService,
 	HandlerRegistry,
@@ -384,6 +387,8 @@ interface Fakes {
 	events: { emit: jest.Mock };
 	libraryManager: { applyRootMapping: jest.Mock };
 	landings: { reconcile: jest.Mock; onRescan: jest.Mock };
+	directory: { listServers: jest.Mock; resolve: jest.Mock };
+	directories: { find: jest.Mock };
 }
 
 const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes } => {
@@ -439,6 +444,13 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		// A scan settles the landings on its way out, so every test in this file walks
 		// through it. The fake records the call, which is what one of them asserts on.
 		landings: { reconcile: jest.fn().mockResolvedValue(undefined), onRescan: jest.fn() },
+		directory: {
+			listServers: jest.fn().mockResolvedValue([]),
+			resolve: jest.fn().mockResolvedValue(null),
+		},
+		// No directory by default, which is every type but Plex: a test about anything
+		// else must not have a re-resolution happen underneath it.
+		directories: { find: jest.fn().mockReturnValue(null) },
 	};
 
 	const manager = new ServiceManager(
@@ -456,6 +468,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		fakes.events as unknown as EventGatewayService,
 		fakes.libraryManager as unknown as LibraryManager,
 		fakes.landings as unknown as LandingManager,
+		fakes.directories as unknown as DirectoryRegistry,
 	);
 
 	return { manager, fakes };
@@ -1916,5 +1929,319 @@ describe('ServiceManager', () => {
 		expect(listed[0]).not.toHaveProperty('token');
 		expect(listed[0]).not.toHaveProperty('password');
 		expect(listed[0].itemCount).toBe(12);
+	});
+
+	/**
+	 * A server found through plex.tv is asked for again rather than reported down.
+	 *
+	 * The fakes stand for plex.tv (`directory`) and the media server (`probe`); nothing
+	 * here opens a socket. What is pinned is the decision table: who is re-resolved,
+	 * when, and what is written when the directory says the server moved.
+	 */
+	describe('re-resolving a server found through a directory', () => {
+		const discovered = (overrides: Partial<MediaService> = {}): MediaService => service({
+			type: MediaServiceType.PLEX,
+			name: 'Attic Plex',
+			baseUrl: 'http://192.168.1.20:32400',
+			token: 'server-token',
+			serverIdentifier: 'machine-1',
+			accountToken: 'account-token',
+			connectionRoute: ConnectionRoute.LOCAL,
+			filesMounted: false,
+			...overrides,
+		});
+
+		const listed = (overrides: Partial<DirectoryServer> = {}): DirectoryServer => ({
+			identifier: 'machine-1',
+			name: 'Attic Plex',
+			owned: true,
+			ownerName: null,
+			version: '1.41.0',
+			accessToken: 'server-token',
+			connections: [],
+			...overrides,
+		});
+
+		const unreachable = probe({ reachable: false, authenticated: false, version: null, libraries: [] });
+
+		const withDirectory = (stored: MediaService): ReturnType<typeof build> => {
+			const built = build();
+
+			built.fakes.directories.find.mockReturnValue(built.fakes.directory);
+			built.fakes.services.findWithSecrets.mockResolvedValue(stored);
+
+			return built;
+		};
+
+		it('asks plex.tv where the server went when its address stops answering, and moves it', async () => {
+			const stored = discovered();
+			const { manager, fakes } = withDirectory(stored);
+			const moved = discovered({ baseUrl: 'http://192.168.1.42:32400' });
+
+			fakes.services.findWithSecrets
+				.mockResolvedValueOnce(stored)
+				.mockResolvedValueOnce(moved);
+			fakes.probe.mockResolvedValueOnce(unreachable).mockResolvedValueOnce(probe());
+			fakes.directory.listServers.mockResolvedValue([listed()]);
+			fakes.directory.resolve.mockResolvedValue({
+				baseUrl: 'http://192.168.1.42:32400/',
+				route: ConnectionRoute.LOCAL,
+			});
+
+			const answer = await manager.probe('service-1');
+
+			expect(fakes.directory.listServers).toHaveBeenCalledWith('account-token');
+			expect(fakes.services.update).toHaveBeenCalledWith(
+				{ id: 'service-1' },
+				{ baseUrl: 'http://192.168.1.42:32400', token: 'server-token', connectionRoute: ConnectionRoute.LOCAL },
+			);
+			// Probed again at the new address, and it is that answer which is recorded:
+			// the service reads online, not offline-then-fixed-later.
+			expect(fakes.probe).toHaveBeenLastCalledWith(expect.objectContaining({ baseUrl: 'http://192.168.1.42:32400' }));
+			expect(answer.reachable).toBe(true);
+			expect(fakes.services.setStatus).toHaveBeenCalledWith(
+				'service-1',
+				MediaServiceStatus.ONLINE,
+				'10.9.0',
+				expect.any(Date),
+			);
+			expect(fakes.events.emit).toHaveBeenCalledWith(EventName.SERVICE_CHANGED, { id: 'service-1' });
+		});
+
+		it('takes the relay when it is all that answers, and records that it did', async () => {
+			const stored = discovered();
+			const { manager, fakes } = withDirectory(stored);
+
+			fakes.probe.mockResolvedValueOnce(unreachable).mockResolvedValueOnce(probe());
+			fakes.directory.listServers.mockResolvedValue([listed()]);
+			fakes.directory.resolve.mockResolvedValue({
+				baseUrl: 'https://1-2-3-4.abc.plex.direct:8443',
+				route: ConnectionRoute.RELAY,
+			});
+
+			await manager.probe('service-1');
+
+			expect(fakes.services.update).toHaveBeenCalledWith(
+				{ id: 'service-1' },
+				expect.objectContaining({ connectionRoute: ConnectionRoute.RELAY }),
+			);
+		});
+
+		it('picks up a new access token for a server that refused the old one', async () => {
+			// A friend who stops and restarts sharing hands the account a new token for
+			// their server; the address never moved, and plex.tv is where the new one is.
+			const stored = discovered();
+			const { manager, fakes } = withDirectory(stored);
+
+			fakes.probe
+				.mockResolvedValueOnce(probe({ reachable: true, authenticated: false, libraries: [] }))
+				.mockResolvedValueOnce(probe());
+			fakes.directory.listServers.mockResolvedValue([listed({ accessToken: 'reshared-token' })]);
+			fakes.directory.resolve.mockResolvedValue({ baseUrl: stored.baseUrl, route: ConnectionRoute.LOCAL });
+
+			await manager.probe('service-1');
+
+			expect(fakes.services.update).toHaveBeenCalledWith(
+				{ id: 'service-1' },
+				expect.objectContaining({ token: 'reshared-token' }),
+			);
+		});
+
+		it('never asks for a service somebody registered by address', async () => {
+			const { manager, fakes } = withDirectory(discovered({ serverIdentifier: null, accountToken: null }));
+
+			fakes.probe.mockResolvedValue(unreachable);
+
+			await manager.probe('service-1');
+
+			expect(fakes.directory.listServers).not.toHaveBeenCalled();
+			expect(fakes.services.setStatus).toHaveBeenCalledWith('service-1', MediaServiceStatus.OFFLINE, null, expect.any(Date));
+		});
+
+		it('leaves a server alone when no directory serves its type', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(discovered());
+			fakes.probe.mockResolvedValue(unreachable);
+
+			await manager.probe('service-1');
+
+			expect(fakes.services.update).not.toHaveBeenCalled();
+		});
+
+		it('reports it down, unmoved, when the account no longer lists it', async () => {
+			const { manager, fakes } = withDirectory(discovered());
+
+			fakes.probe.mockResolvedValue(unreachable);
+			fakes.directory.listServers.mockResolvedValue([listed({ identifier: 'somebody-else' })]);
+
+			await manager.probe('service-1');
+
+			expect(fakes.directory.resolve).not.toHaveBeenCalled();
+			expect(fakes.services.update).not.toHaveBeenCalled();
+			expect(fakes.services.setStatus).toHaveBeenCalledWith('service-1', MediaServiceStatus.OFFLINE, null, expect.any(Date));
+		});
+
+		it('reports it down when none of the listed addresses answers as that server', async () => {
+			const { manager, fakes } = withDirectory(discovered());
+
+			fakes.probe.mockResolvedValue(unreachable);
+			fakes.directory.listServers.mockResolvedValue([listed()]);
+			fakes.directory.resolve.mockResolvedValue(null);
+
+			await manager.probe('service-1');
+
+			expect(fakes.services.update).not.toHaveBeenCalled();
+			expect(fakes.probe).toHaveBeenCalledTimes(1);
+		});
+
+		it('reports it down when plex.tv itself does not answer, rather than failing the probe', async () => {
+			const { manager, fakes } = withDirectory(discovered());
+
+			fakes.probe.mockResolvedValue(unreachable);
+			fakes.directory.listServers.mockRejectedValue(new ServiceUnavailableException({ key: ErrorKey.DIRECTORY_UNREACHABLE }));
+
+			await expect(manager.probe('service-1')).resolves.toMatchObject({ reachable: false });
+			expect(fakes.services.setStatus).toHaveBeenCalledWith('service-1', MediaServiceStatus.OFFLINE, null, expect.any(Date));
+		});
+
+		it('does not probe twice when plex.tv names the address that just failed', async () => {
+			// Down at the only address it has: nothing moved, so asking the server again
+			// can only give the same answer, and a loop here would hammer it.
+			const stored = discovered();
+			const { manager, fakes } = withDirectory(stored);
+
+			fakes.probe.mockResolvedValue(unreachable);
+			fakes.directory.listServers.mockResolvedValue([listed()]);
+			fakes.directory.resolve.mockResolvedValue({ baseUrl: stored.baseUrl, route: ConnectionRoute.LOCAL });
+
+			await manager.probe('service-1');
+
+			expect(fakes.services.update).not.toHaveBeenCalled();
+			expect(fakes.probe).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not take an address another registration already holds', async () => {
+			const { manager, fakes } = withDirectory(discovered());
+
+			fakes.probe.mockResolvedValue(unreachable);
+			fakes.directory.listServers.mockResolvedValue([listed()]);
+			fakes.directory.resolve.mockResolvedValue({ baseUrl: 'http://10.0.0.9:32400', route: ConnectionRoute.LOCAL });
+			fakes.services.findByBaseUrl.mockResolvedValue(service({ id: 'typed-by-hand', name: 'Typed' }));
+
+			await manager.probe('service-1');
+
+			expect(fakes.services.update).not.toHaveBeenCalled();
+		});
+
+		it('re-resolves a refresh that could not reach the server, and walks again', async () => {
+			// The periodic refresh is what notices an IP that changed overnight, long
+			// before anybody presses "check".
+			const stored = discovered();
+			const { manager, fakes } = withDirectory(stored);
+			const shows = library();
+
+			fakes.libraries.findByService.mockResolvedValue([shows]);
+			fakes.handler.refreshLibrary
+				.mockRejectedValueOnce(new ServiceUnavailableException({ key: ErrorKey.SERVICE_UNREACHABLE }))
+				.mockResolvedValueOnce({ items: [], cursor: '42' });
+			fakes.directory.listServers.mockResolvedValue([listed()]);
+			fakes.directory.resolve.mockResolvedValue({ baseUrl: 'http://192.168.1.42:32400', route: ConnectionRoute.LOCAL });
+
+			await manager.refresh('service-1');
+			await settle(manager);
+
+			expect(fakes.services.update).toHaveBeenCalledWith(
+				{ id: 'service-1' },
+				expect.objectContaining({ baseUrl: 'http://192.168.1.42:32400' }),
+			);
+			expect(fakes.handler.refreshLibrary).toHaveBeenCalledTimes(2);
+			expect(fakes.libraries.setScanCursor).toHaveBeenCalledWith(shows.id, '42');
+		});
+
+		it('does not re-resolve a refresh that failed for any other reason', async () => {
+			const { manager, fakes } = withDirectory(discovered());
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.refreshLibrary.mockRejectedValue(new Error('unreadable answer'));
+
+			await manager.refresh('service-1');
+			await settle(manager);
+
+			expect(fakes.directory.listServers).not.toHaveBeenCalled();
+		});
+
+		it('gives up on a refresh when plex.tv has nowhere better to offer', async () => {
+			const { manager, fakes } = withDirectory(discovered());
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.refreshLibrary.mockRejectedValue(
+				new ServiceUnavailableException({ key: ErrorKey.SERVICE_UNREACHABLE }),
+			);
+			fakes.directory.listServers.mockResolvedValue([listed()]);
+			fakes.directory.resolve.mockResolvedValue(null);
+
+			await manager.refresh('service-1');
+			await settle(manager);
+
+			expect(fakes.handler.refreshLibrary).toHaveBeenCalledTimes(1);
+			expect(fakes.landings.reconcile).not.toHaveBeenCalled();
+		});
+
+		it('keeps where a registration came from, so it can be found again', async () => {
+			const { manager, fakes } = build();
+
+			await manager.createDiscovered(
+				{ name: 'Attic Plex', type: MediaServiceType.PLEX, baseUrl: 'http://192.168.1.20:32400/', token: 'server-token' },
+				{ serverIdentifier: 'machine-1', accountToken: 'account-token', connectionRoute: ConnectionRoute.LOCAL },
+			);
+
+			expect(fakes.services.create).toHaveBeenCalledWith(expect.objectContaining({
+				baseUrl: 'http://192.168.1.20:32400',
+				serverIdentifier: 'machine-1',
+				accountToken: 'account-token',
+				connectionRoute: ConnectionRoute.LOCAL,
+			}));
+		});
+
+		it('registers one typed by hand with no origin at all', async () => {
+			const { manager, fakes } = build();
+
+			await manager.create({ name: 'Typed', type: MediaServiceType.PLEX, baseUrl: 'http://10.0.0.2:32400' });
+
+			expect(fakes.services.create).toHaveBeenCalledWith(expect.objectContaining({
+				serverIdentifier: null,
+				accountToken: null,
+				connectionRoute: null,
+			}));
+		});
+
+		it('stops labelling the route once somebody types an address of their own', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(discovered());
+
+			await manager.update('service-1', { baseUrl: 'http://10.0.0.7:32400' });
+
+			expect(fakes.services.save).toHaveBeenCalledWith(expect.objectContaining({
+				baseUrl: 'http://10.0.0.7:32400',
+				connectionRoute: null,
+				// Kept: if the typed address stops answering too, plex.tv can still say
+				// where the server went.
+				serverIdentifier: 'machine-1',
+			}));
+		});
+
+		it('keeps the route when an edit leaves the address alone', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(discovered());
+
+			await manager.update('service-1', { name: 'Renamed' });
+
+			expect(fakes.services.save).toHaveBeenCalledWith(expect.objectContaining({
+				connectionRoute: ConnectionRoute.LOCAL,
+			}));
+		});
 	});
 });

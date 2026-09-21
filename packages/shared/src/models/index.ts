@@ -1,4 +1,5 @@
 export * from './auth.model';
+export * from './directory.model';
 export * from './error.model';
 export * from './event.model';
 export * from './filesystem.model';

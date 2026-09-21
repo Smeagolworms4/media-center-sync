@@ -2,6 +2,7 @@ export * from './bandwidth.service';
 export * from './cache.service';
 export * from './chunk-planner';
 export * from './companions';
+export * from './directories';
 export * from './event-gateway.service';
 export * from './file-move.service';
 export * from './filesystem.service';
@@ -55,6 +56,7 @@ export * from './verification.service';
 export * from './version';
 
 import { CacheService } from './cache.service';
+import { MEDIA_DIRECTORY_PROVIDERS } from './directories';
 import { EventGatewayService } from './event-gateway.service';
 import { FileMoveService } from './file-move.service';
 import { FilesystemService } from './filesystem.service';
@@ -113,6 +115,7 @@ export const SERVICE_PROVIDERS = [
 	PeerIntroductionService,
 	TransferEngineService,
 	...MEDIA_HANDLER_PROVIDERS,
+	...MEDIA_DIRECTORY_PROVIDERS,
 	...NOTIFICATION_HANDLER_PROVIDERS,
 	...TRANSPORT_PROVIDERS,
 ];

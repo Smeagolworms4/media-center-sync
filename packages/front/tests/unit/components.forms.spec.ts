@@ -42,6 +42,8 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		authProvider: false,
 		priority: 10,
 		peerId: null,
+		serverIdentifier: null,
+		connectionRoute: null,
 		lastProbeAt: null,
 		lastScanAt: null,
 		libraryCount: 1,

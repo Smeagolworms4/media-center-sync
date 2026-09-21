@@ -159,6 +159,7 @@ location / {
 - [What it does](#what-it-does)
 - [How it works](#how-it-works)
   - [Services, local and remote](#services-local-and-remote)
+  - [Adding a Plex server without knowing its address](#adding-a-plex-server-without-knowing-its-address)
   - [Indexing, and why the gateway caches](#indexing-and-why-the-gateway-caches)
   - [Correlation: what is the same media](#correlation-what-is-the-same-media)
   - [Quality at a glance](#quality-at-a-glance)
@@ -221,6 +222,30 @@ why nothing in the model says which one is "the" target.
 Each type is a handler. The application never knows whether it is talking to Jellyfin
 or Plex: it asks a handler to probe, to list libraries, to scan, to refresh, to open a
 byte range. Adding Emby, Kodi or a plain HTTP index means writing that one class.
+
+### Adding a Plex server without knowing its address
+
+Nobody knows the address of their Plex server; plex.tv does. So choosing Plex in "Add a
+service" leads with **Sign in with Plex**: plex.tv opens in a new tab, you sign in there
+and allow Media Center Sync, and the dialog — which has been waiting — lists every
+server the account reaches, yours and those friends share with you, each already tried
+from the gateway. Tick the ones you want. The address form is still one click away for a
+server not linked to plex.tv.
+
+- **Your password never reaches the gateway.** This is Plex's PIN flow: you approve on
+  plex.tv's own page and the gateway only receives an account token, which it keeps
+  like its other credentials — never returned by any route.
+- **Local network first, the relay last.** Each server's addresses are tried at once and
+  the best one that answers *as that server* wins: a LAN address, then the server's
+  direct HTTPS name, and Plex's relay only when nothing else answered. The relay is
+  capped by Plex — fine for browsing, a crawl for pulling a film — so a service reached
+  only through it says so on the services screen. An address that answers as another
+  machine (a stale IP now handed to some other box) is refused.
+- **It follows the server when it moves.** The server's identity at plex.tv is kept
+  with the service. When the stored address stops answering, the next check or refresh
+  asks plex.tv where the server is now instead of reporting it down.
+- **A friend's server comes in as theirs**: never a destination for a pull, and not
+  offered on to your own peers unless you turn that on.
 
 ### Indexing, and why the gateway caches
 

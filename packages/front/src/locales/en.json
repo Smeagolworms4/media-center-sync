@@ -469,7 +469,48 @@
 			"remote": "Yours or somebody else’s — this gateway only talks to them over HTTP. It can read them and share them on; it can write into none of them until somebody maps their folders.",
 			"peer": "Friends’ gateways. They show what their owner chose to share, and nothing more."
 		},
-		"peer_note": "Configured on its own page: name, hop limit, and whether it may read from you."
+		"peer_note": "Configured on its own page: name, hop limit, and whether it may read from you.",
+		"type": {
+			"jellyfin": "Jellyfin",
+			"plex": "Plex"
+		},
+		"discovery": {
+			"intro": "Sign in to plex.tv and this gateway lists every Plex server your account reaches — your own and the ones friends share with you — with no address to type.",
+			"password_note": "Your Plex password is typed on plex.tv, in your browser. This gateway never sees it.",
+			"sign_in": "Sign in with Plex",
+			"manual": "Enter an address by hand instead",
+			"back": "Sign in with Plex instead",
+			"waiting": "Waiting for you to approve on plex.tv…",
+			"waiting_hint": "A plex.tv tab has opened: sign in there and allow Media Center Sync. This window carries on by itself.",
+			"popup_blocked": "Your browser did not open plex.tv. Open it with the button below.",
+			"code": "Code shown on plex.tv: {code}",
+			"open_again": "Open plex.tv",
+			"expired": "The sign-in expired before it was approved on plex.tv. Start again for a new one.",
+			"retry": "Start again",
+			"listing": "Asking plex.tv for your servers, and trying each one from here…",
+			"empty": "This Plex account reaches no server. A server not linked to plex.tv can still be added by its address.",
+			"yours": "Your servers",
+			"shared_by": "Shared with you by {owner}",
+			"shared_unknown": "Shared with you",
+			"registered": "Already registered",
+			"version": "Plex {version}",
+			"add": "Add the selected servers ({count})",
+			"created": "Added: {names}.",
+			"failed_title": "Not added:",
+			"failure": "{name}: {reason}",
+			"done": "Close",
+			"unavailable": "Signing in with Plex is unavailable right now ({reason}). The address can still be typed below.",
+			"route": {
+				"local": "Local network",
+				"remote": "Over the internet",
+				"relay": "Plex relay only",
+				"unreachable": "Not answering"
+			},
+			"route_hint": {
+				"relay": "Only Plex’s relay reaches this server from here. Plex caps the relay: fine for browsing, very slow for pulling files.",
+				"unreachable": "None of the addresses plex.tv gave for this server answered as this server from here."
+			}
+		}
 	},
 	"peer": {
 		"subtitle": "The other gateways this one is linked to.",
@@ -1252,6 +1293,16 @@
 			"mapping_duplicate": "This server folder is already mapped in another row.",
 			"mapping_invalid": "This list of mappings could not be read.",
 			"peer_not_editable": "A peer’s registration follows the peer itself and cannot be edited here. Its name, its hop limit and whether it may read from you are all on that peer’s page."
+		},
+		"directory": {
+			"unsupported": "This kind of media service cannot be found by signing in. Enter its address instead.",
+			"unreachable": "plex.tv did not answer. Check this gateway’s internet connection, then try again.",
+			"refused": "plex.tv refused this gateway’s sign-in: it was revoked, or the account password changed. Sign in with Plex again.",
+			"sign_in_not_found": "This sign-in is no longer known to the gateway, which may have restarted. Start again.",
+			"sign_in_pending": "The sign-in has not been approved on plex.tv yet.",
+			"sign_in_expired": "The sign-in expired before it was approved on plex.tv. Start again.",
+			"server_not_found": "Your Plex account no longer lists this server.",
+			"server_unreachable": "None of this server’s addresses answered as this server from here."
 		},
 		"library": {
 			"not_found": "This library no longer exists.",

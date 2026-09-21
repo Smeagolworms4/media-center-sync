@@ -102,6 +102,8 @@ export const toMediaService = (
 	authProvider: service.authProvider,
 	priority: service.priority,
 	peerId: service.peerId,
+	serverIdentifier: service.serverIdentifier,
+	connectionRoute: service.connectionRoute,
 	lastProbeAt: iso(service.lastProbeAt),
 	lastScanAt: iso(service.lastScanAt),
 	libraryCount: counts.libraryCount,

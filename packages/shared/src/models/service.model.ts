@@ -1,3 +1,4 @@
+import type { ConnectionRoute } from './directory.model';
 import { ErrorKey } from './error.model';
 import type { LibraryKind } from './library.model';
 
@@ -247,6 +248,23 @@ export interface MediaService {
 	priority: number;
 	/** Owning peer, when the service is reached through a linked friend. */
 	peerId: string | null;
+	/**
+	 * The server's permanent identity at the directory it was found through — Plex's
+	 * `clientIdentifier` — or null for a service somebody registered by address.
+	 *
+	 * It is what lets the gateway ask the directory again when the stored address stops
+	 * answering, instead of reporting a server as down because its IP changed. It is
+	 * also how the add screen recognises a server that is already registered.
+	 */
+	serverIdentifier: string | null;
+	/**
+	 * How the stored address reaches the server, when a directory chose it.
+	 *
+	 * Null for an address somebody typed: the gateway did not choose it and has no
+	 * business labelling it. `relay` is the value worth showing, because a service
+	 * reached only through the relay moves files at the relay's capped rate.
+	 */
+	connectionRoute: ConnectionRoute | null;
 	lastProbeAt: string | null;
 	lastScanAt: string | null;
 	libraryCount: number;

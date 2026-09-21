@@ -469,7 +469,48 @@
 			"remote": "Tuoi o di qualcun altro: questo gateway ci parla solo via HTTP. Può leggerli e condividerli; non può scrivere in nessuno finché qualcuno non indica le loro cartelle.",
 			"peer": "Gateway di amici. Mostrano ciò che il proprietario ha scelto di condividere, e nulla di più."
 		},
-		"peer_note": "Si configura nella sua pagina: nome, portata in salti e se può leggerti."
+		"peer_note": "Si configura nella sua pagina: nome, portata in salti e se può leggerti.",
+		"type": {
+			"jellyfin": "Jellyfin",
+			"plex": "Plex"
+		},
+		"discovery": {
+			"intro": "Accedi a plex.tv e questo gateway elenca ogni server Plex che il tuo account raggiunge — i tuoi e quelli che gli amici condividono con te — senza indirizzi da digitare.",
+			"password_note": "La password di Plex si digita su plex.tv, nel tuo browser. Questo gateway non la vede mai.",
+			"sign_in": "Accedi con Plex",
+			"manual": "Inserisci invece un indirizzo a mano",
+			"back": "Accedi invece con Plex",
+			"waiting": "In attesa della tua approvazione su plex.tv…",
+			"waiting_hint": "Si è aperta una scheda di plex.tv: accedi lì e autorizza Media Center Sync. Questa finestra prosegue da sola.",
+			"popup_blocked": "Il browser non ha aperto plex.tv. Aprilo con il pulsante qui sotto.",
+			"code": "Codice mostrato su plex.tv: {code}",
+			"open_again": "Apri plex.tv",
+			"expired": "L’accesso è scaduto prima di essere approvato su plex.tv. Ricomincia per averne uno nuovo.",
+			"retry": "Ricomincia",
+			"listing": "Chiedo a plex.tv i tuoi server e provo ciascuno da qui…",
+			"empty": "Questo account Plex non raggiunge nessun server. Un server non collegato a plex.tv si può comunque aggiungere con il suo indirizzo.",
+			"yours": "I tuoi server",
+			"shared_by": "Condiviso con te da {owner}",
+			"shared_unknown": "Condiviso con te",
+			"registered": "Già registrato",
+			"version": "Plex {version}",
+			"add": "Aggiungi i server selezionati ({count})",
+			"created": "Aggiunti: {names}.",
+			"failed_title": "Non aggiunti:",
+			"failure": "{name}: {reason}",
+			"done": "Chiudi",
+			"unavailable": "L’accesso con Plex non è disponibile al momento ({reason}). L’indirizzo si può comunque digitare qui sotto.",
+			"route": {
+				"local": "Rete locale",
+				"remote": "Via internet",
+				"relay": "Solo relay di Plex",
+				"unreachable": "Non risponde"
+			},
+			"route_hint": {
+				"relay": "Da qui solo il relay di Plex raggiunge questo server. Plex limita il relay: va bene per sfogliare, è lentissimo per scaricare file.",
+				"unreachable": "Nessuno degli indirizzi forniti da plex.tv per questo server ha risposto da qui come questo server."
+			}
+		}
 	},
 	"peer": {
 		"subtitle": "Gli altri gateway a cui questo è collegato.",
@@ -1252,6 +1293,16 @@
 			"mapping_duplicate": "Questa cartella del server è già associata in un’altra riga.",
 			"mapping_invalid": "Impossibile leggere questo elenco di corrispondenze.",
 			"peer_not_editable": "La registrazione di un peer segue il peer stesso e non si modifica qui. Il suo nome, la sua portata in salti e se può leggerti stanno nella pagina di quel peer."
+		},
+		"directory": {
+			"unsupported": "Questo tipo di servizio multimediale non si trova accedendo. Inserisci invece il suo indirizzo.",
+			"unreachable": "plex.tv non ha risposto. Controlla la connessione a internet di questo gateway, poi riprova.",
+			"refused": "plex.tv ha rifiutato l’accesso di questo gateway: è stato revocato, oppure la password dell’account è cambiata. Accedi di nuovo con Plex.",
+			"sign_in_not_found": "Il gateway non conosce più questo accesso, forse è stato riavviato. Ricomincia.",
+			"sign_in_pending": "L’accesso non è ancora stato approvato su plex.tv.",
+			"sign_in_expired": "L’accesso è scaduto prima di essere approvato su plex.tv. Ricomincia.",
+			"server_not_found": "Il tuo account Plex non elenca più questo server.",
+			"server_unreachable": "Nessun indirizzo di questo server ha risposto da qui come questo server."
 		},
 		"library": {
 			"not_found": "Questa libreria non esiste più.",

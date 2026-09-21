@@ -469,7 +469,48 @@
 			"remote": "Seus ou de outra pessoa: este gateway só fala com eles por HTTP. Pode lê-los e partilhá-los; não pode escrever em nenhum até alguém indicar as respetivas pastas.",
 			"peer": "Gateways de amigos. Mostram o que o dono escolheu partilhar, e nada mais."
 		},
-		"peer_note": "Configura-se na sua própria página: nome, alcance em saltos e se pode ler de si."
+		"peer_note": "Configura-se na sua própria página: nome, alcance em saltos e se pode ler de si.",
+		"type": {
+			"jellyfin": "Jellyfin",
+			"plex": "Plex"
+		},
+		"discovery": {
+			"intro": "Inicie sessão em plex.tv e este gateway lista todos os servidores Plex a que a sua conta chega — os seus e os que amigos partilham consigo — sem escrever nenhum endereço.",
+			"password_note": "A sua palavra-passe Plex é escrita em plex.tv, no seu navegador. Este gateway nunca a vê.",
+			"sign_in": "Iniciar sessão com o Plex",
+			"manual": "Escrever antes um endereço à mão",
+			"back": "Iniciar antes sessão com o Plex",
+			"waiting": "À espera da sua aprovação em plex.tv…",
+			"waiting_hint": "Abriu-se um separador de plex.tv: inicie lá sessão e autorize o Media Center Sync. Esta janela continua sozinha.",
+			"popup_blocked": "O seu navegador não abriu plex.tv. Abra-o com o botão abaixo.",
+			"code": "Código mostrado em plex.tv: {code}",
+			"open_again": "Abrir plex.tv",
+			"expired": "O início de sessão expirou antes de ser aprovado em plex.tv. Recomece para obter um novo.",
+			"retry": "Recomeçar",
+			"listing": "A pedir os seus servidores a plex.tv e a experimentar cada um a partir daqui…",
+			"empty": "Esta conta Plex não chega a nenhum servidor. Um servidor não ligado a plex.tv pode sempre ser adicionado pelo endereço.",
+			"yours": "Os seus servidores",
+			"shared_by": "Partilhado consigo por {owner}",
+			"shared_unknown": "Partilhado consigo",
+			"registered": "Já registado",
+			"version": "Plex {version}",
+			"add": "Adicionar os servidores assinalados ({count})",
+			"created": "Adicionados: {names}.",
+			"failed_title": "Não adicionados:",
+			"failure": "{name}: {reason}",
+			"done": "Fechar",
+			"unavailable": "O início de sessão com o Plex não está disponível de momento ({reason}). O endereço pode ser escrito abaixo.",
+			"route": {
+				"local": "Rede local",
+				"remote": "Pela internet",
+				"relay": "Só pelo relé do Plex",
+				"unreachable": "Não responde"
+			},
+			"route_hint": {
+				"relay": "Só o relé do Plex chega a este servidor a partir daqui. O Plex limita o relé: serve para navegar, é muito lento para trazer ficheiros.",
+				"unreachable": "Nenhum dos endereços que plex.tv deu para este servidor respondeu como este servidor a partir daqui."
+			}
+		}
 	},
 	"peer": {
 		"subtitle": "Os outros gateways a que este está ligado.",
@@ -1252,6 +1293,16 @@
 			"mapping_duplicate": "Esta pasta do servidor já está associada noutra linha.",
 			"mapping_invalid": "Não foi possível ler esta lista de correspondências.",
 			"peer_not_editable": "O registo de um par segue o próprio par e não se edita aqui. O nome, o alcance em saltos e se pode ler de si estão na página desse par."
+		},
+		"directory": {
+			"unsupported": "Este tipo de serviço multimédia não se encontra iniciando sessão. Escreva antes o seu endereço.",
+			"unreachable": "plex.tv não respondeu. Verifique a ligação à internet deste gateway e tente novamente.",
+			"refused": "plex.tv recusou a sessão deste gateway: foi revogada ou a palavra-passe da conta mudou. Inicie novamente sessão com o Plex.",
+			"sign_in_not_found": "O gateway já não conhece este início de sessão; pode ter sido reiniciado. Recomece.",
+			"sign_in_pending": "O início de sessão ainda não foi aprovado em plex.tv.",
+			"sign_in_expired": "O início de sessão expirou antes de ser aprovado em plex.tv. Recomece.",
+			"server_not_found": "A sua conta Plex já não inclui este servidor.",
+			"server_unreachable": "Nenhum endereço deste servidor respondeu como este servidor a partir daqui."
 		},
 		"library": {
 			"not_found": "Esta biblioteca já não existe.",

@@ -469,7 +469,48 @@
 			"remote": "你的或别人的——本网关只通过 HTTP 与它们通信。可以读取并继续共享；在有人指明其文件夹之前，无法写入其中任何一个。",
 			"peer": "朋友的网关。它们只显示其所有者选择分享的内容。"
 		},
-		"peer_note": "在它自己的页面上配置：名称、跳数上限，以及能否读取你的内容。"
+		"peer_note": "在它自己的页面上配置：名称、跳数上限，以及能否读取你的内容。",
+		"type": {
+			"jellyfin": "Jellyfin",
+			"plex": "Plex"
+		},
+		"discovery": {
+			"intro": "登录 plex.tv，本网关就会列出你的账户能访问的所有 Plex 服务器——你自己的，以及朋友共享给你的——无需输入任何地址。",
+			"password_note": "你的 Plex 密码是在浏览器里的 plex.tv 上输入的，本网关永远看不到它。",
+			"sign_in": "使用 Plex 登录",
+			"manual": "改为手动输入地址",
+			"back": "改为使用 Plex 登录",
+			"waiting": "正在等待你在 plex.tv 上批准…",
+			"waiting_hint": "已打开一个 plex.tv 标签页：请在那里登录并允许 Media Center Sync。此窗口会自动继续。",
+			"popup_blocked": "浏览器没有打开 plex.tv。请用下面的按钮打开。",
+			"code": "plex.tv 上显示的代码：{code}",
+			"open_again": "打开 plex.tv",
+			"expired": "登录在 plex.tv 上获得批准之前已过期。请重新开始以获取新的登录。",
+			"retry": "重新开始",
+			"listing": "正在向 plex.tv 询问你的服务器，并从这里逐一尝试…",
+			"empty": "此 Plex 账户无法访问任何服务器。未关联 plex.tv 的服务器仍可通过地址添加。",
+			"yours": "你的服务器",
+			"shared_by": "由 {owner} 共享给你",
+			"shared_unknown": "共享给你的",
+			"registered": "已注册",
+			"version": "Plex {version}",
+			"add": "添加所选服务器（{count}）",
+			"created": "已添加：{names}。",
+			"failed_title": "未添加：",
+			"failure": "{name}：{reason}",
+			"done": "关闭",
+			"unavailable": "目前无法使用 Plex 登录（{reason}）。仍可在下方输入地址。",
+			"route": {
+				"local": "局域网",
+				"remote": "通过互联网",
+				"relay": "仅 Plex 中继",
+				"unreachable": "无响应"
+			},
+			"route_hint": {
+				"relay": "从这里只有 Plex 的中继能访问此服务器。Plex 会限制中继速度：浏览目录没问题，拉取文件会非常慢。",
+				"unreachable": "plex.tv 为此服务器提供的地址中，没有一个从这里以该服务器的身份作出响应。"
+			}
+		}
 	},
 	"peer": {
 		"subtitle": "与此网关相连的其他网关。",
@@ -1252,6 +1293,16 @@
 			"mapping_duplicate": "此服务器文件夹已在另一行中映射。",
 			"mapping_invalid": "无法读取这份映射列表。",
 			"peer_not_editable": "对等网关的注册项随该对等网关本身变化，无法在此编辑。它的名称、跳数上限以及能否读取你的内容，都在该对等网关的页面上。"
+		},
+		"directory": {
+			"unsupported": "这类媒体服务无法通过登录找到。请改为输入它的地址。",
+			"unreachable": "plex.tv 没有响应。请检查本网关的互联网连接，然后重试。",
+			"refused": "plex.tv 拒绝了本网关的登录：登录已被撤销，或账户密码已更改。请重新使用 Plex 登录。",
+			"sign_in_not_found": "网关已不再记得这次登录，可能是它重启过。请重新开始。",
+			"sign_in_pending": "这次登录尚未在 plex.tv 上获得批准。",
+			"sign_in_expired": "登录在 plex.tv 上获得批准之前已过期。请重新开始。",
+			"server_not_found": "你的 Plex 账户已不再列出此服务器。",
+			"server_unreachable": "此服务器的所有地址都没有从这里以该服务器的身份作出响应。"
 		},
 		"library": {
 			"not_found": "此媒体库已不存在。",

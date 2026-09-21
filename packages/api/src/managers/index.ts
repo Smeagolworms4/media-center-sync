@@ -1,4 +1,5 @@
 export * from './auth.manager';
+export * from './directory.manager';
 export * from './filesystem.manager';
 export * from './landing.manager';
 export * from './library.manager';

@@ -1,4 +1,5 @@
 import { InitialSchema1758240000000 } from './1758240000000-InitialSchema';
+import { AddServiceDirectory1758326400000 } from './1758326400000-AddServiceDirectory';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -26,10 +27,11 @@ import { InitialSchema1758240000000 } from './1758240000000-InitialSchema';
  * Adding a migration means adding a line here. Forgetting it now fails the same way in
  * every context instead of only in one.
  *
- * There is exactly one entry because the nineteen that used to follow `InitialSchema`
- * were folded back into it before the first release; that file says what it cost and
- * why it is no longer an option. From here on the list only grows.
+ * The list is short because the nineteen that used to follow `InitialSchema` were
+ * folded back into it before the first release; that file says what it cost and why it
+ * is no longer an option. From there on the list only grows.
  */
-export const MIGRATIONS = [InitialSchema1758240000000];
+export const MIGRATIONS = [InitialSchema1758240000000, AddServiceDirectory1758326400000];
 
 export * from './1758240000000-InitialSchema';
+export * from './1758326400000-AddServiceDirectory';

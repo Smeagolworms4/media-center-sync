@@ -3,6 +3,7 @@ export * from './useCatalogue';
 export * from './useChunkMap';
 export * from './useCron';
 export * from './useDestinationLibraries';
+export * from './useDirectorySignIn';
 export * from './useForm';
 export * from './useFormat';
 export * from './useMediaOrigin';

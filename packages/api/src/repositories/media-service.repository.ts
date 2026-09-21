@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { MediaServiceStatus } from '@mcs/shared';
 import { MediaService } from '@/entities';
 
@@ -65,20 +65,35 @@ export class MediaServiceRepository extends Repository<MediaService> {
 	/**
 	 * The one read that brings the credentials back.
 	 *
-	 * `token`, `username` and `password` are `select: false`, so no ordinary read can
-	 * leak them into a response — and a handler about to call Jellyfin needs them. By
-	 * keeping the re-selection to this single method, the places that hold a token in
-	 * memory are the places that call it, and they can be counted.
+	 * `token`, `username`, `password` and `accountToken` are `select: false`, so no
+	 * ordinary read can leak them into a response — and a handler about to call
+	 * Jellyfin needs them. By keeping the re-selection to this single method, the
+	 * places that hold a token in memory are the places that call it, and they can be
+	 * counted.
 	 */
 	public findWithSecrets(id: string): Promise<MediaService | null> {
 		return this.createQueryBuilder('service')
-			.addSelect(['service.token', 'service.username', 'service.password'])
+			.addSelect(['service.token', 'service.username', 'service.password', 'service.accountToken'])
 			.where('service.id = :id', { id })
 			.getOne();
 	}
 
 	public findByBaseUrl(baseUrl: string, peerId: string | null = null): Promise<MediaService | null> {
 		return this.findOne({ where: { baseUrl, peerId: peerId === null ? IsNull() : peerId } });
+	}
+
+	/**
+	 * Our own registrations of servers a directory knows, by their identity there.
+	 *
+	 * Only ours: a peer's row never carries an identifier, and matching one would be
+	 * reporting a friend's server as already registered on this gateway.
+	 */
+	public findByServerIdentifiers(identifiers: string[]): Promise<MediaService[]> {
+		if (identifiers.length === 0) {
+			return Promise.resolve([]);
+		}
+
+		return this.find({ where: { serverIdentifier: In(identifiers), peerId: IsNull() } });
 	}
 
 	public async setStatus(

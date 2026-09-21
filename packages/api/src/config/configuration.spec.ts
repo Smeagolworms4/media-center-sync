@@ -147,6 +147,16 @@ describe('configuration', () => {
 		expect(configuration().peers.autoConnect).toBe(true);
 	});
 
+	it('talks to the real plex.tv unless a test points it elsewhere', () => {
+		delete process.env.MCS_PLEX_TV_URL;
+
+		expect(configuration().plexTv.url).toBeNull();
+
+		process.env.MCS_PLEX_TV_URL = 'http://fake-plex-tv:32499';
+
+		expect(configuration().plexTv.url).toBe('http://fake-plex-tv:32499');
+	});
+
 	it('is frozen, so nothing can rewrite it after startup', () => {
 		const config = configuration();
 

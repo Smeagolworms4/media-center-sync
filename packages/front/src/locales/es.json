@@ -469,7 +469,48 @@
 			"remote": "Tuyos o de otra persona: esta pasarela solo habla con ellos por HTTP. Puede leerlos y compartirlos; no puede escribir en ninguno hasta que alguien indique sus carpetas.",
 			"peer": "Pasarelas de amigos. Muestran lo que su dueño decidió compartir, y nada más."
 		},
-		"peer_note": "Se configura en su propia página: nombre, alcance en saltos y si puede leerte."
+		"peer_note": "Se configura en su propia página: nombre, alcance en saltos y si puede leerte.",
+		"type": {
+			"jellyfin": "Jellyfin",
+			"plex": "Plex"
+		},
+		"discovery": {
+			"intro": "Inicia sesión en plex.tv y esta pasarela listará todos los servidores Plex a los que llega tu cuenta — los tuyos y los que tus amigos comparten contigo — sin escribir ninguna dirección.",
+			"password_note": "Tu contraseña de Plex se escribe en plex.tv, en tu navegador. Esta pasarela nunca la ve.",
+			"sign_in": "Iniciar sesión con Plex",
+			"manual": "Escribir una dirección a mano",
+			"back": "Iniciar sesión con Plex",
+			"waiting": "Esperando a que lo apruebes en plex.tv…",
+			"waiting_hint": "Se ha abierto una pestaña de plex.tv: inicia sesión allí y autoriza a Media Center Sync. Esta ventana sigue sola.",
+			"popup_blocked": "Tu navegador no ha abierto plex.tv. Ábrelo con el botón de abajo.",
+			"code": "Código mostrado en plex.tv: {code}",
+			"open_again": "Abrir plex.tv",
+			"expired": "El inicio de sesión caducó antes de aprobarse en plex.tv. Vuelve a empezar para obtener uno nuevo.",
+			"retry": "Volver a empezar",
+			"listing": "Pidiendo tus servidores a plex.tv y probando cada uno desde aquí…",
+			"empty": "Esta cuenta de Plex no llega a ningún servidor. Un servidor no vinculado a plex.tv se puede añadir igualmente por su dirección.",
+			"yours": "Tus servidores",
+			"shared_by": "Compartido contigo por {owner}",
+			"shared_unknown": "Compartido contigo",
+			"registered": "Ya registrado",
+			"version": "Plex {version}",
+			"add": "Añadir los servidores marcados ({count})",
+			"created": "Añadidos: {names}.",
+			"failed_title": "No añadidos:",
+			"failure": "{name}: {reason}",
+			"done": "Cerrar",
+			"unavailable": "El inicio de sesión con Plex no está disponible ahora mismo ({reason}). La dirección se puede escribir abajo.",
+			"route": {
+				"local": "Red local",
+				"remote": "Por internet",
+				"relay": "Solo relé de Plex",
+				"unreachable": "No responde"
+			},
+			"route_hint": {
+				"relay": "Solo el relé de Plex llega a este servidor desde aquí. Plex limita el relé: vale para explorar, muy lento para traer archivos.",
+				"unreachable": "Ninguna de las direcciones que dio plex.tv para este servidor respondió como este servidor desde aquí."
+			}
+		}
 	},
 	"peer": {
 		"subtitle": "Las demás pasarelas a las que esta está enlazada.",
@@ -1252,6 +1293,16 @@
 			"mapping_duplicate": "Esta carpeta del servidor ya está asociada en otra fila.",
 			"mapping_invalid": "No se ha podido leer esta lista de correspondencias.",
 			"peer_not_editable": "El registro de un par sigue al propio par y no se edita aquí. Su nombre, su alcance en saltos y si puede leerte están en la página de ese par."
+		},
+		"directory": {
+			"unsupported": "Este tipo de servicio multimedia no se encuentra iniciando sesión. Escribe su dirección.",
+			"unreachable": "plex.tv no ha respondido. Comprueba la conexión a internet de esta pasarela y vuelve a intentarlo.",
+			"refused": "plex.tv ha rechazado la sesión de esta pasarela: se revocó o cambió la contraseña de la cuenta. Vuelve a iniciar sesión con Plex.",
+			"sign_in_not_found": "La pasarela ya no conoce este inicio de sesión; puede que se haya reiniciado. Vuelve a empezar.",
+			"sign_in_pending": "El inicio de sesión aún no se ha aprobado en plex.tv.",
+			"sign_in_expired": "El inicio de sesión caducó antes de aprobarse en plex.tv. Vuelve a empezar.",
+			"server_not_found": "Tu cuenta de Plex ya no incluye este servidor.",
+			"server_unreachable": "Ninguna dirección de este servidor respondió como este servidor desde aquí."
 		},
 		"library": {
 			"not_found": "Esta biblioteca ya no existe.",

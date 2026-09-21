@@ -1,12 +1,14 @@
 <script lang="ts" setup>
 	import type { MediaService } from '@mcs/shared';
-	import { MediaServiceMode, MediaServiceType } from '@mcs/shared';
+	import { ConnectionRoute, MediaServiceMode, MediaServiceType } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import RelativeDate from '@/components/common/RelativeDate.vue';
 	import Confirm from '@/components/Confirm.vue';
+	import ConnectionRouteChip from '@/components/service/ConnectionRouteChip.vue';
+	import ServiceAdd from '@/components/service/ServiceAdd.vue';
 	import ServiceForm from '@/components/service/ServiceForm.vue';
 	import ServiceStatusChip from '@/components/service/ServiceStatusChip.vue';
 	import Window from '@/components/Window.vue';
@@ -265,6 +267,8 @@
 								</v-chip>
 
 								<v-chip class="ml-2" label size="small" variant="tonal">{{ service.type }}</v-chip>
+
+								<ConnectionRouteChip class="ml-2" :route="service.connectionRoute" />
 							</v-list-item-title>
 
 							<v-list-item-subtitle>
@@ -273,6 +277,19 @@
 									libraries: service.libraryCount,
 									items: service.itemCount,
 								}) }}
+							</v-list-item-subtitle>
+
+							<!--
+								Said in words, not only by the chip's colour: a service only the
+								relay reaches pulls files at the relay's capped rate, and somebody
+								about to start a transfer from it is owed that sentence first.
+							-->
+							<v-list-item-subtitle
+								v-if="service.connectionRoute === ConnectionRoute.RELAY"
+								class="text-warning"
+								data-test="service-relay-note"
+							>
+								{{ $t('service.discovery.route_hint.relay') }}
 							</v-list-item-subtitle>
 
 							<v-list-item-subtitle>
@@ -388,8 +405,15 @@
 			:title="editing ? $t('service.edit') : $t('service.add')"
 		>
 			<ServiceForm
-				:key="editing?.id ?? 'new'"
+				v-if="editing"
+				:key="editing.id"
 				:service="editing"
+				@cancel="dialogOpen = false"
+				@saved="onSaved"
+			/>
+
+			<ServiceAdd
+				v-else-if="dialogOpen"
 				@cancel="dialogOpen = false"
 				@saved="onSaved"
 			/>

@@ -99,7 +99,7 @@ export interface FakeJellyfin {
  * `docker compose run` does not give its container the service name as a network
  * alias, so `http://e2e:port` resolves from nowhere.
  */
-function reachableHost (): string {
+export function reachableHost (): string {
 	for (const addresses of Object.values(networkInterfaces())) {
 		for (const address of addresses ?? []) {
 			if (address.family === 'IPv4' && !address.internal) {

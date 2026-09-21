@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import { MediaServiceStatus, MediaServiceType, type RootMapping } from '@mcs/shared';
+import { ConnectionRoute, MediaServiceStatus, MediaServiceType, type RootMapping } from '@mcs/shared';
 import { Peer } from './peer.entity';
 import { Timestampable } from './timestampable.entity';
 
@@ -90,6 +90,41 @@ export class MediaService extends Timestampable {
 	@Exclude()
 	@Column({ type: 'varchar', nullable: true, select: false })
 	public password!: string | null;
+
+	/**
+	 * The account token of the directory this server was found through — plex.tv's —
+	 * or null for a service registered by address.
+	 *
+	 * Kept, rather than thrown away once the server list was read, because it is the
+	 * only thing that can ask plex.tv where the server went when the stored address
+	 * stops answering; without it re-resolving would need somebody to sign in again,
+	 * which is the very chore finding servers through plex.tv exists to remove.
+	 *
+	 * Stored exactly as `token` is and for the same reason never returned: it opens the
+	 * whole account — every server it owns and every one shared with it — which is more
+	 * than any single server's token does. Not encrypted at rest, like every other
+	 * credential column here; encrypting one of them and not the others would protect
+	 * nothing somebody holding the database file could not already read next to it.
+	 */
+	@Exclude()
+	@Column({ type: 'varchar', nullable: true, select: false })
+	public accountToken!: string | null;
+
+	/**
+	 * The server's permanent identity at its directory. See the shared contract.
+	 *
+	 * Deliberately outside the unique index on the address: the address is what moves
+	 * and this is what does not, and a re-resolution that found the server at a new
+	 * address must be able to write it without first proving nobody else holds it.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public serverIdentifier!: string | null;
+
+	/** How the stored address reaches the server, when a directory chose it. */
+	@ApiProperty({ enum: ConnectionRoute, nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public connectionRoute!: ConnectionRoute | null;
 
 	@ApiProperty({ enum: MediaServiceStatus })
 	@Column({ type: 'varchar', default: MediaServiceStatus.UNKNOWN })

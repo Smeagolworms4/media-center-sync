@@ -188,7 +188,12 @@ done
 # through a list of mappings and needs each library to find its own.
 say "Running the journeys: install, then data, then journeys"
 status=0
-"${COMPOSE[@]}" run --rm --no-deps -T \
+# `--use-aliases` gives this container the name `e2e` on the network, which is how the
+# gateway reaches the fake plex.tv the discovery journey runs in it: the API was told
+# `MCS_PLEX_TV_URL=http://e2e:32499` when it started, before this container existed. A
+# `run` container gets no alias otherwise, and the journey would fail on a sign-in the
+# gateway cannot deliver.
+"${COMPOSE[@]}" run --rm --no-deps -T --use-aliases \
 	-e E2E_JELLYFIN_TOKEN="$(cat "$STATE/keys/jellyfin.key")" \
 	-e E2E_PLEX_URL="$PLEX_URL" \
 	-e E2E_DATASET="http://jellyfin-a:8096|$(cat "$STATE/keys/jellyfin-a.key")|/media/shows=/app/var/e2e-ci/state/lab-media/shows;/media/movies=/app/var/e2e-ci/state/lab-media/movies,http://jellyfin-b:8096|$(cat "$STATE/keys/jellyfin-b.key")" \

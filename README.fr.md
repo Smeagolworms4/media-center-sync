@@ -159,6 +159,7 @@ location / {
 - [Ce qu'il fait](#ce-quil-fait)
 - [Fonctionnement](#fonctionnement)
   - [Services, locaux et distants](#services-locaux-et-distants)
+  - [Ajouter un serveur Plex sans connaître son adresse](#ajouter-un-serveur-plex-sans-connaître-son-adresse)
   - [Indexation, et pourquoi la passerelle met en cache](#indexation-et-pourquoi-la-passerelle-met-en-cache)
   - [Corrélation : qu'est-ce que le même contenu](#correlation-quest-ce-que-le-meme-contenu)
   - [La qualité en un coup d'œil](#la-qualite-en-un-coup-doeil)
@@ -229,6 +230,34 @@ Chaque type est un gestionnaire. L'application ne sait jamais si elle parle à J
 ou à Plex : elle demande à un gestionnaire de sonder, de lister les bibliothèques, de
 scanner, de rafraîchir, d'ouvrir une plage d'octets. Ajouter Emby, Kodi ou un simple
 index HTTP revient à écrire cette seule classe.
+
+### Ajouter un serveur Plex sans connaître son adresse
+
+Personne ne connaît l'adresse de son serveur Plex ; plex.tv, si. Choisir Plex dans
+« Ajouter un service » propose donc d'abord **Se connecter avec Plex** : plex.tv s'ouvre
+dans un nouvel onglet, vous vous y connectez et autorisez Media Center Sync, et la
+fenêtre — qui attendait — liste tous les serveurs que le compte atteint, les vôtres et
+ceux que des amis partagent avec vous, chacun déjà essayé depuis la passerelle. Cochez
+ceux que vous voulez. Le formulaire d'adresse reste à un clic pour un serveur qui n'est
+pas lié à plex.tv.
+
+- **Votre mot de passe n'atteint jamais la passerelle.** C'est le parcours par code PIN
+  de Plex : vous approuvez sur la page de plex.tv, et la passerelle ne reçoit qu'un
+  jeton de compte, qu'elle garde comme ses autres identifiants — jamais renvoyé par
+  aucune route.
+- **Le réseau local d'abord, le relais en dernier.** Les adresses de chaque serveur sont
+  essayées en même temps et la meilleure qui répond *en tant que ce serveur* l'emporte :
+  une adresse du réseau local, puis le nom HTTPS direct du serveur, et le relais de Plex
+  seulement quand rien d'autre n'a répondu. Plex bride ce relais — suffisant pour
+  parcourir, interminable pour rapatrier un film — et un service qu'il est seul à
+  atteindre le dit sur l'écran des services. Une adresse qui répond en tant qu'une autre
+  machine (une IP périmée, donnée depuis à un autre appareil) est refusée.
+- **Elle suit le serveur quand il bouge.** L'identité du serveur chez plex.tv est gardée
+  avec le service. Quand l'adresse enregistrée ne répond plus, la vérification ou le
+  rafraîchissement suivant demande à plex.tv où il se trouve désormais, au lieu de le
+  déclarer hors ligne.
+- **Le serveur d'un ami entre comme le sien** : jamais une destination de
+  rapatriement, et pas proposé à vos propres pairs sauf si vous l'activez.
 
 ### Indexation, et pourquoi la passerelle met en cache
 

@@ -1,4 +1,5 @@
 import {
+	ConnectionRoute,
 	ErrorKey,
 	EventName,
 	LibraryKind,
@@ -21,6 +22,7 @@ import {
 	Logger,
 	NotFoundException,
 	OnApplicationBootstrap,
+	ServiceUnavailableException,
 } from '@nestjs/common';
 import type { Library as LibraryEntity, MediaItem, MediaService as MediaServiceEntity } from '@/entities';
 import {
@@ -34,6 +36,7 @@ import { basename, dirname } from 'node:path';
 import {
 	applyOverride,
 	detectCompanions,
+	DirectoryRegistry,
 	FingerprintService,
 	normalizeTitle,
 	toLocalPath,
@@ -74,6 +77,18 @@ const PARENT_HOPS = 3;
  * feeding is through its media items, and those cascade away with it.
  */
 export type ServiceRemovalListener = (serviceId: string) => Promise<void>;
+
+/**
+ * What a directory said about a server, kept on its registration.
+ *
+ * See `MediaService.serverIdentifier` and `connectionRoute` in the shared contract, and
+ * `accountToken` on the entity.
+ */
+export interface DirectoryOrigin {
+	serverIdentifier: string;
+	accountToken: string;
+	connectionRoute: ConnectionRoute;
+}
 
 /** Testing a connection that nothing has registered yet. */
 export interface ProbeRequest {
@@ -134,6 +149,11 @@ export class ServiceManager implements OnApplicationBootstrap {
 		 * through a callback rather than by being injected there, which would be a cycle.
 		 */
 		private readonly _landings: LandingManager,
+		/**
+		 * Where a service found through plex.tv is asked for again when its stored
+		 * address stops answering. See `_relocate`.
+		 */
+		private readonly _directories: DirectoryRegistry,
 	) {}
 
 	/**
@@ -200,7 +220,28 @@ export class ServiceManager implements OnApplicationBootstrap {
 	 * while the same address twice on ours is the same server registered twice, and
 	 * that produces two of everything it holds.
 	 */
-	public async create(request: CreateMediaServiceRequest): Promise<MediaService> {
+	public create(request: CreateMediaServiceRequest): Promise<MediaService> {
+		return this._register(request, null);
+	}
+
+	/**
+	 * Register a server a directory found, remembering where it was found.
+	 *
+	 * The same registration as one typed by hand — the same duplicate check, the same
+	 * probe, the same libraries adopted — plus the three things that let the gateway
+	 * find the server again on its own when its address changes.
+	 */
+	public createDiscovered(
+		request: CreateMediaServiceRequest,
+		origin: DirectoryOrigin,
+	): Promise<MediaService> {
+		return this._register(request, origin);
+	}
+
+	private async _register(
+		request: CreateMediaServiceRequest,
+		origin: DirectoryOrigin | null,
+	): Promise<MediaService> {
 		const baseUrl = this._normaliseUrl(request.baseUrl);
 
 		if ((await this._services.findByBaseUrl(baseUrl, null)) !== null) {
@@ -225,6 +266,9 @@ export class ServiceManager implements OnApplicationBootstrap {
 				authProvider: request.authProvider ?? false,
 				priority: request.priority ?? 100,
 				rootMappings: this._normaliseMappings(request.rootMappings ?? []),
+				serverIdentifier: origin?.serverIdentifier ?? null,
+				accountToken: origin?.accountToken ?? null,
+				connectionRoute: origin?.connectionRoute ?? null,
 				status: this._statusOf(probe),
 				version: probe.version,
 				lastProbeAt: new Date(),
@@ -282,6 +326,13 @@ export class ServiceManager implements OnApplicationBootstrap {
 		// Never re-defaulted on an edit. A patch sent for an unrelated field must not
 		// start sharing something somebody deliberately turned off.
 		service.shared = patch.shared ?? service.shared;
+		// A typed address is not one a directory chose, so it is not labelled as one. The
+		// identity stays: if the typed address stops answering too, the directory can
+		// still say where the server went.
+		if (nextUrl !== service.baseUrl) {
+			service.connectionRoute = null;
+		}
+
 		service.baseUrl = nextUrl;
 		service.token = patch.token ?? service.token;
 		service.username = patch.username ?? service.username;
@@ -353,14 +404,17 @@ export class ServiceManager implements OnApplicationBootstrap {
 	 * to be able to show without asking again itself.
 	 */
 	public async probe(id: string): Promise<MediaServiceProbe> {
-		const service = await this._requireWithSecrets(id);
-		const probe = await this._probe({
-			type: service.type,
-			baseUrl: service.baseUrl,
-			token: service.token ?? undefined,
-			username: service.username ?? undefined,
-			password: service.password ?? undefined,
-		});
+		let service = await this._requireWithSecrets(id);
+		let probe = await this._probeRegistered(service);
+
+		// Asked again rather than reported down, when a directory can say where the
+		// server went. Refused is included with unreachable: a friend who re-shared a
+		// server gave it a new access token, and plex.tv is where the new one is.
+		if (!(probe.reachable && probe.authenticated) && (await this._relocate(service))) {
+			service = await this._requireWithSecrets(id);
+			probe = await this._probeRegistered(service);
+		}
+
 		const status = this._statusOf(probe);
 		const at = new Date();
 
@@ -455,7 +509,37 @@ export class ServiceManager implements OnApplicationBootstrap {
 		this._indexing.set(serviceId, pass);
 	}
 
+	/**
+	 * One indexing pass, re-resolved and retried once when the server has moved.
+	 *
+	 * This is the path the periodic refresh takes every few minutes, which makes it the
+	 * one that notices a server whose IP changed overnight — long before anybody opens
+	 * the services screen and presses "check". A walk that died half-way is safe to run
+	 * again from the start: every row it writes is an upsert, and the stale-item pass
+	 * only runs at the end of a library it walked completely.
+	 *
+	 * Only a transport failure qualifies. A server that answered and refused, or
+	 * answered with something unreadable, is exactly where it was, and asking plex.tv
+	 * again every fifteen minutes about it would only add load to somebody else's
+	 * service.
+	 */
 	private async _index(serviceId: string, full: boolean): Promise<void> {
+		try {
+			await this._walk(serviceId, full);
+		} catch (error) {
+			if (!(error instanceof ServiceUnavailableException)) {
+				throw error;
+			}
+
+			if (!(await this._relocate(await this._requireWithSecrets(serviceId)))) {
+				throw error;
+			}
+
+			await this._walk(serviceId, full);
+		}
+	}
+
+	private async _walk(serviceId: string, full: boolean): Promise<void> {
 		const service = await this._requireWithSecrets(serviceId);
 		const handler = this._handlers.get(service.type);
 		const connection = this._connection(service);
@@ -959,6 +1043,90 @@ export class ServiceManager implements OnApplicationBootstrap {
 		// mapping is applied to the reported paths, and applying it to the previous
 		// ones would derive a directory the service has stopped reading from.
 		await this._libraryManager.applyRootMapping(service);
+	}
+
+	/**
+	 * Ask the directory where a registered server is now, and move the registration.
+	 *
+	 * Answers whether anything changed, so the caller knows whether trying again can
+	 * give a different answer. Nothing here throws: a directory that is down, an account
+	 * token that was revoked, a server its owner stopped sharing — each leaves the
+	 * service exactly as it was, reported by whatever the caller was already going to
+	 * report, and each is logged so "why is it still offline" has an answer somewhere.
+	 *
+	 * Only for a service that came from a directory. One registered by address has no
+	 * identity to look up and no account to ask with, and inventing either — matching a
+	 * typed address against somebody's plex.tv account — would be the gateway deciding
+	 * something the person did not ask for.
+	 */
+	private async _relocate(service: MediaServiceEntity): Promise<boolean> {
+		const directory = this._directories.find(service.type);
+
+		if (directory === null || service.serverIdentifier === null || service.accountToken === null) {
+			return false;
+		}
+
+		try {
+			const server = (await directory.listServers(service.accountToken))
+				.find((one) => one.identifier === service.serverIdentifier);
+
+			if (server === undefined) {
+				this._logger.warn(`${service.name}: its directory no longer lists this server`);
+
+				return false;
+			}
+
+			const resolved = await directory.resolve(server);
+
+			if (resolved === null) {
+				this._logger.warn(`${service.name}: none of the addresses its directory lists answered`);
+
+				return false;
+			}
+
+			const baseUrl = this._normaliseUrl(resolved.baseUrl);
+			const token = server.accessToken ?? service.token;
+
+			if (baseUrl === service.baseUrl && token === service.token && resolved.route === service.connectionRoute) {
+				return false;
+			}
+
+			// The unique index on the address would refuse the move with an error that
+			// names a constraint; a row already holding that address is a registration
+			// somebody made by hand, and it is theirs to remove, not ours to overwrite.
+			const clash = await this._services.findByBaseUrl(baseUrl, null);
+
+			if (clash !== null && clash.id !== service.id) {
+				this._logger.warn(`${service.name}: found at ${baseUrl}, which ${clash.name} already holds`);
+
+				return false;
+			}
+
+			await this._services.update(
+				{ id: service.id },
+				{ baseUrl, token, connectionRoute: resolved.route },
+			);
+			this._logger.log(
+				`${service.name}: moved from ${service.baseUrl} to ${baseUrl} (${resolved.route})`,
+			);
+			this._events.emit(EventName.SERVICE_CHANGED, { id: service.id });
+
+			return true;
+		} catch (error) {
+			this._logger.warn(`${service.name}: its directory could not be asked (${String(error)})`);
+
+			return false;
+		}
+	}
+
+	private _probeRegistered(service: MediaServiceEntity): Promise<MediaServiceProbe> {
+		return this._probe({
+			type: service.type,
+			baseUrl: service.baseUrl,
+			token: service.token ?? undefined,
+			username: service.username ?? undefined,
+			password: service.password ?? undefined,
+		});
 	}
 
 	private async _probe(request: ProbeRequest): Promise<MediaServiceProbe> {

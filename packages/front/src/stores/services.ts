@@ -226,6 +226,7 @@ export const useServicesStore = defineStore('services', () => {
 		scans,
 		byId,
 		byPriority,
+		replace,
 		load,
 		get,
 		create,

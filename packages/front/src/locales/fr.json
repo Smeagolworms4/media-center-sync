@@ -469,7 +469,48 @@
 			"remote": "Les vôtres ou ceux d’autrui — cette passerelle ne leur parle qu’en HTTP. Elle peut les lire et les partager ; elle ne peut écrire dans aucun tant que personne n’a indiqué leurs dossiers.",
 			"peer": "Passerelles d'amis. Elles montrent ce que leur propriétaire a choisi de partager, rien de plus."
 		},
-		"peer_note": "Se configure sur sa propre page : nom, portée en sauts, et droit de vous lire."
+		"peer_note": "Se configure sur sa propre page : nom, portée en sauts, et droit de vous lire.",
+		"type": {
+			"jellyfin": "Jellyfin",
+			"plex": "Plex"
+		},
+		"discovery": {
+			"intro": "Connectez-vous à plex.tv et cette passerelle liste tous les serveurs Plex que votre compte atteint — les vôtres et ceux que des amis partagent avec vous — sans adresse à saisir.",
+			"password_note": "Votre mot de passe Plex se saisit sur plex.tv, dans votre navigateur. Cette passerelle ne le voit jamais.",
+			"sign_in": "Se connecter avec Plex",
+			"manual": "Saisir plutôt une adresse à la main",
+			"back": "Se connecter plutôt avec Plex",
+			"waiting": "En attente de votre accord sur plex.tv…",
+			"waiting_hint": "Un onglet plex.tv s’est ouvert : connectez-vous-y et autorisez Media Center Sync. Cette fenêtre continue d’elle-même.",
+			"popup_blocked": "Votre navigateur n’a pas ouvert plex.tv. Ouvrez-le avec le bouton ci-dessous.",
+			"code": "Code affiché sur plex.tv : {code}",
+			"open_again": "Ouvrir plex.tv",
+			"expired": "La connexion a expiré avant d’être approuvée sur plex.tv. Recommencez pour en obtenir une nouvelle.",
+			"retry": "Recommencer",
+			"listing": "Demande de vos serveurs à plex.tv, et essai de chacun depuis ici…",
+			"empty": "Ce compte Plex n’atteint aucun serveur. Un serveur non lié à plex.tv peut toujours être ajouté par son adresse.",
+			"yours": "Vos serveurs",
+			"shared_by": "Partagé avec vous par {owner}",
+			"shared_unknown": "Partagé avec vous",
+			"registered": "Déjà enregistré",
+			"version": "Plex {version}",
+			"add": "Ajouter les serveurs cochés ({count})",
+			"created": "Ajoutés : {names}.",
+			"failed_title": "Non ajoutés :",
+			"failure": "{name} : {reason}",
+			"done": "Fermer",
+			"unavailable": "La connexion avec Plex est indisponible pour l’instant ({reason}). L’adresse peut toujours être saisie ci-dessous.",
+			"route": {
+				"local": "Réseau local",
+				"remote": "Par internet",
+				"relay": "Relais Plex seulement",
+				"unreachable": "Ne répond pas"
+			},
+			"route_hint": {
+				"relay": "Seul le relais de Plex atteint ce serveur depuis ici. Plex bride ce relais : suffisant pour parcourir, très lent pour rapatrier des fichiers.",
+				"unreachable": "Aucune des adresses données par plex.tv pour ce serveur n’a répondu en tant que ce serveur depuis ici."
+			}
+		}
 	},
 	"peer": {
 		"subtitle": "Les autres passerelles auxquelles celle-ci est liée.",
@@ -1252,6 +1293,16 @@
 			"mapping_duplicate": "Ce dossier du serveur est déjà associé dans une autre ligne.",
 			"mapping_invalid": "Cette liste de correspondances est illisible.",
 			"peer_not_editable": "L’enregistrement d’un pair suit le pair lui-même et ne se modifie pas ici. Son nom, sa portée en sauts et le droit qu’il a de vous lire sont sur la page de ce pair."
+		},
+		"directory": {
+			"unsupported": "Ce type de service multimédia ne se trouve pas en se connectant. Saisissez plutôt son adresse.",
+			"unreachable": "plex.tv n’a pas répondu. Vérifiez la connexion internet de cette passerelle, puis réessayez.",
+			"refused": "plex.tv a refusé la connexion de cette passerelle : elle a été révoquée, ou le mot de passe du compte a changé. Reconnectez-vous avec Plex.",
+			"sign_in_not_found": "Cette connexion n’est plus connue de la passerelle, qui a peut-être redémarré. Recommencez.",
+			"sign_in_pending": "La connexion n’a pas encore été approuvée sur plex.tv.",
+			"sign_in_expired": "La connexion a expiré avant d’être approuvée sur plex.tv. Recommencez.",
+			"server_not_found": "Votre compte Plex ne liste plus ce serveur.",
+			"server_unreachable": "Aucune adresse de ce serveur n’a répondu en tant que ce serveur depuis ici."
 		},
 		"library": {
 			"not_found": "Cette bibliothèque n'existe plus.",

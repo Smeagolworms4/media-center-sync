@@ -1,4 +1,5 @@
 export * from './auth.dto';
+export * from './directory.dto';
 export * from './filesystem.dto';
 export * from './library.dto';
 export * from './media.dto';

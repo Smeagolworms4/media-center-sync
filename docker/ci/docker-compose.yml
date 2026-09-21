@@ -67,6 +67,13 @@ services:
             # lasts one rename. It is what lets a journey ask for a transfer to be
             # re-pointed at that moment, and see the gateway refuse.
             - MCS_PLACING_HOLD_MS=3000
+            # plex.tv, as far as this gateway knows: the fake one the Plex discovery
+            # journey runs (`fake-plex-tv.ts`). Read for this purpose only, and never set
+            # by a deployment, where it defaults to the real plex.tv — which no run may
+            # depend on. A name rather than an address because the gateway starts before
+            # the journeys' container exists; `e2e.sh` gives that container the name
+            # with `--use-aliases`, and the port is fixed for the same reason.
+            - MCS_PLEX_TV_URL=http://e2e:32499
         volumes: &sources
             - ../../:/app
             - shared-modules:/app/packages/shared/node_modules
@@ -113,6 +120,9 @@ services:
             # Jellyfin key, minted by `setup-jellyfin.sh`, and the Plex address, which
             # has to be an IP (see there).
             - E2E_JELLYFIN_URL=http://jellyfin:8096
+            # Where the fake plex.tv listens, and the name the gateway was told above.
+            - E2E_FAKE_PLEX_TV_PORT=32499
+            - E2E_FAKE_PLEX_TV_URL=http://e2e:32499
             - E2E_JELLYFIN_USER=lab
             - E2E_JELLYFIN_PASSWORD=lab
             # Artefacts of this run only. The default `test-results/` is shared with

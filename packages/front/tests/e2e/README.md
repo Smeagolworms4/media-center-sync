@@ -38,6 +38,10 @@ component somebody actually wrote — so journeys use `field0(name)` rather than
 | `empty-state` | `EmptyState.vue` | the "nothing here" block |
 | `service-list`, `service-row`, `service-add`, `service-probe` | services page | the registered services |
 | `service-name`, `service-url`, `service-token` | service form | the fields of the add/edit dialog |
+| `service-add-type`, `service-add-type-<type>` | `ServiceAdd.vue` | the kind chosen first in "Add a service"; a kind with a directory (Plex) then leads with signing in |
+| `directory-sign-in`, `directory-start`, `directory-waiting`, `directory-open`, `directory-cancel`, `directory-expired`, `directory-failed`, `directory-retry`, `directory-listing`, `directory-empty`, `directory-add`, `directory-failures`, `directory-failure`, `directory-created`, `directory-manual`, `directory-back`, `directory-unavailable`, `directory-popup-blocked` | `DirectorySignIn.vue`, `ServiceAdd.vue` | signing in to plex.tv: each state of the wait, what failed and why, and the way back to the address form. The root carries `data-phase` |
+| `discovered-servers`, `discovered-group`, `discovered-server`, `discovered-select-<identifier>`, `discovered-registered`, `discovered-relay-note`, `discovered-unreachable-note` | `DiscoveredServerList.vue` | the servers the account reaches, grouped as ours (`data-group="owned"`) or shared; a row carries `data-identifier` |
+| `connection-route`, `service-relay-note` | `ConnectionRouteChip.vue`, services page | how a server found through plex.tv is reached — `data-route` is `local`, `remote`, `relay` or `unreachable` — and the sentence a relay-only service carries |
 | `media-list`, `media-row`, `sync-state`, `quality-chip` | library pages | the index, in either view |
 | `library-section`, `library-section-count`, `library-section-empty`, `library-section-open`, `library-section-all` | `Library.vue` | one band per merged category: its heading (which opens the category, and is the only door that is always there), its total, the note it shows when empty, and the button offered when the band shows less than it holds. The band carries `data-category` and `data-total` — the category's whole count, not what fits on the row |
 | `library-section-latest`, `library-section-local` | `Library.vue` | that a band is capped to the newest of its category, and that some of the category is ours |
@@ -254,6 +258,17 @@ stack other runs share, "restoring" a value this journey never touched overwrite
 whatever somebody else set meanwhile. A journey that does write reads the value first
 and puts it back in a `finally`, and writes nothing when nothing moved — settings are
 sparse, and writing a default back turns it into a choice nobody made.
+
+### plex.tv, which no journey may call
+
+`plex-discovery.spec.ts` signs in to plex.tv, lists the servers of the account and
+registers two. plex.tv is `fake-plex-tv.ts`, run inside the journey — the real one would
+need an account, somebody approving the request, and the internet. The gateway has to
+have been started pointing at it, `MCS_PLEX_TV_URL=http://e2e:32499`, which only the CI
+stack does; the journey reads where it listens from `E2E_FAKE_PLEX_TV_PORT` and
+`E2E_FAKE_PLEX_TV_URL`, and skips without them. The port is fixed and the name is the
+`e2e` service's, given to the journeys' container by `--use-aliases` in `e2e.sh`, because
+the gateway is told the address before that container exists.
 
 ### What needs a real media server
 

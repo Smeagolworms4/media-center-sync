@@ -89,6 +89,22 @@ export interface PeersConfig {
 	autoConnect: boolean;
 }
 
+export interface PlexTvConfig {
+	/**
+	 * Where plex.tv is, for this gateway. Null means the real one.
+	 *
+	 * A test hook and nothing else: the browser journeys point the gateway at a fake
+	 * plex.tv they run themselves, because a journey that signs in to the real one
+	 * needs a real account, a real approval click and the internet, and would read
+	 * green or red depending on plex.tv's day. When set, it stands in for the three
+	 * hosts Plex splits its account service across — `plex.tv` for PINs,
+	 * `clients.plex.tv` for the server list and `app.plex.tv` for the approval page —
+	 * since a fake has no reason to be three processes. Nobody deploying the gateway
+	 * has any reason to set it.
+	 */
+	url: string | null;
+}
+
 export interface AppConfig {
 	env: string;
 	port: number;
@@ -98,6 +114,7 @@ export interface AppConfig {
 	security: SecurityConfig;
 	media: MediaConfig;
 	peers: PeersConfig;
+	plexTv: PlexTvConfig;
 	/** Directory of the built interface. Empty serves nothing but the API. */
 	staticRoot: string;
 	docs: DocsConfig;
@@ -229,6 +246,9 @@ export const configuration = (): AppConfig => {
 		peers: Object.freeze({
 			maxDepth: readOptionalNumber('MCS_PEER_MAX_DEPTH'),
 			autoConnect: readBoolean('MCS_PEER_AUTO_CONNECT', env !== 'test'),
+		}),
+		plexTv: Object.freeze({
+			url: readString('MCS_PLEX_TV_URL', '') || null,
 		}),
 		staticRoot: readString('MCS_STATIC_ROOT', ''),
 		docs: Object.freeze({

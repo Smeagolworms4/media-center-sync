@@ -469,7 +469,48 @@
 			"remote": "Ihre eigenen oder die anderer — dieses Gateway spricht mit ihnen nur über HTTP. Es kann sie lesen und weitergeben; schreiben kann es in keinen, solange niemand ihre Ordner zugeordnet hat.",
 			"peer": "Gateways von Freunden. Sie zeigen, was ihr Besitzer freigegeben hat, und nicht mehr."
 		},
-		"peer_note": "Wird auf seiner eigenen Seite eingestellt: Name, Sprungreichweite und ob er bei Ihnen lesen darf."
+		"peer_note": "Wird auf seiner eigenen Seite eingestellt: Name, Sprungreichweite und ob er bei Ihnen lesen darf.",
+		"type": {
+			"jellyfin": "Jellyfin",
+			"plex": "Plex"
+		},
+		"discovery": {
+			"intro": "Melden Sie sich bei plex.tv an, und dieses Gateway listet jeden Plex-Server auf, den Ihr Konto erreicht — Ihre eigenen und die, die Freunde mit Ihnen teilen —, ohne dass eine Adresse einzutippen ist.",
+			"password_note": "Ihr Plex-Passwort wird auf plex.tv eingegeben, in Ihrem Browser. Dieses Gateway sieht es nie.",
+			"sign_in": "Mit Plex anmelden",
+			"manual": "Stattdessen eine Adresse von Hand eingeben",
+			"back": "Stattdessen mit Plex anmelden",
+			"waiting": "Warte auf Ihre Freigabe auf plex.tv…",
+			"waiting_hint": "Ein plex.tv-Tab hat sich geöffnet: Melden Sie sich dort an und erlauben Sie Media Center Sync den Zugriff. Dieses Fenster macht von selbst weiter.",
+			"popup_blocked": "Ihr Browser hat plex.tv nicht geöffnet. Öffnen Sie es mit der Schaltfläche unten.",
+			"code": "Auf plex.tv angezeigter Code: {code}",
+			"open_again": "plex.tv öffnen",
+			"expired": "Die Anmeldung ist abgelaufen, bevor sie auf plex.tv freigegeben wurde. Beginnen Sie neu, um eine neue zu erhalten.",
+			"retry": "Neu beginnen",
+			"listing": "Frage plex.tv nach Ihren Servern und probiere jeden von hier aus…",
+			"empty": "Dieses Plex-Konto erreicht keinen Server. Ein nicht mit plex.tv verknüpfter Server lässt sich weiterhin über seine Adresse hinzufügen.",
+			"yours": "Ihre Server",
+			"shared_by": "Mit Ihnen geteilt von {owner}",
+			"shared_unknown": "Mit Ihnen geteilt",
+			"registered": "Bereits registriert",
+			"version": "Plex {version}",
+			"add": "Ausgewählte Server hinzufügen ({count})",
+			"created": "Hinzugefügt: {names}.",
+			"failed_title": "Nicht hinzugefügt:",
+			"failure": "{name}: {reason}",
+			"done": "Schließen",
+			"unavailable": "Die Anmeldung mit Plex ist gerade nicht verfügbar ({reason}). Die Adresse kann unten weiterhin eingegeben werden.",
+			"route": {
+				"local": "Lokales Netz",
+				"remote": "Über das Internet",
+				"relay": "Nur über das Plex-Relay",
+				"unreachable": "Antwortet nicht"
+			},
+			"route_hint": {
+				"relay": "Von hier aus erreicht nur das Relay von Plex diesen Server. Plex drosselt das Relay: zum Stöbern reicht es, zum Holen von Dateien ist es sehr langsam.",
+				"unreachable": "Keine der Adressen, die plex.tv für diesen Server nannte, hat von hier aus als dieser Server geantwortet."
+			}
+		}
 	},
 	"peer": {
 		"subtitle": "Die anderen Gateways, mit denen dieses verbunden ist.",
@@ -1252,6 +1293,16 @@
 			"mapping_duplicate": "Dieser Serverordner ist bereits in einer anderen Zeile zugeordnet.",
 			"mapping_invalid": "Diese Liste von Zuordnungen ist nicht lesbar.",
 			"peer_not_editable": "Die Registrierung eines Peers folgt dem Peer selbst und lässt sich hier nicht bearbeiten. Sein Name, seine Sprungreichweite und ob er bei Ihnen lesen darf, stehen auf der Seite dieses Peers."
+		},
+		"directory": {
+			"unsupported": "Diese Art von Mediendienst lässt sich nicht per Anmeldung finden. Geben Sie stattdessen seine Adresse ein.",
+			"unreachable": "plex.tv hat nicht geantwortet. Prüfen Sie die Internetverbindung dieses Gateways und versuchen Sie es erneut.",
+			"refused": "plex.tv hat die Anmeldung dieses Gateways abgelehnt: Sie wurde widerrufen, oder das Kontopasswort hat sich geändert. Melden Sie sich erneut mit Plex an.",
+			"sign_in_not_found": "Das Gateway kennt diese Anmeldung nicht mehr, vielleicht wurde es neu gestartet. Beginnen Sie neu.",
+			"sign_in_pending": "Die Anmeldung wurde auf plex.tv noch nicht freigegeben.",
+			"sign_in_expired": "Die Anmeldung ist abgelaufen, bevor sie auf plex.tv freigegeben wurde. Beginnen Sie neu.",
+			"server_not_found": "Ihr Plex-Konto führt diesen Server nicht mehr.",
+			"server_unreachable": "Keine Adresse dieses Servers hat von hier aus als dieser Server geantwortet."
 		},
 		"library": {
 			"not_found": "Diese Bibliothek gibt es nicht mehr.",

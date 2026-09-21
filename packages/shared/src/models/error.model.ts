@@ -83,6 +83,53 @@ export const ErrorKey = {
 	 */
 	SERVICE_MAPPING_INVALID: 'error.service.mapping_invalid',
 
+	/**
+	 * This kind of service has no directory to sign in to and be told its servers.
+	 *
+	 * A Jellyfin has no account service above it: its address is the only way to find
+	 * it, and the form that asks for one is the right screen.
+	 */
+	DIRECTORY_UNSUPPORTED: 'error.directory.unsupported',
+	/**
+	 * The directory itself — plex.tv — did not answer.
+	 *
+	 * Distinct from a server that does not answer, because the fix is somewhere else
+	 * entirely: this is the gateway's own internet connection, or the account service
+	 * having a bad day, and no server anybody owns has anything to do with it.
+	 */
+	DIRECTORY_UNREACHABLE: 'error.directory.unreachable',
+	/**
+	 * The directory refused the account token it once issued.
+	 *
+	 * The person signed the gateway out from their account page, or changed their
+	 * password, which revokes every token. Only signing in again fixes it.
+	 */
+	DIRECTORY_REFUSED: 'error.directory.refused',
+	/**
+	 * No sign-in by that handle: never started, already finished, or started on a
+	 * gateway that has restarted since and forgotten it. The dialog starts again.
+	 */
+	DIRECTORY_SIGN_IN_NOT_FOUND: 'error.directory.sign_in_not_found',
+	/** Servers were asked for before the person approved the sign-in. */
+	DIRECTORY_SIGN_IN_PENDING: 'error.directory.sign_in_pending',
+	/** Nobody approved the sign-in before the directory let the request lapse. */
+	DIRECTORY_SIGN_IN_EXPIRED: 'error.directory.sign_in_expired',
+	/**
+	 * The account no longer lists that server: its owner removed it, or a friend
+	 * stopped sharing it, between the list being shown and the box being ticked.
+	 */
+	DIRECTORY_SERVER_NOT_FOUND: 'error.directory.server_not_found',
+	/**
+	 * Every address the directory gave for that server was tried, and none answered as
+	 * that server.
+	 *
+	 * "As that server" is the part that matters: an address that answers as some other
+	 * machine — a stale local IP now handed to a different box — is refused exactly
+	 * like one that does not answer, because registering it would index somebody
+	 * else's library under this server's name.
+	 */
+	DIRECTORY_SERVER_UNREACHABLE: 'error.directory.server_unreachable',
+
 	LIBRARY_NOT_FOUND: 'error.library.not_found',
 	LIBRARY_PATH_UNREADABLE: 'error.library.path_unreadable',
 	LIBRARY_PATH_NOT_WRITABLE: 'error.library.path_not_writable',
