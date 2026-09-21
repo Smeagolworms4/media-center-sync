@@ -18,34 +18,50 @@ import {
  * Exists for one failure: a local path typed by hand that does not designate the
  * directory the media server reads accepts transfers the server never sees, and
  * nothing anywhere reports an error. Letting somebody point at a directory instead of
- * spelling it is the cheapest fix there is — but a browser over the host's filesystem
- * is also the easiest way to hand out a map of it, so the boundary below is the rule
- * this manager exists to apply.
+ * spelling it is the cheapest fix there is — and a browser that cannot reach the
+ * directory somebody needs to point at does not fix it at all.
+ *
+ * **So the browser is not restricted by default, and that is a decision rather than
+ * an oversight.** It was the other way round first: `MCS_MEDIA_ROOT` was the
+ * boundary, the picker opened on it, and every step above it answered 403. That
+ * reasoning only holds inside a container, where `/` is already the sandbox and the
+ * mounts are the whole tree. Run the gateway straight on a host — a development
+ * stack, or anybody without Docker — and the media are wherever that machine keeps
+ * them, so the picker opened on a directory holding none of what was being looked
+ * for, with no way up and no way across, and the person fell back to typing the path
+ * by hand. That is precisely the failure this feature exists to remove, reintroduced
+ * by the boundary meant to make it safe.
+ *
+ * What the boundary was protecting against is worth naming so the trade is legible: a
+ * browse route is a way to read the shape of the host's filesystem. It is already
+ * behind a session and a right, it lists directory names and never file contents, and
+ * anybody holding that right is administering this gateway. A deployment that wants
+ * the narrow version back sets `MCS_BROWSE_ROOTS` and gets exactly the old behaviour.
  */
 
 /**
- * The configured roots a browse may reach, and the only ones.
+ * The directories worth opening on, as keys into the media configuration.
  *
  * `media.root` (`MCS_MEDIA_ROOT`) is where the libraries are mounted and
- * `media.transferRoot` is where incomplete transfers accumulate: between them they
- * are every directory a local path can legitimately name. Named here, as keys into
- * the media configuration, so that widening the browser is one visible edit in one
- * file rather than a second root quietly appearing at a call site — and so that the
- * listing code never has the whole configuration in reach at all.
+ * `media.transferRoot` is where incomplete transfers accumulate. They are no longer a
+ * boundary; they are the useful place to start, which is a different job. Named as
+ * keys rather than read inline so the listing code never has the whole configuration
+ * in reach.
  */
-const ALLOWED_ROOT_KEYS = ['root', 'transferRoot'] as const satisfies readonly (keyof MediaConfig)[];
+const STARTING_POINT_KEYS = ['root', 'transferRoot'] as const satisfies readonly (keyof MediaConfig)[];
 
 /**
- * Extra roots this deployment allows, comma separated.
+ * The roots this deployment restricts the browser to, comma separated.
  *
- * `MCS_MEDIA_ROOT` is right when the gateway runs in its own container, where the
- * libraries are mounted at one place by construction. Run it straight on a host —
- * which is what a development stack does, and what somebody without Docker will do —
- * and the media are wherever that machine keeps them, so the browser opens on a
- * directory holding none of what is being looked for. This is the way out that does
- * not involve widening the boundary for everybody.
+ * Unset — the ordinary case — means no restriction: `/` is the root, every directory
+ * is navigable, and the breadcrumb walks all the way up. Set, and these are the only
+ * directories a browse may reach, which is the narrow behaviour somebody running the
+ * gateway on a shared host may well want back.
  */
-const EXTRA_ROOTS = 'MCS_BROWSE_ROOTS';
+const BROWSE_ROOTS = 'MCS_BROWSE_ROOTS';
+
+/** No restriction configured: the filesystem's own root, so nothing is out of reach. */
+const UNRESTRICTED = ['/'];
 
 export interface BrowseRequest {
 	/** Empty or absent starts at the first allowed root. */
@@ -57,6 +73,8 @@ export interface BrowseRequest {
 export class FilesystemManager {
 	private readonly _roots: readonly string[];
 
+	private readonly _startingPoints: readonly string[];
+
 	public constructor(
 		config: ConfigService,
 		private readonly _filesystem: FilesystemService,
@@ -64,13 +82,18 @@ export class FilesystemManager {
 		private readonly _libraries: LibraryRepository,
 	) {
 		const media = config.getOrThrow<MediaConfig>('media');
-		const extra = (config.get<string>(EXTRA_ROOTS) ?? '')
+		const restricted = (config.get<string>(BROWSE_ROOTS) ?? '')
 			.split(',')
-			.map((root) => root.trim());
+			.map((root) => root.trim())
+			.filter((root) => root !== '');
 
-		this._roots = [...ALLOWED_ROOT_KEYS.map((key) => media[key]), ...extra].filter(
+		this._startingPoints = STARTING_POINT_KEYS.map((key) => media[key]).filter(
 			(root) => root !== '',
 		);
+
+		// An empty list would let `resolveWithinRoots` refuse everything, so the
+		// unrestricted case has to be spelled as a root rather than as no roots.
+		this._roots = restricted.length === 0 ? UNRESTRICTED : restricted;
 	}
 
 	/**
@@ -110,7 +133,12 @@ export class FilesystemManager {
 		const allowed = await this._allowedRoots();
 		const roots = await resolveRoots(allowed);
 		const asked = request.path?.trim() ?? '';
-		const wanted = asked === '' ? (roots[0] ?? '/') : asked;
+		// Opening on `/` would be correct and useless: the media are several levels
+		// down and the first screen would be `bin`, `boot`, `dev`. So a browse with
+		// nothing asked for starts where the media are and walks up from there, which
+		// is now possible — the starting point and the boundary are different things,
+		// and conflating them is what made the picker a dead end.
+		const wanted = asked === '' ? (this._startingPoints[0] ?? roots[0] ?? '/') : asked;
 		const resolved = await resolveWithinRoots(wanted, allowed);
 
 		if (resolved.verdict === PathVerdict.OUTSIDE) {
