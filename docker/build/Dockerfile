@@ -88,6 +88,14 @@ FROM node:24-alpine AS runtime
 
 ENV NODE_ENV=production
 
+# Declared again here because a build argument does not cross a `FROM`: the one above
+# only ever reached the builder stage, where it stamps the interface. The API reads
+# `MCS_VERSION` at run time and fell back to `dev`, so every published image — a tagged
+# release included — answered `dev` from its health route and its setup screen while
+# its own interface said otherwise. The two halves of one image must name one version.
+ARG MCS_VERSION=dev
+ENV MCS_VERSION=$MCS_VERSION
+
 WORKDIR /app
 
 # The cache that `entrypoint.sh` starts unless the deployment points at another one.

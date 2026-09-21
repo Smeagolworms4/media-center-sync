@@ -138,5 +138,9 @@ jobs:
           cache-to: type=gha,mode=max
           # An image knows nothing about the tag that produced it: without this the
           # interface cannot say what it is, and you are left comparing digests.
+          # The metadata step's `version` rather than `ref_name`: for tag `v0.0.1` it
+          # is `0.0.1`, the same spelling as `package.json` and the semver image tag,
+          # where `ref_name` would have the image call itself `v0.0.1` beside a
+          # `0.0.1` tag. On `main` it is `main`, which is what that image is.
           build-args: |
-            MCS_VERSION=${{ github.ref_name }}
+            MCS_VERSION=${{ steps.meta.outputs.version }}
