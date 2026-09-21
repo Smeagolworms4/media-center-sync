@@ -337,6 +337,17 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 */
 	public async accept(invite: string, name?: string): Promise<Peer> {
 		const parsed = this._decode(invite);
+		const fingerprint = parsed.fingerprint;
+
+		// Checked before whose invitation it is, because the answer is the same either
+		// way: a code with no fingerprint names nobody to link to. Ours included — a URL
+		// of ours stripped of its fingerprint would otherwise link a peer whose
+		// "fingerprint" is the invitation code, a friend no key can ever authenticate
+		// as, listed as linked.
+		if (fingerprint === null) {
+			throw new UnauthorizedException(ErrorKey.PEER_INVITE_INVALID);
+		}
+
 		const known = await this._invites.findByCode(parsed.code);
 
 		if (known !== null) {
@@ -353,17 +364,11 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 			}
 		} else {
 			// An invitation somebody else minted. Its expiry is the only thing it carries
-			// that we can check, and a code with no fingerprint names nobody to link to.
-			if (parsed.fingerprint === null) {
-				throw new UnauthorizedException(ErrorKey.PEER_INVITE_INVALID);
-			}
-
+			// that we can check.
 			if (parsed.expiresAt === null || parsed.expiresAt.getTime() <= Date.now()) {
 				throw new UnauthorizedException(ErrorKey.PEER_INVITE_EXPIRED);
 			}
 		}
-
-		const fingerprint = parsed.fingerprint ?? known?.code ?? parsed.code;
 
 		// A valid invitation is not a way around the list. Redeeming one from a banned
 		// key would link them outright — no pending row, nothing to approve — which
@@ -398,6 +403,9 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 					address: existing.address ?? (parsed.address || null),
 					status: PeerStatus.LINKED,
 					trust: PeerTrust.FRIEND,
+					// Redeeming an invitation is choosing somebody. A row first created by an
+					// introduction would otherwise still delete itself when this link closes.
+					discovered: false,
 				}),
 		);
 
@@ -474,6 +482,10 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 					address: request.address ?? existing.address,
 					status: PeerStatus.PENDING,
 					direction: PeerDirection.OUTGOING,
+					// A request somebody typed is theirs to withdraw. Left discovered, the
+					// row met through an introduction would be swept at the next restart,
+					// or the moment its link closed, taking the request with it.
+					discovered: false,
 				}),
 		);
 
@@ -524,6 +536,11 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		// from now on, and leaving the old distance would keep ranking them behind
 		// peers who are further away.
 		peer.depth = 1;
+		// And somebody we chose is kept. A friend of a friend first met through an
+		// introduction arrives as a temporary row; settling a link with them without
+		// clearing that would leave a friend who deletes themselves the next time the
+		// link closes, and who is swept from the list at every restart.
+		peer.discovered = false;
 
 		const saved = await this._peers.save(peer);
 
@@ -1064,7 +1081,11 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 			// exists, and re-reading it on every reconnection would let a third party go
 			// on restating who somebody is long after the two ends stopped needing them.
 			if (known === null || !this._isSettled(known)) {
-				const introduced = await this._admitIntroduced(credential, known);
+				const introduced = await this._admitIntroduced(
+					credential,
+					credential.introduction,
+					known,
+				);
 
 				if (introduced !== null) {
 					return introduced;
@@ -1110,9 +1131,9 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 */
 	private async _admitIntroduced(
 		credential: PeerCredential,
+		token: string,
 		known: PeerEntity | null,
 	): Promise<PeerAdmission | null> {
-		const token = credential.introduction ?? '';
 		const claim = this._introductions.read(token);
 
 		if (claim === null) {

@@ -18,7 +18,7 @@ import {
 	type Settings,
 	ShareVisibility,
 } from '@mcs/shared';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { FindManyOptions, FindOptionsWhere } from 'typeorm';
 import type { MediaItem, MediaService, SyncJob, SyncJobItem, SyncPlan, Transfer } from '@/entities';
@@ -44,7 +44,7 @@ import type {
 import { QualityService } from '@/services';
 import type { LibraryManager } from './library.manager';
 import type { NotificationManager } from './notification.manager';
-import { SyncManager } from './sync.manager';
+import { jobItemStateOf, SyncManager } from './sync.manager';
 
 const SETTINGS: Settings = {
 	defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
@@ -150,7 +150,14 @@ interface World {
 	fakes: {
 		placement: { resolve: jest.Mock; prepare: jest.Mock };
 		transfers: { save: jest.Mock; create: jest.Mock; findByJob: jest.Mock };
-		jobs: { save: jest.Mock; create: jest.Mock; findLiveForPlan: jest.Mock; findOne: jest.Mock };
+		jobs: {
+			save: jest.Mock;
+			create: jest.Mock;
+			findLiveForPlan: jest.Mock;
+			findOne: jest.Mock;
+			pageOf: jest.Mock;
+		};
+		plans: { find: jest.Mock; findOne: jest.Mock; save: jest.Mock; setRunStamps: jest.Mock };
 		lines: {
 			save: jest.Mock;
 			create: jest.Mock;
@@ -165,7 +172,13 @@ interface World {
 			probe: jest.Mock;
 		};
 		engine: { enqueue: jest.Mock; cancel: jest.Mock; setSourceResolver: jest.Mock; onTransferState: jest.Mock };
-		metadata: { discover: jest.Mock; apply: jest.Mock; mergeExternalIds: jest.Mock };
+		metadata: {
+			discover: jest.Mock;
+			apply: jest.Mock;
+			mergeExternalIds: jest.Mock;
+			writeNfo: jest.Mock;
+		};
+		events: { emit: jest.Mock };
 		naming: { render: jest.Mock };
 		services: { findWithSecrets: jest.Mock };
 		scheduler: { registerPlans: jest.Mock; onPlan: jest.Mock; unregisterPlan: jest.Mock; nextRunAt: jest.Mock };
@@ -184,6 +197,8 @@ const build = (
 		categoryLibraries?: string[];
 		/** Library identifier to category key, as the library manager answers it. */
 		categoryKeys?: Record<string, string>;
+		/** Every library, as the path translation of a local sibling reads them. */
+		libraries?: unknown[];
 	} = {},
 ): World => {
 	const items = world.items ?? [
@@ -274,6 +289,19 @@ const build = (
 			create: jest.fn((value: Partial<SyncJob>) => value as SyncJob),
 			findLiveForPlan: jest.fn().mockResolvedValue(null),
 			findOne: jest.fn().mockResolvedValue(null),
+			pageOf: jest.fn().mockResolvedValue([[], 0]),
+		},
+		plans: {
+			find: jest.fn().mockResolvedValue(world.plans ?? []),
+			findOne: jest.fn().mockResolvedValue(null),
+			save: jest.fn((value: SyncPlan) =>
+				Promise.resolve({
+					...value,
+					createdAt: new Date('2026-01-01T00:00:00.000Z'),
+					updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+				} as SyncPlan),
+			),
+			setRunStamps: jest.fn().mockResolvedValue(undefined),
 		},
 		lines: {
 			save: jest.fn((value: unknown) => Promise.resolve(value)),
@@ -309,7 +337,11 @@ const build = (
 			discover: jest.fn().mockResolvedValue([]),
 			apply: jest.fn().mockResolvedValue({ copied: [], kept: [], failed: [] }),
 			mergeExternalIds: jest.fn(() => ({})),
+			// Nothing written unless a test says otherwise, which is what the real one
+			// answers when `writeNfo` is off.
+			writeNfo: jest.fn().mockResolvedValue(null),
 		},
+		events: { emit: jest.fn() },
 		naming: { render: jest.fn(() => 'Show/S01E03.mkv') },
 		scheduler: {
 			registerPlans: jest.fn(),
@@ -327,17 +359,8 @@ const build = (
 
 	const manager = new SyncManager(
 		{
-			find: jest.fn().mockResolvedValue(world.plans ?? []),
-			findOne: jest.fn().mockResolvedValue(null),
+			...fakes.plans,
 			create: jest.fn((value: Partial<SyncPlan>) => ({ id: 'plan-1', ...value }) as SyncPlan),
-			save: jest.fn((value: SyncPlan) =>
-				Promise.resolve({
-					...value,
-					createdAt: new Date('2026-01-01T00:00:00.000Z'),
-					updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-				} as SyncPlan),
-			),
-			setRunStamps: jest.fn().mockResolvedValue(undefined),
 		} as unknown as SyncPlanRepository,
 		fakes.jobs as unknown as SyncJobRepository,
 		fakes.lines as unknown as SyncJobItemRepository,
@@ -360,6 +383,7 @@ const build = (
 			),
 		} as unknown as MediaServiceRepository,
 		{
+			find: jest.fn().mockResolvedValue(world.libraries ?? []),
 			findByServices: jest.fn().mockResolvedValue([]),
 			// Answered by identifier, so a library on a friend's server really is a
 			// different answer here: `library-theirs` sits on `service-peer`, which the
@@ -395,7 +419,7 @@ const build = (
 		fakes.placement as unknown as PlacementService,
 		fakes.engine as unknown as TransferEngineService,
 		fakes.scheduler as unknown as SchedulerService,
-		{ emit: jest.fn() } as unknown as EventGatewayService,
+		fakes.events as unknown as EventGatewayService,
 		fakes.notifications as unknown as NotificationManager,
 		{ getOrThrow: () => ({ root: '/media', transferRoot: '/var/transfer' }) } as unknown as ConfigService,
 	);
@@ -1903,4 +1927,649 @@ describe('SyncManager', () => {
 		});
 	});
 
+	describe('a run started by the schedule', () => {
+		const nightly = {
+			id: 'plan-nightly',
+			name: 'Nightly',
+			scope: {},
+			sourceServiceIds: [],
+			filter: {},
+			preferredLibraryId: null,
+			maxItemsPerRun: null,
+			maxBytesPerRun: null,
+		} as unknown as SyncPlan;
+
+		it('runs the plan the scheduler names, and records it as scheduled', async () => {
+			const { manager, fakes } = build();
+
+			fakes.plans.findOne.mockResolvedValue(nightly);
+			manager.onModuleInit();
+
+			const tick = fakes.scheduler.onPlan.mock.calls[0][0] as (planId: string) => Promise<void>;
+
+			await tick('plan-nightly');
+
+			// Recorded as the schedule's, not as somebody's click: a run nobody started
+			// is the first thing a person reading the history at breakfast asks about.
+			expect(fakes.jobs.create).toHaveBeenCalledWith(
+				expect.objectContaining({ planId: 'plan-nightly', trigger: SyncTrigger.SCHEDULE }),
+			);
+		});
+
+		it('stamps the plan with when it ran and when it next will, and names the run after it', async () => {
+			const { manager, fakes } = build();
+			const next = new Date('2026-01-02T04:00:00.000Z');
+
+			fakes.plans.findOne.mockResolvedValue(nightly);
+			fakes.scheduler.nextRunAt.mockReturnValue(next);
+
+			const job = await manager.run({ planId: 'plan-nightly' });
+
+			expect(fakes.plans.setRunStamps).toHaveBeenCalledWith('plan-nightly', expect.any(Date), next);
+			expect(job.planName).toBe('Nightly');
+		});
+
+		it('stamps nothing for a run no plan asked for', async () => {
+			const { manager, fakes } = build();
+
+			const job = await manager.run({});
+
+			expect(fakes.plans.setRunStamps).not.toHaveBeenCalled();
+			expect(job.planName).toBeNull();
+		});
+	});
+
+	describe('stopping a run', () => {
+		const job = (overrides: Partial<SyncJob> = {}): SyncJob =>
+			({
+				id: 'job-1',
+				planId: null,
+				state: SyncJobState.RUNNING,
+				trigger: SyncTrigger.MANUAL,
+				startedAt: new Date('2026-01-01T00:00:00.000Z'),
+				finishedAt: null,
+				itemsPlanned: 5,
+				itemsDone: 1,
+				itemsFailed: 1,
+				bytesPlanned: 0,
+				bytesDone: 0,
+				scope: {},
+				targets: [],
+				stoppedBy: null,
+				error: null,
+				createdAt: new Date('2026-01-01T00:00:00.000Z'),
+				...overrides,
+			}) as SyncJob;
+
+		it('stops what is still moving, and leaves what already ended alone', async () => {
+			const { manager, fakes } = build();
+
+			fakes.jobs.findOne.mockResolvedValue(job());
+			fakes.transfers.findByJob.mockResolvedValue([
+				{ id: 'queued', state: TransferState.QUEUED },
+				{ id: 'moving', state: TransferState.DOWNLOADING },
+				{ id: 'done', state: TransferState.DONE },
+				{ id: 'failed', state: TransferState.FAILED },
+				{ id: 'cancelled', state: TransferState.CANCELLED },
+			]);
+
+			const stopped = await manager.cancel('job-1');
+
+			// A stop that only stopped the bookkeeping would leave the downloads running.
+			expect(fakes.engine.cancel.mock.calls.map(([id]) => id as string)).toEqual([
+				'queued',
+				'moving',
+			]);
+			expect(fakes.lines.skipUnfinished).toHaveBeenCalledWith('job-1');
+			expect(stopped.state).toBe(SyncJobState.CANCELLED);
+			expect(stopped.finishedAt).not.toBeNull();
+			expect(fakes.events.emit).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ id: 'job-1', state: SyncJobState.CANCELLED }),
+			);
+		});
+
+		it('skips the lines before the job is marked, so a failure leaves it still running', async () => {
+			const { manager, fakes } = build();
+
+			fakes.jobs.findOne.mockResolvedValue(job());
+			fakes.lines.skipUnfinished.mockRejectedValue(new Error('database is locked'));
+
+			await expect(manager.cancel('job-1')).rejects.toThrow('database is locked');
+			expect(fakes.jobs.save).not.toHaveBeenCalled();
+		});
+
+		it.each([SyncJobState.DONE, SyncJobState.FAILED, SyncJobState.CANCELLED])(
+			'hands back a run that is already %s as it is',
+			async (state) => {
+				const { manager, fakes } = build();
+
+				fakes.jobs.findOne.mockResolvedValue(job({ state }));
+
+				const answer = await manager.cancel('job-1');
+
+				// Rewriting a finished run as cancelled would erase how it really ended.
+				expect(answer.state).toBe(state);
+				expect(fakes.engine.cancel).not.toHaveBeenCalled();
+				expect(fakes.jobs.save).not.toHaveBeenCalled();
+			},
+		);
+
+		it('answers a key for a run nobody has, to a stop and to a read alike', async () => {
+			const { manager } = build();
+
+			await expect(manager.cancel('ghost')).rejects.toThrow(
+				new NotFoundException(ErrorKey.SYNC_JOB_NOT_FOUND),
+			);
+			await expect(manager.readJob('ghost')).rejects.toThrow(
+				new NotFoundException(ErrorKey.SYNC_JOB_NOT_FOUND),
+			);
+		});
+
+		it('reads a run whose plan was deleted since as belonging to no plan', async () => {
+			const { manager, fakes } = build();
+
+			fakes.jobs.findOne.mockResolvedValue(job({ planId: 'plan-gone' }));
+
+			const answer = await manager.readJob('job-1');
+
+			expect(answer.planId).toBe('plan-gone');
+			expect(answer.planName).toBeNull();
+		});
+
+		it('names every run of the history after its plan, and none after a plan since deleted', async () => {
+			const { manager, fakes } = build();
+
+			fakes.jobs.pageOf.mockResolvedValue([
+				[
+					job({ id: 'job-a', planId: 'plan-a' }),
+					job({ id: 'job-b', planId: 'plan-gone' }),
+					job({ id: 'job-c', planId: null }),
+				],
+				3,
+			]);
+			fakes.plans.find.mockResolvedValue([{ id: 'plan-a', name: 'Nightly' }]);
+
+			const page = await manager.jobs({});
+
+			expect(page.items.map((one) => [one.id, one.planName])).toEqual([
+				['job-a', 'Nightly'],
+				['job-b', null],
+				['job-c', null],
+			]);
+			expect(page.pagination.total).toBe(3);
+		});
+
+		it('reads a history page of manual runs without asking for any plan', async () => {
+			const { manager, fakes } = build();
+
+			fakes.jobs.pageOf.mockResolvedValue([[job({ planId: null })], 1]);
+
+			const page = await manager.jobs({});
+
+			expect(page.items[0].planName).toBeNull();
+			expect(fakes.plans.find).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('what a transfer tells its run', () => {
+		const transfer = (overrides: Partial<Transfer> = {}): Transfer =>
+			({
+				id: 'transfer-1',
+				jobId: 'job-1',
+				itemId: 'item-fast',
+				title: 'The Trap',
+				state: TransferState.FAILED,
+				bytesDone: 0,
+				error: null,
+				errorKind: null,
+				startedAt: null,
+				finishedAt: null,
+				...overrides,
+			}) as Transfer;
+
+		const listen = (world: World): ((one: Transfer) => Promise<void>) => {
+			world.manager.onModuleInit();
+
+			return world.fakes.engine.onTransferState.mock.calls[0][0] as (
+				one: Transfer,
+			) => Promise<void>;
+		};
+
+		it('says a failure had no recorded reason rather than sending an empty message', async () => {
+			const world = build();
+
+			await listen(world)(transfer({ jobId: null }));
+
+			expect(world.fakes.notifications.notify).toHaveBeenCalledWith(
+				expect.objectContaining({ body: 'unknown — no reason recorded' }),
+			);
+		});
+
+		it('names the failure and its kind when they are known', async () => {
+			const world = build();
+
+			await listen(world)(
+				transfer({ jobId: null, errorKind: 'disk_full', error: 'error.transfer.no_space' } as Partial<Transfer>),
+			);
+
+			expect(world.fakes.notifications.notify).toHaveBeenCalledWith(
+				expect.objectContaining({ body: 'disk_full — error.transfer.no_space' }),
+			);
+			// Started by hand: there is no run to bring up to date.
+			expect(world.fakes.lines.findLine).not.toHaveBeenCalled();
+		});
+
+		it('leaves the run alone when the transfer has no line in it', async () => {
+			const world = build();
+
+			await listen(world)(transfer({ state: TransferState.DONE }));
+
+			expect(world.fakes.lines.save).not.toHaveBeenCalled();
+			expect(world.fakes.jobs.save).not.toHaveBeenCalled();
+		});
+
+		it('records the line but settles nothing for a run that no longer exists', async () => {
+			const world = build();
+
+			world.fakes.lines.findLine.mockResolvedValue({ id: 'line-1' } as SyncJobItem);
+
+			await listen(world)(transfer({ state: TransferState.DONE }));
+
+			expect(world.fakes.lines.save).toHaveBeenCalledWith(
+				expect.objectContaining({ state: SyncJobItemState.DONE, transferId: 'transfer-1' }),
+			);
+			expect(world.fakes.jobs.save).not.toHaveBeenCalled();
+			expect(world.fakes.events.emit).not.toHaveBeenCalled();
+		});
+
+		it('forgets the transfer of a line that went back to waiting', async () => {
+			const world = build();
+
+			world.fakes.lines.findLine.mockResolvedValue({ id: 'line-1' } as SyncJobItem);
+
+			await listen(world)(transfer({ state: TransferState.PAUSED }));
+
+			// A progress bar opened on a paused transfer would sit still and look broken.
+			expect(world.fakes.lines.save).toHaveBeenCalledWith(
+				expect.objectContaining({ state: SyncJobItemState.PENDING, transferId: null }),
+			);
+		});
+	});
+
+	describe('the line a transfer state reads as', () => {
+		it.each([
+			[TransferState.DONE, SyncJobItemState.DONE],
+			[TransferState.FAILED, SyncJobItemState.FAILED],
+			[TransferState.CANCELLED, SyncJobItemState.SKIPPED],
+			[TransferState.QUEUED, SyncJobItemState.PENDING],
+			[TransferState.PAUSED, SyncJobItemState.PENDING],
+			[TransferState.CONNECTING, SyncJobItemState.RUNNING],
+			[TransferState.DOWNLOADING, SyncJobItemState.RUNNING],
+			[TransferState.VERIFYING, SyncJobItemState.RUNNING],
+		])('%s reads as %s', (state, expected) => {
+			expect(jobItemStateOf(state)).toBe(expected);
+		});
+	});
+
+	describe('the document written beside a pulled file', () => {
+		const series = item({ id: 'series-1', kind: MediaKind.SERIES, title: 'The Expanse', file: null });
+		const season = item({
+			id: 'season-1',
+			kind: MediaKind.SEASON,
+			title: 'Season 1',
+			file: null,
+			parentId: 'series-1',
+		});
+
+		it('names the show an episode belongs to, two parents up', async () => {
+			const { manager, fakes } = build({
+				items: [series, season, item({ parentId: 'season-1' })],
+				settings: { pullMetadata: true },
+			});
+
+			fakes.metadata.writeNfo.mockResolvedValue('/media/shows/Show/S01E03.nfo');
+
+			await manager.run({});
+
+			// The episode's own title twice and no show is the document a media server
+			// files under the wrong series when two share an episode title.
+			expect(fakes.metadata.writeNfo).toHaveBeenCalledWith(
+				'/media/shows/Show/S01E03.mkv',
+				expect.objectContaining({ title: 'The Trap', showTitle: 'The Expanse' }),
+				expect.anything(),
+			);
+		});
+
+		it('names no show for a film', async () => {
+			const { manager, fakes } = build({
+				items: [item({ kind: MediaKind.MOVIE, parentId: 'series-1' }), series],
+				settings: { pullMetadata: true },
+			});
+
+			await manager.run({});
+
+			expect(fakes.metadata.writeNfo).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({ kind: MediaKind.MOVIE, showTitle: null }),
+				expect.anything(),
+			);
+		});
+
+		it('names no show rather than a wrong one when the parents are not recorded', async () => {
+			const { manager, fakes } = build({
+				items: [item({ parentId: 'season-forgotten' })],
+				settings: { pullMetadata: true },
+			});
+
+			await manager.run({});
+
+			expect(fakes.metadata.writeNfo).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({ showTitle: null }),
+				expect.anything(),
+			);
+		});
+
+		it('adds the source identifiers to the copy it replaces', async () => {
+			const world = build({
+				items: [
+					item({ syncState: SyncState.OUTDATED, externalIds: { tvdb: '81189' } }),
+					item({
+						id: 'item-local',
+						serviceId: 'service-local',
+						externalId: 'ours',
+						externalIds: { tmdb: '1396' },
+					}),
+				],
+				services: [service('service-fast', 1), service('service-local', 3)],
+				localServices: [service('service-local', 3)],
+				matches: [{ localItemId: 'item-local', remoteItemId: 'item-fast' }],
+				settings: { pullMetadata: true },
+			});
+
+			world.fakes.metadata.mergeExternalIds.mockImplementation(
+				(local: Record<string, string>, source: Record<string, string>) => ({ ...source, ...local }),
+			);
+
+			await world.manager.run({ filter: { replaceOutdated: true } });
+
+			// Holding both numbers is what makes every later correlation of this show cheap.
+			expect(world.items.find((one) => one.id === 'item-local')?.externalIds).toEqual({
+				tvdb: '81189',
+				tmdb: '1396',
+			});
+		});
+	});
+
+	describe('the name a pulled episode is filed under', () => {
+		const nameableOf = (render: jest.Mock): { seriesTitle: string | null } =>
+			render.mock.calls[0][1] as { seriesTitle: string | null };
+
+		it('is the show’s title, not the episode’s', async () => {
+			const { manager, fakes } = build({
+				items: [
+					item({ id: 'series-1', kind: MediaKind.SERIES, title: 'The Expanse', file: null }),
+					item({ id: 'season-1', kind: MediaKind.SEASON, title: 'Season 1', file: null, parentId: 'series-1' }),
+					item({ parentId: 'season-1' }),
+				],
+			});
+
+			await manager.plan({});
+
+			// Filed under its own title, every episode would get a folder of its own.
+			expect(nameableOf(fakes.naming.render).seriesTitle).toBe('The Expanse');
+		});
+
+		it('is the season’s title when no show is recorded above it', async () => {
+			const { manager, fakes } = build({
+				items: [
+					item({ id: 'season-1', kind: MediaKind.SEASON, title: 'The Expanse S1', file: null }),
+					item({ parentId: 'season-1' }),
+				],
+			});
+
+			await manager.plan({});
+
+			expect(nameableOf(fakes.naming.render).seriesTitle).toBe('The Expanse S1');
+		});
+
+		it('is left to the template when neither parent is recorded', async () => {
+			const { manager, fakes } = build({ items: [item({ parentId: 'season-forgotten' })] });
+
+			await manager.plan({});
+
+			expect(nameableOf(fakes.naming.render).seriesTitle).toBeNull();
+		});
+
+		it('imitates our own copy of the show, as the gateway sees its path', async () => {
+			const mine = service('service-local', 3, { filesMounted: true });
+			const { manager, fakes } = build({
+				items: [
+					item(),
+					item({
+						id: 'item-e1',
+						serviceId: 'service-local',
+						libraryId: 'library-mine',
+						externalId: 'ours-e1',
+						episodeNumber: 1,
+						file: file({ path: '/media/Shows/Big Buck Bunny/S01E01.mkv' }),
+					}),
+				],
+				services: [service('service-fast', 1), mine],
+				localServices: [mine],
+				libraries: [{ id: 'library-mine', paths: ['/media/Shows'], localPath: '/mnt/nas/Shows' }],
+			});
+
+			await manager.plan({});
+
+			const context = fakes.naming.render.mock.calls[0][2] as { siblingPath: string | null };
+
+			// The server's own path would never match the destination root, and the
+			// imitation would be skipped without a word.
+			expect(context.siblingPath).toBe('/mnt/nas/Shows/Big Buck Bunny/S01E01.mkv');
+		});
+
+		it('imitates nothing from a library the gateway has no path into', async () => {
+			const mine = service('service-local', 3, { filesMounted: true });
+			const { manager, fakes } = build({
+				items: [
+					item(),
+					item({
+						id: 'item-e1',
+						serviceId: 'service-local',
+						libraryId: 'library-unknown',
+						externalId: 'ours-e1',
+						episodeNumber: 1,
+					}),
+				],
+				services: [service('service-fast', 1), mine],
+				localServices: [mine],
+				libraries: [],
+			});
+
+			await manager.plan({});
+
+			const context = fakes.naming.render.mock.calls[0][2] as { siblingPath: string | null };
+
+			expect(context.siblingPath).toBeNull();
+		});
+	});
+
+	describe('a scope naming two fields of the same kind', () => {
+		it('keeps only the named items that sit inside the subtree', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'season-1', kind: MediaKind.SEASON, file: null }),
+					item({ id: 'item-inside', parentId: 'season-1' }),
+					item({ id: 'item-outside', normalizedTitle: 'sintel', externalId: 'ext-2' }),
+				],
+			});
+
+			const planning = await manager.plan({
+				scope: { rootItemIds: ['season-1'], itemIds: ['item-inside', 'item-outside'] },
+			});
+
+			expect(planning.items.map((entry) => entry.itemId)).toEqual(['item-inside']);
+		});
+
+		it('keeps only the named libraries that belong to the category', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'item-shows', libraryId: 'library-shows' }),
+					item({ id: 'item-films', libraryId: 'library-films', normalizedTitle: 'sintel' }),
+				],
+				categoryLibraries: ['library-shows'],
+			});
+
+			const planning = await manager.plan({
+				scope: { categoryKeys: ['shows'], libraryIds: ['library-shows', 'library-films'] },
+			});
+
+			expect(planning.items.map((entry) => entry.itemId)).toEqual(['item-shows']);
+		});
+	});
+
+	describe('filters on the media itself', () => {
+		const world = () =>
+			build({
+				items: [
+					item({ id: 'item-bunny', normalizedTitle: 'big buck bunny', year: 2008 }),
+					item({ id: 'item-sintel', normalizedTitle: 'sintel', year: 2010, externalId: 'ext-2' }),
+					item({ id: 'item-undated', normalizedTitle: 'elephants dream', year: null, externalId: 'ext-3' }),
+				],
+			});
+
+		it('drops anything older than the year asked for, and anything whose year nobody knows', async () => {
+			const planning = await world().manager.plan({ filter: { minYear: 2009 } });
+
+			expect(planning.items.map((entry) => entry.itemId)).toEqual(['item-sintel']);
+		});
+
+		it('keeps only titles containing what was typed, whatever its case', async () => {
+			const planning = await world().manager.plan({ filter: { titleMatches: 'BUCK' } });
+
+			expect(planning.items.map((entry) => entry.itemId)).toEqual(['item-bunny']);
+		});
+
+		it('reads an empty title filter as no filter', async () => {
+			const planning = await world().manager.plan({ filter: { titleMatches: '' } });
+
+			expect(planning.itemsPlanned).toBe(3);
+		});
+	});
+
+	describe('editing a plan', () => {
+		const stored = (): SyncPlan =>
+			({
+				id: 'plan-1',
+				name: 'The Expanse',
+				enabled: true,
+				trigger: SyncTrigger.SCHEDULE,
+				schedule: '0 4 * * *',
+				sourceServiceIds: [],
+				preferredLibraryId: null,
+				scope: { rootItemIds: ['series-1'] },
+				filter: {},
+				maxItemsPerRun: 50,
+				maxBytesPerRun: 1_000_000,
+			}) as unknown as SyncPlan;
+
+		it('keeps what the patch does not mention', async () => {
+			const { manager, fakes } = build();
+
+			fakes.plans.findOne.mockResolvedValue(stored());
+
+			const updated = await manager.updatePlan('plan-1', { name: 'Renamed' });
+
+			expect(updated).toMatchObject({
+				name: 'Renamed',
+				schedule: '0 4 * * *',
+				maxItemsPerRun: 50,
+				maxBytesPerRun: 1_000_000,
+			});
+		});
+
+		it('clears a ceiling the patch sets to null, rather than reading null as "unchanged"', async () => {
+			const { manager, fakes } = build();
+
+			fakes.plans.findOne.mockResolvedValue(stored());
+
+			const updated = await manager.updatePlan('plan-1', {
+				maxItemsPerRun: null,
+				maxBytesPerRun: null,
+			});
+
+			expect(updated.maxItemsPerRun).toBeNull();
+			expect(updated.maxBytesPerRun).toBeNull();
+		});
+
+		it('refuses to clear the schedule of a plan that runs on one', async () => {
+			const { manager, fakes } = build();
+
+			fakes.plans.findOne.mockResolvedValue(stored());
+
+			await expect(manager.updatePlan('plan-1', { schedule: null })).rejects.toThrow(
+				new ConflictException(ErrorKey.SYNC_SCHEDULE_REQUIRED),
+			);
+			expect(fakes.plans.save).not.toHaveBeenCalled();
+		});
+
+		it('clears the schedule once the plan is switched to manual in the same patch', async () => {
+			const { manager, fakes } = build();
+
+			fakes.plans.findOne.mockResolvedValue(stored());
+
+			const updated = await manager.updatePlan('plan-1', {
+				trigger: SyncTrigger.MANUAL,
+				schedule: null,
+			});
+
+			expect(updated.schedule).toBeNull();
+		});
+	});
+
+	describe('naming and placing a plan made from one media', () => {
+		it('does not repeat the show when the season already names it', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'series-1', kind: MediaKind.SERIES, title: 'The Expanse', file: null }),
+					item({
+						id: 'season-2',
+						kind: MediaKind.SEASON,
+						title: 'The Expanse Season 2',
+						file: null,
+						parentId: 'series-1',
+					}),
+				],
+			});
+
+			const answer = await manager.itemPlans('season-2');
+
+			expect(answer.suggestedName).toBe('The Expanse Season 2');
+		});
+
+		it('stops at a parent chain that loops back on itself instead of walking it for ever', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'season-a', kind: MediaKind.SEASON, title: 'A', file: null, parentId: 'season-b' }),
+					item({ id: 'season-b', kind: MediaKind.SEASON, title: 'B', file: null, parentId: 'season-a' }),
+				],
+				plans: [
+					{
+						id: 'plan-b',
+						name: 'B',
+						scope: { rootItemIds: ['season-b'] },
+						createdAt: new Date('2026-01-01T00:00:00.000Z'),
+						updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+					} as SyncPlan,
+				],
+			});
+
+			const answer = await manager.itemPlans('season-a');
+
+			// The row somebody's scanner wrote is reported on, not hung on.
+			expect(answer.covering.map((one) => one.coveredItemId)).toEqual(['season-b']);
+		});
+	});
 });

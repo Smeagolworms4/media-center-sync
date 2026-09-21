@@ -1,20 +1,24 @@
+import { Readable } from 'node:stream';
 import {
 	ErrorKey,
+	LibraryKind,
 	MediaKind,
+	PEER_INTRODUCE_METHOD,
 	PeerStatus,
 	PeerTrust,
 	ShareVisibility,
 	SyncState,
 	type MediaFileInfo,
 } from '@mcs/shared';
-import type { MediaItem, Peer } from '@/entities';
+import { In } from 'typeorm';
+import type { Library, MediaItem, Peer } from '@/entities';
 import type {
 	LibraryRepository,
 	MediaItemRepository,
 	MediaServiceRepository,
 	PeerRepository,
 } from '@/repositories';
-import { BandwidthService, PeerIntroductionService } from '@/services';
+import { BandwidthService, PeerIntroductionService, PeerMethodKind } from '@/services';
 import type {
 	CataloguePolicy,
 	HandlerRegistry,
@@ -84,6 +88,7 @@ interface Fakes {
 	peers: { findOne: jest.Mock; findLinked: jest.Mock; findByFingerprint: jest.Mock };
 	catalogue: { findHolders: jest.Mock };
 	libraries: { find: jest.Mock };
+	services: { findWithSecrets: jest.Mock };
 	openStream: jest.Mock;
 	getItem: jest.Mock;
 	introductions: PeerIntroductionService;
@@ -114,7 +119,20 @@ const build = (
 		},
 		catalogue: { findHolders: jest.fn().mockResolvedValue([]) },
 		libraries: { find: jest.fn().mockResolvedValue([]) },
-		openStream: jest.fn().mockResolvedValue({ stream: null, contentLength: 1, totalLength: 1 }),
+		services: {
+			findWithSecrets: jest
+				.fn()
+				.mockResolvedValue({ id: 'service-1', type: 'jellyfin', baseUrl: 'http://x', token: 't' }),
+		},
+		// A fresh stream per call, because the serving path consumes it: a shared one
+		// would hand the second caller nothing and read as a throttle that ate the bytes.
+		openStream: jest.fn(() =>
+			Promise.resolve({
+				stream: Readable.from([Buffer.from('0123456789')]),
+				contentLength: 10,
+				totalLength: 10,
+			}),
+		),
 		getItem: jest.fn().mockResolvedValue(null),
 		introductions: undefined as unknown as PeerIntroductionService,
 	};
@@ -131,11 +149,7 @@ const build = (
 		fakes.peers as unknown as PeerRepository,
 		fakes.items as unknown as MediaItemRepository,
 		fakes.libraries as unknown as LibraryRepository,
-		{
-			findWithSecrets: jest
-				.fn()
-				.mockResolvedValue({ id: 'service-1', type: 'jellyfin', baseUrl: 'http://x', token: 't' }),
-		} as unknown as MediaServiceRepository,
+		fakes.services as unknown as MediaServiceRepository,
 		fakes.shares as unknown as ShareManager,
 		fakes.catalogue as unknown as PeerCatalogueService,
 		// The real token service over a fake key pair: a test that asserted a signature
@@ -159,6 +173,17 @@ const build = (
 	fakes.introductions = introductions;
 
 	return { manager, fakes };
+};
+
+/** Everything a served stream carries, so a test can say what really left the gateway. */
+const drain = async (stream: Readable): Promise<Buffer> => {
+	const chunks: Buffer[] = [];
+
+	for await (const chunk of stream) {
+		chunks.push(Buffer.from(chunk as Buffer));
+	}
+
+	return Buffer.concat(chunks);
 };
 
 describe('PeerExchangeManager', () => {
@@ -277,6 +302,25 @@ describe('PeerExchangeManager', () => {
 			expect(fakes.catalogue.findHolders).not.toHaveBeenCalled();
 		});
 
+		it('never names the peer who asked among the friends it asks', async () => {
+			// Telling them about themselves would put one machine in their source list
+			// twice, once under each name.
+			const { manager, fakes } = build({ peerMaxDepth: 3 });
+
+			fakes.peers.findLinked.mockResolvedValue([
+				{ id: 'peer-1', name: 'Alice', trust: PeerTrust.FRIEND, viaPeerId: null, maxDepth: null },
+				{ id: 'peer-2', name: 'Chris', trust: PeerTrust.FRIEND, viaPeerId: null, maxDepth: 2 },
+			] as Peer[]);
+
+			await manager.announce('peer-1', 'v1:abc:1048576', 2);
+
+			expect(fakes.catalogue.findHolders).toHaveBeenCalledWith(
+				'v1:abc:1048576',
+				[{ id: 'peer-2', name: 'Chris', trust: PeerTrust.FRIEND, viaPeerId: null, maxDepth: 2 }],
+				{ maxDepth: 2 },
+			);
+		});
+
 		it('relays no further than the budget left after our own hop', async () => {
 			const { manager, fakes } = build({ peerMaxDepth: 3 });
 
@@ -290,13 +334,6 @@ describe('PeerExchangeManager', () => {
 		});
 	});
 
-	/**
-	 * Every path a peer can reach, against a gateway that shares nothing with them.
-	 *
-	 * `visiblePolicies` answering nothing is what forbidding somebody to read looks
-	 * like from here, and the claim is that *no* path decides visibility a second way
-	 * — so every one of them has to be exercised, not the catalogue alone.
-	 */
 	describe('introducing two of our friends', () => {
 		const CALLER = 'a'.repeat(64);
 		const HOLDER = 'c'.repeat(64);
@@ -447,8 +484,38 @@ describe('PeerExchangeManager', () => {
 				ErrorKey.PEER_INTRODUCTION_REFUSED,
 			);
 		});
+
+		it('answers the same over the link as when asked directly', async () => {
+			const { manager, fakes } = world();
+			const answer = (await manager.call('peer-1', PEER_INTRODUCE_METHOD, {
+				holderId: 'peer-2',
+			})) as { token: string; depth: number };
+
+			expect(answer.depth).toBe(2);
+			expect(fakes.introductions.read(answer.token)).toMatchObject({
+				subject: CALLER,
+				holder: HOLDER,
+			});
+		});
+
+		it('reads a holder named by something other than a string as naming nobody', async () => {
+			// A number where an identifier belongs is not a row identifier of ours, and
+			// coercing it into one would be the wire choosing who gets introduced.
+			const { manager } = world();
+
+			await expect(
+				manager.call('peer-1', PEER_INTRODUCE_METHOD, { holderId: 2, fingerprint: '' }),
+			).rejects.toThrow(ErrorKey.PEER_INTRODUCTION_REFUSED);
+		});
 	});
 
+	/**
+	 * Every path a peer can reach, against a gateway that shares nothing with them.
+	 *
+	 * `visiblePolicies` answering nothing is what forbidding somebody to read looks
+	 * like from here, and the claim is that *no* path decides visibility a second way
+	 * — so every one of them has to be exercised, not the catalogue alone.
+	 */
 	describe('a peer who may see no library at all', () => {
 		const nothing = (): ReturnType<typeof build> => {
 			const built = build();
@@ -514,6 +581,307 @@ describe('PeerExchangeManager', () => {
 			// drivers do not render alike.
 			expect(fakes.items.find).not.toHaveBeenCalled();
 		});
+	});
+
+	describe('answering a call over the link', () => {
+		it('names value methods and byte methods apart, and knows nothing else', () => {
+			const { manager } = build();
+
+			expect(manager.kind('catalogue.list')).toBe(PeerMethodKind.VALUE);
+			expect(manager.kind('media.range')).toBe(PeerMethodKind.STREAM);
+			expect(manager.kind('catalogue.delete')).toBeNull();
+		});
+
+		it('answers a method it has never heard of as unsupported, rather than failing', async () => {
+			// Unsupported, and the link stays up: it is what lets a gateway gain a method
+			// without the other end being updated first.
+			const { manager } = build();
+
+			await expect(manager.call('peer-1', 'catalogue.delete', {})).rejects.toThrow(
+				ErrorKey.PEER_METHOD_UNSUPPORTED,
+			);
+		});
+
+		it('never serves bytes for a method that answers with a value', async () => {
+			const { manager, fakes } = build();
+
+			await expect(
+				manager.stream('peer-1', 'catalogue.list', { externalId: 'item-1' }),
+			).rejects.toThrow(ErrorKey.PEER_METHOD_UNSUPPORTED);
+			expect(fakes.openStream).not.toHaveBeenCalled();
+		});
+
+		it('says it holds every piece of what it publishes', async () => {
+			// Only whole files are ever in the catalogue, so null — "all of it" — is
+			// the truth rather than a shortcut.
+			const { manager } = build();
+
+			await expect(manager.call('peer-1', 'swarm.bitfield', {})).resolves.toEqual({
+				pieces: null,
+			});
+		});
+
+		it('describes an item with the two fields a transport on an older image reads', async () => {
+			// `size` and `resumable` stay at the top level beside the whole row: moving
+			// them would break every transfer in flight against a peer not yet updated.
+			const { manager } = build();
+
+			const answer = (await manager.call('peer-1', 'media.describe', {
+				externalId: 'item-1',
+			})) as { entry: { externalId: string }; size: number; resumable: boolean };
+
+			expect(answer).toMatchObject({ size: 1_048_576, resumable: true });
+			expect(answer.entry.externalId).toBe('item-1');
+			expect(JSON.stringify(answer)).not.toContain('/library-a/');
+		});
+
+		it('describes nothing when the call names no item', async () => {
+			const { manager } = build();
+
+			await expect(manager.call('peer-1', 'media.describe', {})).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_FOUND,
+			);
+		});
+
+		it('revalidates over the link with the identifier we published', async () => {
+			const { manager, fakes } = build();
+
+			fakes.getItem.mockResolvedValue({ file: file() });
+
+			await expect(
+				manager.call('peer-1', 'media.revalidate', { externalId: 'item-1' }),
+			).resolves.toEqual({ externalId: 'item-1', file: file() });
+		});
+
+		it('reads a stamp it cannot parse as no stamp, and sends everything', async () => {
+			// The other reading — nothing is newer than an invalid date — would leave a
+			// peer's copy of our catalogue frozen with nothing anywhere saying why.
+			const { manager } = build();
+
+			const answer = (await manager.call('peer-1', 'catalogue.list', {
+				since: 'last tuesday',
+				page: 'two',
+			})) as { entries: unknown[] };
+
+			expect(answer.entries).toHaveLength(1);
+		});
+
+		it('publishes an item with no file under no swarm identifier', async () => {
+			// A series row holds no bytes. Publishing a content identifier for it would
+			// have peers asking us for a file that does not exist.
+			const { manager } = build({ items: [item({ file: null })] });
+
+			const [entry] = await manager.catalogue('peer-1');
+
+			expect(entry).toMatchObject({ contentId: null, size: null });
+		});
+	});
+
+	describe('narrowing the catalogue to one library', () => {
+		const twoLibraries = (): ReturnType<typeof build> =>
+			build({
+				items: [item()],
+				policies: [policy(), policy({ libraryId: 'library-other' })],
+			});
+
+		it('answers a library that was shared', async () => {
+			const { manager } = twoLibraries();
+
+			await expect(
+				manager.catalogue('peer-1', { libraryId: 'library-shared' }),
+			).resolves.toHaveLength(1);
+		});
+
+		it('answers nothing for a library that was never shared, and asks the index nothing', async () => {
+			// The intersection with what they may see is taken rather than the handle
+			// trusted: a guessed library identifier must not be a way in.
+			const { manager, fakes } = twoLibraries();
+
+			await expect(
+				manager.catalogue('peer-1', { libraryId: 'library-private' }),
+			).resolves.toEqual([]);
+			expect(fakes.items.find).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('publishing our libraries', () => {
+		it('names a library the way we chose to, and only the ones they may see', async () => {
+			const { manager, fakes } = build({
+				policies: [policy(), policy({ libraryId: 'library-home' })],
+			});
+
+			fakes.libraries.find.mockResolvedValue([
+				{ id: 'library-shared', name: 'Video2', alias: 'Films', kind: LibraryKind.MOVIES, itemCount: 12 },
+				{ id: 'library-home', name: 'Home videos', alias: null, kind: LibraryKind.OTHER, itemCount: 3 },
+			] as Library[]);
+
+			await expect(manager.call('peer-1', 'catalogue.libraries', {})).resolves.toEqual({
+				libraries: [
+					// "Video2" is our media server's idea of a name, not ours.
+					{ externalId: 'library-shared', name: 'Films', kind: LibraryKind.MOVIES, itemCount: 12 },
+					{ externalId: 'library-home', name: 'Home videos', kind: LibraryKind.OTHER, itemCount: 3 },
+				],
+			});
+			// Asked for by the visible set, never read wholesale and filtered after.
+			expect(fakes.libraries.find).toHaveBeenCalledWith({
+				where: { id: In(['library-shared', 'library-home']) },
+			});
+		});
+	});
+
+	describe('who holds a content identifier', () => {
+		const CONTENT = 'v1:abc:1048576';
+		const shelf = [
+			item(),
+			item({ id: 'item-2', file: file({ contentId: 'v1:other:1' }) }),
+			item({ id: 'item-3', file: null }),
+		];
+
+		it('reports our own copy at distance zero, under no name of ours', async () => {
+			// Zero, because the caller adds their own hop; and no identifier for us,
+			// because they know us by a row of their own.
+			const { manager } = build({ items: shelf });
+
+			await expect(
+				manager.call('peer-1', 'catalogue.holders', { contentId: CONTENT }),
+			).resolves.toEqual({
+				holders: [
+					{
+						peerId: '',
+						peerName: '',
+						serviceId: 'service-1',
+						externalId: 'item-1',
+						size: 1_048_576,
+						trust: PeerTrust.FRIEND,
+						depth: 0,
+						viaPeerId: null,
+					},
+				],
+			});
+		});
+
+		it('asks our friends too, inside the budget, and lists them after ourselves', async () => {
+			const { manager, fakes } = build({ items: shelf, peerMaxDepth: 3 });
+			const friend = {
+				peerId: 'peer-2',
+				peerName: 'Chris',
+				serviceId: null,
+				externalId: 'theirs-1',
+				size: 1_048_576,
+				trust: PeerTrust.FRIEND,
+				depth: 1,
+				viaPeerId: null,
+			};
+
+			fakes.catalogue.findHolders.mockResolvedValue([friend]);
+
+			const holders = await manager.holders('peer-1', CONTENT, 2);
+
+			expect(holders.map((holder) => holder.externalId)).toEqual(['item-1', 'theirs-1']);
+		});
+
+		it('reads a budget that is not a number as no budget, and asks nobody', async () => {
+			const { manager, fakes } = build({ items: shelf, peerMaxDepth: 3 });
+
+			await manager.call('peer-1', 'catalogue.holders', { contentId: CONTENT, depth: '9' });
+
+			expect(fakes.catalogue.findHolders).not.toHaveBeenCalled();
+		});
+
+		it('answers nobody for an empty identifier, and looks nothing up', async () => {
+			// An empty identifier matches every item with no file, which is the
+			// opposite of what anybody asking meant.
+			const { manager, fakes } = build({ items: shelf });
+
+			await expect(manager.call('peer-1', 'catalogue.holders', {})).resolves.toEqual({
+				holders: [],
+			});
+			expect(fakes.shares.visiblePolicies).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('serving bytes', () => {
+		it('serves the range asked for', async () => {
+			const { manager, fakes } = build();
+
+			const stream = await manager.stream('peer-1', 'media.range', {
+				externalId: 'item-1',
+				start: 2,
+				end: 5,
+			});
+
+			await expect(drain(stream)).resolves.toEqual(Buffer.from('0123456789'));
+			expect(fakes.openStream.mock.calls[0][2]).toEqual({ start: 2, end: 5 });
+		});
+
+		it('serves the whole file for a range that ends before it starts, or is not numbers', async () => {
+			// The whole file rather than an error: a transfer that resumes from a bad
+			// offset pays one re-read, where a refusal would stall it for good.
+			const { manager, fakes } = build();
+
+			await drain(
+				await manager.stream('peer-1', 'swarm.piece', { externalId: 'item-1', start: 9, end: 2 }),
+			);
+			await drain(
+				await manager.stream('peer-1', 'media.range', { externalId: 'item-1', start: '0', end: 5 }),
+			);
+
+			expect(fakes.openStream.mock.calls.map((call) => call[2])).toEqual([undefined, undefined]);
+		});
+
+		it('paces a library that caps its own upload', async () => {
+			// Ten kilobytes a second and two to send: a fifth of a second at least. A cap
+			// read once at the start instead of per chunk would let this through at once.
+			const { manager, fakes } = build({ policies: [policy({ rateLimit: 10_000 })] });
+
+			fakes.openStream.mockImplementation(() =>
+				Promise.resolve({
+					stream: Readable.from([Buffer.alloc(2_000, 1)]),
+					contentLength: 2_000,
+					totalLength: 2_000,
+				}),
+			);
+
+			const started = Date.now();
+			const media = await manager.content('peer-1', 'item-1');
+			const bytes = await drain(media.stream);
+
+			expect(bytes).toHaveLength(2_000);
+			expect(Date.now() - started).toBeGreaterThanOrEqual(150);
+		});
+
+		it('refuses the bytes of an item whose service has gone, before opening anything', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(null);
+
+			await expect(manager.content('peer-1', 'item-1')).rejects.toThrow(
+				ErrorKey.SERVICE_NOT_FOUND,
+			);
+			expect(fakes.openStream).not.toHaveBeenCalled();
+		});
+
+		it('refuses the bytes of an item that has no file', async () => {
+			const { manager, fakes } = build({ items: [item({ file: null })] });
+
+			await expect(manager.content('peer-1', 'item-1')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_FOUND,
+			);
+			expect(fakes.services.findWithSecrets).not.toHaveBeenCalled();
+		});
+	});
+
+	it('cannot revalidate an item whose service has gone, and says so rather than "gone"', async () => {
+		// "Gone" would have the far end abandon a source that may come back with the
+		// service; not found names the service, which is the true answer.
+		const { manager, fakes } = build();
+
+		fakes.services.findWithSecrets.mockResolvedValue(null);
+
+		await expect(manager.revalidate('peer-1', 'item-1')).rejects.toThrow(
+			ErrorKey.SERVICE_NOT_FOUND,
+		);
+		expect(fakes.getItem).not.toHaveBeenCalled();
 	});
 
 	it('refuses a caller no peer row matches', async () => {

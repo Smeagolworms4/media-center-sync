@@ -10,6 +10,7 @@ import {
 	PathVerdict,
 	resolveRoots,
 	resolveWithinRoots,
+	type ResolvedPath,
 } from '@/services';
 
 /**
@@ -64,7 +65,7 @@ const BROWSE_ROOTS = 'MCS_BROWSE_ROOTS';
 const UNRESTRICTED = ['/'];
 
 export interface BrowseRequest {
-	/** Empty or absent starts at the first allowed root. */
+	/** Empty or absent opens where the media are, or on the first allowed root. */
 	path?: string;
 	includeHidden?: boolean;
 }
@@ -133,13 +134,10 @@ export class FilesystemManager {
 		const allowed = await this._allowedRoots();
 		const roots = await resolveRoots(allowed);
 		const asked = request.path?.trim() ?? '';
-		// Opening on `/` would be correct and useless: the media are several levels
-		// down and the first screen would be `bin`, `boot`, `dev`. So a browse with
-		// nothing asked for starts where the media are and walks up from there, which
-		// is now possible — the starting point and the boundary are different things,
-		// and conflating them is what made the picker a dead end.
-		const wanted = asked === '' ? (this._startingPoints[0] ?? roots[0] ?? '/') : asked;
-		const resolved = await resolveWithinRoots(wanted, allowed);
+		const resolved =
+			asked === ''
+				? await this._startingPoint(allowed, roots)
+				: await resolveWithinRoots(asked, allowed);
 
 		if (resolved.verdict === PathVerdict.OUTSIDE) {
 			throw new ForbiddenException(ErrorKey.FILESYSTEM_PATH_OUTSIDE_ROOT);
@@ -179,6 +177,37 @@ export class FilesystemManager {
 			limit: scan.limit,
 			roots,
 		};
+	}
+
+	/**
+	 * Where a browse with nothing asked for opens.
+	 *
+	 * Opening on `/` would be correct and useless: the media are several levels down
+	 * and the first screen would be `bin`, `boot`, `dev`. So it starts where the media
+	 * are and walks up from there — the starting point and the boundary are different
+	 * things, and conflating them is what made the picker a dead end.
+	 *
+	 * A starting point is only taken when it is actually there and actually allowed.
+	 * Taking the first one blindly answered the empty request itself with an error: a
+	 * gateway run on a host with no `/media` opened the picker on a 404, and one
+	 * restricted by `MCS_BROWSE_ROOTS` to somewhere other than `MCS_MEDIA_ROOT` opened
+	 * it on a 403 — either way a picker that cannot open, and a path typed by hand,
+	 * which is the failure this browser exists to remove. The first root is always
+	 * allowed, so it is the fallback.
+	 */
+	private async _startingPoint(
+		allowed: readonly string[],
+		roots: readonly string[],
+	): Promise<ResolvedPath> {
+		for (const candidate of this._startingPoints) {
+			const resolved = await resolveWithinRoots(candidate, allowed);
+
+			if (resolved.verdict === PathVerdict.INSIDE) {
+				return resolved;
+			}
+		}
+
+		return resolveWithinRoots(roots[0], allowed);
 	}
 
 	/**

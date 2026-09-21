@@ -248,18 +248,22 @@ export class PeerExchangeManager implements PeerMethodHandler {
 		// own hop. Reporting one here is the mistake that makes every chain read one
 		// circle longer than it is, and it compounds: a three-hop limit would stop
 		// admitting the third hop, and nobody would be able to say why.
-		const self: ContentHolder[] = mine
-			.filter((item) => item.file?.contentId === contentId)
-			.map((item) => ({
-				peerId: '',
-				peerName: '',
-				serviceId: item.serviceId,
-				externalId: item.id,
-				size: item.file?.size ?? null,
-				trust: PeerTrust.FRIEND,
-				depth: 0,
-				viaPeerId: null,
-			}));
+		const self: ContentHolder[] = mine.flatMap((item) =>
+			item.file?.contentId === contentId
+				? [
+					{
+						peerId: '',
+						peerName: '',
+						serviceId: item.serviceId,
+						externalId: item.id,
+						size: item.file.size,
+						trust: PeerTrust.FRIEND,
+						depth: 0,
+						viaPeerId: null,
+					},
+				]
+				: [],
+		);
 
 		return [...self, ...answer.holders];
 	}
@@ -453,27 +457,24 @@ export class PeerExchangeManager implements PeerMethodHandler {
 			take: CATALOGUE_PAGE,
 		});
 
-		const byLibrary = new Map(wanted.map((policy) => [policy.libraryId, policy]));
-
 		return items
 			.filter((item) => since === null || item.updatedAt.getTime() >= since.getTime())
-			.map((item) => this._entry(item, byLibrary.get(item.libraryId)));
+			.map((item) => this._entry(item));
 	}
 
 	/** One item's descriptor, when the caller may see it. */
 	public async describe(peerId: string, itemId: string): Promise<CatalogueEntry> {
-		const { item, policy } = await this._visible(peerId, itemId);
+		const { item } = await this._visible(peerId, itemId);
 
-		return this._entry(item, policy);
+		return this._entry(item);
 	}
 
 	/**
 	 * The bytes, ranged.
 	 *
-	 * A library shared as catalogue only answers the same "not found" as a library that
-	 * is not shared at all. The distinction is real on our side — one of them is worth
-	 * showing in the peer's list and the other is not — but from the far end, asking for
-	 * bytes we will not serve has exactly one honest answer.
+	 * An item the caller may not see answers the same "not found" as an item that does
+	 * not exist: from the far end, asking for bytes we will not serve has exactly one
+	 * honest answer, and a second one would tell them what we hold.
 	 */
 	public async content(peerId: string, itemId: string, range?: ByteRange): Promise<MediaStream> {
 		const { item, policy } = await this._visible(peerId, itemId);
@@ -643,18 +644,18 @@ export class PeerExchangeManager implements PeerMethodHandler {
 	 * Filtered in memory over the libraries the caller may pull from: `contentId` lives
 	 * inside the JSON blob of the file column, which neither engine can index, and a
 	 * `LIKE` over serialised JSON matches things nobody meant.
+	 *
+	 * Never handed an empty list: `announce` has already answered a caller who sees no
+	 * library, which is also what keeps `In([])` — rendered differently by the two
+	 * drivers — from ever reaching the database.
 	 */
 	private async _holdsContent(libraryIds: string[], contentId: string): Promise<boolean> {
-		if (libraryIds.length === 0) {
-			return false;
-		}
-
 		const items = await this._items.find({ where: { libraryId: In(libraryIds) } });
 
 		return items.some((item) => item.file?.contentId === contentId);
 	}
 
-	private _entry(item: MediaItem, policy: CataloguePolicy | undefined): CatalogueEntry {
+	private _entry(item: MediaItem): CatalogueEntry {
 		const externalIds: Record<string, string> = {};
 
 		for (const [key, value] of Object.entries(item.externalIds ?? {})) {
@@ -667,11 +668,6 @@ export class PeerExchangeManager implements PeerMethodHandler {
 			}
 		}
 
-		// The swarm identifier is only published when the files are shared. It is what
-		// peers advertise holdings by, and handing it out for a catalogue-only library
-		// would invite requests for bytes that will never be served.
-		const pullable = policy !== undefined;
-
 		return {
 			externalId: item.id,
 			libraryId: item.libraryId,
@@ -682,7 +678,7 @@ export class PeerExchangeManager implements PeerMethodHandler {
 			episodeNumber: item.episodeNumber,
 			parentExternalId: item.parentId,
 			externalIds,
-			contentId: pullable ? (item.file?.contentId ?? null) : null,
+			contentId: item.file?.contentId ?? null,
 			size: item.file?.size ?? null,
 			quality: item.quality?.label ?? null,
 		};

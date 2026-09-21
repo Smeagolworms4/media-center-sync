@@ -5,7 +5,12 @@ import {
 	UserRole,
 	type LoginRequest,
 } from '@mcs/shared';
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ConflictException,
+	ForbiddenException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { JwtService } from '@nestjs/jwt';
 import { hash } from 'bcryptjs';
@@ -32,6 +37,7 @@ interface Fakes {
 		update: jest.Mock;
 		touchLastSeen: jest.Mock;
 		createQueryBuilder: jest.Mock;
+		count: jest.Mock;
 	};
 	sessions: {
 		findValidByHash: jest.Mock;
@@ -63,7 +69,10 @@ const internalUser = async (overrides: Partial<User> = {}): Promise<User> =>
 		...overrides,
 	}) as User;
 
-const build = (): { manager: AuthManager; fakes: Fakes } => {
+/** `version` is what the image was built as; left out, the configuration has none. */
+const build = (
+	settings: { version?: string } = { version: 'test-version' },
+): { manager: AuthManager; fakes: Fakes } => {
 	const fakes: Fakes = {
 		users: {
 			findByUsername: jest.fn().mockResolvedValue(null),
@@ -83,6 +92,7 @@ const build = (): { manager: AuthManager; fakes: Fakes } => {
 			update: jest.fn().mockResolvedValue(undefined),
 			touchLastSeen: jest.fn().mockResolvedValue(undefined),
 			createQueryBuilder: jest.fn(),
+			count: jest.fn().mockResolvedValue(0),
 		},
 		sessions: {
 			findValidByHash: jest.fn().mockResolvedValue(null),
@@ -116,11 +126,26 @@ const build = (): { manager: AuthManager; fakes: Fakes } => {
 				refreshTtl: '30d',
 				bcryptRounds: ROUNDS,
 			}),
-			get: () => 'test-version',
+			get: () => settings.version,
 		} as unknown as ConfigService,
 	);
 
 	return { manager, fakes };
+};
+
+/** A refusal is its class and its key: the class is the status, the key the wording. */
+const expectRefusal = async (
+	attempt: Promise<unknown>,
+	type: new (...args: never[]) => Error,
+	key: string,
+): Promise<void> => {
+	const error = await attempt.then(
+		() => null,
+		(reason: unknown) => reason,
+	);
+
+	expect(error).toBeInstanceOf(type);
+	expect((error as Error).message).toBe(key);
 };
 
 const login = (overrides: Partial<LoginRequest> = {}): LoginRequest => ({
@@ -135,6 +160,11 @@ describe('durationSeconds', () => {
 		expect(durationSeconds('15m', 0)).toBe(900);
 		expect(durationSeconds('30d', 0)).toBe(2_592_000);
 		expect(durationSeconds('3600', 0)).toBe(3600);
+	});
+
+	it('reads a unit in either case, since the pattern admits both', () => {
+		expect(durationSeconds('2H', 0)).toBe(7200);
+		expect(durationSeconds('45 S', 0)).toBe(45);
 	});
 
 	it('falls back rather than producing a session that never expires', () => {
@@ -280,6 +310,86 @@ describe('AuthManager', () => {
 			expect(fakes.users.create).not.toHaveBeenCalled();
 		});
 
+		it('keeps what it knows when the provider stops sending a name or an address', async () => {
+			const { manager, fakes } = build();
+
+			registerProvider(fakes);
+			fakes.authenticate.mockResolvedValue({
+				...identity,
+				displayName: null,
+				email: null,
+				avatarUrl: null,
+			});
+			fakes.users.findByProvider.mockResolvedValue(
+				await internalUser({
+					id: 'user-2',
+					displayName: 'Damien D.',
+					email: 'known@example.test',
+					avatarUrl: 'http://jellyfin:8096/avatar.png',
+					provider: 'service:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+					providerUserId: 'jf-42',
+				}),
+			);
+
+			const pair = await manager.login(
+				login({ provider: 'service:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }),
+			);
+
+			// A server that omits a field is not saying it was deleted; blanking it on
+			// every sign-in would erase what somebody set on a previous one.
+			expect(pair.user.displayName).toBe('Damien D.');
+			expect(pair.user.email).toBe('known@example.test');
+			expect(pair.user.avatarUrl).toBe('http://jellyfin:8096/avatar.png');
+		});
+
+		it('takes the next free suffix when the username is already held here', async () => {
+			const { manager, fakes } = build();
+
+			registerProvider(fakes);
+			fakes.authenticate.mockResolvedValue(identity);
+			fakes.users.findByUsername.mockImplementation(async (username: string) =>
+				username === 'damien' ? internalUser({ username }) : null,
+			);
+
+			const pair = await manager.login(
+				login({ provider: 'service:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }),
+			);
+
+			// Two people called damien on two servers are two people: never the other
+			// one's account, and never a failed sign-in either.
+			expect(pair.user.username).toBe('damien-1');
+		});
+
+		it('names an account "user" when the provider sends a blank username', async () => {
+			const { manager, fakes } = build();
+
+			registerProvider(fakes);
+			fakes.authenticate.mockResolvedValue({ ...identity, username: '   ' });
+
+			const pair = await manager.login(
+				login({ provider: 'service:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }),
+			);
+
+			expect(pair.user.username).toBe('user');
+		});
+
+		it('falls back to a random suffix rather than looping when a hundred are taken', async () => {
+			const { manager, fakes } = build();
+
+			registerProvider(fakes);
+			fakes.authenticate.mockResolvedValue(identity);
+			fakes.users.findByUsername.mockImplementation(async (username: string) =>
+				internalUser({ username }),
+			);
+
+			const pair = await manager.login(
+				login({ provider: 'service:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' }),
+			);
+
+			expect(pair.user.username).toMatch(/^damien-[0-9a-f]{8}$/);
+			expect(fakes.users.findByUsername).toHaveBeenCalledTimes(100);
+		});
+
 		it('refuses a provider key nothing registered', async () => {
 			const { manager } = build();
 
@@ -386,6 +496,19 @@ describe('AuthManager', () => {
 			});
 		};
 
+		it('refuses an account that no longer exists', async () => {
+			const { manager, fakes } = build();
+
+			withPasswordHash(fakes, null);
+
+			await expectRefusal(
+				manager.changePassword('user-1', 'secret', 'newer'),
+				UnauthorizedException,
+				ErrorKey.AUTH_SESSION_EXPIRED,
+			);
+			expect(fakes.users.update).not.toHaveBeenCalled();
+		});
+
 		it('refuses an account mirrored from a media service', async () => {
 			const { manager, fakes } = build();
 
@@ -435,5 +558,141 @@ describe('AuthManager', () => {
 		const session = await manager.session('user-1');
 
 		expect(session.rights).toEqual(['library.read', 'media.read']);
+	});
+
+	it('refuses to read back a session whose account was deleted after sign-in', async () => {
+		const { manager } = build();
+
+		// The token is still signed and unexpired; the account behind it is gone, and
+		// a session read for nobody would hand the interface rights nobody holds.
+		await expectRefusal(
+			manager.session('user-1'),
+			UnauthorizedException,
+			ErrorKey.AUTH_SESSION_EXPIRED,
+		);
+	});
+
+	describe('the first administrator', () => {
+		it('refuses once any account exists, which is the only thing guarding the open route', async () => {
+			const { manager, fakes } = build();
+
+			fakes.users.count.mockResolvedValue(1);
+
+			await expectRefusal(
+				manager.setup({ username: 'intruder', password: 'long enough' }),
+				ConflictException,
+				ErrorKey.AUTH_FORBIDDEN,
+			);
+			expect(fakes.users.save).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			['a blank username', { username: '   ', password: 'long enough' }],
+			['a password under eight characters', { username: 'admin', password: 'short' }],
+		])('refuses %s', async (_, request) => {
+			const { manager, fakes } = build();
+
+			await expectRefusal(
+				manager.setup(request),
+				BadRequestException,
+				ErrorKey.AUTH_INVALID_CREDENTIALS,
+			);
+			expect(fakes.users.save).not.toHaveBeenCalled();
+		});
+
+		it('creates an administrator with a hash, and signs them straight in', async () => {
+			const { manager, fakes } = build();
+
+			const pair = await manager.setup({ username: ' admin ', password: 'long enough' });
+			const created = fakes.users.create.mock.calls[0][0] as User;
+
+			expect(created.username).toBe('admin');
+			// No display name given is the username, not an empty label in the header.
+			expect(created.displayName).toBe('admin');
+			expect(created.role).toBe(UserRole.ADMIN);
+			expect(created.passwordHash).not.toBe('long enough');
+			expect(pair.accessToken).toBe('access-token');
+		});
+
+		it('says setup is required only while no account exists', async () => {
+			const { manager, fakes } = build();
+
+			await expect(manager.setupState()).resolves.toEqual({
+				required: true,
+				version: 'test-version',
+			});
+
+			fakes.users.count.mockResolvedValue(1);
+
+			await expect(manager.setupState()).resolves.toMatchObject({ required: false });
+		});
+
+		it('reports a development build when the image carries no version', async () => {
+			const { manager } = build({});
+
+			await expect(manager.setupState()).resolves.toMatchObject({ version: 'dev' });
+		});
+	});
+
+	describe('the administrator of an unattended install', () => {
+		const environment = { ...process.env };
+
+		afterEach(() => {
+			process.env = { ...environment };
+		});
+
+		it.each([
+			['a username without a password', { MCS_ADMIN_USER: 'admin' }],
+			['a password without a username', { MCS_ADMIN_PASSWORD: 'long enough' }],
+			['a username of blanks', { MCS_ADMIN_USER: '  ', MCS_ADMIN_PASSWORD: 'long enough' }],
+		])('creates nobody from %s, and leaves the setup screen to ask', async (_, variables) => {
+			const { manager, fakes } = build();
+
+			delete process.env.MCS_ADMIN_USER;
+			delete process.env.MCS_ADMIN_PASSWORD;
+			Object.assign(process.env, variables);
+
+			await manager.onApplicationBootstrap();
+
+			expect(fakes.users.save).not.toHaveBeenCalled();
+		});
+
+		it('creates nobody when an account already exists, at every restart', async () => {
+			const { manager, fakes } = build();
+
+			process.env.MCS_ADMIN_USER = 'admin';
+			process.env.MCS_ADMIN_PASSWORD = 'long enough';
+			fakes.users.count.mockResolvedValue(1);
+
+			await manager.onApplicationBootstrap();
+
+			expect(fakes.users.save).not.toHaveBeenCalled();
+		});
+
+		it('creates the administrator the environment names when nobody exists yet', async () => {
+			const { manager, fakes } = build();
+
+			process.env.MCS_ADMIN_USER = ' admin ';
+			process.env.MCS_ADMIN_PASSWORD = 'long enough';
+
+			await manager.onApplicationBootstrap();
+
+			const created = fakes.users.create.mock.calls[0][0] as User;
+
+			expect(created.username).toBe('admin');
+			expect(created.role).toBe(UserRole.ADMIN);
+		});
+
+		it('still boots when the environment names a password it refuses', async () => {
+			const { manager, fakes } = build();
+
+			process.env.MCS_ADMIN_USER = 'admin';
+			process.env.MCS_ADMIN_PASSWORD = 'short';
+
+			// Throwing here would stop the gateway, and with it the setup screen that is
+			// the only way left to finish the job.
+			await expect(manager.onApplicationBootstrap()).resolves.toBeUndefined();
+			expect(fakes.users.save).not.toHaveBeenCalled();
+		});
 	});
 });

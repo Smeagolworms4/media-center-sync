@@ -1043,24 +1043,6 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	}
 
 	/**
-	 * Bring the artwork, the subtitles and the `.nfo` across with the media.
-	 *
-	 * A sync that lands a bare video file in a tidy library has done half the job: the
-	 * whole point of pulling from somebody who files things well is getting what they
-	 * filed with it. The companions are written before the video arrives rather than
-	 * after, because nothing here is told when a transfer finishes — and a media server
-	 * that indexes the video later picks up what is already beside it.
-	 *
-	 * Local files are never overwritten unless `preferSourceMetadata` says so.
-	 * Somebody's own poster, their own corrected `.nfo`, their own hand-timed
-	 * subtitles are work they did, and a sync that quietly replaces them is a sync they
-	 * turn off.
-	 *
-	 * Failures are logged and swallowed on purpose. A transfer must not be lost over a
-	 * subtitle file, and the source directory is simply unreadable whenever the source
-	 * is a remote service — which is the normal case, not an error.
-	 */
-	/**
 	 * The series an episode belongs to, for the document written beside it.
 	 *
 	 * Walked from the parents rather than taken from the episode, which only knows its
@@ -1091,6 +1073,24 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		return null;
 	}
 
+	/**
+	 * Bring the artwork, the subtitles and the `.nfo` across with the media.
+	 *
+	 * A sync that lands a bare video file in a tidy library has done half the job: the
+	 * whole point of pulling from somebody who files things well is getting what they
+	 * filed with it. The companions are written before the video arrives rather than
+	 * after, because nothing here is told when a transfer finishes — and a media server
+	 * that indexes the video later picks up what is already beside it.
+	 *
+	 * Local files are never overwritten unless `preferSourceMetadata` says so.
+	 * Somebody's own poster, their own corrected `.nfo`, their own hand-timed
+	 * subtitles are work they did, and a sync that quietly replaces them is a sync they
+	 * turn off.
+	 *
+	 * Failures are logged and swallowed on purpose. A transfer must not be lost over a
+	 * subtitle file, and the source directory is simply unreadable whenever the source
+	 * is a remote service — which is the normal case, not an error.
+	 */
 	private async _pullMetadata(planned: PlannedItem, settings: Settings): Promise<void> {
 		if (!settings.pullMetadata) {
 			return;
@@ -1247,12 +1247,9 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 
 		await this._items.save(item);
 
-		if (result.copied.length === 0 && result.kept.length === 0) {
-			// Nothing anywhere had anything. That is an answer, not a failure, and the
-			// interface should say so rather than leave a spinner where a result goes.
-			result.error = null;
-		}
-
+		// Nothing copied and nothing kept leaves `error` null on purpose: counterparts
+		// that had nothing to give are an answer, not a failure, and the interface says
+		// so rather than leaving a spinner where a result goes.
 		return result;
 	}
 
@@ -2182,14 +2179,6 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 }
 
 /**
- * A scope that names nothing, which means every item on every source.
- *
- * Its own test rather than something inferred from a large count, because the
- * interface refuses to enable an unbounded schedule without an explicit
- * acknowledgement — and "large" is not a decidable test. An empty array counts as
- * naming nothing: a form that cleared its last category is back to everything.
- */
-/**
  * A scope made of subtrees and nothing else, which is the only kind another one can
  * be added to.
  *
@@ -2204,6 +2193,14 @@ export const isSubtreeScope = (scope: SyncScope): boolean =>
 	(scope.libraryIds?.length ?? 0) === 0 &&
 	(scope.itemIds?.length ?? 0) === 0;
 
+/**
+ * A scope that names nothing, which means every item on every source.
+ *
+ * Its own test rather than something inferred from a large count, because the
+ * interface refuses to enable an unbounded schedule without an explicit
+ * acknowledgement — and "large" is not a decidable test. An empty array counts as
+ * naming nothing: a form that cleared its last category is back to everything.
+ */
 export const isUnbounded = (scope: SyncScope): boolean =>
 	(scope.categoryKeys?.length ?? 0) === 0 &&
 	(scope.libraryIds?.length ?? 0) === 0 &&

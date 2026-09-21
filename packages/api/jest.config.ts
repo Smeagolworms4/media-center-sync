@@ -16,8 +16,19 @@ const config: Config = {
 	moduleFileExtensions: ['js', 'json', 'ts'],
 	rootDir: '.',
 	testRegex: '.*\\.spec\\.ts$',
+	// Compiled with the whole program, never file by file (`isolatedModules`), and the
+	// coverage thresholds are the reason. Compiled in isolation, TypeScript cannot tell
+	// whether an injected constructor parameter's type is a class or only a type, so
+	// every decorated constructor is emitted with a `typeof X !== "undefined" ? X :
+	// Object` guard per parameter — branches that exist in no source file, whose second
+	// half only runs on a broken circular import, and which Istanbul counts anyway. A
+	// manager with six dependencies and nothing else to decide scored 77 % branches with
+	// every line of its own tested, and the only ways to make that number pass were a
+	// test proving nothing or an ignore comment. With the program, the guard is not
+	// emitted and the count is the source's. The price is type-checking while
+	// transforming: a run is a few seconds slower, and a type error in a test fails it.
 	transform: {
-		'^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json', isolatedModules: true }],
+		'^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
 	},
 	moduleNameMapper: {
 		'^@/(.*)$': '<rootDir>/src/$1',

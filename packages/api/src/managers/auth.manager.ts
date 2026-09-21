@@ -51,6 +51,8 @@ export interface SessionContext {
 	address?: string | null;
 }
 
+const SECONDS_PER_UNIT = { s: 1, m: 60, h: 3600, d: 86400 } as const;
+
 /**
  * `15m`, `30d`, `3600` — the forms the configuration accepts, in seconds.
  *
@@ -66,10 +68,11 @@ export const durationSeconds = (value: string, fallback: number): number => {
 	}
 
 	const amount = Number(match[1]);
-	const unit = (match[2] ?? 's').toLowerCase();
-	const multiplier = { s: 1, m: 60, h: 3600, d: 86400 }[unit] ?? 1;
+	// The pattern admits only these four units, so the lookup always finds one; the
+	// cast says so rather than a fallback that could never run.
+	const unit = (match[2] ?? 's').toLowerCase() as keyof typeof SECONDS_PER_UNIT;
 
-	return amount * multiplier;
+	return amount * SECONDS_PER_UNIT[unit];
 };
 
 /**
