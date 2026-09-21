@@ -28,7 +28,14 @@
 # and no sources.
 # ---------------------------------------------------------------------------
 
-FROM node:24-alpine AS builder
+# Built on the build machine's own architecture, whatever the image is for. What
+# leaves this stage is JavaScript and static files — every architecture runs the same
+# ones — so building it once natively is correct, and building it under emulation is
+# only slower and fragile: under QEMU for arm64, Vite's native bundler dies on an
+# instruction the emulator does not implement ("Illegal instruction"), and the ARM
+# image never got past this line. The one thing that is genuinely per-architecture,
+# the native modules, comes from the `deps` stage below, which is built for the target.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS builder
 
 WORKDIR /app
 
