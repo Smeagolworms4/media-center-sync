@@ -99,6 +99,12 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+      # QEMU so the one runner can build the ARM half too. The image is meant for the
+      # machines people self-host on, and most of those are ARM — a Raspberry Pi, an
+      # ARM NAS. Built for amd64 alone, it pulled fine on such a box and then died on
+      # start with an exec format error, which reads like a broken release rather than
+      # a missing architecture.
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       # GitHub keeps the account's casing while a Docker reference must be entirely
@@ -131,6 +137,8 @@ jobs:
         with:
           context: .
           file: docker/build/Dockerfile
+          # One tag, both architectures: a pull resolves to whichever the host is.
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
