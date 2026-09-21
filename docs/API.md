@@ -82,6 +82,7 @@ thousands a second on a fast link.
 | POST | `/services/:id/scan` | — | `202` | `SERVICE_MANAGE` |
 | POST | `/services/:id/refresh` | — | `202` | `SERVICE_READ` |
 | GET | `/services/:id/libraries` | — | `Library[]` | `LIBRARY_READ` |
+| GET | `/services/:id/structure` | — | `ServerStructure` | `SERVICE_MANAGE` |
 
 `POST /services/probe` tests a connection **before** it is registered, which is what
 lets the form tell somebody their token is wrong while they are still typing it rather
@@ -119,6 +120,34 @@ link authenticates by key fingerprint, so there is no token; and the address is
 `peer://<uuid>`. The name, the hop limit, forbidding reading, removing and banning are
 all peer routes — the row follows the peer rather than being configured beside it.
 Probing, scanning and refreshing it still work.
+
+**`/services/:id/structure` asks the server where its own files are.** Normally it is
+the server that gives the file structure — Jellyfin returns a `Path` on every library
+and can list a directory, Plex returns a `Location` per section — and that answer has
+authority in a way browsing this gateway's disk does not. It is the left-hand side of
+the mapping being configured: the server says `/data/media/shows` and the gateway sees
+`/mnt/nas/shows` whenever the service runs in its own container. `libraryExternalId`
+narrows the roots to one library, `path` walks into a directory as the server spells
+it — never resolved or joined here, because a Plex on Windows answers `D:\Media\Shows`.
+
+A service with no way to answer replies `support: "unsupported"` with no entries rather
+than failing, and **a peer always does**: their files are on somebody else's disk and
+their paths designate nothing here, so offering one as a candidate would put a path in
+a local path field that no directory answers to. The refusal costs no round trip — it
+is a property of what a peer is, not of whether they are connected.
+
+**What each server was measured to do.** Jellyfin answers both halves: its virtual
+folders give the roots and `/Environment/DirectoryContents` really does list the
+directory asked for. Plex gives the roots through `/library/sections` and, on the
+server this was tried against, **cannot walk**: `/services/browse` answers `200` and
+ignores `path` entirely, returning the same eight mount roots for `/media`, `/config`,
+`/media/movies` and for no path at all — and the `key` it hands back for a directory in
+that very answer (`/services/browse/L21lZGlh`) is then refused with `400`. So the
+answer is checked against the question: a listing where not one entry is inside the
+directory asked for is reported as `unsupported` for that request rather than handed
+back. This is per response and never a verdict on Plex, so a build that does honour
+`path` is used the moment it answers; and it is what stops the marker proof searching
+the mount roots for a file written three directories down and calling that a mismatch.
 
 `shared` is the other half and is the opposite kind of thing: a decision somebody
 declares, absent means `true`. It says whether this service's libraries are offered to
@@ -192,6 +221,21 @@ entry also says whether that path was `derived`, because the two are corrected i
 different places: a typed path is wrong on its own, a derived one is wrong for every
 library of the service at once.
 
+It also answers that failure directly. Each entry carries `serverPaths` — what the
+service reports for that library — and a `match` of `matched`, `mismatched` or
+`unknown`, and a mismatch fills `error` with `error.library.path_mismatch`.
+**The conclusion is drawn from a marker file, never from comparing the two strings**:
+they are legitimately different whenever the service runs in its own container, which
+is the ordinary deployment, so a string comparison would report a mismatch on every
+correct setup. The gateway writes a hidden file into its own path and asks the service
+to list the directory it says it reads; seeing it is proof, not inference. What it
+costs is one file created and deleted inside a media folder per check, one request to
+the media server per declared server path, and a false mismatch on a server that
+caches its directory listings. Anything that stops the question being asked — no
+server path, a service that cannot list a directory, a path nothing can be written
+into — answers `unknown` rather than `mismatched`, because a warning that is wrong
+more often than right stops being read.
+
 **Most libraries never need a `localPath` of their own.** A service carries
 `remoteRoot` and `localRoot` — the prefix it reports, and the same directory as the
 gateway reaches it — and every library under it derives its own path by replacing the
@@ -261,9 +305,12 @@ Confirming or deleting a match is how a human overrules the scoring. Both are re
 |---|---|---|---|---|
 | GET | `/sync/plans` | — | `SyncPlan[]` | `SYNC_READ` |
 | POST | `/sync/plans` | `CreateSyncPlanDto` | `SyncPlan` | `SYNC_MANAGE` |
+| GET | `/sync/plans/for-item/:itemId` | — | `ItemSyncPlans` | `SYNC_READ` |
+| POST | `/sync/plans/for-item` | `CreateSyncPlanForItemDto` | `SyncPlan` | `SYNC_MANAGE` |
 | GET | `/sync/plans/:id` | — | `SyncPlan` | `SYNC_READ` |
 | PATCH | `/sync/plans/:id` | `UpdateSyncPlanDto` | `SyncPlan` | `SYNC_MANAGE` |
 | POST | `/sync/plans/:id/estimate` | — | `SyncEstimate` | `SYNC_READ` |
+| POST | `/sync/estimate` | `EstimateSyncDto` | `SyncEstimate` | `SYNC_READ` |
 | DELETE | `/sync/plans/:id` | — | `204` | `SYNC_MANAGE` |
 | POST | `/sync/preview` | `RunSyncDto` | `SyncPreview` | `SYNC_READ` |
 | POST | `/sync/run` | `RunSyncDto` | `SyncJob` | `SYNC_RUN` |
@@ -304,6 +351,52 @@ bytes. It is a `POST` although it changes nothing: it walks every source and res
 placement per item, which is not something a list of plans should pay for on every read.
 `SyncPlan.estimate` is therefore `null` everywhere else — an estimate stored against a
 plan would not go stale, it would be believed.
+
+### Keeping one media in sync
+
+A plan is made from the media it is about. The blank form asks for a name, a trigger,
+sources, a scope, a filter and a per-run ceiling before somebody has said the one thing
+they meant — *this show* — so nobody fills it in, and the feature the product exists for
+goes unused. `POST /sync/plans/for-item` takes the item and settles the rest, every
+answer written where it is taken:
+
+- the **name** comes from the media, a season carrying its series' title, because a list
+  of plans called `Nightly` and `Nightly 2` is unreadable six months later;
+- the **scope** is `rootItemIds: [itemId]`, which is what makes the estimate small and
+  the plan explicable;
+- the **sources** stay empty, meaning wherever it turns up. A standing intent outlives
+  the servers that happen to hold the show today, and pinning them turns a friend
+  re-adding their server into a plan that quietly stops finding anything;
+- the **filter** is `missingOnly`, because keeping a show in step is filling holes and
+  never replacing a file somebody chose;
+- there is **no ceiling**, because a ceiling exists to stop an unbounded scope running
+  away, and this one is a named show. A ceiling here would leave half a season behind on
+  every run, which reads as a broken plan;
+- the **trigger** is required and has no default. A standing intent implies a schedule,
+  and a schedule nobody chose is a gateway that downloads at four in the morning. A
+  `schedule` trigger with no cron expression is refused — `409
+  error.sync.schedule_required` — because the scheduler would register nothing and the
+  first anybody would hear of it is the episodes that never arrived.
+
+`GET /sync/plans/for-item/:itemId` answers what the screen needs before offering any of
+that: the name a new plan would take, the plans that already cover the media — walking
+the parent chain, so a plan on a series answers for every season under it — and the
+plans this subtree could be added to. Creating a second plan over a media something
+already covers is refused with `409 error.sync.item_already_covered`: two plans over one
+show are two runs pulling the same episodes into the same folder, and the loser of the
+race finds the winner's half-written file. The answer is `extendPlanId`, which adds the
+subtree to the plan that exists — `rootItemIds` is plural exactly for that.
+
+Only a plan whose scope is subtrees and nothing else may be extended, and anything else
+is `409 error.sync.plan_not_extendable`. The fields of a scope intersect, so a root added
+to a plan scoped by category would mean "the part of that show in that category", and one
+added to a plan that names nothing would turn "everything, nightly" into that one show.
+Both are silent rewrites of an intent somebody else stated.
+
+`POST /sync/estimate` is `/sync/plans/:id/estimate` for a plan that does not exist yet,
+and it is what the create-from-a-card screen shows before anything is saved. From a
+season it is a small number and from a series it is a whole show, and that difference is
+the decision somebody is being asked to take.
 
 ### Where a plan prefers to file things
 
@@ -508,7 +601,8 @@ indistinguishable from one trying to get in. `POST /peers/:id/connect` therefore
 "try now rather than wait for the next attempt" rather than "connect"; it answers `503
 error.peer.unreachable` when the attempt fails, whichever way it failed.
 
-**A friend of a friend is introduced, never relayed.** `POST /peers/:id/introductions`
+**A friend of a friend is introduced first, and relayed only if that fails.**
+`POST /peers/:id/introductions`
 asks the peer in the middle for a signed token naming the gateway they told us about —
 `holderId` is their own identifier for it, as an announcement already carries — and the
 gateway then opens a link straight to that holder, presenting the token as a header on
@@ -533,14 +627,44 @@ is asked for by fingerprint on the ladder and by holder identifier when a
 `catalogue.holders` answer named one; both reach the same `peer.introduce`.
 
 The last rung is only taken when the friend in the middle advertises
-`PeerCapability.RELAY`, which this gateway deliberately never does. Nothing is
-encrypted above the transport, so on a relayed link that friend's machine really does
-carry the bytes, and the interface says so in one line. **Two gateways behind two
-routers with no friend in common therefore cannot be connected**, which is a stated
-limit rather than a setting: the peers screen says so on the row and names the
-forwarded port as the fix. Relaying stays the whole arrangement for a remote Jellyfin
-or Plex somebody shares: that server does not speak this protocol and has never heard
-of the friend, so standing in front of it is the point rather than a fallback.
+`PeerCapability.RELAY`, which a gateway does only while `Settings.relayForPeers` is on.
+That switch is off by default and is one switch for the whole gateway rather than one
+per peer: the cost is a household's uplink, which is one resource and one decision, and
+a capability is advertised once in the handshake — a per-peer answer could not be
+advertised honestly, and the refusal would arrive fifteen seconds into somebody's dial.
+Turning it on takes effect for links opened afterwards, since that is when capabilities
+are exchanged.
+
+**How the bytes travel, and why it needed anything new.** A relayed dial is an upgrade
+on `/api/peer/link/relay` carrying the same four credential headers and the same
+introduction token as a direct one. The carrier verifies that it minted that token
+itself, that it names the key on the other end of the socket as its subject, and that
+both ends are still peers of its own; then it asks the holder — over the link the
+holder already has with it, because in this topology that inbound socket is the only
+route to them — and completes the upgrade only once the holder has accepted. Relayed
+traffic shares that existing socket inside a small envelope: a four-byte marker that
+can never be a request identifier, an opcode, a session and a length. A gateway that
+has never heard of it finds no pending request for that identifier, drops the frame and
+never answers, and the carrier gives up and refuses the dial — which is the behaviour
+an older friend had anyway.
+
+**What it is bounded by.** Four carried links at once, refused flatly past that; four
+megabytes of one session waiting on the budget before that session is closed, because
+a fast holder feeding a slow dialler is how an unbounded relay really fails; and the
+bytes are charged to `Settings.uploadRateLimit` rather than to a budget of their own,
+since the uplink does not care why a byte is leaving. A session ends when either end
+goes, when the carrying link goes, or when the process does.
+
+**What the carrier can see.** Everything it carries, in plaintext, both halves. It
+cannot be either end — neither key is on its machine, and the holder proves its own
+during the handshake exactly as it would on a direct link — but there is no application
+encryption here and none is claimed. That is why direct is tried first, and why the
+peers screen says in one line when a link is relayed. **Two gateways behind two routers
+with no friend in common, or none who agreed to carry, therefore cannot be connected**,
+which is a stated limit rather than a setting: the peers screen says so on the row and
+names the forwarded port as the fix. Relaying stays the whole arrangement for a remote
+Jellyfin or Plex somebody shares: that server does not speak this protocol and has never
+heard of the friend, so standing in front of it is the point rather than a fallback.
 
 `POST /peers/:id/release` lets go of a peer met that way. Whether it survives the
 transfer is `keepDiscoveredPeers`, off by default: off, the row carries `discovered`

@@ -801,4 +801,127 @@ describe('PlexHandler', () => {
 			expect(fetchMock).not.toHaveBeenCalled();
 		});
 	});
+
+	describe('listServerDirectories', () => {
+		it('names the locations each section declares', async () => {
+			stubFetch(() => ({
+				MediaContainer: {
+					Directory: [
+						{
+							key: '2',
+							title: 'TV Shows',
+							type: 'show',
+							Location: [{ path: '/data/media/shows' }],
+						},
+					],
+				},
+			}));
+
+			await expect(handler.listServerDirectories(connection)).resolves.toEqual({
+				support: 'reported',
+				path: null,
+				parent: null,
+				entries: [
+					{
+						path: '/data/media/shows',
+						name: 'shows',
+						root: true,
+						libraryExternalId: '2',
+						libraryName: 'TV Shows',
+						directory: true,
+					},
+				],
+			});
+		});
+
+		it('walks into a folder, reading a browse answer in every shape it comes in', async () => {
+			const fetchMock = stubFetch(() => ({
+				MediaContainer: {
+					Path: [{ title: 'The Expanse', path: '/data/media/shows/The Expanse' }],
+					// Older builds answer `Directory` where newer ones answer `Path`, and
+					// reading only one of the two empties the list on half the servers.
+					Directory: [{ title: 'Firefly', path: '/data/media/shows/Firefly' }],
+					File: [{ title: 'marker.tmp', path: '/data/media/shows/marker.tmp' }],
+				},
+			}));
+
+			const structure = await handler.listServerDirectories(connection, {
+				path: '/data/media/shows',
+				includeFiles: true,
+			});
+
+			expect(String(fetchMock.mock.calls[0][0])).toContain('/services/browse');
+			expect(structure.parent).toBe('/data/media');
+			expect(structure.entries.map((entry) => [entry.name, entry.directory])).toEqual([
+				['The Expanse', true],
+				['Firefly', true],
+				['marker.tmp', false],
+			]);
+		});
+
+		it('leaves the files out unless they were asked for', async () => {
+			stubFetch(() => ({
+				MediaContainer: {
+					Path: [{ title: 'The Expanse', path: '/data/media/shows/The Expanse' }],
+					File: [{ title: 'marker.tmp', path: '/data/media/shows/marker.tmp' }],
+				},
+			}));
+
+			const structure = await handler.listServerDirectories(connection, {
+				path: '/data/media/shows',
+			});
+
+			expect(structure.entries.map((entry) => entry.name)).toEqual(['The Expanse']);
+		});
+
+		it('reports a browse that ignored the path as unwalkable, not as a listing', async () => {
+			// Measured against a real Plex: `/services/browse` answers 200 and returns
+			// the same eight mount roots for `path=/media`, `path=/config`,
+			// `path=/media/movies` and for no path at all. Handing those back would put
+			// eight identical entries at every level of the picker, and somebody
+			// clicking into a folder and landing on the same list concludes the dialog
+			// is broken rather than that the server cannot walk.
+			const mounts = ['/', '/mqueue', '/config', '/media', '/transcode', '/resolv.conf'];
+
+			stubFetch(() => ({
+				MediaContainer: {
+					size: mounts.length,
+					Path: mounts.map((path) => ({ title: path, path })),
+				},
+			}));
+
+			await expect(
+				handler.listServerDirectories(connection, { path: '/media/movies' }),
+			).resolves.toEqual({
+				support: 'unsupported',
+				path: '/media/movies',
+				parent: '/media',
+				entries: [],
+			});
+		});
+
+		it('takes an empty listing at face value, because a folder can simply be empty', async () => {
+			// Nothing to compare against the question, and the misbehaving server never
+			// answers empty — calling this unwalkable would report a limitation that is
+			// really just an empty directory.
+			stubFetch(() => ({ MediaContainer: { size: 0 } }));
+
+			await expect(
+				handler.listServerDirectories(connection, { path: '/data/media/shows' }),
+			).resolves.toMatchObject({ support: 'reported', entries: [] });
+		});
+
+		it('reports that it cannot say when the build has no browse route', async () => {
+			global.fetch = jest.fn(async () => ({
+				ok: false,
+				status: 404,
+				headers: new Headers(),
+				text: async () => '',
+			})) as unknown as typeof fetch;
+
+			await expect(
+				handler.listServerDirectories(connection, { path: '/data/media/shows' }),
+			).resolves.toMatchObject({ support: 'unsupported', entries: [] });
+		});
+	});
 });

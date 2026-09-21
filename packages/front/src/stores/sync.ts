@@ -1,9 +1,13 @@
 import type {
+	CreateSyncPlanForItemRequest,
 	CreateSyncPlanRequest,
+	EstimateSyncRequest,
 	HistoryView,
+	ItemSyncPlans,
 	Pagination,
 	ResultList,
 	RunSyncRequest,
+	SyncEstimate,
 	SyncJob,
 	SyncJobState,
 	SyncPlan,
@@ -93,6 +97,35 @@ export const useSyncStore = defineStore('sync', () => {
 		const created = await caller('api').post<SyncPlan>('/sync/plans', request);
 		replacePlan(created);
 		return created;
+	}
+
+	/**
+	 * Which plans already speak for a media, and what a new one would be called.
+	 *
+	 * Asked of the gateway rather than worked out from `plans`: a plan on a series
+	 * covers every season under it, and answering that here would mean walking the
+	 * parent chain in the browser and keeping a second reading of what a scope means.
+	 */
+	function itemPlans (itemId: string): Promise<ItemSyncPlans> {
+		return caller('api').get<ItemSyncPlans>(`/sync/plans/for-item/${itemId}`);
+	}
+
+	/** Keep one media in sync: a plan scoped to it, or that subtree added to one. */
+	async function createPlanForItem (request: CreateSyncPlanForItemRequest): Promise<SyncPlan> {
+		const created = await caller('api').post<SyncPlan>('/sync/plans/for-item', request);
+		replacePlan(created);
+		return created;
+	}
+
+	/**
+	 * What a scope comes to, for a plan nobody has saved yet.
+	 *
+	 * The counterpart of the plan's own estimate for the moment before there is a plan
+	 * to address, and computed by the same code a run is: what somebody is shown before
+	 * undertaking a whole show is the arithmetic the first run will do.
+	 */
+	function estimateScope (request: EstimateSyncRequest): Promise<SyncEstimate> {
+		return caller('api').post<SyncEstimate>('/sync/estimate', request);
 	}
 
 	async function updatePlan (id: string, request: UpdateSyncPlanRequest): Promise<SyncPlan> {
@@ -197,6 +230,9 @@ export const useSyncStore = defineStore('sync', () => {
 		loadPlans,
 		plan,
 		createPlan,
+		itemPlans,
+		createPlanForItem,
+		estimateScope,
 		updatePlan,
 		deletePlan,
 		preview,

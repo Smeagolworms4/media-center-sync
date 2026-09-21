@@ -9,6 +9,8 @@ import {
 	type MediaService,
 	type MediaServiceProbe,
 	type MediaServiceType,
+	type ServerStructure,
+	type ServerStructureRequest,
 	type UpdateMediaServiceRequest,
 } from '@mcs/shared';
 import {
@@ -329,6 +331,32 @@ export class ServiceManager implements OnApplicationBootstrap {
 		const libraries = await this._libraries.findByService(id);
 
 		return libraries.map(toLibrary);
+	}
+
+	/**
+	 * What this service says about its own filesystem.
+	 *
+	 * The authoritative half of the mapping somebody is configuring: the server says
+	 * `/data/media/shows`, this gateway sees `/mnt/nas/shows`, and until now the only
+	 * assistance on offer was browsing our own disk and guessing which directory was
+	 * the same one. A server that cannot say answers that it cannot, and a peer always
+	 * does — the handler decides, not a test on the type here, which is the whole
+	 * point of putting it on the interface.
+	 *
+	 * Nothing is refused for a peer-backed service beyond what the handler already
+	 * refuses. Raising an exception here would make "this kind of server has no way to
+	 * tell us" arrive at the interface as the same thing as "your Jellyfin is asleep",
+	 * and those two ask somebody for very different actions: type the path yourself
+	 * versus go and wake the server up.
+	 */
+	public async structure(
+		id: string,
+		request: ServerStructureRequest = {},
+	): Promise<ServerStructure> {
+		const service = await this._requireWithSecrets(id);
+		const handler = this._handlers.get(service.type);
+
+		return handler.listServerDirectories(this._connection(service), request);
 	}
 
 	/**

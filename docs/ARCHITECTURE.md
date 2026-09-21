@@ -240,7 +240,7 @@ queue shows results nobody can account for.
 gateway A ──┐                        ┌── gateway C
             ├─▶ friend B ◀───────────┤      introduce by fingerprint
             │                        │
-            └────── direct link ─────┘      or B relays, when direct fails
+            └────── direct link ─────┘      or B carries it, when neither can be dialled
 ```
 
 Identity is the public key fingerprint, never the address. **Peers are introduced by
@@ -259,8 +259,27 @@ gateway's own address** and a secret, handed over out of band. That address name
 sender and nobody else.
 
 Relaying is the last rung and is gated on the friend advertising `PeerCapability.RELAY`,
-which this gateway never does. So two gateways behind two routers with no friend in
-common cannot be connected — a stated limit, reported on the peers screen with the
+which a gateway does only while `Settings.relayForPeers` is on — advertising it is the
+promise, so the capability comes from the setting and never from a constant.
+
+The rung exists because of one topology: the carrier's link to the holder is **inbound**.
+The holder dialled them, and they cannot dial back, because if they could the puller
+could too. So the relayed traffic travels back down that existing socket inside a
+multiplexing envelope — a marker that can never be a request identifier, an opcode, a
+session and a length — and the carried link then runs the ordinary admission, handshake
+and dispatch over a socket that is really a session on somebody else's. See
+`peer-relay.model.ts` for the frame and `peer-relay.service.ts` for the sessions.
+
+Three things are bounded, and all three are settled decisions rather than defaults
+waiting for a knob: four carried links at once, four megabytes of one session's bytes
+waiting on the budget before it is closed, and the relayed bytes charged to
+`Settings.uploadRateLimit` rather than to a budget of their own — the uplink does not
+care why a byte is leaving. The carrier holds both halves in plaintext and can read
+them; nothing here is encryption, which is why direct is tried first and why the peer
+card states on the row when a link is relayed.
+
+So two gateways behind two routers with **no** friend in common, or none who agreed to
+carry, cannot be connected — a stated limit, reported on the peers screen with the
 forwarded port named as the fix.
 
 ### One port
@@ -315,10 +334,11 @@ port, a public host, a tunnel, a proxy with a name. Whoever is reachable is dial
 It does nothing for the case where **both** ends are behind NAT with nothing
 forwarded. A WebSocket needs something to connect to, and in that topology neither
 side has one. A friend both ends already have can introduce them, which gets past "has
-never heard of you" but not past "there is no socket to open"; that friend can also
-carry the bytes, and this gateway never offers to. **Such a pair, with no friend in
-common, cannot be connected at all** — a stated limit, not a field somebody left empty,
-and the fix is a forwarded port on one of the two routers.
+never heard of you" but not past "there is no socket to open". That friend can also
+carry the link itself, inside the socket that already joins them to the holder, if
+their household turned `relayForPeers` on. **Such a pair, with no friend in common —
+or none who agreed to carry — cannot be connected at all** — a stated limit, not a
+field somebody left empty, and the fix is a forwarded port on one of the two routers.
 
 The intended answer for the general case is **WebRTC** — ICE with STUN to discover each
 end's public address, TURN when it cannot be discovered, signalled over the peer link

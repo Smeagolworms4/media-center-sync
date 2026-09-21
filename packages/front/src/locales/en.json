@@ -113,6 +113,12 @@
 		"current_not_writable": "The gateway cannot write into this folder, so nothing would ever land here.",
 		"truncated": "Showing the first {count} folders. Type the path if the one you want is not listed.",
 		"show_hidden": "Show hidden folders",
+		"server_title": "Reported by the media server",
+		"server_hint": "These are the folders as the server itself sees them. Pick one if this gateway reaches the same files at that path; otherwise find the matching folder below.",
+		"server_unsupported": "This service cannot say where its folders are, so the path has to be found below.",
+		"server_no_deeper": "This server cannot look inside its own folders, so these are all it will report.",
+		"server_enter": "Look inside this folder",
+		"gateway_title": "What this gateway sees",
 		"open": "Browse folders"
 	},
 	"general": {
@@ -233,6 +239,7 @@
 		},
 		"problem": {
 			"no_path": "No local path is set, so the gateway cannot write into this library.",
+			"mismatch": "The gateway writes into {local} and the server reads {server}. They are not the same directory, so nothing pulled into this library will ever appear on the server.",
 			"missing": "This path does not exist as the gateway sees it.",
 			"unreadable": "The gateway cannot read this path.",
 			"not_writable": "The gateway cannot write here, so no transfer can land in this library."
@@ -426,6 +433,7 @@
 			"roots_hint": "The server reports its own paths. State its root once here and every library under it works out where this gateway reaches the same files — instead of one path to type per library. A library that needs something else keeps a path of its own.",
 			"remote_root": "Root, as the server reports it",
 			"remote_root_hint": "What the media server calls it, such as /media",
+			"remote_root_reported": "The server reports {path} — use it",
 			"local_root": "The same directory, from here",
 			"local_root_hint": "Where this gateway reaches it, such as /mnt/nas",
 			"auth_provider": "Sign in with this service",
@@ -519,7 +527,7 @@
 			"fingerprint": "Fingerprint",
 			"direct_address": "Direct address",
 			"direct_ok": "Direct connections are possible, so transfers do not go through the relay.",
-			"relay_only": "This gateway is not reachable from outside, so friends cannot dial it directly: a link then depends on a friend you both already have, and there is nothing else to fall back on. Forwarding the interface's port on your router fixes it. There is no second port to open: a peer link is a WebSocket upgrade on that same one."
+			"relay_only": "This gateway is not reachable from outside, so friends cannot dial it directly: a link then depends on a friend you both already have, to introduce you and, when neither of you can be dialled, to carry the link. Forwarding the interface's port on your router removes the need for one. There is no second port to open: a peer link is a WebSocket upgrade on that same one."
 		},
 		"invite": {
 			"open": "Link a gateway",
@@ -804,6 +812,8 @@
 		"swarm_help": "Several peers holding the same file can feed one transfer together.",
 		"keep_discovered_peers": "Keep peers discovered while downloading",
 		"keep_discovered_peers_help": "When you pull a file from a friend of a friend, the two gateways connect directly; keep it in your list, or let the connection close with the transfer.",
+		"relay_for_peers": "Carry links between your friends",
+		"relay_for_peers_help": "Two friends who are each behind a router cannot reach each other at all. Turn this on and this gateway holds both ends and passes the bytes across: it spends its upload, and it sees them, because nothing is encrypted above the connection. It only ever does it for two peers it introduced itself, and for four links at a time.",
 		"match_threshold": "Correlation threshold",
 		"match_threshold_help": "Below this score a match is proposed rather than applied.",
 		"refresh_interval": "Refresh every (minutes)",
@@ -916,6 +926,30 @@
 			"next_run": "next run",
 			"remove_title": "Remove this plan?",
 			"remove_confirm": "{name} will stop running. Nothing already pulled is touched."
+		},
+		"keep": {
+			"action": "Keep in sync",
+			"title": "Keep this in sync",
+			"what": "The plan will cover {title} and everything under it.",
+			"covered": "Already kept in sync by the plan {name}.",
+			"covered_above": "Already covered by the plan {name}, which keeps everything under it in step.",
+			"open_plan": "Open the plan",
+			"estimate_unknown": "Nobody has worked out what this comes to.",
+			"estimate_truncated": "At least this much: there is more here than one run walks.",
+			"mode": "What to do",
+			"mode_create": "Create a plan for it",
+			"mode_extend": "Add it to a plan I already have",
+			"plan": "Plan to add it to",
+			"name": "Plan name",
+			"name_hint": "Named after the show, so the list of plans still reads six months from now.",
+			"sources": "From wherever it turns up: the plan follows the service priority set in the settings, so a copy appearing on a friend's server later is found without editing anything.",
+			"create": "Create the plan",
+			"extend": "Add to the plan",
+			"once_title": "Or just this once",
+			"once_text": "One run, now. Nothing is remembered and nothing runs again on its own.",
+			"once": "Get what is missing now",
+			"created": "Plan created. You will find it under Sync, and on this page.",
+			"extended": "Added to the plan."
 		},
 		"preview": {
 			"title": "What this would pull",
@@ -1200,6 +1234,7 @@
 			"not_found": "This library no longer exists.",
 			"path_unreadable": "The gateway cannot read this path.",
 			"path_not_writable": "The gateway cannot write to this path.",
+			"path_mismatch": "The gateway's path and the server's path are not the same directory. Files would land where the server never looks.",
 			"category_not_found": "That category no longer reads as anything here. Reload the page: the libraries behind it may have been renamed or removed.",
 			"keyword_not_found": "That name is no longer plugged into anything. Reload the page.",
 			"keyword_invalid": "Nothing could ever match that. Use at least one letter or digit.",
@@ -1228,7 +1263,10 @@
 			"already_running": "This plan is already running.",
 			"not_enough_space": "The target library does not have room for what this run would pull.",
 			"space_not_acknowledged": "This run would eat into the space kept in reserve, or the free space could not be measured. Confirm it to start it anyway.",
-			"scope_unbounded": "The scope of this plan names nothing, so it would pull everything. Confirm it to enable it anyway."
+			"scope_unbounded": "The scope of this plan names nothing, so it would pull everything. Confirm it to enable it anyway.",
+			"item_already_covered": "A plan already covers this media. Open that plan rather than creating a second one that would fight it.",
+			"plan_not_extendable": "That plan cannot take another show: its scope is not a list of shows, and adding one would change what it covers.",
+			"schedule_required": "A plan that runs on a schedule needs a cron expression."
 		},
 		"transfer": {
 			"not_found": "This transfer no longer exists.",

@@ -1,9 +1,11 @@
 <script lang="ts" setup>
-	import type { DirectoryListing } from '@mcs/shared';
+	import type { DirectoryListing, ServerDirectory, ServerStructure } from '@mcs/shared';
+	import { ServerStructureSupport } from '@mcs/shared';
 	import { computed, ref, watch } from 'vue';
 	import Window from '@/components/Window.vue';
 	import { useApiError } from '@/hooks/useApiError';
 	import { useFilesystemStore } from '@/stores/filesystem';
+	import { useServicesStore } from '@/stores/services';
 
 	/**
 	 * Pointing at a directory instead of spelling one.
@@ -23,14 +25,51 @@
 	const props = withDefaults(defineProps<{
 		/** Where to open. A path the gateway will not show falls back to a root. */
 		path?: string | null;
+		/**
+		 * The service whose own folders to offer, when there is one to ask.
+		 *
+		 * Given, the dialog shows two sides: what the media server says its folders
+		 * are, and what this gateway sees on its disk. That pair is the mapping being
+		 * configured — the server says `/data/media/shows`, the gateway sees
+		 * `/mnt/nas/shows` — and the server's half is the authoritative one, which is
+		 * why it is shown first and named as the server's.
+		 */
+		serviceId?: string | null;
+		/** Restrict the server's folders to one library's, by the id the service gave. */
+		libraryExternalId?: string | null;
 	}>(), {
 		path: null,
+		serviceId: null,
+		libraryExternalId: null,
 	});
 
 	const emit = defineEmits<{ choose: [path: string] }>();
 
 	const filesystem = useFilesystemStore();
+	const services = useServicesStore();
 	const { parseApiError } = useApiError();
+
+	/**
+	 * What the server answered, and where inside it we are looking.
+	 *
+	 * Null while nothing has been asked — no service to ask, or the request failed —
+	 * and the section simply does not appear. A failure here is deliberately not shown
+	 * as an error: the browse below still works, and an alert about the server would
+	 * suggest the dialog is broken when it is merely quieter than usual.
+	 */
+	const server = ref<ServerStructure | null>(null);
+	const serverLoading = ref(false);
+
+	/**
+	 * Whether a step into one of the server's folders came back refused.
+	 *
+	 * Plex is the case this exists for: its browse route answers happily and ignores
+	 * the folder asked for, so the handler reports that it cannot walk. Kept as a flag
+	 * beside the roots rather than replacing them, because the roots are still the
+	 * authoritative half of the mapping and a section that emptied itself the moment
+	 * somebody clicked a chevron reads as a broken dialog rather than a limited server.
+	 */
+	const serverDeadEnd = ref(false);
 
 	const listing = ref<DirectoryListing | null>(null);
 	const error = ref<string | null>(null);
@@ -125,13 +164,79 @@
 		}
 	}
 
+	/** Only the directories: a file is never a destination, and the proof asks apart. */
+	const serverEntries = computed<ServerDirectory[]>(
+		() => (server.value?.entries ?? []).filter(entry => entry.directory));
+
+	/**
+	 * Whether there is a server side to show at all.
+	 *
+	 * A service that could not be reached takes the whole section away rather than
+	 * leaving an empty list under a heading claiming the server reported something:
+	 * "no folder in here" about a server that never answered is a lie in the place
+	 * where this dialog is meant to be the trustworthy half.
+	 */
+	const showServer = computed(
+		() => props.serviceId !== null && (server.value !== null || serverLoading.value));
+
+	/**
+	 * Whether the server was asked and said it has no way to answer.
+	 *
+	 * Said out loud rather than shown as an empty list. A peer always answers this,
+	 * and so does a media server whose build has no browse route — and somebody who
+	 * saw nothing would go looking for the folders the server "should" have reported.
+	 */
+	const serverSilent = computed(
+		() => server.value?.support === ServerStructureSupport.UNSUPPORTED);
+
+	/**
+	 * Ask the server where its own folders are.
+	 *
+	 * Failures leave the section hidden instead of taking the dialog down with them:
+	 * the browse underneath is the fallback this assist has always had, and a server
+	 * that is asleep must not stop somebody typing the path they already know.
+	 */
+	async function loadServer (path?: string | null): Promise<void> {
+		if (props.serviceId === null) {
+			return;
+		}
+
+		serverLoading.value = true;
+
+		try {
+			const answer = await services.structure(props.serviceId, {
+				libraryExternalId: props.libraryExternalId,
+				path,
+			});
+
+			// A step the server would not take leaves what it did report on screen and
+			// says so. Overwriting the roots with "cannot say" would take away the one
+			// thing it answered correctly, at the moment somebody asked for more.
+			if (answer.support === ServerStructureSupport.UNSUPPORTED && path && server.value) {
+				serverDeadEnd.value = true;
+
+				return;
+			}
+
+			serverDeadEnd.value = false;
+			server.value = answer;
+		} catch {
+			server.value = null;
+		} finally {
+			serverLoading.value = false;
+		}
+	}
+
 	// Immediate so that a picker mounted already open still loads: the flag is false
 	// everywhere in the application, but a component that only works because of how it
 	// happens to be used is one nothing can test.
 	watch(open, isOpen => {
 		if (isOpen) {
 			listing.value = null;
+			server.value = null;
+			serverDeadEnd.value = false;
 			void load(props.path, true);
+			void loadServer(null);
 		}
 	}, { immediate: true });
 
@@ -145,6 +250,20 @@
 			open.value = false;
 		}
 	}
+
+	/**
+	 * Take the server's own path as the value.
+	 *
+	 * Right whenever the gateway and the media server see the same filesystem, which
+	 * is the single-machine install and every bind mount that kept the same path. When
+	 * they do not — the service in its own container — the browse below is what finds
+	 * the other side, and that is exactly the choice this dialog is asking somebody to
+	 * make rather than making for them.
+	 */
+	function onChooseServer (path: string): void {
+		emit('choose', path);
+		open.value = false;
+	}
 </script>
 
 <template>
@@ -154,6 +273,95 @@
 		:title="$t('browse.title')"
 		window-class="directory-picker"
 	>
+		<!--
+			The server's side first, because it is the one with authority: these paths
+			come from the machine that actually reads the files, while everything below
+			is this gateway guessing. Somebody who sees them side by side can read the
+			mapping they are configuring; somebody who only sees a folder tree is being
+			asked to remember it.
+		-->
+		<section v-if="showServer" class="directory-picker_server" data-test="browse-server">
+			<div class="directory-picker_server-head">
+				<v-icon class="mr-2" icon="mdi-server" size="small" />
+
+				<p class="text-subtitle-2 mb-0">{{ $t('browse.server_title') }}</p>
+
+				<v-spacer />
+
+				<v-btn
+					v-if="server?.parent"
+					data-test="browse-server-up"
+					icon="mdi-arrow-up"
+					size="x-small"
+					:title="$t('browse.up')"
+					variant="text"
+					@click="loadServer(server?.parent)"
+				/>
+			</div>
+
+			<p class="text-caption text-medium-emphasis mb-1">
+				{{ $t('browse.server_hint') }}
+			</p>
+
+			<p
+				v-if="serverSilent"
+				class="text-caption text-medium-emphasis mb-0"
+				data-test="browse-server-unsupported"
+			>
+				{{ $t('browse.server_unsupported') }}
+			</p>
+
+			<v-list v-else density="compact" max-height="180">
+				<v-list-item
+					v-for="entry of serverEntries"
+					:key="entry.path"
+					data-test="browse-server-entry"
+					prepend-icon="mdi-folder-network-outline"
+					:subtitle="entry.libraryName ?? entry.path"
+					:title="entry.path"
+					@click="onChooseServer(entry.path)"
+				>
+					<template #append>
+						<v-btn
+							data-test="browse-server-enter"
+							icon="mdi-chevron-right"
+							size="x-small"
+							:title="$t('browse.server_enter')"
+							variant="text"
+							@click.stop="loadServer(entry.path)"
+						/>
+					</template>
+				</v-list-item>
+
+				<v-list-item
+					v-if="!serverLoading && serverEntries.length === 0"
+					data-test="browse-server-empty"
+					:title="$t('browse.empty')"
+				/>
+			</v-list>
+
+			<!--
+				Deliberately outside the branch above rather than another step in it: the
+				folders the server did report stay on screen, and this only adds the
+				sentence explaining why clicking into one of them changed nothing.
+			-->
+			<p
+				v-if="serverDeadEnd && !serverSilent"
+				class="text-caption text-medium-emphasis mb-0"
+				data-test="browse-server-no-deeper"
+			>
+				{{ $t('browse.server_no_deeper') }}
+			</p>
+		</section>
+
+		<p
+			v-if="showServer"
+			class="text-subtitle-2 mb-1 mt-3"
+			data-test="browse-gateway-title"
+		>
+			{{ $t('browse.gateway_title') }}
+		</p>
+
 		<div class="directory-picker_bar">
 			<v-btn
 				data-test="browse-up"
@@ -259,6 +467,18 @@
 
 <style lang="scss">
 	.directory-picker {
+		&_server {
+			padding: 8px;
+			margin-bottom: 8px;
+			border: 1px solid rgba(var(--v-border-color), 0.2);
+			border-radius: 4px;
+		}
+
+		&_server-head {
+			display: flex;
+			align-items: center;
+		}
+
 		&_bar {
 			display: flex;
 			align-items: center;

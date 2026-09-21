@@ -94,6 +94,28 @@ const UNKNOWN_CODEC_EFFICIENCY = 2;
 const BITRATE_SIGNIFICANCE = 0.1;
 const SIZE_SIGNIFICANCE = 0.05;
 
+/**
+ * Two runtimes that differ by less than this are the same cut, whatever the ratio says.
+ *
+ * The proportional rule below scales with the runtime and stops meaning anything on a
+ * short one: five percent of a four-second clip is two hundred milliseconds, so a
+ * second of padding reads as a different cut. That is not a hypothetical. The owner's
+ * two copies of *Big Buck Bunny* — the same film, the same year, on two friends'
+ * servers — are stubs of 3.0 s and 4.0 s, a twenty-four percent difference, and
+ * `MatchingService` vetoed the correlation on it; the two rows have been two cards and
+ * two entries in every count ever since, with nothing anywhere saying why.
+ *
+ * Thirty seconds is the smallest difference any of the things this rule exists to
+ * catch can have: an extended cut, a director's cut, a regional master and a copy with
+ * the credits trimmed are all measured in minutes. Below half a minute what is left is
+ * two servers probing one file with different demuxers, or a few seconds of black.
+ *
+ * It only ever bites under ten minutes of runtime, because five percent of anything
+ * longer already exceeds thirty seconds — so no feature film, and no episode, changes
+ * answer because of it.
+ */
+const SEPARATE_CUT_FLOOR_MS = 30_000;
+
 /** Why one file beats another, in the order the comparator applies the rules. */
 export type QualityAdvantage = 'resolution' | 'codec' | 'bitrate' | 'size' | null;
 
@@ -359,12 +381,16 @@ export class QualityService {
 			return false;
 		}
 
-		// More than a two-minute difference, or five percent, is an extended cut, a
-		// different regional master, or a file with the credits trimmed — not the same
-		// thing encoded twice.
+		// More than a two-minute difference, or five percent of a runtime long enough
+		// for five percent to mean anything, is an extended cut, a different regional
+		// master, or a file with the credits trimmed — not the same thing encoded twice.
+		// See `SEPARATE_CUT_FLOOR_MS` for why the proportional half needs a floor.
 		const difference = Math.abs(left.durationMs - right.durationMs);
 
-		return difference > 120_000 || difference / longest > 0.05;
+		return (
+			difference > 120_000 ||
+			(difference > SEPARATE_CUT_FLOOR_MS && difference / longest > 0.05)
+		);
 	}
 
 	private _normalizeCodec(codec: string | null, aliases: Record<string, string>): string | null {

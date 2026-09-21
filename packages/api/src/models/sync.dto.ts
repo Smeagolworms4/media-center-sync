@@ -196,6 +196,109 @@ export class UpdateSyncPlanDto extends CreateSyncPlanDto {
 	public declare trigger: SyncTrigger;
 }
 
+/**
+ * A plan created from the media it is about.
+ *
+ * The scope is not a field here: it is the item, which is the whole point of the
+ * route — somebody on a season card has already said the one thing a blank form asks
+ * for last. `trigger` is required although the entity has a default, because a
+ * schedule nobody chose is a gateway downloading at four in the morning, and a
+ * default in a DTO is precisely how that gets chosen on somebody's behalf.
+ */
+export class CreateSyncPlanForItemDto {
+	@ApiProperty({ description: 'The series, season or collection the plan covers.' })
+	@IsUUID()
+	public itemId!: string;
+
+	@ApiProperty({ enum: SyncTrigger })
+	@IsEnum(SyncTrigger)
+	public trigger!: SyncTrigger;
+
+	@ApiPropertyOptional({ description: 'Cron expression. Required when the trigger is a schedule.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(120)
+	public schedule?: string | null;
+
+	@ApiPropertyOptional({
+		type: [String],
+		description: 'Empty, and meant so: the plan follows the configured service priority.',
+	})
+	@IsOptional()
+	@IsArray()
+	@IsUUID('4', { each: true })
+	public sourceServiceIds?: string[];
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsUUID()
+	public preferredLibraryId?: string | null;
+
+	@ApiPropertyOptional({ type: SyncFilterDto })
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => SyncFilterDto)
+	public filter?: SyncFilterDto;
+
+	@ApiPropertyOptional({ nullable: true })
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	public maxItemsPerRun?: number | null;
+
+	@ApiPropertyOptional({ nullable: true })
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	public maxBytesPerRun?: number | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsBoolean()
+	public enabled?: boolean;
+
+	@ApiPropertyOptional({
+		description: 'Add the subtree to this plan instead of creating a second one for it.',
+	})
+	@IsOptional()
+	@IsUUID()
+	public extendPlanId?: string;
+
+	@ApiPropertyOptional({ description: 'Overrides the name derived from the media.' })
+	@IsOptional()
+	@IsString()
+	@IsNotEmpty()
+	@MaxLength(120)
+	public name?: string;
+}
+
+/**
+ * What a scope comes to, before there is a plan to address.
+ *
+ * The same three fields a run takes, minus everything about where files land: an
+ * estimate is a count and a size, and a destination it never writes to would only be
+ * a rejection to explain at the moment somebody is being shown a number.
+ */
+export class EstimateSyncDto {
+	@ApiPropertyOptional({ type: SyncScopeDto })
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => SyncScopeDto)
+	public scope?: SyncScopeDto;
+
+	@ApiPropertyOptional({ type: [String] })
+	@IsOptional()
+	@IsArray()
+	@IsUUID('4', { each: true })
+	public sourceServiceIds?: string[];
+
+	@ApiPropertyOptional({ type: SyncFilterDto })
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => SyncFilterDto)
+	public filter?: SyncFilterDto;
+}
+
 /** A one-off run: a plan, a subtree, or a handful of items. */
 export class RunSyncDto {
 	@ApiPropertyOptional()

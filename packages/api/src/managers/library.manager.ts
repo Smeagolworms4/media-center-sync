@@ -5,6 +5,7 @@ import {
 	categoryKeyOf,
 	ErrorKey,
 	MediaServiceMode,
+	PathMatch,
 	type CategoryKeyword,
 	type Library,
 	type LibraryCheck,
@@ -30,14 +31,26 @@ import {
 } from '@/repositories';
 import {
 	derivedLocalPath,
+	PathMatchService,
 	reachesFiles,
 	serviceMode,
 	type ServiceRootMapping,
 } from '@/services';
 import { toLibrary } from './mappers';
 
-/** What probing one declared path found. */
-export type PathProbe = Omit<LibraryCheck, 'libraryId' | 'name' | 'localPath' | 'derived'>;
+/**
+ * What probing one declared path found, on this side only.
+ *
+ * `serverPaths` and `match` are left out rather than defaulted: they are the media
+ * server's half of the answer, and the callers of `probe` — placement, a transfer
+ * about to write, a setting being saved — are asking whether this gateway can write
+ * into a directory, which costs a `stat`. Folding the server round trip into that
+ * would put an HTTP call on the path that runs per transfer.
+ */
+export type PathProbe = Omit<
+	LibraryCheck,
+	'libraryId' | 'name' | 'localPath' | 'derived' | 'serverPaths' | 'match'
+>;
 
 /**
  * The libraries of the registered services, and where the gateway can write them.
@@ -57,6 +70,15 @@ export class LibraryManager {
 		private readonly _libraries: LibraryRepository,
 		private readonly _services: MediaServiceRepository,
 		private readonly _keywords: CategoryKeywordRepository,
+		/**
+		 * Asks the media server whether it can see what the gateway just wrote.
+		 *
+		 * A service and not something this manager does itself: writing a file and
+		 * talking to a Jellyfin is technical capability, and a manager that opened a
+		 * `fetch` would be the leak CLAUDE.md names. The decision — which libraries are
+		 * worth asking about, and what a refusal means — stays here.
+		 */
+		private readonly _pathMatch: PathMatchService,
 	) {}
 
 	public async list(serviceId?: string): Promise<Library[]> {
@@ -501,13 +523,68 @@ export class LibraryManager {
 		);
 
 		return Promise.all(
-			libraries.map(async (library) => ({
-				libraryId: library.id,
-				name: library.name,
-				localPath: library.localPath,
-				derived: library.localPathDerived,
-				...(await this.probe(library.localPath)),
-			})),
+			libraries.map(async (library) => {
+				const probe = await this.probe(library.localPath);
+				// Nobody is asked about a path nothing can be written into: the marker
+				// could not be placed, so the server could not be shown anything. That
+				// path already carries its own error, and a second warning saying the
+				// same thing in other words sends somebody hunting a second problem.
+				const match = probe.writable
+					? await this._matchOf(library, services.get(library.serviceId))
+					: PathMatch.UNKNOWN;
+
+				return {
+					libraryId: library.id,
+					name: library.name,
+					localPath: library.localPath,
+					derived: library.localPathDerived,
+					...probe,
+					serverPaths: library.paths,
+					match,
+					// The mismatch outranks nothing — a writable path with no other
+					// complaint is exactly the case where the failure is invisible — so
+					// it fills the error only when the filesystem had nothing to say.
+					error: probe.error ?? (match === PathMatch.MISMATCHED
+						? ErrorKey.LIBRARY_PATH_MISMATCH
+						: null),
+				};
+			}),
+		);
+	}
+
+	/**
+	 * Ask this library's own service whether it sees what we see.
+	 *
+	 * The credentials are re-read here rather than carried on the service already in
+	 * hand, because `find()` leaves them out — that is the whole point of the
+	 * `select: false` on them — and a connection built from that row would talk to
+	 * Jellyfin without a token and be told off for it.
+	 */
+	private async _matchOf(
+		library: LibraryEntity,
+		service: MediaServiceEntity | undefined,
+	): Promise<PathMatch> {
+		if (service === undefined || library.paths.length === 0) {
+			return PathMatch.UNKNOWN;
+		}
+
+		const withSecrets = await this._services.findWithSecrets(service.id);
+
+		if (withSecrets === null) {
+			return PathMatch.UNKNOWN;
+		}
+
+		return this._pathMatch.verify(
+			{
+				id: withSecrets.id,
+				type: withSecrets.type,
+				baseUrl: withSecrets.baseUrl,
+				token: withSecrets.token,
+				username: withSecrets.username,
+				password: withSecrets.password,
+			},
+			library.localPath,
+			library.paths,
 		);
 	}
 

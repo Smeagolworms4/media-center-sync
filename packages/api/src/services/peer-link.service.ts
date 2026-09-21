@@ -16,6 +16,7 @@ import {
 	MAX_INTRODUCERS_ASKED,
 	PEER_HELLO_METHOD,
 	PEER_INTRODUCE_METHOD,
+	PEER_RELAY_PATH_SUFFIX,
 	PROTOCOL_VERSION,
 	PEER_INTRODUCTION_HEADER,
 	PeerCapability,
@@ -31,10 +32,13 @@ import {
 	Injectable,
 	Logger,
 	OnModuleDestroy,
+	Optional,
 	ServiceUnavailableException,
 } from '@nestjs/common';
 import { WebSocket } from 'ws';
 import { PEER_LINK_PATH, type PeerCredential } from './peer-gateway.service';
+import { isRelayFrame } from './peer-relay.frames';
+import { PeerRelayService, type RelayChannel } from './peer-relay.service';
 
 /** Where the gateway's own key pair lives, unless the environment says otherwise. */
 const DEFAULT_DATA_DIR = './data';
@@ -54,20 +58,16 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const CHALLENGE_MAX_AGE_MS = 5 * 60_000;
 
 /**
- * What this gateway tells a peer it can do.
+ * What this gateway tells a peer it can do, whatever anybody has configured.
  *
  * Every entry here is a method this gateway really answers — advertising one it does
  * not is worse than advertising nothing, because the far end will use it and be
- * refused at the one moment it mattered. `RELAY` is absent on purpose, and stays
- * absent: a friend of a friend's bytes are never passed through this machine. They are
- * introduced to whoever holds the file and pull it directly, which is what `INTRODUCE`
- * says this gateway will help with.
+ * refused at the one moment it mattered.
  *
- * The consequence is worth stating, because it is the limit the peers screen reports:
- * between two gateways that both run this code and can neither of them be dialled,
- * the relay rung of `connect` finds nobody advertising `RELAY` and the link cannot be
- * opened. Forwarding the interface's port on one of the two routers is the fix, and
- * there is no third party to configure instead.
+ * `RELAY` is deliberately not in this list and never will be: it is the one capability
+ * that costs the household something, so it is answered from `Settings.relayForPeers`
+ * in `hello()` below rather than from a constant. A gateway that advertised it while
+ * the switch was off would spend fifteen seconds of somebody's dial to say no.
  */
 export const LOCAL_CAPABILITIES: readonly PeerCapabilityValue[] = Object.freeze([
 	PeerCapability.CONTENT,
@@ -170,6 +170,16 @@ class PeerLink {
 	private _nextRequestId = 1;
 
 	/**
+	 * Whatever this link is carrying for other people, or null when nothing can be.
+	 *
+	 * A link holds its own channel so that losing the socket takes the relayed sessions
+	 * riding on it in the same pass — see `PeerRelayService.unregister`. A table
+	 * somewhere else keyed by peer identifier would outlive the socket, and the first
+	 * symptom would be bytes written into a closed link with nothing reporting it.
+	 */
+	private readonly _channel: RelayChannel | null;
+
+	/**
 	 * Whether this link was closed by us rather than lost.
 	 *
 	 * The difference is the whole reason the flag exists: a link that dropped is one
@@ -188,12 +198,27 @@ class PeerLink {
 		private readonly _logger: Logger,
 		/** Called once when the link is lost, and never when we closed it ourselves. */
 		private readonly _onLost: (peerId: string) => void = () => undefined,
+		relay?: PeerRelayService,
 	) {
 		this._socket.on('message', (data: Buffer, isBinary: boolean) =>
 			this._onMessage(data, isBinary),
 		);
 		this._socket.on('close', () => this._lost(new Error('link closed')));
 		this._socket.on('error', (error) => this._lost(error));
+
+		const socket = _socket;
+
+		this._channel =
+			relay?.register({
+				peerId,
+				// We opened this socket, so this end numbers relayed sessions from two.
+				// See `RelayTransport.dialled` for what collides otherwise.
+				dialled: true,
+				get open(): boolean {
+					return socket.readyState === WebSocket.OPEN;
+				},
+				send: (frame: Buffer) => socket.send(frame),
+			}) ?? null;
 	}
 
 	public get connected(): boolean {
@@ -211,6 +236,7 @@ class PeerLink {
 	public close(): void {
 		this._closedByUs = true;
 		this._failAll(new Error('link closed'));
+		this._channel?.close();
 		this._socket.close();
 	}
 
@@ -223,6 +249,9 @@ class PeerLink {
 	 */
 	private _lost(error: Error): void {
 		this._failAll(error);
+		// Before the early return below: a link that was already reported still has to
+		// let go of what it was carrying, and a second call is a no-op either way.
+		this._channel?.close();
 
 		if (this._closedByUs || this._reported) {
 			return;
@@ -266,6 +295,16 @@ class PeerLink {
 	private _onMessage(data: Buffer, isBinary: boolean): void {
 		if (isBinary) {
 			if (data.length < FRAME_HEADER_BYTES) {
+				return;
+			}
+
+			// Relayed traffic shares this channel, marked by a request identifier that
+			// can never be allocated. See `peer-relay.model.ts` — and note that a
+			// gateway without a relay bound falls through to the lookup below, finds
+			// nothing pending and drops the frame, which is what an older peer does.
+			if (this._channel !== null && isRelayFrame(data)) {
+				this._channel.receive(data);
+
 				return;
 			}
 
@@ -376,7 +415,13 @@ export class PeerLinkService implements OnModuleDestroy {
 
 	private readonly _nodeId: string;
 
-	public constructor() {
+	/**
+	 * Optional because this class is constructed directly in its own tests and holds
+	 * the gateway's identity, which nothing else should have to stand up to ask for a
+	 * fingerprint. Absent means no link ever carries anything, and `hello()` never
+	 * advertises `RELAY` — which is exactly what this gateway did before relaying.
+	 */
+	public constructor(@Optional() private readonly _relays?: PeerRelayService) {
 		const keys = this._loadOrCreateKeys();
 
 		this._privateKeyPem = keys.privateKey;
@@ -447,14 +492,23 @@ export class PeerLinkService implements OnModuleDestroy {
 	 * One method rather than one per direction: the hello we send when we call and the
 	 * hello we answer when we are called are the same statement, and two copies of it
 	 * would drift the first time a capability was added.
+	 *
+	 * Asynchronous for one reason: `RELAY` is a promise to spend this household's
+	 * upload on somebody else's transfer, so it is read from the setting every time it
+	 * is stated rather than baked into a constant. Advertising it is the agreement, and
+	 * the only way the two cannot drift is for there to be one source of the answer.
 	 */
-	public hello(): PeerHello {
+	public async hello(): Promise<PeerHello> {
+		const carrying = (await this._relays?.carrying()) ?? false;
+
 		return {
 			nodeId: this._nodeId,
 			fingerprint: this._fingerprint,
 			name: hostname(),
 			protocol: PROTOCOL_VERSION,
-			capabilities: [...LOCAL_CAPABILITIES],
+			capabilities: carrying
+				? [...LOCAL_CAPABILITIES, PeerCapability.RELAY]
+				: [...LOCAL_CAPABILITIES],
 		};
 	}
 
@@ -570,11 +624,13 @@ export class PeerLinkService implements OnModuleDestroy {
 	 *    `options.introducers`; at most `MAX_INTRODUCERS_ASKED` of them are tried,
 	 *    because somebody is watching a spinner while this runs.
 	 * 3. **That same friend carrying the bytes.** Only when they advertise
-	 *    `PeerCapability.RELAY`, which this gateway deliberately never does: passing a
-	 *    friend of a friend's film through this machine is what the whole introduction
-	 *    mechanism exists to avoid. When nobody in the middle offers it, two gateways
-	 *    that can neither of them be dialled cannot be connected, and the peers screen
-	 *    says so rather than leaving a row that silently never links.
+	 *    `PeerCapability.RELAY`, which a gateway does only when its household turned
+	 *    `Settings.relayForPeers` on — it is their upload being spent. Last, and not
+	 *    merely because it is slower: the friend in the middle holds both halves of the
+	 *    link in plaintext, which the peer card says on the row. When nobody in the
+	 *    middle has agreed, two gateways that can neither of them be dialled still
+	 *    cannot be connected, and the peers screen says so rather than leaving a row
+	 *    that silently never links.
 	 *
 	 * There is no fourth rung and nothing to configure. The address in an invitation
 	 * is the issuing gateway's own, not a directory's — see `PeerManager`.
@@ -732,11 +788,12 @@ export class PeerLinkService implements OnModuleDestroy {
 	/**
 	 * The last rung: the friend in the middle carries the bytes.
 	 *
-	 * Gated on them advertising it, like every other feature — a gateway that does not
-	 * relay answers the upgrade with a refusal, and spending fifteen seconds of connect
-	 * timeout to find that out is fifteen seconds of somebody's spinner. The endpoint
-	 * is their own link address with `/relay` on it, and the holder it leads to is the
-	 * one named inside the token, which they can read and we cannot forge.
+	 * Gated on them advertising it, like every other feature — a gateway whose household
+	 * did not agree to carry anything answers the upgrade with a refusal, and spending
+	 * fifteen seconds of connect timeout to find that out is fifteen seconds of
+	 * somebody's spinner. The endpoint is their own link address with `/relay` on it,
+	 * and the holder it leads to is the one named inside the token, which they can read
+	 * and we cannot forge.
 	 *
 	 * Nothing here is encrypted above the transport, so their machine really does see
 	 * the bytes. The peer card says so in one line instead of showing a word.
@@ -877,13 +934,25 @@ export class PeerLinkService implements OnModuleDestroy {
 			});
 		});
 
-		const link = new PeerLink(peer.id, mode, address, socket, this._logger, (peerId) => {
-			// Dropped from the map here rather than by the listener: a closed socket must
-			// not stay in it, whether or not anybody is listening, or `isLinked` would
-			// keep answering true for a link that can no longer carry a byte.
-			this._links.delete(peerId);
-			this._onLost?.(peerId);
-		});
+		const link = new PeerLink(
+			peer.id,
+			mode,
+			address,
+			socket,
+			this._logger,
+			(peerId) => {
+				// Dropped from the map here rather than by the listener: a closed socket
+				// must not stay in it, whether or not anybody is listening, or `isLinked`
+				// would keep answering true for a link that can no longer carry a byte.
+				this._links.delete(peerId);
+				this._onLost?.(peerId);
+			},
+			// A relayed link is never itself offered as a route. The ladder has three
+			// rungs and a second hop is not one of them: carrying a link that is already
+			// being carried would spend two households' uplinks on one transfer, and
+			// neither of them agreed to the other's.
+			mode === PeerLinkMode.RELAY ? undefined : this._relays,
+		);
 
 		// The address came from somewhere we do not control, so the far end proves it
 		// holds the key behind the fingerprint before anything else happens. A machine
@@ -893,7 +962,7 @@ export class PeerLinkService implements OnModuleDestroy {
 		// ask for anything, both have the other's version and capabilities. Two frames
 		// would leave a window in which one side knows and the other is guessing.
 		const handshake = await link
-			.request<PeerHandshake>(PEER_HELLO_METHOD, { challenge, hello: this.hello() })
+			.request<PeerHandshake>(PEER_HELLO_METHOD, { challenge, hello: await this.hello() })
 			.catch(() => null);
 
 		if (!handshake || !this._isProofValid(peer, handshake, challenge)) {
@@ -947,7 +1016,7 @@ export class PeerLinkService implements OnModuleDestroy {
 	}
 
 	private _toWebSocketUrl(address: string, mode: PeerLinkMode): string {
-		const suffix = mode === PeerLinkMode.RELAY ? '/relay' : '';
+		const suffix = mode === PeerLinkMode.RELAY ? PEER_RELAY_PATH_SUFFIX : '';
 
 		// An address that is already a WebSocket URL names the link endpoint itself, so
 		// only the relay suffix is added to it. Returning it untouched would send every

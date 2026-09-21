@@ -1,7 +1,7 @@
 import { mkdtemp, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { categoryKeyOf, ErrorKey, LibraryKind } from '@mcs/shared';
+import { categoryKeyOf, ErrorKey, LibraryKind, MediaServiceType, PathMatch } from '@mcs/shared';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { CategoryKeyword, Library, MediaService } from '@/entities';
 import type {
@@ -9,6 +9,7 @@ import type {
 	LibraryRepository,
 	MediaServiceRepository,
 } from '@/repositories';
+import type { PathMatchService } from '@/services';
 import { LibraryManager } from './library.manager';
 
 const library = (overrides: Partial<Library> = {}): Library =>
@@ -41,7 +42,13 @@ interface Fakes {
 		save: jest.Mock;
 		clearDefaultTarget: jest.Mock;
 	};
-	services: { find: jest.Mock; findOne: jest.Mock; update: jest.Mock };
+	services: {
+		find: jest.Mock;
+		findOne: jest.Mock;
+		findWithSecrets: jest.Mock;
+		update: jest.Mock;
+	};
+	pathMatch: { verify: jest.Mock };
 	keywords: {
 		rows: CategoryKeyword[];
 		findAllOrdered: jest.Mock;
@@ -84,8 +91,21 @@ const build = (
 				localRoot: null,
 				filesMounted: false,
 			}),
+			// The one read that brings the credentials back, which `check` needs before
+			// it can have the service asked whether it sees what we wrote.
+			findWithSecrets: jest.fn().mockResolvedValue({
+				id: 'service-1',
+				type: MediaServiceType.JELLYFIN,
+				baseUrl: 'http://jellyfin:8096',
+				token: 'a-token',
+				username: null,
+				password: null,
+			}),
 			update: jest.fn().mockResolvedValue(undefined),
 		},
+		// Nobody is asked by default: the tests about the filesystem probe must not
+		// depend on what a media server would have answered.
+		pathMatch: { verify: jest.fn().mockResolvedValue(PathMatch.UNKNOWN) },
 		// A tiny in-memory table rather than a mock per call: the manager reads the rows
 		// back after writing them — a keyword is always answered through `keywords()` —
 		// so a `save` that returned a value nobody stored would test nothing.
@@ -130,6 +150,7 @@ const build = (
 			// care declare their own.
 			fakes.services as unknown as MediaServiceRepository,
 			fakes.keywords as unknown as CategoryKeywordRepository,
+			fakes.pathMatch as unknown as PathMatchService,
 		),
 		fakes,
 	};
@@ -263,6 +284,71 @@ describe('LibraryManager', () => {
 				writable: false,
 				error: ErrorKey.LIBRARY_PATH_UNREADABLE,
 			});
+		});
+
+		it('names the failure nothing else reports: the two paths are not one directory', async () => {
+			// A writable path with no other complaint is exactly the case where the
+			// failure is invisible — every transfer succeeds, and the media server's
+			// library stays empty because it is reading somewhere else entirely.
+			const { manager, fakes } = build(
+				library({ localPath: writable, paths: ['/data/media/shows'] }),
+			);
+
+			fakes.pathMatch.verify.mockResolvedValue(PathMatch.MISMATCHED);
+
+			const [check] = await manager.check();
+
+			expect(check).toMatchObject({
+				writable: true,
+				match: PathMatch.MISMATCHED,
+				serverPaths: ['/data/media/shows'],
+				error: ErrorKey.LIBRARY_PATH_MISMATCH,
+			});
+			// The server's own path and the local one, both of them, because a screen
+			// showing one without the other cannot say which was got wrong.
+			expect(fakes.pathMatch.verify).toHaveBeenCalledWith(
+				expect.objectContaining({ id: 'service-1', token: 'a-token' }),
+				writable,
+				['/data/media/shows'],
+			);
+		});
+
+		it('says nothing at all when the server confirms it reads the same directory', async () => {
+			const { manager, fakes } = build(
+				library({ localPath: writable, paths: ['/data/media/shows'] }),
+			);
+
+			fakes.pathMatch.verify.mockResolvedValue(PathMatch.MATCHED);
+
+			const [check] = await manager.check();
+
+			expect(check).toMatchObject({ match: PathMatch.MATCHED, error: null });
+		});
+
+		it('leaves a server that cannot say as unknown rather than as a mismatch', async () => {
+			// A Plex whose build has no browse route is not a misconfigured library, and
+			// a warning that is wrong more often than right stops being read.
+			const { manager, fakes } = build(
+				library({ localPath: writable, paths: ['/data/media/shows'] }),
+			);
+
+			fakes.pathMatch.verify.mockResolvedValue(PathMatch.UNKNOWN);
+
+			const [check] = await manager.check();
+
+			expect(check).toMatchObject({ match: PathMatch.UNKNOWN, error: null });
+		});
+
+		it('asks nobody about a path it already knows cannot be written', async () => {
+			// Nothing can be written, so nothing can be looked for — and a second
+			// warning about the same directory sends somebody hunting a second problem.
+			const { manager, fakes } = build(library({ localPath: unwritable, paths: ['/data'] }));
+
+			const [check] = await manager.check();
+
+			expect(check.match).toBe(PathMatch.UNKNOWN);
+			expect(check.error).toBe(ErrorKey.LIBRARY_PATH_NOT_WRITABLE);
+			expect(fakes.pathMatch.verify).not.toHaveBeenCalled();
 		});
 	});
 

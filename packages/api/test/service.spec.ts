@@ -5,11 +5,23 @@ import request from 'supertest';
 import {
 	LibraryKind,
 	MediaServiceType,
+	PeerStatus,
+	ServerStructureSupport,
+	UserRole,
 	type Library,
 	type LibraryCheck,
 	type MediaService,
+	type ServerStructure,
+	type ServerStructureRequest,
 } from '@mcs/shared';
-import { LibraryRepository, MediaServiceRepository } from '@/repositories';
+import { LibraryRepository, MediaServiceRepository, PeerRepository } from '@/repositories';
+import {
+	HandlerRegistry,
+	peerBaseUrl,
+	serverParentOf,
+	type MediaServiceHandler,
+	type NormalisedLibrary,
+} from '@/services';
 import { createTestApp, signInAs, type TestApp, type TestIdentity } from './utils/app-factory';
 
 /**
@@ -21,6 +33,111 @@ import { createTestApp, signInAs, type TestApp, type TestIdentity } from './util
  * probe answers "unreachable", which is exactly the case worth exercising here.
  */
 const UNREACHABLE = 'http://127.0.0.1:9';
+
+/**
+ * A media server that reports folders of its own and never opens a socket.
+ *
+ * Only the two calls the structure route makes are implemented; everything else
+ * throws, so a route that quietly started using one of them fails here rather than in
+ * production.
+ */
+class StructureHandler implements MediaServiceHandler {
+	public readonly type = MediaServiceType.JELLYFIN;
+
+	public probe(): never {
+		throw new Error('not part of this test');
+	}
+
+	public authenticate(): never {
+		throw new Error('not part of this test');
+	}
+
+	public listLibraries(): Promise<NormalisedLibrary[]> {
+		return Promise.resolve([
+			{
+				externalId: 'folder-1',
+				name: 'Shows',
+				kind: LibraryKind.SHOWS,
+				paths: ['/data/media/shows'],
+			},
+			{
+				externalId: 'folder-2',
+				name: 'Films',
+				kind: LibraryKind.MOVIES,
+				paths: ['/data/media/films'],
+			},
+		]);
+	}
+
+	public async listServerDirectories(
+		_connection: unknown,
+		request: ServerStructureRequest = {},
+	): Promise<ServerStructure> {
+		if (!request.path) {
+			const libraries = await this.listLibraries();
+
+			return {
+				support: ServerStructureSupport.REPORTED,
+				path: null,
+				parent: null,
+				entries: libraries.flatMap((library) =>
+					library.paths.map((path) => ({
+						path,
+						name: path.split('/').at(-1) ?? path,
+						root: true,
+						libraryExternalId: library.externalId,
+						libraryName: library.name,
+						directory: true,
+					})),
+				),
+			};
+		}
+
+		return {
+			support: ServerStructureSupport.REPORTED,
+			path: request.path,
+			parent: serverParentOf(request.path),
+			entries: [
+				{
+					path: `${request.path}/The Expanse`,
+					name: 'The Expanse',
+					root: false,
+					libraryExternalId: null,
+					libraryName: null,
+					directory: true,
+				},
+			],
+		};
+	}
+
+	public scanLibrary(): never {
+		throw new Error('not part of this test');
+	}
+
+	public refreshLibrary(): never {
+		throw new Error('not part of this test');
+	}
+
+	public requestRescan(): never {
+		throw new Error('not part of this test');
+	}
+
+	public getItem(): never {
+		throw new Error('not part of this test');
+	}
+
+	public openArtwork(): never {
+		throw new Error('not part of this test');
+	}
+
+	public openStream(): never {
+		throw new Error('not part of this test');
+	}
+
+	public getDownloadUrl(): never {
+		throw new Error('not part of this test');
+	}
+}
 
 describe('Media services', () => {
 	let context: TestApp;
@@ -316,5 +433,121 @@ describe('Media services', () => {
 			.post(`/api/services/${(created.body as MediaService).id}/scan`)
 			.set('Authorization', `Bearer ${admin.token}`)
 			.expect(202);
+	});
+
+	/**
+	 * What the server says about its own folders, over HTTP.
+	 *
+	 * The handler is faked rather than reached: what is being proved here is that the
+	 * route, the guard and the serialisation carry a handler's answer through
+	 * unchanged, and a lab Jellyfin would make that depend on a container being up.
+	 */
+	describe('the folders a service reports as its own', () => {
+		let jellyfinId: string;
+		let peerId: string;
+		let real: MediaServiceHandler;
+
+		beforeAll(async () => {
+			const registry = context.app.get(HandlerRegistry);
+
+			real = registry.get(MediaServiceType.JELLYFIN);
+			registry.register(new StructureHandler());
+
+			const services = context.app.get(MediaServiceRepository);
+
+			jellyfinId = (
+				await services.save(
+					services.create({
+						name: 'Structured',
+						type: MediaServiceType.JELLYFIN,
+						baseUrl: 'http://127.0.0.1:41',
+					}),
+				)
+			).id;
+
+			// A real peer row, because the registration carries a foreign key to one —
+			// and because a peer-backed service that stands for no peer is a state the
+			// application never produces.
+			const peers = context.app.get(PeerRepository);
+			const friend = await peers.save(
+				peers.create({
+					name: "A friend's gateway",
+					fingerprint: 'ff'.repeat(16),
+					publicKey: 'not-a-real-key',
+					status: PeerStatus.LINKED,
+				}),
+			);
+
+			peerId = (
+				await services.save(
+					services.create({
+						name: "A friend's shelves",
+						type: MediaServiceType.PEER,
+						baseUrl: peerBaseUrl(friend.id),
+						peerId: friend.id,
+					}),
+				)
+			).id;
+		});
+
+		afterAll(() => {
+			// Put the real one back: the registry is the running application's, and a
+			// fake left in it would quietly answer for every test added after this file.
+			context.app.get(HandlerRegistry).register(real);
+		});
+
+		const structure = (id: string, query = ''): request.Test =>
+			request(context.app.getHttpServer())
+				.get(`/api/services/${id}/structure${query}`)
+				.set('Authorization', `Bearer ${admin.token}`);
+
+		it('names the library roots the server declares', async () => {
+			const response = await structure(jellyfinId).expect(200);
+			const answer = response.body as ServerStructure;
+
+			expect(answer.support).toBe('reported');
+			expect(answer.entries).toEqual([
+				expect.objectContaining({
+					path: '/data/media/shows',
+					name: 'shows',
+					root: true,
+					libraryName: 'Shows',
+				}),
+				expect.objectContaining({ path: '/data/media/films', libraryName: 'Films' }),
+			]);
+		});
+
+		it('walks into one of them when asked', async () => {
+			const response = await structure(jellyfinId, '?path=/data/media/shows').expect(200);
+			const answer = response.body as ServerStructure;
+
+			expect(answer.path).toBe('/data/media/shows');
+			expect(answer.parent).toBe('/data/media');
+			expect(answer.entries.map((entry) => entry.name)).toEqual(['The Expanse']);
+		});
+
+		it('offers none of a peer-backed service, because their paths are not ours', async () => {
+			// A path on a friend's disk designates nothing here. Offered as a candidate
+			// it would be written into a local path field and accepted, which is the
+			// silent failure this whole feature exists to catch — with the gateway's own
+			// interface as the source of the bad value.
+			const response = await structure(peerId).expect(200);
+
+			expect(response.body).toEqual({
+				support: 'unsupported',
+				path: null,
+				parent: null,
+				entries: [],
+			});
+		});
+
+		it('is refused to somebody who does not configure this gateway', async () => {
+			const reader = await signInAs(context, UserRole.USER);
+
+			await request(context.app.getHttpServer())
+				.get(`/api/services/${jellyfinId}/structure`)
+				.set('Authorization', `Bearer ${reader.token}`)
+				.expect(403);
+		});
 	});
 });

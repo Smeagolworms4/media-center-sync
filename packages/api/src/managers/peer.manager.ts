@@ -61,6 +61,7 @@ import {
 	type PeerAdmission,
 	type PeerCredential,
 	type PeerLinkAuthority,
+	type PeerRelayGrant,
 } from '@/services';
 import { toMediaService, toPeer } from './mappers';
 import { NotificationManager } from './notification.manager';
@@ -1200,6 +1201,83 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		return { peerId: peer.id, name: peer.name };
 	}
 
+	/**
+	 * Somebody we introduced cannot reach the gateway we introduced them to. Carry it?
+	 *
+	 * Only for a pair this gateway itself put in touch, and only inside the two minutes
+	 * the token lives. That is the whole authorisation, and it is deliberately not a
+	 * new one: the introduction already recorded the decision — who may be introduced
+	 * to whom, and how far away either of them is — so a relay that asked a different
+	 * question would be a second answer to it, and the two would disagree the day
+	 * somebody lowered their reach.
+	 *
+	 * The order matters. The signature on the socket is checked first, because
+	 * everything below only means anything if the far end really holds the key the
+	 * token names as its subject. Then the token is verified **against our own public
+	 * key**: a token we did not sign is a request to carry bytes for two strangers.
+	 *
+	 * Every refusal answers null and says one line here. The far end is told nothing
+	 * but that the upgrade failed — somebody able to tell "we do not carry" from "that
+	 * is not our peer" could map out this gateway's friends and its settings by dialling
+	 * it.
+	 *
+	 * **What this gateway can see once it agrees.** Everything crossing the link, in
+	 * plaintext: it holds both halves. It cannot be the dialler and it cannot be the
+	 * holder — neither key is here — but nothing about carrying is private, which is
+	 * why the switch exists, why direct is tried first, and why the peer card says on
+	 * the row when a link is relayed.
+	 */
+	public async carry(credential: PeerCredential): Promise<PeerRelayGrant | null> {
+		const token = credential.introduction;
+
+		if (token === null || !this._links.verifyCredential(credential)) {
+			return null;
+		}
+
+		if (!(await this._settings.get()).relayForPeers) {
+			// The one refusal that is not about them. Logged as such: a household that
+			// never turned it on should be able to see why a friend says they cannot be
+			// reached, without reading the code.
+			this._logger.log('Refused to carry a link: relaying is off');
+
+			return null;
+		}
+
+		const checked = this._introductions.verify(token, this._links.publicKey);
+
+		if (!checked.ok || checked.claim.introducer !== this._links.fingerprint) {
+			return this._refuseRelay('the token is not ours or is spent');
+		}
+
+		if (checked.claim.subject !== credential.fingerprint) {
+			// A token lifted off somebody else's wire. It names who may present it, and
+			// the socket underneath has just proved who that is.
+			return this._refuseRelay('the token was minted for somebody else');
+		}
+
+		if (await this._bans.isBanned(credential.fingerprint)) {
+			return null;
+		}
+
+		const subject = await this._peers.findByFingerprint(credential.fingerprint);
+		const holder = await this._peers.findByFingerprint(checked.claim.holder);
+
+		// Both ends have to be ours. We introduced them, which means they were both
+		// peers of this gateway two minutes ago; a row that has gone since is somebody
+		// unlinking, and a relay is not a way back in.
+		if (subject === null || !this._isSettled(subject) || holder === null || !this._isSettled(holder)) {
+			return this._refuseRelay('one of the two ends is not a peer of ours');
+		}
+
+		return { holderPeerId: holder.id, holderName: holder.name, subjectName: subject.name };
+	}
+
+	private _refuseRelay(why: string): null {
+		this._logger.warn(`Refused to carry a link: ${why}`);
+
+		return null;
+	}
+
 	/** One line for us, and nothing at all for the far end. */
 	private _refuseIntroduction(
 		refusal: IntroductionRefusal,
@@ -1305,7 +1383,7 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		});
 
 		return {
-			hello: this._links.hello(),
+			hello: await this._links.hello(),
 			publicKey: this._links.publicKey,
 			// Their challenge, not one of ours: it is the only thing that proves this
 			// answer was produced now, by whoever holds the key, for them.

@@ -657,4 +657,142 @@ describe('JellyfinHandler', () => {
 			expect(String(fetchMock.mock.calls[0][0])).toContain('/Library/Refresh');
 		});
 	});
+
+	describe('listServerDirectories', () => {
+		it('names the folders the server declares for its libraries', async () => {
+			// The authoritative half of the mapping: what the picker puts at the top as
+			// what the server says, against which somebody browses our own disk.
+			stubFetch((url) => {
+				if (url.includes('/Library/VirtualFolders')) {
+					return [
+						{
+							ItemId: 'folder-1',
+							Name: 'Shows',
+							CollectionType: 'tvshows',
+							Locations: ['/data/media/shows', '/data/media/anime'],
+						},
+						{
+							ItemId: 'folder-2',
+							Name: 'Films',
+							CollectionType: 'movies',
+							Locations: ['/data/media/films'],
+						},
+					];
+				}
+
+				return {};
+			});
+
+			await expect(handler.listServerDirectories(connection)).resolves.toEqual({
+				support: 'reported',
+				path: null,
+				parent: null,
+				entries: [
+					{
+						path: '/data/media/shows',
+						name: 'shows',
+						root: true,
+						libraryExternalId: 'folder-1',
+						libraryName: 'Shows',
+						directory: true,
+					},
+					{
+						path: '/data/media/anime',
+						name: 'anime',
+						root: true,
+						libraryExternalId: 'folder-1',
+						libraryName: 'Shows',
+						directory: true,
+					},
+					{
+						path: '/data/media/films',
+						name: 'films',
+						root: true,
+						libraryExternalId: 'folder-2',
+						libraryName: 'Films',
+						directory: true,
+					},
+				],
+			});
+		});
+
+		it('keeps only the asked library when one is named', async () => {
+			stubFetch((url) =>
+				url.includes('/Library/VirtualFolders')
+					? [
+						{ ItemId: 'folder-1', Name: 'Shows', Locations: ['/data/shows'] },
+						{ ItemId: 'folder-2', Name: 'Films', Locations: ['/data/films'] },
+					]
+					: {},
+			);
+
+			const structure = await handler.listServerDirectories(connection, {
+				libraryExternalId: 'folder-2',
+			});
+
+			expect(structure.entries.map((entry) => entry.path)).toEqual(['/data/films']);
+		});
+
+		it('walks into a folder and tells a file from a directory', async () => {
+			const fetchMock = stubFetch((url) =>
+				url.includes('/Environment/DirectoryContents')
+					? [
+						{ Name: 'The Expanse', Path: '/data/media/shows/The Expanse', Type: 'Directory' },
+						{ Name: 'readme.txt', Path: '/data/media/shows/readme.txt', Type: 'File' },
+					]
+					: {},
+			);
+
+			const structure = await handler.listServerDirectories(connection, {
+				path: '/data/media/shows',
+				includeFiles: true,
+			});
+
+			expect(String(fetchMock.mock.calls[0][0])).toContain('includeFiles=true');
+			expect(structure).toEqual({
+				support: 'reported',
+				path: '/data/media/shows',
+				parent: '/data/media',
+				entries: [
+					{
+						path: '/data/media/shows/The Expanse',
+						name: 'The Expanse',
+						root: false,
+						libraryExternalId: null,
+						libraryName: null,
+						directory: true,
+					},
+					{
+						path: '/data/media/shows/readme.txt',
+						name: 'readme.txt',
+						root: false,
+						libraryExternalId: null,
+						libraryName: null,
+						directory: false,
+					},
+				],
+			});
+		});
+
+		it('reports that it cannot say when the server has no browse route', async () => {
+			// A build without `/Environment/DirectoryContents` is a quiet server, not a
+			// broken one: turning its 404 into a failure would put an error on screen
+			// for a Jellyfin that is answering everything else perfectly well.
+			global.fetch = jest.fn(async () => ({
+				ok: false,
+				status: 404,
+				headers: new Headers(),
+				text: async () => '',
+			})) as unknown as typeof fetch;
+
+			await expect(
+				handler.listServerDirectories(connection, { path: '/data/media/shows' }),
+			).resolves.toEqual({
+				support: 'unsupported',
+				path: '/data/media/shows',
+				parent: '/data/media',
+				entries: [],
+			});
+		});
+	});
 });

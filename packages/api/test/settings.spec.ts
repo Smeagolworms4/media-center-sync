@@ -81,6 +81,20 @@ describe('PATCH /api/settings', () => {
 		expect(settings.namingOrder).toEqual([NamingScheme.STANDARD]);
 	});
 
+	it('stores the agreement to carry links, which is off until somebody says so', async () => {
+		// Through the real pipe, because `whitelist` strips a key the DTO does not
+		// declare: the request would answer 200, the switch would look saved, and the
+		// only symptom would be a friend still reporting somebody as unreachable. It
+		// has happened three times in this repository already.
+		const before = (await patch({}).expect(200)) as { body: Settings };
+
+		expect(before.body.relayForPeers).toBe(false);
+
+		const after = (await patch({ relayForPeers: true }).expect(200)) as { body: Settings };
+
+		expect(after.body.relayForPeers).toBe(true);
+	});
+
 	it('still refuses a value out of bounds', async () => {
 		await patch({ maxParallelTransfers: 999 }).expect(400);
 	});

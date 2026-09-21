@@ -113,6 +113,12 @@
 		"current_not_writable": "La passerelle ne peut pas écrire dans ce dossier : rien n'y arriverait jamais.",
 		"truncated": "Seuls les {count} premiers dossiers sont affichés. Saisissez le chemin si celui que vous cherchez n'y est pas.",
 		"show_hidden": "Afficher les dossiers cachés",
+		"server_title": "Annoncé par le serveur média",
+		"server_hint": "Voici les dossiers tels que le serveur les voit lui-même. Choisissez-en un si cette passerelle atteint les mêmes fichiers à ce chemin ; sinon, trouvez le dossier correspondant ci-dessous.",
+		"server_unsupported": "Ce service ne peut pas dire où sont ses dossiers : le chemin doit être trouvé ci-dessous.",
+		"server_no_deeper": "Ce serveur ne peut pas regarder à l'intérieur de ses propres dossiers : il n'annoncera rien de plus.",
+		"server_enter": "Regarder dans ce dossier",
+		"gateway_title": "Ce que voit cette passerelle",
 		"open": "Parcourir les dossiers"
 	},
 	"general": {
@@ -233,6 +239,7 @@
 		},
 		"problem": {
 			"no_path": "Aucun chemin local n'est défini : la passerelle ne peut pas écrire dans cette bibliothèque.",
+			"mismatch": "La passerelle écrit dans {local} et le serveur lit {server}. Ce n'est pas le même répertoire : rien de ce qui est récupéré dans cette bibliothèque n'apparaîtra jamais sur le serveur.",
 			"missing": "Ce chemin n'existe pas tel que la passerelle le voit.",
 			"unreadable": "La passerelle ne peut pas lire ce chemin.",
 			"not_writable": "La passerelle ne peut pas écrire ici : aucun transfert ne peut atterrir dans cette bibliothèque."
@@ -426,6 +433,7 @@
 			"roots_hint": "Le serveur annonce ses propres chemins. Indiquez sa racine une seule fois ici et chaque bibliothèque en déduit où cette passerelle atteint les mêmes fichiers — au lieu d'un chemin à saisir par bibliothèque. Une bibliothèque qui demande autre chose garde son propre chemin.",
 			"remote_root": "Racine, telle que le serveur l'annonce",
 			"remote_root_hint": "Le nom qu’en donne le serveur média, par exemple /media",
+			"remote_root_reported": "Le serveur annonce {path} — l'utiliser",
 			"local_root": "Le même répertoire, vu d’ici",
 			"local_root_hint": "Là où cette passerelle l’atteint, par exemple /mnt/nas",
 			"auth_provider": "Se connecter avec ce service",
@@ -519,7 +527,7 @@
 			"fingerprint": "Empreinte",
 			"direct_address": "Adresse directe",
 			"direct_ok": "Les connexions directes sont possibles : les transferts ne passent pas par le relais.",
-			"relay_only": "Cette passerelle n'est pas joignable depuis l'extérieur : vos amis ne peuvent pas s'y connecter directement, et un lien dépend alors d'un ami que vous avez déjà tous les deux, sans autre recours. Rediriger le port de l'interface sur votre box règle le problème. Il n'y a pas de second port à ouvrir : un lien entre pairs est une connexion WebSocket sur celui-là même."
+			"relay_only": "Cette passerelle n'est pas joignable depuis l'extérieur : vos amis ne peuvent pas s'y connecter directement, et un lien dépend alors d'un ami que vous avez déjà tous les deux, pour vous présenter puis, quand aucun des deux n'est joignable, pour porter le lien. Rediriger le port de l'interface sur votre box supprime ce besoin. Il n'y a pas de second port à ouvrir : un lien entre pairs est une connexion WebSocket sur celui-là même."
 		},
 		"invite": {
 			"open": "Relier une passerelle",
@@ -804,6 +812,8 @@
 		"swarm_help": "Plusieurs pairs détenant le même fichier peuvent alimenter un même transfert.",
 		"keep_discovered_peers": "Conserver les pairs rencontrés pendant un téléchargement",
 		"keep_discovered_peers_help": "Quand vous récupérez un fichier chez l'ami d'un ami, les deux passerelles se connectent directement ; gardez-la dans votre liste, ou laissez la connexion se fermer avec le transfert.",
+		"relay_for_peers": "Porter les liens entre vos amis",
+		"relay_for_peers_help": "Deux amis situés chacun derrière une box ne peuvent pas se joindre du tout. En activant ceci, cette passerelle tient les deux bouts et transporte les octets : cela consomme sa bande passante montante, et elle les voit passer, car rien n'est chiffré au-dessus de la connexion. Elle ne le fait que pour deux pairs qu'elle a elle-même présentés, et pour quatre liens à la fois.",
 		"match_threshold": "Seuil de corrélation",
 		"match_threshold_help": "En dessous de ce score, une corrélation est proposée plutôt qu'appliquée.",
 		"refresh_interval": "Rafraîchir toutes les (minutes)",
@@ -916,6 +926,30 @@
 			"next_run": "prochaine",
 			"remove_title": "Supprimer ce plan ?",
 			"remove_confirm": "{name} ne s'exécutera plus. Rien de ce qui a déjà été récupéré n'est touché."
+		},
+		"keep": {
+			"action": "Garder synchronisé",
+			"title": "Garder ce contenu synchronisé",
+			"what": "Le plan couvrira {title} et tout ce qui se trouve en dessous.",
+			"covered": "Déjà suivi par le plan {name}.",
+			"covered_above": "Déjà couvert par le plan {name}, qui maintient à jour tout ce qui est en dessous.",
+			"open_plan": "Ouvrir le plan",
+			"estimate_unknown": "Personne n'a encore calculé ce que cela représente.",
+			"estimate_truncated": "Au minimum : il y a ici plus que ce qu'une exécution parcourt.",
+			"mode": "Que faire",
+			"mode_create": "Créer un plan pour ce contenu",
+			"mode_extend": "L'ajouter à un plan existant",
+			"plan": "Plan auquel l'ajouter",
+			"name": "Nom du plan",
+			"name_hint": "Nommé d'après la série, pour que la liste des plans reste lisible dans six mois.",
+			"sources": "D'où qu'il vienne : le plan suit la priorité des services définie dans les réglages, donc une copie qui apparaît plus tard chez un ami est trouvée sans rien modifier.",
+			"create": "Créer le plan",
+			"extend": "Ajouter au plan",
+			"once_title": "Ou juste cette fois",
+			"once_text": "Une seule exécution, maintenant. Rien n'est mémorisé et rien ne se relancera tout seul.",
+			"once": "Récupérer ce qui manque",
+			"created": "Plan créé. Vous le retrouverez dans Synchronisation, et sur cette page.",
+			"extended": "Ajouté au plan."
 		},
 		"preview": {
 			"title": "Ce qui serait récupéré",
@@ -1200,6 +1234,7 @@
 			"not_found": "Cette bibliothèque n'existe plus.",
 			"path_unreadable": "La passerelle ne peut pas lire ce chemin.",
 			"path_not_writable": "La passerelle ne peut pas écrire dans ce chemin.",
+			"path_mismatch": "Le chemin de la passerelle et celui du serveur ne désignent pas le même répertoire. Les fichiers atterriraient là où le serveur ne regarde jamais.",
 			"category_not_found": "Cette catégorie ne correspond plus à rien ici. Rechargez la page : les bibliothèques qui la composaient ont pu être renommées ou supprimées.",
 			"keyword_not_found": "Ce nom n’est plus branché nulle part. Rechargez la page.",
 			"keyword_invalid": "Rien ne pourra jamais correspondre à cela. Utilisez au moins une lettre ou un chiffre.",
@@ -1228,7 +1263,10 @@
 			"already_running": "Ce plan est déjà en cours d'exécution.",
 			"not_enough_space": "La bibliothèque de destination n'a pas la place pour ce que cette exécution récupérerait.",
 			"space_not_acknowledged": "Cette exécution entamerait la réserve d'espace, ou l'espace libre n'a pas pu être mesuré. Confirmez pour la lancer quand même.",
-			"scope_unbounded": "Le périmètre de ce plan ne désigne rien : il récupérerait tout. Confirmez pour l'activer quand même."
+			"scope_unbounded": "Le périmètre de ce plan ne désigne rien : il récupérerait tout. Confirmez pour l'activer quand même.",
+			"item_already_covered": "Un plan couvre déjà ce contenu. Ouvrez ce plan plutôt que d'en créer un second qui entrerait en conflit.",
+			"plan_not_extendable": "Ce plan ne peut pas accueillir une autre série : son périmètre n'est pas une liste de séries, et en ajouter une changerait ce qu'il couvre.",
+			"schedule_required": "Un plan qui s'exécute selon un horaire a besoin d'une expression cron."
 		},
 		"transfer": {
 			"not_found": "Ce transfert n'existe plus.",

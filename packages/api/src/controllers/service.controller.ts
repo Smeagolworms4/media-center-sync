@@ -1,4 +1,10 @@
-import { Right, type Library, type MediaService, type MediaServiceProbe } from '@mcs/shared';
+import {
+	Right,
+	type Library,
+	type MediaService,
+	type MediaServiceProbe,
+	type ServerStructure,
+} from '@mcs/shared';
 import {
 	Body,
 	Controller,
@@ -10,6 +16,7 @@ import {
 	ParseUUIDPipe,
 	Patch,
 	Post,
+	Query,
 } from '@nestjs/common';
 import {
 	ApiAcceptedResponse,
@@ -25,6 +32,7 @@ import { ServiceManager } from '@/managers';
 import {
 	CreateMediaServiceDto,
 	ProbeMediaServiceDto,
+	ServerStructureDto,
 	UpdateMediaServiceDto,
 } from '@/models';
 
@@ -151,5 +159,41 @@ export class ServiceController {
 	@ApiOkResponse({ description: 'Library[]' })
 	public libraries(@Param('id', ParseUUIDPipe) id: string): Promise<Library[]> {
 		return this._services.libraries(id);
+	}
+
+	/**
+	 * Behind `SERVICE_MANAGE`, and that is a wider right than it first looks.
+	 *
+	 * What it answers is the shape of a media server's own filesystem, one directory
+	 * at a time — more than the library paths `GET /services/:id/libraries` already
+	 * reports under a read right. Whoever is entitled to see it is whoever configures
+	 * where this gateway writes, and every role that may set a library's local path or
+	 * a service's local root carries this right.
+	 *
+	 * `includeFiles` is deliberately not exposed. The picker has no use for files, and
+	 * the one caller that does — the marker proof in `LibraryManager.check()` — reaches
+	 * the handler from inside. A route that listed the files in somebody's media
+	 * directories would answer a question nobody on this side of it needs to ask.
+	 */
+	@Get(':id/structure')
+	@Granted(Right.SERVICE_MANAGE)
+	@ApiOperation({
+		summary: 'The folders this service reports as its own, as it spells them',
+		description:
+			'The authoritative half of the mapping: the server says `/data/media/shows`, this '
+			+ 'gateway sees `/mnt/nas/shows`. A service with no way to say — a peer always, a '
+			+ 'server whose build has no browse route — answers `support: unsupported` with no '
+			+ 'entries rather than failing, because "cannot tell you" and "is not answering" '
+			+ 'are fixed in different places.',
+	})
+	@ApiOkResponse({ description: 'ServerStructure' })
+	public structure(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Query() query: ServerStructureDto,
+	): Promise<ServerStructure> {
+		return this._services.structure(id, {
+			libraryExternalId: query.libraryExternalId,
+			path: query.path,
+		});
 	}
 }

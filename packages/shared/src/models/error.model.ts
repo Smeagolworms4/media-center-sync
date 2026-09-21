@@ -55,6 +55,17 @@ export const ErrorKey = {
 	LIBRARY_NOT_FOUND: 'error.library.not_found',
 	LIBRARY_PATH_UNREADABLE: 'error.library.path_unreadable',
 	LIBRARY_PATH_NOT_WRITABLE: 'error.library.path_not_writable',
+	/**
+	 * The gateway's path and the media server's path are not the same directory.
+	 *
+	 * The failure this product exists to prevent, and the only one that reports
+	 * nothing on its own: both directories are real, the gateway writes into one and
+	 * the server scans the other, every transfer succeeds and nothing ever appears.
+	 * It is raised only when a marker file written here was demonstrably not visible
+	 * there — a server that cannot list its own directories answers `unknown`, which
+	 * is not this.
+	 */
+	LIBRARY_PATH_MISMATCH: 'error.library.path_mismatch',
 	/** A category key that no library answers to any more — a stale screen, usually. */
 	LIBRARY_CATEGORY_NOT_FOUND: 'error.library.category_not_found',
 	LIBRARY_KEYWORD_NOT_FOUND: 'error.library.keyword_not_found',
@@ -164,6 +175,34 @@ export const ErrorKey = {
 	 * on purpose.
 	 */
 	SYNC_SCOPE_UNBOUNDED: 'error.sync.scope_unbounded',
+	/**
+	 * A plan already covers the media somebody asked to keep in sync.
+	 *
+	 * Refused rather than duplicated: two plans over one show are two runs pulling the
+	 * same missing episodes into the same folder, and the loser of the race finds the
+	 * winner's half-written file. The answer is the plan that already covers it — which
+	 * is why the coverage route names it — or extending that plan, never a second one.
+	 */
+	SYNC_ITEM_ALREADY_COVERED: 'error.sync.item_already_covered',
+	/**
+	 * That plan cannot take another subtree without changing what it means.
+	 *
+	 * The fields of a scope intersect, so adding a root to a plan scoped by category
+	 * narrows it to the part of that show in that category, and adding one to a plan
+	 * that names nothing turns "everything, nightly" into one show. Both are silent
+	 * edits to somebody else's standing intent, and neither is what "add this show to
+	 * that plan" was asking for.
+	 */
+	SYNC_PLAN_NOT_EXTENDABLE: 'error.sync.plan_not_extendable',
+	/**
+	 * A plan says it runs on a schedule and carries no cron expression.
+	 *
+	 * It would be stored, listed as scheduled, and never fire — the scheduler has
+	 * nothing to register. A plan that lies about when it runs is worse than one that
+	 * was refused, because the first anybody hears of it is the episodes that never
+	 * arrived.
+	 */
+	SYNC_SCHEDULE_REQUIRED: 'error.sync.schedule_required',
 
 	TRANSFER_NOT_FOUND: 'error.transfer.not_found',
 	TRANSFER_NOT_RESUMABLE: 'error.transfer.not_resumable',

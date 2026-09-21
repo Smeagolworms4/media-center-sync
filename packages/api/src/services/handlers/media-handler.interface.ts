@@ -6,6 +6,8 @@ import type {
 	MediaKind,
 	MediaServiceProbe,
 	MediaServiceType,
+	ServerStructure,
+	ServerStructureRequest,
 } from '@mcs/shared';
 
 /**
@@ -181,6 +183,40 @@ export interface MediaServiceHandler {
 	): Promise<ExternalIdentity>;
 
 	listLibraries(connection: ServiceConnection): Promise<NormalisedLibrary[]>;
+
+	/**
+	 * Where this service says its own files are.
+	 *
+	 * The whole reason a directory picker exists is that a local path typed by hand
+	 * may not designate the directory the media server actually reads — and when it
+	 * does not, transfers land somewhere the server never scans and nothing anywhere
+	 * reports an error. Browsing this gateway's disk is guessing at the answer; the
+	 * server already knows it. Jellyfin returns a `Path` per library and can list a
+	 * directory; Plex returns a `Location` per section. So the server is asked, and
+	 * what it says is the authoritative half of the mapping somebody is configuring.
+	 *
+	 * On the interface rather than on the handlers that happen to have an endpoint for
+	 * it, for the reason `requestRescan` is: a capability only Jellyfin had would have
+	 * to be reached through a test on the service type somewhere above, and that test
+	 * is the leak this project is built to avoid. Every handler answers, and
+	 * `ServerStructureSupport.UNSUPPORTED` is a real answer rather than a gap — a peer
+	 * gives it always, because the disk is somebody else's and their paths mean
+	 * nothing here.
+	 *
+	 * With no `path`, it names the library roots as the server declares them, which is
+	 * all the picker needs. With one, it walks into that directory, which is what lets
+	 * somebody point at the shelf inside a root and what lets `LibraryManager.check()`
+	 * ask whether the server can see a file the gateway has just written.
+	 *
+	 * It throws for a server that is down, exactly like every other call here, and
+	 * answers `UNSUPPORTED` for a server that simply has no way to say. Folding the
+	 * two together would make "this kind of server cannot tell us" indistinguishable
+	 * from "your Jellyfin is asleep", and those are fixed in very different places.
+	 */
+	listServerDirectories(
+		connection: ServiceConnection,
+		request?: ServerStructureRequest,
+	): Promise<ServerStructure>;
 
 	/**
 	 * Full scan, page by page.

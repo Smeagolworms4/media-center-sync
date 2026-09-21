@@ -113,6 +113,12 @@
 		"current_not_writable": "La pasarela no puede escribir en esta carpeta, así que aquí nunca llegaría nada.",
 		"truncated": "Solo se muestran las primeras {count} carpetas. Escriba la ruta si la que busca no aparece.",
 		"show_hidden": "Mostrar carpetas ocultas",
+		"server_title": "Anunciado por el servidor multimedia",
+		"server_hint": "Estas son las carpetas tal como las ve el propio servidor. Elija una si esta pasarela alcanza los mismos archivos en esa ruta; si no, busque abajo la carpeta equivalente.",
+		"server_unsupported": "Este servicio no puede decir dónde están sus carpetas, así que la ruta hay que encontrarla abajo.",
+		"server_no_deeper": "Este servidor no puede mirar dentro de sus propias carpetas, así que esto es todo lo que indicará.",
+		"server_enter": "Mirar dentro de esta carpeta",
+		"gateway_title": "Lo que ve esta pasarela",
 		"open": "Explorar carpetas"
 	},
 	"general": {
@@ -233,6 +239,7 @@
 		},
 		"problem": {
 			"no_path": "No hay ninguna ruta local definida, así que la pasarela no puede escribir en esta biblioteca.",
+			"mismatch": "La pasarela escribe en {local} y el servidor lee {server}. No son el mismo directorio, así que nada de lo que se traiga a esta biblioteca aparecerá nunca en el servidor.",
 			"missing": "Esta ruta no existe tal como la ve la pasarela.",
 			"unreadable": "La pasarela no puede leer esta ruta.",
 			"not_writable": "La pasarela no puede escribir aquí, así que ninguna transferencia puede aterrizar en esta biblioteca."
@@ -426,6 +433,7 @@
 			"roots_hint": "El servidor indica sus propias rutas. Indica su raíz una sola vez aquí y cada biblioteca deduce dónde esta pasarela alcanza los mismos archivos, en lugar de una ruta que escribir por biblioteca. Una biblioteca que necesite otra cosa conserva su propia ruta.",
 			"remote_root": "Raíz, tal como la indica el servidor",
 			"remote_root_hint": "Como la llama el servidor multimedia, por ejemplo /media",
+			"remote_root_reported": "El servidor indica {path} — usarla",
 			"local_root": "El mismo directorio, desde aquí",
 			"local_root_hint": "Donde esta pasarela lo alcanza, por ejemplo /mnt/nas",
 			"auth_provider": "Iniciar sesión con este servicio",
@@ -519,7 +527,7 @@
 			"fingerprint": "Huella",
 			"direct_address": "Dirección directa",
 			"direct_ok": "Las conexiones directas son posibles, así que las transferencias no pasan por el relé.",
-			"relay_only": "Esta pasarela no es accesible desde fuera, así que tus amigos no pueden conectarse a ella directamente: un enlace depende entonces de un amigo que ya tengáis los dos, y no hay nada más a lo que recurrir. Redirigir en el router el puerto de la interfaz lo soluciona. No hay un segundo puerto que abrir: un enlace entre pares es una conexión WebSocket sobre ese mismo puerto."
+			"relay_only": "Esta pasarela no es accesible desde fuera, así que tus amigos no pueden conectarse a ella directamente: un enlace depende entonces de un amigo que ya tengáis los dos, para presentaros y, cuando ninguno de los dos es accesible, para transportar el enlace. Redirigir en el router el puerto de la interfaz suprime esa necesidad. No hay un segundo puerto que abrir: un enlace entre pares es una conexión WebSocket sobre ese mismo puerto."
 		},
 		"invite": {
 			"open": "Enlazar una pasarela",
@@ -804,6 +812,8 @@
 		"swarm_help": "Varios pares que tienen el mismo archivo pueden alimentar juntos una misma transferencia.",
 		"keep_discovered_peers": "Conservar los pares encontrados al descargar",
 		"keep_discovered_peers_help": "Cuando trae un archivo del amigo de un amigo, las dos pasarelas se conectan directamente; consérvelo en su lista, o deje que la conexión se cierre con la transferencia.",
+		"relay_for_peers": "Transportar los enlaces entre sus amigos",
+		"relay_for_peers_help": "Dos amigos que están cada uno detrás de un router no pueden alcanzarse en absoluto. Al activar esto, esta pasarela sostiene los dos extremos y transporta los bytes: gasta su subida y los ve pasar, porque nada va cifrado por encima de la conexión. Solo lo hace para dos pares que ella misma ha presentado, y para cuatro enlaces a la vez.",
 		"match_threshold": "Umbral de correlación",
 		"match_threshold_help": "Por debajo de esta puntuación, una coincidencia se propone en lugar de aplicarse.",
 		"refresh_interval": "Actualizar cada (minutos)",
@@ -916,6 +926,30 @@
 			"next_run": "próxima ejecución",
 			"remove_title": "¿Eliminar este plan?",
 			"remove_confirm": "{name} dejará de ejecutarse. No se toca nada de lo que ya se ha traído."
+		},
+		"keep": {
+			"action": "Mantener sincronizado",
+			"title": "Mantener esto sincronizado",
+			"what": "El plan cubrirá {title} y todo lo que hay debajo.",
+			"covered": "Ya lo mantiene sincronizado el plan {name}.",
+			"covered_above": "Ya lo cubre el plan {name}, que mantiene al día todo lo que hay debajo.",
+			"open_plan": "Abrir el plan",
+			"estimate_unknown": "Nadie ha calculado todavía a cuánto asciende esto.",
+			"estimate_truncated": "Como mínimo esto: aquí hay más de lo que recorre una ejecución.",
+			"mode": "Qué hacer",
+			"mode_create": "Crear un plan para esto",
+			"mode_extend": "Añadirlo a un plan que ya tengo",
+			"plan": "Plan al que añadirlo",
+			"name": "Nombre del plan",
+			"name_hint": "Con el nombre de la serie, para que la lista de planes siga entendiéndose dentro de seis meses.",
+			"sources": "De donde sea que aparezca: el plan sigue la prioridad de servicios fijada en los ajustes, así que una copia que aparezca luego en el servidor de un amigo se encuentra sin tocar nada.",
+			"create": "Crear el plan",
+			"extend": "Añadir al plan",
+			"once_title": "O solo esta vez",
+			"once_text": "Una ejecución, ahora. No se recuerda nada y nada se repetirá por su cuenta.",
+			"once": "Traer lo que falta",
+			"created": "Plan creado. Lo encontrarás en Sincronización y en esta página.",
+			"extended": "Añadido al plan."
 		},
 		"preview": {
 			"title": "Lo que esto traería",
@@ -1200,6 +1234,7 @@
 			"not_found": "Esta biblioteca ya no existe.",
 			"path_unreadable": "La pasarela no puede leer esta ruta.",
 			"path_not_writable": "La pasarela no puede escribir en esta ruta.",
+			"path_mismatch": "La ruta de la pasarela y la del servidor no designan el mismo directorio. Los archivos aterrizarían donde el servidor nunca mira.",
 			"category_not_found": "Esa categoría ya no corresponde a nada aquí. Recarga la página: puede que las bibliotecas que la formaban se hayan renombrado o eliminado.",
 			"keyword_not_found": "Ese nombre ya no está conectado a nada. Recarga la página.",
 			"keyword_invalid": "Nada podría coincidir nunca con eso. Usa al menos una letra o un dígito.",
@@ -1228,7 +1263,10 @@
 			"already_running": "Este plan ya se está ejecutando.",
 			"not_enough_space": "La biblioteca de destino no tiene sitio para lo que traería esta ejecución.",
 			"space_not_acknowledged": "Esta ejecución se comería el espacio reservado, o no se ha podido medir el espacio libre. Confírmala para lanzarla de todos modos.",
-			"scope_unbounded": "El alcance de este plan no nombra nada, así que lo traería todo. Confírmalo para activarlo de todos modos."
+			"scope_unbounded": "El alcance de este plan no nombra nada, así que lo traería todo. Confírmalo para activarlo de todos modos.",
+			"item_already_covered": "Un plan ya cubre este contenido. Abre ese plan en lugar de crear un segundo que competiría con él.",
+			"plan_not_extendable": "Ese plan no puede aceptar otra serie: su alcance no es una lista de series y añadir una cambiaría lo que cubre.",
+			"schedule_required": "Un plan que se ejecuta según un horario necesita una expresión cron."
 		},
 		"transfer": {
 			"not_found": "Esta transferencia ya no existe.",

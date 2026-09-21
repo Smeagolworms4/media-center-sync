@@ -54,6 +54,19 @@ export enum SyncState {
 }
 
 /**
+ * The bytes are on our disk, whatever the index says about them.
+ *
+ * The one vocabulary for "there is nothing left to fetch here", read by the screens
+ * that group media and by the planner that decides what a run pulls. Both have to
+ * agree or the disagreement is visible: a media the library screen shows as
+ * downloaded, offered for download again by every plan that covers it.
+ */
+export const LANDED_SYNC_STATES: SyncState[] = [
+	SyncState.AWAITING_INDEX,
+	SyncState.NOT_INDEXED,
+];
+
+/**
  * Where a file the gateway put on the disk has got to.
  *
  * Only two values, and neither of them is "indexed": a landing that has been indexed
@@ -310,6 +323,94 @@ export interface CreateSyncPlanRequest {
 }
 
 export type UpdateSyncPlanRequest = Partial<CreateSyncPlanRequest>;
+
+/**
+ * Create a plan from the media it is about, rather than from a blank form.
+ *
+ * The one thing somebody actually meant to say — *this show* — is the only field with
+ * no default: `itemId` becomes `scope.rootItemIds`, and everything else below either
+ * has a defensible default or is asked for at the moment of creation.
+ *
+ * `trigger` is deliberately required although a plan has one by default. A schedule
+ * nobody chose is a gateway that starts downloading at four in the morning, and a
+ * default buried in a request shape is exactly how that gets chosen for somebody.
+ */
+export interface CreateSyncPlanForItemRequest {
+	/** The series, season or collection the plan is about. Becomes the scope. */
+	itemId: string;
+	trigger: SyncTrigger;
+	/** Required when the trigger is a schedule: a plan with neither never runs. */
+	schedule?: string | null;
+	/**
+	 * Left empty, which means "wherever it turns up".
+	 *
+	 * See `SyncPlan.sourceServiceIds`: a standing intent outlives the list of servers
+	 * that happen to hold the show today, and pinning them turns a friend re-adding
+	 * their server into a plan that quietly stops finding anything.
+	 */
+	sourceServiceIds?: string[];
+	preferredLibraryId?: string | null;
+	/** Defaults to `{ missingOnly: true }` — fill the holes, never replace a file. */
+	filter?: SyncFilter;
+	maxItemsPerRun?: number | null;
+	maxBytesPerRun?: number | null;
+	enabled?: boolean;
+	/**
+	 * Add this subtree to a plan that already exists instead of creating a second one.
+	 *
+	 * `SyncScope.rootItemIds` is plural for this: two plans covering the same show
+	 * are two schedules pulling the same episodes into the same folder, and whichever
+	 * loses the race finds the other's half-written file.
+	 */
+	extendPlanId?: string;
+	/** Overrides the name derived from the media, which is what the interface offers. */
+	name?: string;
+}
+
+/** A plan that already covers a media, and which node of the tree it names. */
+export interface SyncPlanCoverage {
+	plan: SyncPlan;
+	/**
+	 * The node the plan's scope actually names: the media itself, or an ancestor.
+	 *
+	 * A plan on a series covers every season under it, and somebody standing on the
+	 * season has to be told *which* plan to go and edit — "already covered" without
+	 * saying by what is a dead end.
+	 */
+	coveredItemId: string;
+	/** False when what covers it is something above it, a series over a season. */
+	exact: boolean;
+}
+
+/**
+ * What the interface needs before offering to keep a media in sync.
+ *
+ * Answered by the gateway rather than worked out by the screen, because both halves
+ * are rules and not display: which plans cover a media takes the parent chain, and
+ * which plans may be extended takes the reading of a scope. A second implementation
+ * of either would disagree with this one the first time a scope grew a field.
+ */
+export interface ItemSyncPlans {
+	/** The name a plan created from this media would take, so the field can show it. */
+	suggestedName: string;
+	covering: SyncPlanCoverage[];
+	/**
+	 * Plans this media could be added to.
+	 *
+	 * Only plans whose scope is subtrees and nothing else: adding a root to a plan that
+	 * says "everything, nightly" would narrow it to one show, and adding one to a plan
+	 * scoped by category would intersect the two. Both are silent changes of meaning to
+	 * somebody else's plan, so they are refused rather than offered.
+	 */
+	extendable: SyncPlan[];
+}
+
+/** Ask what a scope comes to before anything has been saved. */
+export interface EstimateSyncRequest {
+	scope?: SyncScope;
+	sourceServiceIds?: string[];
+	filter?: SyncFilter;
+}
 
 /** One execution. A plan has many; a manual run has one with no plan behind it. */
 export interface SyncJob {

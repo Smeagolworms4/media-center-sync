@@ -1,6 +1,6 @@
 import type { VForm } from 'vuetify/components';
 import type { ValidationRule } from 'vuetify/framework';
-import { type MaybeRefOrGetter, reactive, readonly, ref, toValue } from 'vue';
+import { computed, type MaybeRefOrGetter, reactive, readonly, ref, toValue } from 'vue';
 import { useApiError } from '@/hooks/useApiError';
 
 export type RuleResult = string | boolean;
@@ -19,9 +19,17 @@ interface UseFormOptions {
 }
 
 export interface FieldBindings {
-	[name: string]: never | string[] | ValidationRule[] | undefined;
+	[name: string]: never | string | string[] | ValidationRule[] | undefined;
 	'error-messages': string[];
 	'rules'?: ValidationRule[];
+	/**
+	 * The field's name, used as the control's DOM id.
+	 *
+	 * Set because Vuetify reports a failed rule against the input's id, and an
+	 * auto-generated `input-47` cannot be matched back to the field it refused. It is
+	 * what makes `refusedFields` able to name a field no server ever saw.
+	 */
+	'id'?: string;
 }
 
 export interface IForm {
@@ -37,6 +45,8 @@ export interface IForm {
 	 * fields were refused is what lets a page point at the section holding them.
 	 */
 	fieldErrors: Record<string, string[]>;
+	/** Every field the last submit refused, from a rule of ours or from the API. */
+	refusedFields: Set<string>;
 	component: VForm | null;
 	handle: () => Promise<void>;
 	field: (name: string) => FieldBindings;
@@ -57,6 +67,8 @@ export function useForm (options: UseFormOptions): IForm {
 	const loading = ref(false);
 	const mainError = ref<string | null>(null);
 	const fieldErrors = ref<Record<string, string[]>>({});
+	/** Fields our own rules refused on the last submit, by name. See `handle`. */
+	const ruleErrors = ref<Set<string>>(new Set());
 	const mappedFields = new Set<string>();
 	const component = ref<VForm | null>(null);
 
@@ -73,6 +85,7 @@ export function useForm (options: UseFormOptions): IForm {
 	async function handle (): Promise<void> {
 		mainError.value = null;
 		fieldErrors.value = {};
+		ruleErrors.value = new Set();
 		loading.value = true;
 		try {
 			component.value?.resetValidation();
@@ -82,7 +95,26 @@ export function useForm (options: UseFormOptions): IForm {
 			const result = await component.value?.validate();
 			if (result?.valid !== false) {
 				await options.handle();
+				return;
 			}
+
+			// A rule of our own refused, so nothing was ever sent — and until this
+			// existed, nothing outside the input knew which field it was. Vuetify marks
+			// the control and stops there, which is enough on a form somebody can see
+			// whole and useless on one that is split: the settings screen saves every
+			// pane at once, so a value refused on the peers pane left somebody on the
+			// placement pane pressing save against a screen that said nothing at all.
+			//
+			// Kept apart from `fieldErrors` rather than merged into it, because that one
+			// feeds each input's `error-messages` and Vuetify concatenates those with
+			// its own rule messages — the same sentence would appear twice under the
+			// field. What every caller actually wants is `refusedFields`, which does not
+			// care which side refused.
+			ruleErrors.value = new Set(
+				result.errors
+					.filter(entry => typeof entry.id === 'string' && entry.errorMessages.length > 0)
+					.map(entry => String(entry.id)),
+			);
 		} catch (error) {
 			await parseError(error);
 		} finally {
@@ -111,16 +143,30 @@ export function useForm (options: UseFormOptions): IForm {
 		}
 
 		return {
+			'id': name,
 			'error-messages': [...(fieldErrors.value[name] ?? []), ...(errorMessages ?? [])],
 			'rules': wrappedRules,
+			// After the spread, so a caller that needs its own id still wins.
 			...resolvedExtra,
 		} as FieldBindings;
 	}
+
+	/**
+	 * Every field the last submit refused, whoever refused it.
+	 *
+	 * The two sources are deliberately indistinguishable here: a form showing where a
+	 * refusal is should not have to ask whether a rule or the API produced it, and the
+	 * one screen that does ask would get it wrong the day a rule moves to the server.
+	 */
+	const refusedFields = computed(
+		() => new Set([...Object.keys(fieldErrors.value), ...ruleErrors.value]),
+	);
 
 	const form = reactive({
 		loading: readonly(loading),
 		mainError: readonly(mainError),
 		fieldErrors: readonly(fieldErrors),
+		refusedFields,
 		handle,
 		field,
 		setFieldErrors,

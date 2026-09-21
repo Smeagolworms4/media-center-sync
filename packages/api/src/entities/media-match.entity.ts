@@ -17,7 +17,25 @@ export class MediaMatch extends Timestampable {
 	@PrimaryGeneratedColumn('uuid')
 	public id!: string;
 
-	/** Null when the media is only known remotely — that is what `MISSING` means. */
+	/**
+	 * The near side of the pair: the item the correlation pass happened to be walking.
+	 *
+	 * Not "the copy we hold", however much the name reads that way, and the difference
+	 * is worth a paragraph because the name has already cost somebody a diagnosis. A
+	 * pass runs over whichever service was just scanned, ours or a friend's alike, so
+	 * two copies sitting on two foreign servers produce a row whose `localItemId` is on
+	 * one of those foreign servers. Twenty-eight of the owner's hundred and twenty-eight
+	 * rows are exactly that, pairing one friend's Jellyfin with another's Plex and
+	 * nothing of ours. Read as "ours", the column makes two posters for one film look
+	 * like correlation refusing to relate remote copies to each other, which it has
+	 * never refused to do — the veto in `MatchingService._separateCuts` is what splits
+	 * such a pair, and that is where to look.
+	 *
+	 * Nullable because `confirmMatch` lets a person detach the near side of a pair they
+	 * are re-pointing. Correlation itself never writes null, so a null row is a human's
+	 * doing; every reader that joins on the column — `findAppliedPairs`, `MatchGraph`
+	 * through it, `SyncManager._counterparts` — already guards for it.
+	 */
 	@ApiProperty({ nullable: true })
 	@Index()
 	@Column({ type: 'uuid', nullable: true })

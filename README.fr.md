@@ -381,14 +381,28 @@ vous rapatriez. Cet ami d'ami est joignable et utile — plus de bande passante,
 source supplémentaire — mais ce n'est pas quelqu'un que vous avez invité, l'interface
 le précise, et les règles de partage peuvent l'exclure entièrement.
 
-**L'ami au milieu ne transporte jamais les octets.** Il signe une présentation de
-courte durée — deux minutes, qui nomme qui peut s'en servir et quelle passerelle elle
-ouvre, et ne nomme jamais un média —, vous la remettez au détenteur dans un en-tête de
-la connexion, et celui-ci la vérifie avec la clé qu'il a déjà pour son propre pair.
-Ensuite vous vous parlez directement et l'ami qui vous a présentés peut s'éteindre. Le
-relais reste réel pour un Jellyfin ou un Plex distant que quelqu'un partage, ce qui est
-un tout autre arrangement : ce serveur ne parle pas ce protocole et n'a jamais entendu
-parler de vous, donc se tenir devant lui est tout le principe et non un repli.
+**L'ami au milieu ne transporte pas les octets, sauf s'il y a consenti.** Il signe une
+présentation de courte durée — deux minutes, qui nomme qui peut s'en servir et quelle
+passerelle elle ouvre, et ne nomme jamais un média —, vous la remettez au détenteur
+dans un en-tête de la connexion, et celui-ci la vérifie avec la clé qu'il a déjà pour
+son propre pair. Ensuite vous vous parlez directement et l'ami qui vous a présentés
+peut s'éteindre. C'est ce qui se passe dès que l'une des deux extrémités est joignable,
+et c'est ce que l'on veut : personne au milieu, aucune bande passante que la vôtre.
+
+**Quand aucune des deux ne l'est, ce même ami peut porter la liaison.** C'est un
+interrupteur sur sa passerelle, désactivé tant que personne ne l'active, et l'activer
+*est* la promesse : la capacité n'est annoncée qu'à ce moment-là, et un appel ne se
+rabat dessus qu'à ce moment-là. Cela lui coûte sa bande passante montante pour un
+transfert dont il ne retire rien, et ce n'est pas confidentiel — rien n'est chiffré
+au-dessus de la connexion, donc sa machine voit réellement les octets. L'écran des
+pairs le dit sur la ligne concernée, au lieu d'afficher un mot. Il ne porte que pour
+deux pairs qu'il a lui-même présentés, quatre liaisons à la fois, et ces octets sont
+décomptés de son propre plafond d'envoi plutôt que d'un budget à part.
+
+Le relais reste réel pour un Jellyfin ou un Plex distant que quelqu'un partage, ce qui
+est encore un tout autre arrangement : ce serveur ne parle pas ce protocole et n'a
+jamais entendu parler de vous, donc se tenir devant lui est tout le principe et non un
+repli.
 
 Personne n'a à approuver une présentation, et c'est délibéré : **la distance que
 parcourent les présentations est l'accord lui-même**. La portée de la passerelle et la
@@ -408,16 +422,17 @@ appelle, et la liaison est la même dans les deux sens.
 Cela ne règle rien lorsque **les deux** passerelles sont derrière un NAT sans rien de
 redirigé. Un WebSocket a besoin de quelqu'un à appeler, et il n'y a personne. Un ami
 que les deux extrémités ont déjà peut les présenter, ce qui lève le « il n'a jamais
-entendu parler de vous » mais pas le « il n'y a aucune socket à ouvrir » ; cet ami peut
-aussi transporter les octets, et cette passerelle ne le propose délibérément à
-personne — faire passer le film d'un ami d'ami par votre machine est précisément ce que
-les présentations évitent.
+entendu parler de vous » mais pas le « il n'y a aucune socket à ouvrir ». Ce même ami
+peut aussi porter la liaison elle-même, si son foyer a activé l'interrupteur : les
+octets redescendent alors par la socket que le détenteur a ouverte vers lui, à
+l'intérieur de la connexion qui transporte déjà le trafic ordinaire entre pairs, faute
+d'une seconde à ouvrir.
 
 **Deux passerelles derrière deux routeurs, sans aucun ami commun, ne peuvent donc pas
 être reliées.** C'est une limite annoncée et non un réglage que quelqu'un aurait oublié
 de remplir : l'écran des pairs le dit sur la ligne concernée, et rediriger le port de
-l'interface sur l'un des deux routeurs est ce qui ouvre la liaison. Il n'y a pas de
-second port à ouvrir.
+l'interface sur l'un des deux routeurs est ce qui ouvre la liaison sans rien demander à
+personne. Il n'y a pas de second port à ouvrir.
 
 La réponse au cas général, c'est **WebRTC** — ICE, STUN pour découvrir l'adresse
 publique de chaque extrémité, TURN quand elle ne peut pas l'être, signalés sur la

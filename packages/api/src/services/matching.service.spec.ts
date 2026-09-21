@@ -393,6 +393,90 @@ describe('MatchingService', () => {
 
 			expect(service.score(local, remote, options())?.strategy).toBe(MatchStrategy.CHECKSUM);
 		});
+
+		/**
+		 * The owner's two copies of *Big Buck Bunny*, which showed as two cards.
+		 *
+		 * Both live on a friend's server — one Plex, one Jellyfin — and both are short
+		 * stubs: 3.0 s against 4.0 s. Nothing about the pair had anything to do with
+		 * correlation being anchored on a copy we hold, which was the first guess and is
+		 * wrong; the gateway relates two foreign copies to each other and always has.
+		 * What split them was this veto, reading a one-second difference as a different
+		 * cut because on a four-second runtime that is twenty-four percent.
+		 */
+		it('correlates two short copies of one film on two foreign servers', () => {
+			const plex = candidate({
+				id: 'plex-copy',
+				serviceId: 'service-plex-friend',
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				title: 'Big Buck Bunny',
+				normalizedTitle: 'big buck bunny',
+				year: 2008,
+				// Plex reports its own row key under `provider`, which is not a scraper
+				// identifier and agrees with nothing. The title is genuinely all there is.
+				externalIds: {},
+				file: file({
+					path: '/media/movies/Big.Buck.Bunny.2008.2160p.BluRay.x265-LAB.mp4',
+					durationMs: 3_023,
+					videoCodec: 'hevc',
+					width: 3840,
+					height: 2160,
+					size: 92_752,
+				}),
+			});
+			const jellyfin = candidate({
+				...plex,
+				id: 'jellyfin-copy',
+				serviceId: 'service-jellyfin-friend',
+				file: file({
+					path: '/media/movies/Big Buck Bunny (2008)/Big Buck Bunny (2008) - 1080p.mp4',
+					durationMs: 4_000,
+					videoCodec: 'h264',
+					width: 1920,
+					height: 1080,
+					size: 162_173,
+				}),
+			});
+
+			const scored = service.score(jellyfin, plex, options());
+
+			expect(scored?.strategy).toBe(MatchStrategy.NORMALIZED_TITLE);
+			expect(scored?.confidence).toBe(0.95);
+			expect(service.correlate(jellyfin, [plex], options())).toEqual([
+				expect.objectContaining({
+					localItemId: 'jellyfin-copy',
+					remoteItemId: 'plex-copy',
+					remoteServiceId: 'service-plex-friend',
+					applied: true,
+				}),
+			]);
+		});
+
+		it('still keeps two short films apart when a minute of content separates them', () => {
+			// The floor is half a minute, not "anything brief merges". Four minutes
+			// against five is a cut, and a cut stays two things even here.
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				normalizedTitle: 'windmills',
+				year: 2015,
+				externalIds: { imdb: 'tt3230854' },
+				file: file({ durationMs: 300_000 }),
+			});
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				file: file({ durationMs: 240_000 }),
+			});
+
+			expect(service.score(local, remote, options())).toBeNull();
+		});
 	});
 
 	describe('threshold', () => {

@@ -136,6 +136,44 @@
 	 */
 	const browsingLocalRoot = ref(false);
 
+	/**
+	 * The directory the server itself says everything it holds is under.
+	 *
+	 * The left-hand side of the mapping, taken from the server rather than typed: the
+	 * longest directory prefix common to every library it reported. With one library
+	 * that is the library's own folder; with `/data/media/shows` and `/data/media/films`
+	 * it is `/data/media`, which is exactly what `remoteRoot` is for — one statement
+	 * instead of one path per library and one chance per library to get it wrong.
+	 *
+	 * Null when the server reported no path at all, which is the ordinary answer for a
+	 * peer and for a Jellyfin reached with a key that cannot see the library settings.
+	 */
+	const serverRoot = computed(() => {
+		const paths = (probe.value?.libraries ?? []).flatMap(library => library.paths);
+
+		if (paths.length === 0) {
+			return null;
+		}
+
+		const segments = paths.map(path => path.split('/'));
+		const shared: string[] = [];
+
+		for (let index = 0; index < segments[0].length; index += 1) {
+			const part = segments[0][index];
+
+			if (!segments.every(one => one[index] === part)) {
+				break;
+			}
+
+			shared.push(part);
+		}
+
+		// A single shared segment is the empty root: every absolute path starts with
+		// one, and `/` as a remote root would match every path in existence and derive
+		// the whole filesystem into the local root.
+		return shared.length > 1 ? shared.join('/') : null;
+	});
+
 	/** A probe answer stops describing what is in the form as soon as it changes. */
 	watch(() => [model.baseUrl, model.token, model.type], () => {
 		probe.value = null;
@@ -380,6 +418,25 @@
 						:label="$t('service.field.remote_root')"
 						persistent-hint
 					/>
+
+					<!--
+						What the server itself answered, offered rather than typed. This is
+						the half of the mapping nobody should have to remember, and getting
+						it wrong is invisible until a transfer lands somewhere the server
+						never scans.
+					-->
+					<v-btn
+						v-if="serverRoot && serverRoot !== model.remoteRoot"
+						class="mt-1"
+						data-test="service-remote-root-suggestion"
+						density="compact"
+						prepend-icon="mdi-server"
+						size="small"
+						variant="text"
+						@click="model.remoteRoot = serverRoot"
+					>
+						{{ $t('service.field.remote_root_reported', { path: serverRoot }) }}
+					</v-btn>
 				</v-col>
 
 				<v-col cols="12" sm="6">
@@ -401,9 +458,16 @@
 						</template>
 					</v-text-field>
 
+					<!--
+						An existing service can be asked where its own folders are, so the
+						dialog shows both sides of the mapping at once. A registration that
+						has not been saved yet has no identifier to ask about; the reported
+						paths from the probe above are what somebody reads instead.
+					-->
 					<DirectoryPicker
 						v-model="browsingLocalRoot"
 						:path="model.localRoot"
+						:service-id="service?.id ?? null"
 						@choose="model.localRoot = $event"
 					/>
 				</v-col>

@@ -56,6 +56,29 @@ export interface UpdateLibraryRequest {
 	position?: number;
 }
 
+/**
+ * Whether the gateway's path and the media server's path are the same directory.
+ *
+ * This is the failure the whole feature exists to catch, and it is invisible until a
+ * transfer silently disappears: both paths are perfectly valid directories, the
+ * gateway writes, and the server scans somewhere else.
+ *
+ * Comparing the two strings would prove nothing — they are *legitimately* different
+ * whenever the service runs in its own container, which is the ordinary case. So the
+ * conclusion is drawn from a marker file written here and looked for there, and
+ * `UNKNOWN` is a first-class answer: a server that cannot list a directory of its own
+ * cannot be made to confess, and reporting that as a mismatch would put a warning on
+ * every Plex in the house.
+ */
+export enum PathMatch {
+	/** The server saw a file the gateway had just written. Proof, not inference. */
+	MATCHED = 'matched',
+	/** The server listed its own directory and the file was not in it. */
+	MISMATCHED = 'mismatched',
+	/** Nobody could be asked: no server path, no listing, or nothing to write with. */
+	UNKNOWN = 'unknown',
+}
+
 /** What `make library/check` and the settings screen report. */
 export interface LibraryCheck {
 	libraryId: string;
@@ -75,6 +98,16 @@ export interface LibraryCheck {
 	readable: boolean;
 	writable: boolean;
 	freeBytes: number | null;
+	/**
+	 * The paths the media server itself reports for this library.
+	 *
+	 * Carried beside `localPath` because the pair is the mapping: the server says
+	 * `/data/media/shows` and this gateway sees `/mnt/nas/shows`. A screen showing one
+	 * without the other cannot say which of the two somebody got wrong.
+	 */
+	serverPaths: string[];
+	/** Whether the two designate the same directory, proved rather than compared. */
+	match: PathMatch;
 	error: string | null;
 }
 

@@ -113,6 +113,12 @@
 		"current_not_writable": "A gateway não consegue escrever nesta pasta, por isso nada chegaria aqui.",
 		"truncated": "Apenas as primeiras {count} pastas são mostradas. Escreva o caminho se a que procura não estiver na lista.",
 		"show_hidden": "Mostrar pastas ocultas",
+		"server_title": "Indicado pelo servidor multimédia",
+		"server_hint": "Estas são as pastas tal como o próprio servidor as vê. Escolha uma se este gateway alcançar os mesmos ficheiros nesse caminho; caso contrário, encontre abaixo a pasta correspondente.",
+		"server_unsupported": "Este serviço não consegue dizer onde estão as suas pastas, por isso o caminho tem de ser encontrado abaixo.",
+		"server_no_deeper": "Este servidor não consegue ver dentro das suas próprias pastas, por isso é tudo o que vai indicar.",
+		"server_enter": "Ver dentro desta pasta",
+		"gateway_title": "O que este gateway vê",
 		"open": "Percorrer pastas"
 	},
 	"general": {
@@ -233,6 +239,7 @@
 		},
 		"problem": {
 			"no_path": "Não está definido nenhum caminho local, por isso o gateway não pode escrever nesta biblioteca.",
+			"mismatch": "O gateway escreve em {local} e o servidor lê {server}. Não são o mesmo diretório, por isso nada do que for trazido para esta biblioteca aparecerá no servidor.",
 			"missing": "Este caminho não existe tal como o gateway o vê.",
 			"unreadable": "O gateway não consegue ler este caminho.",
 			"not_writable": "O gateway não consegue escrever aqui, por isso nenhuma transferência pode aterrar nesta biblioteca."
@@ -426,6 +433,7 @@
 			"roots_hint": "O servidor indica os seus próprios caminhos. Indique a sua raiz uma única vez aqui e cada biblioteca deduz onde o gateway alcança os mesmos ficheiros, em vez de um caminho a escrever por biblioteca. Uma biblioteca que precise de outra coisa mantém o seu próprio caminho.",
 			"remote_root": "Raiz, tal como o servidor a indica",
 			"remote_root_hint": "Como o servidor multimédia lhe chama, por exemplo /media",
+			"remote_root_reported": "O servidor indica {path} — usar",
 			"local_root": "O mesmo diretório, visto daqui",
 			"local_root_hint": "Onde este gateway o alcança, por exemplo /mnt/nas",
 			"auth_provider": "Iniciar sessão com este serviço",
@@ -519,7 +527,7 @@
 			"fingerprint": "Impressão digital",
 			"direct_address": "Endereço direto",
 			"direct_ok": "As ligações diretas são possíveis, por isso as transferências não passam pela retransmissão.",
-			"relay_only": "Esta gateway não é acessível a partir do exterior, por isso os amigos não conseguem ligar-se diretamente: uma ligação depende então de um amigo que ambos já tenham, e não há mais nada a que recorrer. Encaminhar no router a porta da interface resolve. Não há uma segunda porta para abrir: uma ligação entre pares é uma ligação WebSocket nessa mesma porta."
+			"relay_only": "Esta gateway não é acessível a partir do exterior, por isso os amigos não conseguem ligar-se diretamente: uma ligação depende então de um amigo que ambos já tenham, para vos apresentar e, quando nenhum dos dois é acessível, para transportar a ligação. Encaminhar no router a porta da interface elimina essa necessidade. Não há uma segunda porta para abrir: uma ligação entre pares é uma ligação WebSocket nessa mesma porta."
 		},
 		"invite": {
 			"open": "Ligar um gateway",
@@ -804,6 +812,8 @@
 		"swarm_help": "Vários pares com o mesmo ficheiro podem alimentar em conjunto uma mesma transferência.",
 		"keep_discovered_peers": "Manter os pares encontrados durante uma transferência",
 		"keep_discovered_peers_help": "Quando traz um ficheiro do amigo de um amigo, as duas gateways ligam-se diretamente; mantenha-o na sua lista, ou deixe a ligação fechar-se com a transferência.",
+		"relay_for_peers": "Transportar as ligações entre os seus amigos",
+		"relay_for_peers_help": "Dois amigos, cada um atrás do seu router, não conseguem alcançar-se de todo. Ao ativar isto, esta gateway segura as duas pontas e transporta os bytes: gasta o seu envio e vê-os passar, porque nada é cifrado acima da ligação. Só o faz para dois pares que ela própria apresentou, e para quatro ligações de cada vez.",
 		"match_threshold": "Limiar de correlação",
 		"match_threshold_help": "Abaixo deste valor, uma correspondência é proposta em vez de aplicada.",
 		"refresh_interval": "Atualizar a cada (minutos)",
@@ -916,6 +926,30 @@
 			"next_run": "próxima execução",
 			"remove_title": "Remover este plano?",
 			"remove_confirm": "{name} deixará de correr. Nada do que já foi transferido é tocado."
+		},
+		"keep": {
+			"action": "Manter sincronizado",
+			"title": "Manter isto sincronizado",
+			"what": "O plano vai cobrir {title} e tudo o que está por baixo.",
+			"covered": "Já é mantido sincronizado pelo plano {name}.",
+			"covered_above": "Já está coberto pelo plano {name}, que mantém em dia tudo o que está por baixo.",
+			"open_plan": "Abrir o plano",
+			"estimate_unknown": "Ainda ninguém calculou a quanto isto corresponde.",
+			"estimate_truncated": "No mínimo isto: há aqui mais do que uma execução percorre.",
+			"mode": "O que fazer",
+			"mode_create": "Criar um plano para isto",
+			"mode_extend": "Acrescentar a um plano que já tenho",
+			"plan": "Plano a que acrescentar",
+			"name": "Nome do plano",
+			"name_hint": "Com o nome da série, para que a lista de planos continue legível daqui a seis meses.",
+			"sources": "Venha de onde vier: o plano segue a prioridade dos serviços definida nas definições, por isso uma cópia que apareça mais tarde no servidor de um amigo é encontrada sem alterar nada.",
+			"create": "Criar o plano",
+			"extend": "Acrescentar ao plano",
+			"once_title": "Ou só desta vez",
+			"once_text": "Uma execução, agora. Nada fica memorizado e nada volta a correr sozinho.",
+			"once": "Obter o que falta",
+			"created": "Plano criado. Encontra-o em Sincronização e nesta página.",
+			"extended": "Acrescentado ao plano."
 		},
 		"preview": {
 			"title": "O que isto transferiria",
@@ -1200,6 +1234,7 @@
 			"not_found": "Esta biblioteca já não existe.",
 			"path_unreadable": "O gateway não consegue ler este caminho.",
 			"path_not_writable": "O gateway não consegue escrever neste caminho.",
+			"path_mismatch": "O caminho do gateway e o do servidor não designam o mesmo diretório. Os ficheiros aterrariam onde o servidor nunca procura.",
 			"category_not_found": "Essa categoria já não corresponde a nada aqui. Recarregue a página: as bibliotecas que a compunham podem ter sido renomeadas ou removidas.",
 			"keyword_not_found": "Esse nome já não está ligado a nada. Recarregue a página.",
 			"keyword_invalid": "Nada poderá alguma vez corresponder a isso. Use pelo menos uma letra ou um algarismo.",
@@ -1228,7 +1263,10 @@
 			"already_running": "Este plano já está em execução.",
 			"not_enough_space": "A biblioteca de destino não tem espaço para o que esta execução transferiria.",
 			"space_not_acknowledged": "Esta execução consumiria o espaço mantido em reserva, ou não foi possível medir o espaço livre. Confirme para a lançar mesmo assim.",
-			"scope_unbounded": "O âmbito deste plano não designa nada, por isso transferiria tudo. Confirme para o ativar mesmo assim."
+			"scope_unbounded": "O âmbito deste plano não designa nada, por isso transferiria tudo. Confirme para o ativar mesmo assim.",
+			"item_already_covered": "Já existe um plano que cobre este conteúdo. Abra esse plano em vez de criar um segundo que entraria em conflito.",
+			"plan_not_extendable": "Esse plano não pode receber outra série: o seu âmbito não é uma lista de séries e acrescentar uma mudaria o que ele cobre.",
+			"schedule_required": "Um plano que corre com agendamento precisa de uma expressão cron."
 		},
 		"transfer": {
 			"not_found": "Esta transferência já não existe.",

@@ -5,6 +5,8 @@ import type {
 	MediaServiceProbe,
 	ProbeMediaServiceRequest,
 	ScanProgress,
+	ServerStructure,
+	ServerStructureRequest,
 	UpdateMediaServiceRequest,
 } from '@mcs/shared';
 import { EventName } from '@mcs/shared';
@@ -133,6 +135,45 @@ export const useServicesStore = defineStore('services', () => {
 		return caller('api').get<Library[]>(`/services/${id}/libraries`);
 	}
 
+	/**
+	 * Where this service says its own files are.
+	 *
+	 * The authoritative half of the mapping somebody is configuring: the server says
+	 * `/data/media/shows`, this gateway sees `/mnt/nas/shows`, and until this existed
+	 * the only help on offer was browsing our own disk and guessing which directory
+	 * was the same one.
+	 *
+	 * Nothing is cached, for the same reason a directory browse is not: it is a
+	 * question about a filesystem somebody may have just changed — a library added on
+	 * the server, a mount that came up — and a remembered answer is the one thing that
+	 * would make this assist lie.
+	 *
+	 * Failures are silent as far as the notifier is concerned: the picker shows what
+	 * it got in place of its own list, and a toast over the whole application about a
+	 * server that cannot say where its folders are would be noise about a field
+	 * somebody is still filling in.
+	 */
+	function structure (
+		id: string,
+		request: ServerStructureRequest = {},
+	): Promise<ServerStructure> {
+		const params = new URLSearchParams();
+
+		if (request.libraryExternalId) {
+			params.set('libraryExternalId', request.libraryExternalId);
+		}
+		if (request.path) {
+			params.set('path', request.path);
+		}
+
+		const query = params.toString();
+
+		return caller('api').get<ServerStructure>(
+			`/services/${id}/structure${query ? `?${query}` : ''}`,
+			{ silentError: true },
+		);
+	}
+
 	events.on(EventName.SERVICE_STATUS, payload => {
 		const service = services.value.find(one => one.id === payload.id);
 		if (service) {
@@ -170,5 +211,6 @@ export const useServicesStore = defineStore('services', () => {
 		scan,
 		refresh,
 		libraries,
+		structure,
 	};
 });

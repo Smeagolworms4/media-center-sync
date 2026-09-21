@@ -4,10 +4,12 @@ import {
 	MediaKind,
 	MediaServiceType,
 	PeerCapability,
+	ServerStructureSupport,
 	type CatalogueEntry,
 	type ExternalIds,
 	type MediaFileInfo,
 	type MediaServiceProbe,
+	type ServerStructure,
 } from '@mcs/shared';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PeerCatalogueService } from '../peer-catalogue.service';
@@ -176,6 +178,31 @@ export class PeerHandler implements MediaServiceHandler {
 				paths: [],
 			},
 		];
+	}
+
+	/**
+	 * A peer is never asked where its files are, and this is not a gap.
+	 *
+	 * The question the whole capability answers is "which directory on *this* disk is
+	 * the one the media server reads", so that a local path can be mapped onto it. A
+	 * peer has no such directory: the bytes are on somebody else's machine, their
+	 * paths designate nothing here, and a path of theirs offered as a candidate would
+	 * be written into a local path field and accepted — producing exactly the silent
+	 * failure this feature exists to catch, with the gateway's own interface as the
+	 * source of the bad value.
+	 *
+	 * Answered without touching the link at all. The far end is not asked and cannot
+	 * be: the refusal is a property of what a peer *is*, so it must not depend on
+	 * whether they happen to be connected, and no round trip is spent finding out
+	 * something that is already known here.
+	 */
+	public listServerDirectories(): Promise<ServerStructure> {
+		return Promise.resolve({
+			support: ServerStructureSupport.UNSUPPORTED,
+			path: null,
+			parent: null,
+			entries: [],
+		});
 	}
 
 	/**

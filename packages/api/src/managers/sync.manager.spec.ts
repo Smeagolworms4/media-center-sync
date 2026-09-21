@@ -64,6 +64,7 @@ const SETTINGS: Settings = {
 	matchThreshold: 0.8,
 	peerMaxDepth: 1,
 	keepDiscoveredPeers: false,
+	relayForPeers: false,
 	allowSwarm: true,
 	instanceName: null,
 	publicUrl: null,
@@ -1367,6 +1368,272 @@ describe('SyncManager', () => {
 			await expect(manager.updatePlan('plan-1', { enabled: true })).rejects.toThrow(
 				ErrorKey.SYNC_SCOPE_UNBOUNDED,
 			);
+		});
+	});
+
+	/**
+	 * A plan made from the media it is about, which is the only way anybody makes one.
+	 *
+	 * The blank form asks for a name, a trigger, sources, a scope, a filter and a
+	 * ceiling before somebody has said the one thing they meant — *this show* — so
+	 * nobody fills it in and the feature the product exists for goes unused. Everything
+	 * pinned down below is one of those questions being answered from the media instead
+	 * of being asked.
+	 */
+	describe('keeping one media in sync', () => {
+		const series = item({
+			id: 'series-1',
+			kind: MediaKind.SERIES,
+			title: 'The Expanse',
+			file: null,
+			parentId: null,
+		});
+
+		const season = item({
+			id: 'season-1',
+			kind: MediaKind.SEASON,
+			title: 'Season 1',
+			file: null,
+			parentId: 'series-1',
+		});
+
+		const tree = [series, season, item({ id: 'item-fast', parentId: 'season-1' })];
+
+		const plan = (overrides: Partial<SyncPlan> = {}): SyncPlan =>
+			({
+				id: 'plan-existing',
+				name: 'The Expanse',
+				enabled: true,
+				trigger: SyncTrigger.MANUAL,
+				schedule: null,
+				sourceServiceIds: [],
+				preferredLibraryId: null,
+				scope: { rootItemIds: ['series-1'] },
+				filter: {},
+				maxItemsPerRun: null,
+				maxBytesPerRun: null,
+				lastRunAt: null,
+				nextRunAt: null,
+				createdAt: new Date('2026-01-01T00:00:00.000Z'),
+				updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+				...overrides,
+			}) as SyncPlan;
+
+		it('covers the series, and is called after it', async () => {
+			const { manager } = build({ items: tree });
+
+			const created = await manager.createPlanForItem({
+				itemId: 'series-1',
+				trigger: SyncTrigger.MANUAL,
+			});
+
+			expect(created.scope).toEqual({ rootItemIds: ['series-1'] });
+			expect(created.name).toBe('The Expanse');
+		});
+
+		/**
+		 * "Season 1" is three plans with the same name the day somebody keeps two shows
+		 * in step, and a list of plans is read six months later by somebody who has
+		 * forgotten which was which.
+		 */
+		it('covers the season alone, and says which show the season belongs to', async () => {
+			const { manager } = build({ items: tree });
+
+			const created = await manager.createPlanForItem({
+				itemId: 'season-1',
+				trigger: SyncTrigger.MANUAL,
+			});
+
+			expect(created.scope).toEqual({ rootItemIds: ['season-1'] });
+			expect(created.name).toBe('The Expanse — Season 1');
+		});
+
+		/**
+		 * Empty is the decision, not the omission: a show that turns up on a friend's
+		 * server next month is found without anybody editing the plan, and a list pinned
+		 * today is a plan that quietly stops finding anything the day a server moves.
+		 */
+		it('pins no source, so the plan follows the configured priority', async () => {
+			const { manager } = build({ items: tree });
+
+			const created = await manager.createPlanForItem({
+				itemId: 'series-1',
+				trigger: SyncTrigger.MANUAL,
+			});
+
+			expect(created.sourceServiceIds).toEqual([]);
+			// Filling holes, never replacing a file somebody chose — and no ceiling,
+			// because a ceiling on a named show only leaves half a season behind.
+			expect(created.filter).toEqual({ missingOnly: true });
+			expect(created.maxItemsPerRun).toBeNull();
+		});
+
+		it('refuses a second plan for a show one already covers', async () => {
+			const { manager } = build({ items: tree, plans: [plan()] });
+
+			await expect(
+				manager.createPlanForItem({ itemId: 'series-1', trigger: SyncTrigger.MANUAL }),
+			).rejects.toThrow(ErrorKey.SYNC_ITEM_ALREADY_COVERED);
+		});
+
+		/** A plan on the series speaks for every season under it, and says which plan. */
+		it('reads a plan on the series as covering the season below it', async () => {
+			const { manager } = build({ items: tree, plans: [plan()] });
+
+			const answer = await manager.itemPlans('season-1');
+
+			expect(answer.covering).toHaveLength(1);
+			expect(answer.covering[0]).toMatchObject({
+				coveredItemId: 'series-1',
+				exact: false,
+			});
+			expect(answer.covering[0].plan.id).toBe('plan-existing');
+			expect(answer.suggestedName).toBe('The Expanse — Season 1');
+		});
+
+		it('adds the show to a plan that exists rather than standing up a second', async () => {
+			const { manager } = build({ items: tree });
+			const plans = (manager as unknown as { _plans: { findOne: jest.Mock } })._plans;
+
+			plans.findOne.mockResolvedValue(plan({ scope: { rootItemIds: ['another-show'] } }));
+
+			const extended = await manager.createPlanForItem({
+				itemId: 'series-1',
+				trigger: SyncTrigger.MANUAL,
+				extendPlanId: 'plan-existing',
+			});
+
+			expect(extended.scope).toEqual({ rootItemIds: ['another-show', 'series-1'] });
+		});
+
+		it('changes nothing when the plan already names that subtree', async () => {
+			const { manager } = build({ items: tree });
+			const plans = (manager as unknown as { _plans: { findOne: jest.Mock } })._plans;
+
+			plans.findOne.mockResolvedValue(plan());
+
+			const extended = await manager.createPlanForItem({
+				itemId: 'series-1',
+				trigger: SyncTrigger.MANUAL,
+				extendPlanId: 'plan-existing',
+			});
+
+			expect(extended.scope).toEqual({ rootItemIds: ['series-1'] });
+		});
+
+		/**
+		 * The fields of a scope intersect, so a root added to a plan scoped by category
+		 * means "the part of that show in that category" — a silent rewrite of somebody
+		 * else's standing intent, and never what "add this show to that plan" asked for.
+		 */
+		it.each([
+			['a category', { categoryKeys: ['shows'] }],
+			['everything', {}],
+		])('refuses to add a subtree to a plan that covers %s', async (_label, scope) => {
+			const { manager } = build({ items: tree });
+			const plans = (manager as unknown as { _plans: { findOne: jest.Mock } })._plans;
+
+			plans.findOne.mockResolvedValue(plan({ scope }));
+
+			await expect(
+				manager.createPlanForItem({
+					itemId: 'series-1',
+					trigger: SyncTrigger.MANUAL,
+					extendPlanId: 'plan-existing',
+				}),
+			).rejects.toThrow(ErrorKey.SYNC_PLAN_NOT_EXTENDABLE);
+		});
+
+		it('offers only the plans a subtree could be added to', async () => {
+			const { manager } = build({
+				items: tree,
+				plans: [
+					plan({ id: 'plan-subtrees', scope: { rootItemIds: ['another-show'] } }),
+					plan({ id: 'plan-category', scope: { categoryKeys: ['shows'] } }),
+					plan({ id: 'plan-everything', scope: {} }),
+				],
+			});
+
+			const answer = await manager.itemPlans('series-1');
+
+			expect(answer.extendable.map((one) => one.id)).toEqual(['plan-subtrees']);
+		});
+
+		/**
+		 * A plan that says it runs nightly and carries no cron is registered nowhere and
+		 * fires never. Nothing reports it; the first anybody hears is the episodes that
+		 * did not arrive.
+		 */
+		it('refuses a schedule with nothing to schedule', async () => {
+			const { manager } = build({ items: tree });
+
+			await expect(
+				manager.createPlanForItem({ itemId: 'series-1', trigger: SyncTrigger.SCHEDULE }),
+			).rejects.toThrow(ErrorKey.SYNC_SCHEDULE_REQUIRED);
+		});
+
+		it('answers a key for a media nobody holds', async () => {
+			const { manager } = build({ items: tree });
+
+			await expect(
+				manager.createPlanForItem({ itemId: 'nothing-here', trigger: SyncTrigger.MANUAL }),
+			).rejects.toThrow(ErrorKey.MEDIA_NOT_FOUND);
+		});
+
+		/**
+		 * What the subtree comes to, before there is a plan to ask it of.
+		 *
+		 * From a season it is two episodes and from a series a whole show, and that
+		 * number is the difference between a standing intent and a surprise — asked for
+		 * afterwards, from the edit screen, it arrives after the decision was taken.
+		 */
+		it('says what the subtree comes to before anything is saved', async () => {
+			const { manager } = build({ items: tree });
+
+			const estimate = await manager.estimateScope({ scope: { rootItemIds: ['series-1'] } });
+
+			expect(estimate).toMatchObject({ itemCount: 1, bytes: 2_000_000, unbounded: false });
+		});
+	});
+
+	/**
+	 * The bytes are on the disk and the media server has not indexed them yet.
+	 *
+	 * Nothing local holds the media — that is what "not indexed" means — so the plain
+	 * reading of the index calls it missing, and every run of every plan covering it
+	 * fetches the same file into the same folder again. It is the bug those two states
+	 * were added for, and this is where a plan has to read them.
+	 */
+	describe('a file that has landed but is not indexed', () => {
+		it.each([SyncState.AWAITING_INDEX, SyncState.NOT_INDEXED])(
+			'is not counted as missing when it reads %s',
+			async (syncState) => {
+				const { manager } = build({ items: [item({ syncState })] });
+
+				const planning = await manager.plan({});
+
+				expect(planning.items).toHaveLength(0);
+				expect(planning.estimate.itemCount).toBe(0);
+			},
+		);
+
+		it('still plans the copy of it that nobody has landed', async () => {
+			const { manager } = build({
+				items: [
+					item({ syncState: SyncState.AWAITING_INDEX }),
+					item({
+						id: 'item-other',
+						serviceId: 'service-slow',
+						externalId: 'ext-other',
+						normalizedTitle: 'another show',
+						file: file({ contentId: 'q1-other', path: '/source/Other.mkv' }),
+					}),
+				],
+			});
+
+			const planning = await manager.plan({});
+
+			expect(planning.items.map((one) => one.itemId)).toEqual(['item-other']);
 		});
 	});
 

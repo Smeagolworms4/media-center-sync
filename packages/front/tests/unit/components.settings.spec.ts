@@ -4,6 +4,7 @@ import {
 	MediaServiceMode,
 	MediaServiceStatus,
 	MediaServiceType,
+	PathMatch,
 } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import DestinationLibraryField from '@/components/settings/DestinationLibraryField.vue';
@@ -165,6 +166,8 @@ describe('composables/useDestinationLibraries', () => {
 				readable: true,
 				writable: false,
 				freeBytes: null,
+				serverPaths: ['/data/movies'],
+				match: PathMatch.UNKNOWN,
 				error: null,
 			}],
 		);

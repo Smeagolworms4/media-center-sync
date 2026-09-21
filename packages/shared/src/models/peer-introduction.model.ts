@@ -12,12 +12,18 @@
  * - **Introducing**: I tell A where C is and hand A something C will accept, then I
  *   step out. A and C talk directly, and my part is over after one small answer.
  *
- * **For peers this gateway does the second one, and never the first.** Relaying stays
- * real, and stays the whole arrangement, for a remote Jellyfin or Plex that somebody
- * shares: that server does not speak this protocol, the friend being shared with has
- * no account on it, and the only reason they see anything at all is that we have an
- * account and are willing to stand in front of it. There is no introduction to make
- * there. Between two gateways there always is.
+ * **For peers this gateway does the second one, and the first only when the second
+ * cannot work.** An introduction is tried first on every dial, and it is what succeeds
+ * whenever either end can be dialled at all. Carrying is the fallback for the one
+ * topology introductions cannot fix — two routers, nobody able to accept a socket —
+ * and it happens only on a gateway whose household turned `Settings.relayForPeers` on.
+ * See `peer-relay.model.ts` for how the bytes travel and what it costs the carrier.
+ *
+ * Relaying stays real, and stays the whole arrangement, for a remote Jellyfin or Plex
+ * that somebody shares: that server does not speak this protocol, the friend being
+ * shared with has no account on it, and the only reason they see anything at all is
+ * that we have an account and are willing to stand in front of it. There is no
+ * introduction to make there. Between two gateways there always is.
  *
  * **The token is the whole protocol.** There is no signalling session to invent and no
  * state for anybody to hold: I sign a short statement, A carries it to C as a header on
@@ -46,12 +52,12 @@
  * and my machine then really does see the bytes. That is a fact the interface states
  * in one line rather than dressing up — see `peer.relay_hint`.
  *
- * **And when there is nobody in the middle at all**, two gateways behind two routers
- * cannot be connected. That is an ordinary home-network fact and a stated limit, not
- * a setting somebody failed to fill in: the fix is forwarding the interface's port on
- * one of the two routers. The one case with no intermediary by definition — two
- * gateways that have never met — is the invitation, which carries the issuing
- * gateway's own address.
+ * **And when there is nobody in the middle at all**, or nobody who agreed to carry,
+ * two gateways behind two routers cannot be connected. That is an ordinary
+ * home-network fact and a stated limit, not a setting somebody failed to fill in: the
+ * fix is forwarding the interface's port on one of the two routers, which asks nothing
+ * of anybody else. The one case with no intermediary by definition — two gateways that
+ * have never met — is the invitation, which carries the issuing gateway's own address.
  */
 
 /** Version of the token payload, so a future shape can be told from this one. */

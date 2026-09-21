@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 	import type { Library, LibraryCheck } from '@mcs/shared';
+	import { PathMatch } from '@mcs/shared';
 	import { computed, ref } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
@@ -73,6 +74,21 @@
 		return null;
 	});
 
+	/**
+	 * The failure nothing else on this screen can report.
+	 *
+	 * Everything above is about this side of the mapping: the directory exists, we can
+	 * read it, we can write into it — and the media server still reads somewhere else
+	 * entirely. That library accepts every transfer and stays empty on the server, with
+	 * no error anywhere, which is the single failure this whole screen exists to catch.
+	 * It is stated separately from `problem` because it is not one of that list's
+	 * degrees: a perfectly healthy path is exactly where it happens.
+	 */
+	const mismatched = computed(() => props.check?.match === PathMatch.MISMATCHED);
+
+	/** What the media server says it reads, which is the other half of the mapping. */
+	const serverPaths = computed(() => props.check?.serverPaths ?? props.library.paths);
+
 	const form = useForm({
 		fallbackError: 'error.library.path_not_writable',
 		fields: {
@@ -123,8 +139,8 @@
 			/>
 		</div>
 
-		<p v-if="library.paths.length > 0" class="text-caption text-medium-emphasis mb-2">
-			{{ $t('library.reported_paths') }}: <span class="text-break-anywhere">{{ library.paths.join(', ') }}</span>
+		<p v-if="serverPaths.length > 0" class="text-caption text-medium-emphasis mb-2">
+			{{ $t('library.reported_paths') }}: <span class="text-break-anywhere">{{ serverPaths.join(', ') }}</span>
 		</p>
 
 		<v-form v-form="form" class="library-path_form">
@@ -148,9 +164,17 @@
 				</template>
 			</v-text-field>
 
+			<!--
+				The service is handed over so the dialog can ask it where its own folders
+				are. That answer is the left-hand side of the mapping being configured and
+				the browse is how somebody finds the right-hand side; a picker that only
+				showed our disk was asking them to remember the server's paths.
+			-->
 			<DirectoryPicker
 				v-model="browsing"
+				:library-external-id="library.externalId"
 				:path="localPath"
+				:service-id="library.serviceId"
 				@choose="localPath = $event"
 			/>
 
@@ -177,6 +201,25 @@
 			variant="tonal"
 		>
 			{{ $t(problem) }}
+		</v-alert>
+
+		<!--
+			An error rather than a warning, and it names both paths: the two are
+			legitimately different strings, so the only thing somebody can act on is
+			seeing them beside each other and recognising which one is wrong.
+		-->
+		<v-alert
+			v-if="mismatched"
+			class="mt-2"
+			data-test="library-mismatch"
+			density="compact"
+			type="error"
+			variant="tonal"
+		>
+			{{ $t('library.problem.mismatch', {
+				local: check?.localPath ?? '',
+				server: serverPaths.join(', '),
+			}) }}
 		</v-alert>
 
 		<p v-if="check" class="library-path_free text-caption text-medium-emphasis mt-2">

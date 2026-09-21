@@ -113,6 +113,12 @@
 		"current_not_writable": "Das Gateway kann nicht in diesen Ordner schreiben – hier würde nie etwas ankommen.",
 		"truncated": "Es werden nur die ersten {count} Ordner angezeigt. Geben Sie den Pfad ein, wenn der gesuchte Ordner fehlt.",
 		"show_hidden": "Versteckte Ordner anzeigen",
+		"server_title": "Vom Medienserver gemeldet",
+		"server_hint": "Das sind die Ordner, wie der Server sie selbst sieht. Wählen Sie einen, wenn dieses Gateway dieselben Dateien unter diesem Pfad erreicht; sonst suchen Sie unten den passenden Ordner.",
+		"server_unsupported": "Dieser Dienst kann nicht sagen, wo seine Ordner liegen — der Pfad muss unten gesucht werden.",
+		"server_no_deeper": "Dieser Server kann nicht in seine eigenen Ordner schauen; mehr wird er nicht melden.",
+		"server_enter": "In diesen Ordner schauen",
+		"gateway_title": "Was dieses Gateway sieht",
 		"open": "Ordner durchsuchen"
 	},
 	"general": {
@@ -233,6 +239,7 @@
 		},
 		"problem": {
 			"no_path": "Es ist kein lokaler Pfad gesetzt, das Gateway kann also nicht in diese Bibliothek schreiben.",
+			"mismatch": "Das Gateway schreibt nach {local}, der Server liest {server}. Das ist nicht dasselbe Verzeichnis, also erscheint nichts, was in diese Bibliothek geholt wird, jemals auf dem Server.",
 			"missing": "Diesen Pfad gibt es nicht, so wie das Gateway ihn sieht.",
 			"unreadable": "Das Gateway kann diesen Pfad nicht lesen.",
 			"not_writable": "Das Gateway kann hier nicht schreiben, es kann also keine Übertragung in dieser Bibliothek landen."
@@ -426,6 +433,7 @@
 			"roots_hint": "Der Server meldet seine eigenen Pfade. Geben Sie seine Wurzel hier einmal an, und jede Bibliothek darunter ermittelt selbst, wo das Gateway dieselben Dateien erreicht — statt eines Pfades pro Bibliothek. Eine Bibliothek, die etwas anderes braucht, behält ihren eigenen Pfad.",
 			"remote_root": "Wurzel, wie der Server sie meldet",
 			"remote_root_hint": "Wie der Medienserver sie nennt, etwa /media",
+			"remote_root_reported": "Der Server meldet {path} — übernehmen",
 			"local_root": "Dasselbe Verzeichnis, von hier aus",
 			"local_root_hint": "Wo das Gateway es erreicht, etwa /mnt/nas",
 			"auth_provider": "Anmeldung über diesen Dienst",
@@ -519,7 +527,7 @@
 			"fingerprint": "Fingerabdruck",
 			"direct_address": "Direkte Adresse",
 			"direct_ok": "Direkte Verbindungen sind möglich, Übertragungen laufen also nicht über das Relay.",
-			"relay_only": "Dieses Gateway ist von außen nicht erreichbar. Freunde können es deshalb nicht direkt anwählen, und eine Verbindung hängt dann an einem Freund, den Sie beide schon haben — etwas anderes gibt es nicht. Den Port der Oberfläche im Router weiterzuleiten behebt das. Einen zweiten Port gibt es nicht: Eine Peer-Verbindung ist ein WebSocket-Upgrade auf genau diesem Port."
+			"relay_only": "Dieses Gateway ist von außen nicht erreichbar. Freunde können es deshalb nicht direkt anwählen, und eine Verbindung hängt dann an einem Freund, den Sie beide schon haben — der Sie einander vorstellt und, wenn keiner von beiden anwählbar ist, die Verbindung trägt. Den Port der Oberfläche im Router weiterzuleiten macht das überflüssig. Einen zweiten Port gibt es nicht: Eine Peer-Verbindung ist ein WebSocket-Upgrade auf genau diesem Port."
 		},
 		"invite": {
 			"open": "Gateway verbinden",
@@ -804,6 +812,8 @@
 		"swarm_help": "Mehrere Peers, die dieselbe Datei haben, können eine Übertragung gemeinsam speisen.",
 		"keep_discovered_peers": "Beim Herunterladen gefundene Peers behalten",
 		"keep_discovered_peers_help": "Wenn Sie eine Datei vom Freund eines Freundes holen, verbinden sich die beiden Gateways direkt; behalten Sie ihn in Ihrer Liste, oder lassen Sie die Verbindung mit der Übertragung enden.",
+		"relay_for_peers": "Verbindungen zwischen Ihren Freunden weiterleiten",
+		"relay_for_peers_help": "Zwei Freunde, die jeweils hinter einem Router sitzen, erreichen einander überhaupt nicht. Ist dies eingeschaltet, hält dieses Gateway beide Enden und trägt die Bytes hinüber: Das kostet seinen Upload, und es sieht sie, denn oberhalb der Verbindung ist nichts verschlüsselt. Es tut das nur für zwei Peers, die es selbst einander vorgestellt hat, und für vier Verbindungen gleichzeitig.",
 		"match_threshold": "Korrelationsschwelle",
 		"match_threshold_help": "Unterhalb dieses Wertes wird ein Treffer vorgeschlagen statt angewendet.",
 		"refresh_interval": "Aktualisieren alle (Minuten)",
@@ -916,6 +926,30 @@
 			"next_run": "nächster Lauf",
 			"remove_title": "Diesen Plan entfernen?",
 			"remove_confirm": "{name} läuft dann nicht mehr. Bereits Geholtes bleibt unberührt."
+		},
+		"keep": {
+			"action": "Synchron halten",
+			"title": "Dies synchron halten",
+			"what": "Der Plan umfasst {title} und alles darunter.",
+			"covered": "Wird bereits vom Plan {name} synchron gehalten.",
+			"covered_above": "Wird bereits vom Plan {name} abgedeckt, der alles darunter auf Stand hält.",
+			"open_plan": "Plan öffnen",
+			"estimate_unknown": "Es hat noch niemand ausgerechnet, wie viel das ist.",
+			"estimate_truncated": "Mindestens so viel: hier liegt mehr, als ein Lauf durchgeht.",
+			"mode": "Was tun",
+			"mode_create": "Einen Plan dafür anlegen",
+			"mode_extend": "Zu einem vorhandenen Plan hinzufügen",
+			"plan": "Plan, zu dem es kommt",
+			"name": "Name des Plans",
+			"name_hint": "Nach der Serie benannt, damit die Liste der Pläne auch in einem halben Jahr lesbar ist.",
+			"sources": "Woher auch immer es auftaucht: der Plan folgt der in den Einstellungen festgelegten Reihenfolge der Dienste, eine später beim Freund auftauchende Kopie wird also ohne Änderung gefunden.",
+			"create": "Plan anlegen",
+			"extend": "Zum Plan hinzufügen",
+			"once_title": "Oder nur dieses eine Mal",
+			"once_text": "Ein Lauf, jetzt. Nichts wird gemerkt und nichts läuft von selbst erneut.",
+			"once": "Fehlendes jetzt holen",
+			"created": "Plan angelegt. Er steht unter Synchronisierung und auf dieser Seite.",
+			"extended": "Zum Plan hinzugefügt."
 		},
 		"preview": {
 			"title": "Was dies holen würde",
@@ -1200,6 +1234,7 @@
 			"not_found": "Diese Bibliothek gibt es nicht mehr.",
 			"path_unreadable": "Das Gateway kann diesen Pfad nicht lesen.",
 			"path_not_writable": "Das Gateway kann in diesen Pfad nicht schreiben.",
+			"path_mismatch": "Der Pfad des Gateways und der des Servers bezeichnen nicht dasselbe Verzeichnis. Dateien landeten dort, wo der Server nie nachsieht.",
 			"category_not_found": "Diese Kategorie ergibt hier nichts mehr. Laden Sie die Seite neu: Die Mediatheken dahinter wurden womöglich umbenannt oder entfernt.",
 			"keyword_not_found": "Dieser Name ist nirgends mehr hinterlegt. Laden Sie die Seite neu.",
 			"keyword_invalid": "Damit lässt sich nichts abgleichen. Verwenden Sie mindestens einen Buchstaben oder eine Ziffer.",
@@ -1228,7 +1263,10 @@
 			"already_running": "Dieser Plan läuft bereits.",
 			"not_enough_space": "Die Zielbibliothek hat keinen Platz für das, was dieser Durchlauf holen würde.",
 			"space_not_acknowledged": "Dieser Durchlauf würde den reservierten Speicher angreifen, oder der freie Speicher ließ sich nicht messen. Bestätigen Sie, um ihn trotzdem zu starten.",
-			"scope_unbounded": "Der Umfang dieses Plans nennt nichts, er würde also alles holen. Bestätigen Sie, um ihn trotzdem zu aktivieren."
+			"scope_unbounded": "Der Umfang dieses Plans nennt nichts, er würde also alles holen. Bestätigen Sie, um ihn trotzdem zu aktivieren.",
+			"item_already_covered": "Ein Plan deckt dieses Medium bereits ab. Öffnen Sie diesen Plan, statt einen zweiten anzulegen, der ihm in die Quere kommt.",
+			"plan_not_extendable": "Dieser Plan kann keine weitere Serie aufnehmen: sein Umfang ist keine Liste von Serien, und eine hinzuzufügen würde ändern, was er abdeckt.",
+			"schedule_required": "Ein Plan mit Zeitplan braucht einen Cron-Ausdruck."
 		},
 		"transfer": {
 			"not_found": "Diese Übertragung gibt es nicht mehr.",

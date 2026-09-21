@@ -184,3 +184,26 @@ export class ProbeMediaServiceDto {
 	@IsString()
 	public password?: string;
 }
+
+/**
+ * Which part of a media server's own filesystem to describe.
+ *
+ * `path` carries a path that belongs to the *server*, so nothing here validates its
+ * shape: a Plex on Windows answers `D:\Media\Shows`, and an absolute-POSIX rule would
+ * refuse the very string the server itself handed us one request earlier. It is never
+ * opened, joined or resolved on this side — it goes back to the handler that produced
+ * it — so the length cap is all this layer can honestly assert.
+ */
+export class ServerStructureDto {
+	@ApiPropertyOptional({ description: 'Restrict the roots to one library, by its external id.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(255)
+	public libraryExternalId?: string;
+
+	@ApiPropertyOptional({ description: 'Walk into this directory, as the server spells it.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(4096)
+	public path?: string;
+}

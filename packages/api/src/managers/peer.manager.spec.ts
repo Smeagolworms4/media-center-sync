@@ -721,6 +721,131 @@ describe('PeerManager', () => {
 			});
 		});
 
+		/**
+		 * The other half of an introduction: the two ends could not reach each other.
+		 *
+		 * What is checked here is authorisation and nothing else — the bytes and the
+		 * sockets are `PeerRelayService`'s. The rule being pinned down is that this
+		 * gateway carries a link only for a pair it introduced itself, inside the two
+		 * minutes the token it signed lives.
+		 */
+		describe('carrying a link for two friends', () => {
+			const HOLDER_FINGERPRINT = 'c'.repeat(32);
+
+			/** Somebody else's introducer, to stand for a token we did not mint. */
+			const somebodyElses = new PeerIntroductionService({
+				fingerprint: 'd'.repeat(32),
+				sign: (payload: string) => `signed-by-them:${payload}`,
+			} as unknown as PeerLinkService);
+
+			const bothEnds = (fakes: Fakes): void => {
+				fakes.peers.findByFingerprint.mockImplementation((fingerprint: string) =>
+					Promise.resolve(
+						fingerprint === HOLDER_FINGERPRINT
+							? peerRow({ id: 'peer-kim', name: 'Kim', fingerprint: HOLDER_FINGERPRINT })
+							: peerRow({ id: 'peer-ada', name: 'Ada', fingerprint: THEIR_FINGERPRINT }),
+					),
+				);
+			};
+
+			const asking = (fakes: Fakes, overrides: Partial<PeerCredential> = {}): PeerCredential => ({
+				...credential,
+				introduction: fakes.introductions.issue(THEIR_FINGERPRINT, HOLDER_FINGERPRINT, 2).token,
+				...overrides,
+			});
+
+			it('carries for a pair it introduced itself', async () => {
+				const { manager, fakes } = build({ settings: { relayForPeers: true } });
+
+				bothEnds(fakes);
+
+				await expect(manager.carry(asking(fakes))).resolves.toEqual({
+					holderPeerId: 'peer-kim',
+					holderName: 'Kim',
+					subjectName: 'Ada',
+				});
+			});
+
+			it('carries nothing until the household has agreed to', async () => {
+				// The default. Somebody else's film crossing this machine, at the cost of
+				// this household's upload, is never something to start doing unasked.
+				const { manager, fakes } = build();
+
+				bothEnds(fakes);
+
+				await expect(manager.carry(asking(fakes))).resolves.toBeNull();
+			});
+
+			it('refuses a token it did not mint', async () => {
+				// Otherwise this gateway would carry bytes between two strangers on the
+				// word of whoever signed the token, which is anybody.
+				const { manager, fakes } = build({ settings: { relayForPeers: true } });
+
+				bothEnds(fakes);
+
+				await expect(
+					manager.carry(
+						asking(fakes, {
+							introduction: somebodyElses.issue(
+								THEIR_FINGERPRINT,
+								HOLDER_FINGERPRINT,
+								2,
+							).token,
+						}),
+					),
+				).resolves.toBeNull();
+			});
+
+			it('refuses a token lifted off another gateway wire', async () => {
+				// It names who may present it, and the socket underneath has just proved
+				// who that is.
+				const { manager, fakes } = build({ settings: { relayForPeers: true } });
+
+				bothEnds(fakes);
+
+				await expect(
+					manager.carry({
+						...asking(fakes),
+						fingerprint: 'e'.repeat(32),
+					}),
+				).resolves.toBeNull();
+			});
+
+			it('refuses a socket that cannot prove it holds the key it claims', async () => {
+				const { manager, fakes } = build({ settings: { relayForPeers: true } });
+
+				bothEnds(fakes);
+				fakes.links.verifyCredential.mockReturnValue(false);
+
+				await expect(manager.carry(asking(fakes))).resolves.toBeNull();
+			});
+
+			it('refuses when one of the two ends is no longer a peer of ours', async () => {
+				const { manager, fakes } = build({ settings: { relayForPeers: true } });
+
+				fakes.peers.findByFingerprint.mockResolvedValue(null);
+
+				await expect(manager.carry(asking(fakes))).resolves.toBeNull();
+			});
+
+			it('refuses a key on the ban list, whichever route it arrives by', async () => {
+				const { manager, fakes } = build({ settings: { relayForPeers: true } });
+
+				bothEnds(fakes);
+				fakes.bans.isBanned.mockResolvedValue(true);
+
+				await expect(manager.carry(asking(fakes))).resolves.toBeNull();
+			});
+
+			it('refuses an upgrade carrying no token at all', async () => {
+				const { manager, fakes } = build({ settings: { relayForPeers: true } });
+
+				bothEnds(fakes);
+
+				await expect(manager.carry(credential)).resolves.toBeNull();
+			});
+		});
+
 		it('answers a hello with ours, signed with their challenge', async () => {
 			const { manager, fakes } = build();
 

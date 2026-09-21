@@ -1,42 +1,7 @@
 import 'reflect-metadata';
-import { constants } from 'node:fs';
-import { access, statfs } from 'node:fs/promises';
-import type { LibraryCheck } from '@mcs/shared';
-import { LibraryRepository } from '@/repositories';
+import { PathMatch } from '@mcs/shared';
+import { LibraryManager } from '@/managers';
 import { runCommand } from './context';
-
-const checkPath = async (
-	localPath: string | null,
-): Promise<Omit<LibraryCheck, 'libraryId' | 'name' | 'localPath' | 'derived'>> => {
-	if (localPath === null || localPath === '') {
-		return { exists: false, readable: false, writable: false, freeBytes: null, error: 'no local path' };
-	}
-
-	try {
-		await access(localPath, constants.F_OK);
-	} catch {
-		return { exists: false, readable: false, writable: false, freeBytes: null, error: 'missing' };
-	}
-
-	// Read and write are probed separately because they fail for different reasons and
-	// call for different fixes: a readable library that cannot be written to is a
-	// permissions problem on the gateway's side, and it only shows up on the first
-	// transfer otherwise.
-	const readable = await access(localPath, constants.R_OK).then(
-		() => true,
-		() => false,
-	);
-	const writable = await access(localPath, constants.W_OK).then(
-		() => true,
-		() => false,
-	);
-	const freeBytes = await statfs(localPath).then(
-		(stats) => Number(stats.bavail) * Number(stats.bsize),
-		() => null,
-	);
-
-	return { exists: true, readable, writable, freeBytes, error: null };
-};
 
 /**
  * Reports what the gateway can actually do with each declared library.
@@ -45,27 +10,45 @@ const checkPath = async (
  * succeeds, and the media service never sees the file because the two sides do not
  * point at the same directory. This command is what turns that into something visible
  * before a transfer is started rather than after one has finished.
+ *
+ * It asks the manager rather than probing the paths itself, and that is a repair: the
+ * two implementations had already drifted — this one walked every library including a
+ * peer's, printing "no local path" for shelves that can never have one and cannot be
+ * fixed. More importantly, only the manager can ask the media server whether it sees
+ * a file we have just written, which is the one thing that actually proves the two
+ * paths are the same directory. A command that printed `rw` for a library the server
+ * has never heard of is precisely the false reassurance this whole check exists to
+ * remove.
  */
-runCommand(async (app) => {
-	const libraries = await app.get(LibraryRepository).find({ order: { name: 'ASC' } });
+const STATE_BY_MATCH: Record<PathMatch, string> = {
+	[PathMatch.MATCHED]: 'server sees it',
+	[PathMatch.MISMATCHED]: 'NOT THE SAME DIRECTORY AS THE SERVER READS',
+	// Said plainly rather than left blank: "nobody could be asked" is a different
+	// thing from "asked and fine", and a blank column reads as the second.
+	[PathMatch.UNKNOWN]: 'server could not say',
+};
 
-	if (libraries.length === 0) {
-		process.stdout.write('No library registered yet.\n');
+runCommand(async (app) => {
+	const checks = await app.get(LibraryManager).check();
+
+	if (checks.length === 0) {
+		process.stdout.write('No library the gateway could write into is registered yet.\n');
 
 		return;
 	}
 
-	for (const library of libraries) {
-		const result = await checkPath(library.localPath);
-		const state = result.error ?? `${result.readable ? 'r' : '-'}${result.writable ? 'w' : '-'}`;
-		const free = result.freeBytes === null ? '' : ` ${Math.round(result.freeBytes / 1024 ** 3)} GiB free`;
+	for (const check of checks) {
+		const state = check.error ?? `${check.readable ? 'r' : '-'}${check.writable ? 'w' : '-'}`;
+		const free = check.freeBytes === null ? '' : ` ${Math.round(check.freeBytes / 1024 ** 3)} GiB free`;
 		// Where the path came from, because the two are fixed in different places: a
 		// typed path is wrong on its own, a derived one is wrong for every library of
 		// the service at once and the mapping is what to correct.
-		const origin = library.localPathDerived ? ' (derived)' : '';
+		const origin = check.derived ? ' (derived)' : '';
+		const server = check.serverPaths.length === 0 ? '-' : check.serverPaths.join(', ');
 
 		process.stdout.write(
-			`${library.name}\t${library.localPath ?? '-'}${origin}\t${state}${free}\n`,
+			`${check.name}\t${check.localPath ?? '-'}${origin}\t${state}${free}\n`
+				+ `\tserver: ${server}\t${STATE_BY_MATCH[check.match]}\n`,
 		);
 	}
 });

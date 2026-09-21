@@ -113,6 +113,12 @@
 		"current_not_writable": "Il gateway non può scrivere in questa cartella: qui non arriverebbe mai nulla.",
 		"truncated": "Sono mostrate solo le prime {count} cartelle. Digita il percorso se quella che cerchi non c'è.",
 		"show_hidden": "Mostra le cartelle nascoste",
+		"server_title": "Indicato dal server multimediale",
+		"server_hint": "Queste sono le cartelle così come le vede il server stesso. Scegline una se questo gateway raggiunge gli stessi file a quel percorso; altrimenti trova qui sotto la cartella corrispondente.",
+		"server_unsupported": "Questo servizio non può dire dove sono le sue cartelle, quindi il percorso va trovato qui sotto.",
+		"server_no_deeper": "Questo server non può guardare dentro le proprie cartelle, quindi non indicherà altro.",
+		"server_enter": "Guardare dentro questa cartella",
+		"gateway_title": "Quello che vede questo gateway",
 		"open": "Sfoglia le cartelle"
 	},
 	"general": {
@@ -233,6 +239,7 @@
 		},
 		"problem": {
 			"no_path": "Non è impostato alcun percorso locale, quindi il gateway non può scrivere in questa libreria.",
+			"mismatch": "Il gateway scrive in {local} e il server legge {server}. Non sono la stessa cartella, quindi nulla di ciò che viene portato in questa libreria comparirà mai sul server.",
 			"missing": "Questo percorso non esiste, per come lo vede il gateway.",
 			"unreadable": "Il gateway non può leggere questo percorso.",
 			"not_writable": "Il gateway non può scrivere qui, quindi nessun trasferimento può arrivare in questa libreria."
@@ -426,6 +433,7 @@
 			"roots_hint": "Il server segnala i propri percorsi. Indica la sua radice una sola volta qui e ogni libreria ricava da sé dove il gateway raggiunge gli stessi file, invece di un percorso da scrivere per ogni libreria. Una libreria che ha bisogno d’altro conserva il proprio percorso.",
 			"remote_root": "Radice, come la segnala il server",
 			"remote_root_hint": "Come la chiama il server multimediale, ad esempio /media",
+			"remote_root_reported": "Il server indica {path} — usarlo",
 			"local_root": "La stessa cartella, vista da qui",
 			"local_root_hint": "Dove il gateway la raggiunge, ad esempio /mnt/nas",
 			"auth_provider": "Accedi con questo servizio",
@@ -519,7 +527,7 @@
 			"fingerprint": "Impronta",
 			"direct_address": "Indirizzo diretto",
 			"direct_ok": "Le connessioni dirette sono possibili, quindi i trasferimenti non passano dal relay.",
-			"relay_only": "Questo gateway non è raggiungibile dall'esterno, quindi gli amici non possono collegarsi direttamente: un collegamento dipende allora da un amico che avete già entrambi, e non c'è altro a cui ricorrere. Inoltrare sul router la porta dell'interfaccia risolve. Non c'è una seconda porta da aprire: un collegamento fra peer è una connessione WebSocket su quella stessa porta."
+			"relay_only": "Questo gateway non è raggiungibile dall'esterno, quindi gli amici non possono collegarsi direttamente: un collegamento dipende allora da un amico che avete già entrambi, per presentarvi e, quando nessuno dei due è raggiungibile, per trasportare il collegamento. Inoltrare sul router la porta dell'interfaccia elimina questa necessità. Non c'è una seconda porta da aprire: un collegamento fra peer è una connessione WebSocket su quella stessa porta."
 		},
 		"invite": {
 			"open": "Collega un gateway",
@@ -804,6 +812,8 @@
 		"swarm_help": "Più peer che hanno lo stesso file possono alimentare insieme un solo trasferimento.",
 		"keep_discovered_peers": "Conservare i peer incontrati durante uno scaricamento",
 		"keep_discovered_peers_help": "Quando prende un file dall'amico di un amico, i due gateway si collegano direttamente; lo tenga nel suo elenco, oppure lasci che il collegamento si chiuda con il trasferimento.",
+		"relay_for_peers": "Trasportare i collegamenti fra i suoi amici",
+		"relay_for_peers_help": "Due amici, ciascuno dietro il proprio router, non riescono affatto a raggiungersi. Attivando questa opzione, questo gateway tiene i due capi e trasporta i byte: consuma la sua banda in salita e li vede passare, perché nulla è cifrato al di sopra del collegamento. Lo fa soltanto per due peer che ha presentato lui stesso, e per quattro collegamenti alla volta.",
 		"match_threshold": "Soglia di correlazione",
 		"match_threshold_help": "Sotto questo punteggio una corrispondenza viene proposta anziché applicata.",
 		"refresh_interval": "Aggiorna ogni (minuti)",
@@ -916,6 +926,30 @@
 			"next_run": "prossima esecuzione",
 			"remove_title": "Rimuovere questo piano?",
 			"remove_confirm": "{name} smetterà di essere eseguito. Nulla di ciò che è già stato recuperato viene toccato."
+		},
+		"keep": {
+			"action": "Mantieni sincronizzato",
+			"title": "Mantieni questo sincronizzato",
+			"what": "Il piano coprirà {title} e tutto ciò che sta sotto.",
+			"covered": "Già mantenuto sincronizzato dal piano {name}.",
+			"covered_above": "Già coperto dal piano {name}, che tiene aggiornato tutto ciò che sta sotto.",
+			"open_plan": "Apri il piano",
+			"estimate_unknown": "Nessuno ha ancora calcolato a quanto ammonta.",
+			"estimate_truncated": "Almeno questo: qui c'è più di quanto una esecuzione percorra.",
+			"mode": "Cosa fare",
+			"mode_create": "Creare un piano per questo",
+			"mode_extend": "Aggiungerlo a un piano che ho già",
+			"plan": "Piano a cui aggiungerlo",
+			"name": "Nome del piano",
+			"name_hint": "Chiamato come la serie, perché l'elenco dei piani si legga ancora fra sei mesi.",
+			"sources": "Da dovunque compaia: il piano segue la priorità dei servizi impostata nelle impostazioni, così una copia che comparirà poi sul server di un amico viene trovata senza modificare nulla.",
+			"create": "Crea il piano",
+			"extend": "Aggiungi al piano",
+			"once_title": "Oppure solo stavolta",
+			"once_text": "Una esecuzione, adesso. Non viene ricordato nulla e nulla riparte da solo.",
+			"once": "Recupera ciò che manca",
+			"created": "Piano creato. Lo trovi in Sincronizzazione e su questa pagina.",
+			"extended": "Aggiunto al piano."
 		},
 		"preview": {
 			"title": "Cosa verrebbe recuperato",
@@ -1200,6 +1234,7 @@
 			"not_found": "Questa libreria non esiste più.",
 			"path_unreadable": "Il gateway non può leggere questo percorso.",
 			"path_not_writable": "Il gateway non può scrivere in questo percorso.",
+			"path_mismatch": "Il percorso del gateway e quello del server non indicano la stessa cartella. I file finirebbero dove il server non guarda mai.",
 			"category_not_found": "Questa categoria non corrisponde più a nulla qui. Ricarica la pagina: le librerie che la componevano potrebbero essere state rinominate o rimosse.",
 			"keyword_not_found": "Questo nome non è più collegato a nulla. Ricarica la pagina.",
 			"keyword_invalid": "Niente potrà mai corrispondere a questo. Usa almeno una lettera o una cifra.",
@@ -1228,7 +1263,10 @@
 			"already_running": "Questo piano è già in esecuzione.",
 			"not_enough_space": "La libreria di destinazione non ha spazio per ciò che questa esecuzione recupererebbe.",
 			"space_not_acknowledged": "Questa esecuzione intaccherebbe lo spazio tenuto di riserva, oppure non è stato possibile misurare lo spazio libero. Confermala per avviarla comunque.",
-			"scope_unbounded": "L'ambito di questo piano non nomina nulla, quindi recupererebbe tutto. Confermalo per attivarlo comunque."
+			"scope_unbounded": "L'ambito di questo piano non nomina nulla, quindi recupererebbe tutto. Confermalo per attivarlo comunque.",
+			"item_already_covered": "Un piano copre già questo contenuto. Apri quel piano invece di crearne un secondo che gli andrebbe contro.",
+			"plan_not_extendable": "Quel piano non può accogliere un'altra serie: il suo ambito non è un elenco di serie e aggiungerne una cambierebbe ciò che copre.",
+			"schedule_required": "Un piano che parte a orario ha bisogno di un'espressione cron."
 		},
 		"transfer": {
 			"not_found": "Questo trasferimento non esiste più.",

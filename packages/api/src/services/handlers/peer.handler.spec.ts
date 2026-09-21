@@ -464,4 +464,26 @@ describe('PeerHandler', () => {
 			await expect(handler.requestRescan()).resolves.toBe('unsupported');
 		});
 	});
+
+	describe('listServerDirectories', () => {
+		it('offers no path of theirs, and asks them nothing to find that out', async () => {
+			// Their paths designate nothing on this disk. One offered as a candidate
+			// would be written into a local path field and accepted, which is the exact
+			// silent failure the whole feature exists to catch — with our own interface
+			// as the source of the bad value.
+			const { handler, links } = build();
+
+			await expect(handler.listServerDirectories()).resolves.toEqual({
+				support: 'unsupported',
+				path: null,
+				parent: null,
+				entries: [],
+			});
+
+			// Not a round trip, not even a link check: the refusal is a property of what
+			// a peer is, so it must not depend on whether they happen to be connected.
+			expect(links.request).not.toHaveBeenCalled();
+			expect(links.isLinked).not.toHaveBeenCalled();
+		});
+	});
 });

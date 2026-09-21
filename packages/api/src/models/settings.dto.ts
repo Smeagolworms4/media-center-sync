@@ -274,6 +274,19 @@ export class UpdateSettingsDto {
 	@IsBoolean()
 	public keepDiscoveredPeers?: boolean;
 
+	/**
+	 * Whether this gateway carries a link between two friends who cannot meet.
+	 *
+	 * Declared here or unreachable, like the one above: the validation pipe runs with
+	 * `whitelist`, so a key the DTO does not name is stripped before anything sees it.
+	 * The switch would appear to save, the capability would never be advertised, and
+	 * the only symptom would be a friend still reporting somebody as unreachable.
+	 */
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsBoolean()
+	public relayForPeers?: boolean;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsBoolean()

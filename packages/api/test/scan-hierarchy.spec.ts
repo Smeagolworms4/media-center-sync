@@ -4,10 +4,12 @@ import {
 	MediaKind,
 	MediaServiceStatus,
 	MediaServiceType,
+	ServerStructureSupport,
 	UserRole,
 	type MediaGroup,
 	type MediaService,
 	type ResultList,
+	type ServerStructure,
 } from '@mcs/shared';
 import { LibraryRepository, MediaServiceRepository } from '@/repositories';
 import {
@@ -51,6 +53,16 @@ class OrderedHandler implements MediaServiceHandler {
 
 	public listLibraries(): Promise<NormalisedLibrary[]> {
 		return Promise.resolve([]);
+	}
+
+	/** Not part of a scan, but answered rather than thrown, like `requestRescan`. */
+	public listServerDirectories(): Promise<ServerStructure> {
+		return Promise.resolve({
+			support: ServerStructureSupport.UNSUPPORTED,
+			path: null,
+			parent: null,
+			entries: [],
+		});
 	}
 
 	public async *scanLibrary(): AsyncIterable<NormalisedMediaItem> {

@@ -35,8 +35,9 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 	 * NOT NULL AND state <> 'conflict' AND (confidence >= :threshold OR confirmedAt IS
 	 * NOT NULL)`. It is what grouping joins on, and each clause is one of the rules:
 	 *
-	 * - a null `localItemId` is a media known only elsewhere, so there is no second row
-	 *   to join to;
+	 * - a null `localItemId` is a pair a person detached one half of, so there is no
+	 *   second identifier to join to — it is not, despite the column's name, the mark
+	 *   of a media only a friend holds; see `MediaMatch.localItemId`;
 	 * - a conflict is a disputed pair, and the whole point of that state is that nobody
 	 *   has decided the two are the same thing;
 	 * - below the threshold a match was proposed and not applied, which has to stay two
@@ -69,10 +70,14 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 	}
 
 	/**
-	 * What that service holds and we do not.
+	 * Pairs on that service whose near side a person detached and left missing.
 	 *
-	 * A null `localItemId` is the whole definition of missing: the media is known
-	 * there, and nothing here was correlated with it.
+	 * Nothing calls it today, and the reason is worth leaving written down rather than
+	 * discovering twice: it used to be documented as "what that service holds and we do
+	 * not", which it is not. Correlation never writes a null `localItemId`, so the only
+	 * rows this can return are ones somebody unpicked by hand. A media nobody local
+	 * holds is read off the group's members — `MediaGroupManager._state` — not off this
+	 * column.
 	 */
 	public findMissingByService(remoteServiceId: string): Promise<MediaMatch[]> {
 		return this.find({

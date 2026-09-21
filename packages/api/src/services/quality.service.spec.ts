@@ -218,5 +218,34 @@ describe('QualityService', () => {
 		it('refuses to guess without durations', () => {
 			expect(service.isConflicting(file({ durationMs: null }), file())).toBe(false);
 		});
+
+		it('does not read a second of a four-second clip as a different cut', () => {
+			// The owner's two copies of Big Buck Bunny, to the millisecond. Twenty-four
+			// percent apart and one second apart: the proportional rule said different
+			// cut, correlation vetoed the pair, and the film had two posters for ever.
+			expect(
+				service.isConflicting(file({ durationMs: 4_000 }), file({ durationMs: 3_023 })),
+			).toBe(false);
+		});
+
+		it('still separates a short whose difference is long enough to be a cut', () => {
+			// Five minutes against four is a minute of content, well past the floor, and
+			// the floor must not become a licence to merge anything brief.
+			expect(
+				service.isConflicting(file({ durationMs: 300_000 }), file({ durationMs: 240_000 })),
+			).toBe(true);
+		});
+
+		it('leaves a feature film exactly where it was', () => {
+			// The floor only ever applies under ten minutes of runtime, since five percent
+			// of anything longer already exceeds thirty seconds. Two minutes and one
+			// second apart on a three-hour film is still two cuts.
+			expect(
+				service.isConflicting(file({ durationMs: 11_640_000 }), file({ durationMs: 11_519_000 })),
+			).toBe(true);
+			expect(
+				service.isConflicting(file({ durationMs: 11_640_000 }), file({ durationMs: 11_521_000 })),
+			).toBe(false);
+		});
 	});
 });

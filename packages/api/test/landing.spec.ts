@@ -8,12 +8,14 @@ import {
 	MediaLandingState,
 	MediaServiceStatus,
 	MediaServiceType,
+	ServerStructureSupport,
 	SyncState,
 	TransferState,
 	UserRole,
 	type MediaGroup,
 	type MediaItem,
 	type ResultList,
+	type ServerStructure,
 } from '@mcs/shared';
 import { LandingManager } from '@/managers';
 import {
@@ -57,6 +59,16 @@ class FakeHandler implements MediaServiceHandler {
 
 	public listLibraries(): Promise<NormalisedLibrary[]> {
 		return Promise.resolve([]);
+	}
+
+	/** No server to ask, and a landing never asks one. */
+	public listServerDirectories(): Promise<ServerStructure> {
+		return Promise.resolve({
+			support: ServerStructureSupport.UNSUPPORTED,
+			path: null,
+			parent: null,
+			entries: [],
+		});
 	}
 
 	public async *scanLibrary(): AsyncIterable<NormalisedMediaItem> {

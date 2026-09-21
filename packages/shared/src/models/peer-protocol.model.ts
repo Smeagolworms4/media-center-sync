@@ -56,7 +56,16 @@ export const PeerCapability = {
 	ANNOUNCE: 'announce',
 	/** Exchange pieces with several peers at once for one file. */
 	SWARM: 'swarm',
-	/** Pass on what a friend of a friend announced. */
+	/**
+	 * Carry a link between two friends who cannot reach each other.
+	 *
+	 * The one capability that is not simply a method this gateway implements: it is
+	 * advertised from `Settings.relayForPeers` and is off until somebody agrees, because
+	 * it spends a household's upload on a transfer it gets nothing from and puts
+	 * somebody else's bytes through their machine in plaintext. Advertising it is the
+	 * promise, which is why it is never hard-coded into the local capability list. See
+	 * `peer-relay.model.ts`.
+	 */
 	RELAY: 'relay',
 	/**
 	 * Hand out a signed token so two of its friends can link to each other directly.

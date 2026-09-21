@@ -61,6 +61,7 @@
 		matchThreshold: 0.8,
 		peerMaxDepth: DEFAULT_PEER_MAX_DEPTH,
 		keepDiscoveredPeers: false,
+		relayForPeers: false,
 		allowSwarm: true,
 		defaultShareVisibility: ShareVisibility.FRIENDS_OF_FRIENDS,
 		instanceName: '',
@@ -103,6 +104,7 @@
 		model.matchThreshold = settings.matchThreshold;
 		model.peerMaxDepth = settings.peerMaxDepth;
 		model.keepDiscoveredPeers = settings.keepDiscoveredPeers;
+		model.relayForPeers = settings.relayForPeers;
 		model.allowSwarm = settings.allowSwarm;
 		model.defaultShareVisibility = settings.defaultShareVisibility;
 		// Offered, never assumed. The browser reached this gateway somehow and that
@@ -264,6 +266,7 @@
 				matchThreshold: Number(model.matchThreshold),
 				peerMaxDepth: Number(model.peerMaxDepth),
 				keepDiscoveredPeers: model.keepDiscoveredPeers,
+				relayForPeers: model.relayForPeers,
 				allowSwarm: model.allowSwarm,
 				defaultShareVisibility: model.defaultShareVisibility,
 				// An emptied box is a setting being cleared, which the API spells null.
@@ -337,7 +340,13 @@
 		{ key: 'notifications', fields: [] },
 		{
 			key: 'peers',
-			fields: ['peerMaxDepth', 'keepDiscoveredPeers', 'allowSwarm', 'defaultShareVisibility'],
+			fields: [
+				'peerMaxDepth',
+				'keepDiscoveredPeers',
+				'relayForPeers',
+				'allowSwarm',
+				'defaultShareVisibility',
+			],
 		},
 		{
 			key: 'index',
@@ -349,8 +358,14 @@
 
 	const tab = ref<TabKey>(TABS[0].key);
 
+	// `refusedFields` and not `fieldErrors`, because half the refusals on this screen
+	// never reach the API: the depth, the parallel transfers and the chunk size all
+	// carry a rule of their own, and a value those refuse stops the submit dead. Read
+	// only the backend's answer and the commonest refusal of all marks nothing — save
+	// pressed on the placement pane, the depth refused on the peers pane, and a screen
+	// that says nothing anywhere visible.
 	const tabsInError = computed(() => {
-		const refused = new Set(Object.keys(form.fieldErrors ?? {}));
+		const refused = form.refusedFields ?? new Set<string>();
 
 		return new Set(
 			TABS.filter(one => one.fields.some(field => refused.has(field))).map(one => one.key),
@@ -845,6 +860,25 @@
 
 						<p class="text-caption text-medium-emphasis mb-4">
 							{{ $t('settings.keep_discovered_peers_help') }}
+						</p>
+
+						<!--
+							Below the reach as well, and for the same reason: this is the
+							other half of "who may use this gateway". The reach says who may
+							reach us; this says whether we spend our own upload so that two
+							friends who cannot reach each other can.
+						-->
+						<v-switch
+							v-model="model.relayForPeers"
+							color="primary"
+							data-test="settings-relay-for-peers"
+							density="compact"
+							hide-details
+							:label="$t('settings.relay_for_peers')"
+						/>
+
+						<p class="text-caption text-medium-emphasis mb-4">
+							{{ $t('settings.relay_for_peers_help') }}
 						</p>
 
 						<v-switch

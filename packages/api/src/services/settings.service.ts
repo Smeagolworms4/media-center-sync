@@ -69,6 +69,11 @@ export const DEFAULT_SETTINGS: Settings = {
 	// every restart. The link is opened for the transfer and closes with it, and
 	// keeping one is a deliberate click.
 	keepDiscoveredPeers: false,
+	// Off: carrying a link between two friends spends this household's upload on a
+	// transfer it gets nothing from, and every byte of it crosses this machine in
+	// plaintext. A gateway that did that unasked would be a bad neighbour, and the
+	// capability is only advertised once somebody has said yes — see `relayForPeers`.
+	relayForPeers: false,
 	allowSwarm: true,
 	// A real level rather than silence, and it applies only to libraries on our own
 	// services: a gateway whose libraries are all invisible until somebody visits a

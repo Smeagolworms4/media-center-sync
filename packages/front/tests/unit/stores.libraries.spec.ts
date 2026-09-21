@@ -1,5 +1,5 @@
 import type { Library, LibraryCheck, MediaCategory } from '@mcs/shared';
-import { LibraryKind } from '@mcs/shared';
+import { LibraryKind, PathMatch } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useLibrariesStore } from '@/stores/libraries';
 import { createStoreContext, stubFetch } from './helpers';
@@ -36,6 +36,8 @@ function check (overrides: Partial<LibraryCheck> = {}): LibraryCheck {
 		readable: true,
 		writable: true,
 		freeBytes: 1024,
+		serverPaths: ['/data/shows'],
+		match: PathMatch.MATCHED,
 		error: null,
 		...overrides,
 	};

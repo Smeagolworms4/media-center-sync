@@ -1,5 +1,6 @@
 import {
 	ErrorKey,
+	LANDED_SYNC_STATES,
 	MediaOrigin,
 	MediaServiceMode,
 	PeerTrust,
@@ -52,7 +53,7 @@ import { pageBounds, paginate } from './mappers';
  * episode as missing once its grace period expires, which would be the original bug
  * returning twelve hours late.
  */
-const LANDED_STATES = new Set<SyncState>([SyncState.AWAITING_INDEX, SyncState.NOT_INDEXED]);
+const LANDED_STATES = new Set<SyncState>(LANDED_SYNC_STATES);
 
 const GROUP_STATE_ORDER = [
 	SyncState.SYNCING,

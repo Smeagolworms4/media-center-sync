@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { MediaGroup } from '@mcs/shared';
+	import type { ItemSyncPlans, MediaGroup } from '@mcs/shared';
 	import { MediaKind, SyncState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -17,6 +17,7 @@
 	import OverrideDialog from '@/components/media/OverrideDialog.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
+	import KeepInSyncDialog from '@/components/sync/KeepInSyncDialog.vue';
 	import { useMediaTrail } from '@/composables/useMediaTrail';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useLibrariesStore } from '@/stores/libraries';
@@ -70,19 +71,33 @@
 	const chosenSources = ref<string[]>([]);
 	const matchesOpen = ref(false);
 	const overrideOpen = ref(false);
+	const keepOpen = ref(false);
+	/**
+	 * Which plans already speak for this media, and what a new one would be called.
+	 *
+	 * Loaded with the page and not only when the dialog opens, because it is what puts
+	 * the way back to the plan on the screen: somebody who kept a show in sync in March
+	 * and wants to change it in September arrives here, not on the sync screen, and a
+	 * plan nobody can navigate to is a plan nobody edits.
+	 */
+	const plans = ref<ItemSyncPlans | null>(null);
 
 	async function load (): Promise<void> {
 		loading.value = true;
 		failed.value = false;
 		try {
-			const [loadedGroup, loadedChildren] = await Promise.all([
+			const [loadedGroup, loadedChildren, loadedPlans] = await Promise.all([
 				mediaStore.group(props.itemId),
 				// A group with no children below it is ordinary — a film — so a
 				// failure here must not take the page down with it.
 				mediaStore.groupChildren(props.itemId, { limit: 200 }).catch(() => null),
+				// Nor must the plans: somebody who may read media and not syncs is
+				// answered 403 here, and the page they asked for is the media.
+				syncStore.itemPlans(props.itemId).catch(() => null),
 			]);
 			group.value = loadedGroup;
 			children.value = loadedChildren?.items ?? [];
+			plans.value = loadedPlans;
 		} catch {
 			failed.value = true;
 		} finally {
@@ -250,6 +265,35 @@
 			running.value = false;
 		}
 	});
+
+	/**
+	 * Which media are worth a standing plan, and which are a one-off.
+	 *
+	 * A show, a season and a collection are things that grow — that is what a plan is
+	 * for. A film is finished: "keep this film in step for ever" is a schedule that
+	 * will find nothing every night, and offering it would teach people that plans do
+	 * nothing.
+	 */
+	const keepable = computed(() => group.value !== null && [
+		MediaKind.SERIES,
+		MediaKind.SEASON,
+		MediaKind.COLLECTION,
+	].includes(group.value.kind));
+
+	/** The plan that already speaks for this media, and the way back to it. */
+	const coveringPlan = computed(() => plans.value?.covering?.[0]?.plan ?? null);
+
+	/**
+	 * Re-read rather than patched in.
+	 *
+	 * What the header shows is coverage, and coverage is a rule about the whole parent
+	 * chain: a plan created on the series changes what this season says about itself,
+	 * and writing the created plan into the page by hand would only be right for the
+	 * node somebody happened to be standing on.
+	 */
+	async function onKept (): Promise<void> {
+		plans.value = await syncStore.itemPlans(props.itemId).catch(() => plans.value);
+	}
 </script>
 
 <template>
@@ -277,6 +321,16 @@
 						@click="matchesOpen = true"
 					>
 						{{ $t('media.match.action') }}
+					</v-btn>
+
+					<v-btn
+						v-if="keepable"
+						data-test="item-keep"
+						prepend-icon="mdi-calendar-sync-outline"
+						variant="tonal"
+						@click="keepOpen = true"
+					>
+						{{ $t('sync.keep.action') }}
 					</v-btn>
 
 					<v-btn
@@ -324,6 +378,24 @@
 
 							<v-chip v-if="group.year" label size="small" variant="tonal">
 								{{ group.year }}
+							</v-chip>
+
+							<!--
+								The way back to the plan, from the thing the plan is about.
+								Somebody who kept a show in sync in March and wants to change
+								it in September comes here, not to the sync screen.
+							-->
+							<v-chip
+								v-if="coveringPlan"
+								color="primary"
+								data-test="item-plan-link"
+								label
+								prepend-icon="mdi-calendar-sync-outline"
+								size="small"
+								:to="{ name: 'sync-plan', params: { id: coveringPlan.id } }"
+								variant="tonal"
+							>
+								{{ coveringPlan.name }}
 							</v-chip>
 						</div>
 
@@ -428,6 +500,8 @@
 			<MatchesDialog v-model="matchesOpen" :item-id="itemId" />
 
 			<OverrideDialog v-model="overrideOpen" :item-id="itemId" @saved="onCorrected" />
+
+			<KeepInSyncDialog v-model="keepOpen" :group="group" @created="onKept" />
 		</template>
 
 		<div v-else class="text-center py-10">

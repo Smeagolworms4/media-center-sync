@@ -4,6 +4,7 @@ import {
 	SyncJobState,
 	type ResultList,
 	type CompanionPullResult,
+	type ItemSyncPlans,
 	type SyncEstimate,
 	type SyncJob,
 	type SyncJobItem,
@@ -39,6 +40,8 @@ import { Granted } from '@/decorators';
 import { SyncManager } from '@/managers';
 import {
 	CreateSyncPlanDto,
+	CreateSyncPlanForItemDto,
+	EstimateSyncDto,
 	PullCompanionsDto,
 	RunSyncDto,
 	UpdateSyncPlanDto,
@@ -120,6 +123,42 @@ export class SyncController {
 		return this._sync.createPlan(body);
 	}
 
+	/**
+	 * Declared before `plans/:id` on purpose, although the paths could not collide.
+	 *
+	 * Two segments where that one has one, so Nest never confuses them — but keeping
+	 * the literal above the parameter is the habit that stops the next route added
+	 * here from being shadowed by it.
+	 */
+	@Get('plans/for-item/:itemId')
+	@Granted(Right.SYNC_READ)
+	@ApiOperation({
+		summary: 'Which plans already cover a media, and what a new one would be called',
+		description:
+			'A plan on a series covers every season under it, so this answers for the whole parent ' +
+			'chain rather than for the item alone.',
+	})
+	@ApiOkResponse({ description: 'ItemSyncPlans' })
+	public itemPlans(@Param('itemId', ParseUUIDPipe) itemId: string): Promise<ItemSyncPlans> {
+		return this._sync.itemPlans(itemId);
+	}
+
+	@Post('plans/for-item')
+	@Granted(Right.SYNC_MANAGE)
+	@ApiOperation({
+		summary: 'Keep this media in sync: a plan scoped to one subtree',
+		description:
+			'The scope is the item. `extendPlanId` adds the subtree to a plan that already exists ' +
+			'instead of standing up a second one that would fight it.',
+	})
+	@ApiOkResponse({ description: 'SyncPlan' })
+	@ApiConflictResponse({
+		description: 'error.sync.item_already_covered, error.sync.plan_not_extendable',
+	})
+	public createPlanForItem(@Body() body: CreateSyncPlanForItemDto): Promise<SyncPlan> {
+		return this._sync.createPlanForItem(body);
+	}
+
 	@Get('plans/:id')
 	@Granted(Right.SYNC_READ)
 	@ApiOperation({ summary: 'One plan' })
@@ -159,6 +198,27 @@ export class SyncController {
 	@ApiOkResponse({ description: 'SyncEstimate' })
 	public estimate(@Param('id', ParseUUIDPipe) id: string): Promise<SyncEstimate> {
 		return this._sync.estimatePlan(id);
+	}
+
+	/**
+	 * The same answer as the route above, for a plan that does not exist yet.
+	 *
+	 * A `POST` for the same reason that one is: it walks every source and it must not
+	 * be cached, because the only moment an estimate is worth anything is the moment it
+	 * is taken. It is what the create-from-a-card screen shows before anything is saved
+	 * — from a season a small number, from a series a whole show, and the difference is
+	 * exactly what somebody needs to see before undertaking it.
+	 */
+	@Post('estimate')
+	@Granted(Right.SYNC_READ)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'What a scope would come to, before there is a plan',
+		description: 'Recomputed on the spot by the code a run uses. Changes nothing.',
+	})
+	@ApiOkResponse({ description: 'SyncEstimate' })
+	public estimateScope(@Body() body: EstimateSyncDto): Promise<SyncEstimate> {
+		return this._sync.estimateScope(body);
 	}
 
 	@Delete('plans/:id')

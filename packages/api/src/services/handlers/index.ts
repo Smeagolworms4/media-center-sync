@@ -6,6 +6,7 @@ export * from './media-handler.interface';
 export * from './payload';
 export * from './peer.handler';
 export * from './plex.handler';
+export * from './server-path';
 
 import { HandlerRegistry } from './handler.registry';
 import { JellyfinHandler } from './jellyfin.handler';

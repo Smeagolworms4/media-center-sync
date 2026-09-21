@@ -10,6 +10,7 @@ import {
 	SyncState,
 	SyncTrigger,
 	UserRole,
+	type ItemSyncPlans,
 	type MediaGroup,
 	type ResultList,
 	type Settings,
@@ -857,6 +858,236 @@ describe('Syncing', () => {
 					heldLocally: false,
 				}),
 			]);
+		});
+	});
+
+	/**
+	 * A plan made from the media it is about, over HTTP, against real rows.
+	 *
+	 * The whole point of the route: the only thing somebody on a season card has to say
+	 * is *this season*, and everything the blank form asked for first is either derived
+	 * or asked at the moment of creation. What is proved here and nowhere else is that
+	 * the guards, the validation pipe and the serialisation actually apply to it — a
+	 * plan created from a card and then found in the list, with the scope it was given.
+	 */
+	describe('keeping a media in sync from its card', () => {
+		let showId: string;
+		let seasonId: string;
+		let otherShowId: string;
+		let spareShowId: string;
+		let planId: string;
+
+		beforeAll(async () => {
+			const items = context.app.get(MediaItemRepository);
+
+			const node = async (
+				externalId: string,
+				kind: MediaKind,
+				title: string,
+				overrides: Record<string, unknown> = {},
+			): Promise<string> =>
+				(
+					await items.save(
+						items.create({
+							serviceId: remoteServiceId,
+							libraryId: remoteLibraryId,
+							externalId,
+							kind,
+							title,
+							normalizedTitle: title.toLowerCase(),
+							syncState: SyncState.MISSING,
+							...overrides,
+						}),
+					)
+				).id;
+
+			showId = await node('their-show', MediaKind.SERIES, 'Bonnie');
+			seasonId = await node('their-season', MediaKind.SEASON, 'Season 1', { parentId: showId });
+			otherShowId = await node('their-other-show', MediaKind.SERIES, 'Clyde');
+			// A show no plan ever touches, so the refusals below are refused for the
+			// reason each one is about rather than for being covered already.
+			spareShowId = await node('their-spare-show', MediaKind.SERIES, 'Sundance');
+
+			await node('their-s01e01', MediaKind.EPISODE, 'The Getaway', {
+				parentId: seasonId,
+				seasonNumber: 1,
+				episodeNumber: 1,
+				normalizedTitle: 'bonnie',
+				file: {
+					path: '/srv/shows/Bonnie/S01E01.mkv',
+					size: 8192,
+					container: 'mkv',
+					videoCodec: 'hevc',
+					audioCodec: 'aac',
+					width: 1920,
+					height: 1080,
+					durationMs: 4000,
+					bitrate: 2_000_000,
+					quickHash: 'v1:bonnie',
+					contentId: 'v1:bonnie:8192',
+					checksum: null,
+				},
+			});
+		});
+
+		it('says what the subtree comes to before anything is saved', async () => {
+			const response = await request(context.app.getHttpServer())
+				.post('/api/sync/estimate')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ scope: { rootItemIds: [showId] }, filter: { missingOnly: true } })
+				.expect(200);
+
+			expect(response.body as SyncEstimate).toMatchObject({
+				itemCount: 1,
+				bytes: 8192,
+				unbounded: false,
+				truncated: false,
+			});
+		});
+
+		it('creates a plan scoped to the show, and it is in the list with that scope', async () => {
+			const created = await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ itemId: showId, trigger: SyncTrigger.MANUAL })
+				.expect(201);
+			const plan = created.body as SyncPlan;
+
+			planId = plan.id;
+
+			expect(plan).toMatchObject({
+				name: 'Bonnie',
+				trigger: SyncTrigger.MANUAL,
+				scope: { rootItemIds: [showId] },
+				// Empty means "wherever it turns up", and nothing is replaced behind
+				// anybody's back.
+				sourceServiceIds: [],
+				filter: { missingOnly: true },
+				maxItemsPerRun: null,
+			});
+
+			const list = await request(context.app.getHttpServer())
+				.get('/api/sync/plans')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+
+			expect((list.body as SyncPlan[]).find((one) => one.id === planId)).toMatchObject({
+				name: 'Bonnie',
+				scope: { rootItemIds: [showId] },
+			});
+		});
+
+		it('names the plan that covers a season, from the season itself', async () => {
+			const response = await request(context.app.getHttpServer())
+				.get(`/api/sync/plans/for-item/${seasonId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+			const answer = response.body as ItemSyncPlans;
+
+			// The plan is on the series, and somebody standing on the season has to be
+			// sent to it rather than told to make a second one.
+			expect(answer.covering).toHaveLength(1);
+			expect(answer.covering[0]).toMatchObject({ coveredItemId: showId, exact: false });
+			expect(answer.covering[0].plan.id).toBe(planId);
+			expect(answer.suggestedName).toBe('Bonnie — Season 1');
+		});
+
+		it('refuses a second plan over a media one already covers', async () => {
+			const refused = await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ itemId: seasonId, trigger: SyncTrigger.MANUAL })
+				.expect(409);
+
+			expect(refused.body).toMatchObject({ message: 'error.sync.item_already_covered' });
+		});
+
+		it('adds the second show to that plan rather than standing up another', async () => {
+			const extended = await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ itemId: otherShowId, trigger: SyncTrigger.MANUAL, extendPlanId: planId })
+				.expect(201);
+
+			expect((extended.body as SyncPlan).scope).toEqual({
+				rootItemIds: [showId, otherShowId],
+			});
+
+			const reread = await request(context.app.getHttpServer())
+				.get(`/api/sync/plans/${planId}`)
+				.set('Authorization', `Bearer ${admin.token}`)
+				.expect(200);
+
+			// Stored and not merely echoed: the plural is the whole reason a second plan
+			// is refused above.
+			expect((reread.body as SyncPlan).scope).toEqual({
+				rootItemIds: [showId, otherShowId],
+			});
+		});
+
+		it('refuses to extend a plan whose scope is not subtrees', async () => {
+			const category = await request(context.app.getHttpServer())
+				.post('/api/sync/plans')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({
+					name: 'Their shows, nightly',
+					trigger: SyncTrigger.MANUAL,
+					scope: { categoryKeys: ['their-shows'] },
+				})
+				.expect(201);
+
+			const refused = await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({
+					itemId: otherShowId,
+					trigger: SyncTrigger.MANUAL,
+					extendPlanId: (category.body as SyncPlan).id,
+				})
+				.expect(409);
+
+			expect(refused.body).toMatchObject({ message: 'error.sync.plan_not_extendable' });
+		});
+
+		it('refuses a plan that says it runs nightly and carries no cron', async () => {
+			const refused = await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ itemId: spareShowId, trigger: SyncTrigger.SCHEDULE })
+				.expect(409);
+
+			expect(refused.body).toMatchObject({ message: 'error.sync.schedule_required' });
+		});
+
+		it('answers a key for a media nobody holds', async () => {
+			const missing = await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({
+					itemId: '11111111-1111-4111-8111-111111111111',
+					trigger: SyncTrigger.MANUAL,
+				})
+				.expect(404);
+
+			expect(missing.body).toMatchObject({ message: 'error.media.not_found' });
+		});
+
+		it('refuses the trigger it was not given, rather than choosing one', async () => {
+			// A schedule nobody chose is a gateway downloading at four in the morning, so
+			// the field has no default and the pipe says so.
+			await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${admin.token}`)
+				.send({ itemId: spareShowId })
+				.expect(400);
+		});
+
+		it('refuses to create one for somebody who may only read syncs', async () => {
+			await request(context.app.getHttpServer())
+				.post('/api/sync/plans/for-item')
+				.set('Authorization', `Bearer ${reader.token}`)
+				.send({ itemId: spareShowId, trigger: SyncTrigger.MANUAL })
+				.expect(403);
 		});
 	});
 });

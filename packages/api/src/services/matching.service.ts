@@ -314,6 +314,12 @@ export class MatchingService {
 	 * says nothing when either side has no duration — the common case for a node with
 	 * no file — because refusing to match on a missing field would ungroup a library
 	 * that is simply unscanned.
+	 *
+	 * The fourth narrowing lives in `isConflicting` rather than here, and is worth
+	 * knowing about from this side: its proportional rule is floored at half a minute,
+	 * because on a short runtime five percent is a fraction of a second and this veto
+	 * would then split a film from itself over a second of padding. It did exactly that
+	 * to the only pair of duplicate posters in the owner's catalogue.
 	 */
 	private _separateCuts(local: MatchCandidate, remote: MatchCandidate): boolean {
 		if (local.kind === MediaKind.EPISODE) {

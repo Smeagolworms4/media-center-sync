@@ -354,14 +354,26 @@ pulling. That friend of a friend is reachable and useful — more bandwidth, ano
 source — but they are not someone you invited, the interface says so, and the sharing
 rules can exclude them entirely.
 
-**The friend in the middle never carries the bytes.** They sign a short-lived
-introduction — two minutes, naming who may present it and which gateway it opens, and
-never naming a media — you hand it to the holder as a header on the upgrade, and the
-holder checks it against the key it already has for its own peer. From then on the two
-of you talk directly and the introducer can go offline. Relaying stays real for a
-remote Jellyfin or Plex somebody shares, which is a different arrangement: that server
-does not speak this protocol and has never heard of you, so standing in front of it is
-the whole point rather than a fallback.
+**The friend in the middle does not carry the bytes unless they have agreed to.** They
+sign a short-lived introduction — two minutes, naming who may present it and which
+gateway it opens, and never naming a media — you hand it to the holder as a header on
+the upgrade, and the holder checks it against the key it already has for its own peer.
+From then on the two of you talk directly and the introducer can go offline. That is
+what happens whenever either end can be dialled at all, and it is what you want:
+nobody in the middle, nobody's upload but your own.
+
+**When neither end can be dialled, that same friend can carry the link.** It is a
+switch on their gateway, off until somebody turns it on, and turning it on is the
+promise: only then is the capability advertised, and only then does a dial fall through
+to it. It costs them their upload for a transfer they get nothing from, and it is not
+private — nothing is encrypted above the connection, so their machine really does see
+the bytes. The peers screen says so on the row rather than showing a word. They carry
+only for two peers they introduced themselves, four links at a time, and the bytes come
+out of their own upload cap rather than out of a budget of their own.
+
+Relaying stays real for a remote Jellyfin or Plex somebody shares, which is a different
+arrangement again: that server does not speak this protocol and has never heard of you,
+so standing in front of it is the whole point rather than a fallback.
 
 Nobody is asked to approve an introduction, and that is deliberate: **how far
 introductions travel is the agreement**. The gateway's reach and each peer's own limit
@@ -380,14 +392,16 @@ is the same either way.
 It does nothing for the case where **both** gateways are behind NAT with nothing
 forwarded. A WebSocket needs somebody to connect *to*, and there is nobody. A friend
 both ends already have can introduce them, which gets past "they have never heard of
-you" but not past "there is no socket to open"; that friend can also carry the bytes,
-and this gateway deliberately never offers to do that for anyone — passing a friend of
-a friend's film through your machine is the thing introductions exist to avoid.
+you" but not past "there is no socket to open". That friend can also carry the link
+itself, if their household turned the switch on — the bytes then travel back down the
+socket the holder opened to them, inside the same connection that carries the ordinary
+peer traffic, because there is no second one to open.
 
 **So two gateways behind two routers with no friend in common cannot be connected.**
 That is a stated limit rather than a setting somebody forgot to fill in, and the peers
 screen says so on the row: forwarding the interface's port on one of the two routers
-is what opens the link. There is no second port to open.
+is what opens the link without asking anything of anybody. There is no second port to
+open.
 
 The answer to the general case is **WebRTC** — ICE, STUN to discover each end's public
 address, TURN when it cannot be discovered, signalled over the peer link that already

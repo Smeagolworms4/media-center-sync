@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import {
 	ErrorKey,
 	EventName,
+	LANDED_SYNC_STATES,
 	MediaKind,
 	MediaServiceMode,
 	NotificationEvent,
@@ -16,8 +17,11 @@ import {
 	TransferTransport,
 	UNCONFIGURED_PLACEMENTS,
 	type CompanionPullResult,
+	type CreateSyncPlanForItemRequest,
 	type CreateSyncPlanRequest,
+	type EstimateSyncRequest,
 	type HistoryView,
+	type ItemSyncPlans,
 	type ResultList,
 	type RunSyncRequest,
 	type SyncEstimate,
@@ -26,6 +30,7 @@ import {
 	type SyncJob,
 	type SyncJobItem,
 	type SyncPlan,
+	type SyncPlanCoverage,
 	type SyncPreview,
 	type SyncScope,
 	type TargetSpace,
@@ -96,6 +101,15 @@ import { pageBounds, paginate, toSyncJob, toSyncJobItem, toSyncPlan } from './ma
  * matters.
  */
 export const MAX_PLANNED_ITEMS = 500;
+
+/**
+ * How far up a parent chain is walked before it is called a cycle.
+ *
+ * Episode, season, series, collection is four, so this is generous. It is a bound and
+ * not a depth: a row whose parent points back at it is something a scanner wrote, and
+ * a walk with no ceiling over one hangs the request instead of reporting anything.
+ */
+const MAX_LINEAGE_DEPTH = 8;
 
 /** One thing a run would do, before anything has been created. */
 export interface PlannedItem {
@@ -270,6 +284,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const enabled = request.enabled ?? true;
 
 		this._refuseBlindSchedule(scope, enabled, request.acknowledgeUnbounded === true);
+		this._refuseEmptySchedule(request.trigger, request.schedule ?? null);
 		await this._checkPreferred(request.preferredLibraryId ?? null);
 
 		const plan = await this._plans.save(
@@ -318,6 +333,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		// existing unbounded plan sends `{ enabled: true }` and nothing else, and a
 		// check that only read the body would let exactly that through.
 		this._refuseBlindSchedule(plan.scope, plan.enabled, patch.acknowledgeUnbounded === true);
+		this._refuseEmptySchedule(plan.trigger, plan.schedule);
 
 		const saved = await this._plans.save(plan);
 
@@ -341,6 +357,216 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const plan = await this._requirePlan(id);
 
 		return (await this.plan({ planId: plan.id })).estimate;
+	}
+
+	/**
+	 * What a scope would come to, for a plan nobody has saved yet.
+	 *
+	 * The counterpart of `estimatePlan` for the moment before there is a plan to
+	 * address. Somebody creating one from a season is shown two episodes and somebody
+	 * creating one from a series a whole show, and that number is the difference
+	 * between a standing intent and a surprise — asking for it afterwards, from the
+	 * edit screen, is asking after the decision was taken.
+	 *
+	 * It goes through the same `plan()` the preview and the run go through, so the
+	 * count offered at creation and the count the first run reports are the same
+	 * arithmetic rather than two readings that drift apart.
+	 */
+	public async estimateScope(request: EstimateSyncRequest): Promise<SyncEstimate> {
+		return (await this.plan(request)).estimate;
+	}
+
+	/**
+	 * Which plans already speak for this media, and what a new one would be called.
+	 *
+	 * Answered here rather than left to the interface because both halves are rules.
+	 * Coverage takes the parent chain — a plan on a series covers every season under it,
+	 * and somebody standing on the season needs to be sent to *that* plan rather than
+	 * told to make a second one. What may be extended takes the reading of a scope,
+	 * which is this class's own and nobody else's.
+	 *
+	 * Only `rootItemIds` counts as coverage. A plan that names an episode in `itemIds`
+	 * has pinned one file, not undertaken to keep a show in step, and treating the two
+	 * as the same thing would refuse the plan somebody actually wanted.
+	 */
+	public async itemPlans(itemId: string): Promise<ItemSyncPlans> {
+		const item = await this._requireItem(itemId);
+		const lineage = await this._lineage(item);
+		const plans = await this._plans.find({ order: { name: 'ASC' } });
+		const covering: SyncPlanCoverage[] = [];
+		const extendable: SyncPlan[] = [];
+
+		for (const plan of plans) {
+			const roots = plan.scope?.rootItemIds ?? [];
+			const covered = lineage.find((ancestorId) => roots.includes(ancestorId));
+
+			if (covered !== undefined) {
+				covering.push({
+					plan: toSyncPlan(plan),
+					coveredItemId: covered,
+					exact: covered === itemId,
+				});
+			}
+
+			if (isSubtreeScope(plan.scope ?? {})) {
+				extendable.push(toSyncPlan(plan));
+			}
+		}
+
+		return { suggestedName: await this._planNameFor(item), covering, extendable };
+	}
+
+	/**
+	 * Create a plan for one subtree, or add that subtree to a plan that exists.
+	 *
+	 * The route the owner asked for: from a season card or a series card, one gesture,
+	 * with the one thing somebody meant to say already said. Everything it settles is a
+	 * decision that the blank form left to whoever was filling it in, and every one of
+	 * them is written down where it is taken:
+	 *
+	 * - the **name** comes from the media, because a list of plans called "Nightly" and
+	 *   "Nightly 2" is unreadable six months later;
+	 * - the **scope** is the subtree, which is what makes the estimate small and the
+	 *   plan explicable;
+	 * - the **sources** stay empty, meaning wherever it turns up — see the request shape;
+	 * - the **filter** is `missingOnly`, because "keep this in step" is filling holes and
+	 *   never replacing a file somebody chose;
+	 * - there is **no ceiling**, because a ceiling exists to stop an unbounded scope
+	 *   running away and this one is a named show. A ceiling here would silently leave
+	 *   half a season behind on every run, which reads as a broken plan.
+	 *
+	 * The trigger is the one thing it refuses to decide, and the request shape says why.
+	 */
+	public async createPlanForItem(request: CreateSyncPlanForItemRequest): Promise<SyncPlan> {
+		const item = await this._requireItem(request.itemId);
+
+		if (request.extendPlanId !== undefined) {
+			return this._extendPlan(request.extendPlanId, item.id);
+		}
+
+		const covering = (await this.itemPlans(item.id)).covering;
+
+		if (covering.length > 0) {
+			// Named in the log because the refusal itself cannot carry it: the interface
+			// asks the coverage route to say which plan, and a gateway operator reading
+			// the journal deserves the same answer.
+			this._logger.log(
+				`Plan "${covering[0].plan.name}" already covers ${item.title}; refusing a second`,
+			);
+
+			throw new ConflictException(ErrorKey.SYNC_ITEM_ALREADY_COVERED);
+		}
+
+		return this.createPlan({
+			name: request.name ?? (await this._planNameFor(item)),
+			trigger: request.trigger,
+			schedule: request.schedule ?? null,
+			sourceServiceIds: request.sourceServiceIds ?? [],
+			preferredLibraryId: request.preferredLibraryId ?? null,
+			scope: { rootItemIds: [item.id] },
+			filter: request.filter ?? { missingOnly: true },
+			maxItemsPerRun: request.maxItemsPerRun ?? null,
+			maxBytesPerRun: request.maxBytesPerRun ?? null,
+			enabled: request.enabled ?? true,
+		});
+	}
+
+	/**
+	 * Add one subtree to an existing plan, which is why `rootItemIds` is plural.
+	 *
+	 * Refused for any scope that is not subtrees alone: the fields of a scope intersect,
+	 * so a root added to a plan scoped by category means the part of that show in that
+	 * category, and a root added to a plan that names nothing turns "everything, nightly"
+	 * into that one show. Both are silent rewrites of an intent somebody else stated.
+	 *
+	 * Adding a root the plan already carries changes nothing and is not an error: two
+	 * people pressing the same button is not a conflict worth a refusal.
+	 */
+	private async _extendPlan(planId: string, itemId: string): Promise<SyncPlan> {
+		const plan = await this._requirePlan(planId);
+
+		if (!isSubtreeScope(plan.scope ?? {})) {
+			throw new ConflictException(ErrorKey.SYNC_PLAN_NOT_EXTENDABLE);
+		}
+
+		const roots = plan.scope.rootItemIds ?? [];
+
+		if (roots.includes(itemId)) {
+			return toSyncPlan(plan);
+		}
+
+		return this.updatePlan(plan.id, { scope: { rootItemIds: [...roots, itemId] } });
+	}
+
+	/**
+	 * What a plan created from this media is called.
+	 *
+	 * The name is the only thing a plan list shows, so it has to say which show this is
+	 * about: "Season 1" on its own is three plans with the same name the moment somebody
+	 * keeps two shows in step. A season therefore carries its series' title, and only
+	 * when the season's own title does not already contain it — media servers disagree
+	 * about that, and "The Expanse — The Expanse Season 1" is nobody's idea of readable.
+	 */
+	private async _planNameFor(item: MediaItem): Promise<string> {
+		const parent = item.parentId
+			? await this._items.findOne({ where: { id: item.parentId } })
+			: null;
+
+		if (parent === null || item.kind === MediaKind.SERIES) {
+			return item.title;
+		}
+
+		return item.title.toLowerCase().includes(parent.title.toLowerCase())
+			? item.title
+			: `${parent.title} — ${item.title}`;
+	}
+
+	/**
+	 * This media and everything above it, nearest first.
+	 *
+	 * Bounded rather than walked to the root, for the same reason the naming walk is: a
+	 * parent chain that points back at itself is a row somebody's scanner wrote, and an
+	 * unbounded walk over one would hang the request rather than report anything.
+	 */
+	private async _lineage(item: MediaItem): Promise<string[]> {
+		const chain = [item.id];
+		let current: MediaItem | null = item;
+
+		for (let hop = 0; hop < MAX_LINEAGE_DEPTH && current?.parentId; hop += 1) {
+			current = await this._items.findOne({ where: { id: current.parentId } });
+
+			if (current === null || chain.includes(current.id)) {
+				break;
+			}
+
+			chain.push(current.id);
+		}
+
+		return chain;
+	}
+
+	private async _requireItem(itemId: string): Promise<MediaItem> {
+		const item = await this._items.findOne({ where: { id: itemId } });
+
+		if (item === null) {
+			throw new NotFoundException(ErrorKey.MEDIA_NOT_FOUND);
+		}
+
+		return item;
+	}
+
+	/**
+	 * Refuse a plan that claims a schedule and carries no cron expression.
+	 *
+	 * The scheduler registers what it can parse, so such a plan is stored, listed as
+	 * scheduled, and never fires. Nothing anywhere reports it — the first anybody hears
+	 * of it is the episodes that never arrived — which is exactly the class of silent
+	 * failure the scope rules above exist to prevent.
+	 */
+	private _refuseEmptySchedule(trigger: SyncTrigger | undefined, schedule: string | null): void {
+		if (trigger === SyncTrigger.SCHEDULE && (schedule ?? '').trim() === '') {
+			throw new ConflictException(ErrorKey.SYNC_SCHEDULE_REQUIRED);
+		}
 	}
 
 	/**
@@ -1201,7 +1427,21 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				continue;
 			}
 
-			const state = local === null ? SyncState.MISSING : source.syncState;
+			/*
+			 * A file already on our disk is not missing, whatever the absence of a local
+			 * row suggests.
+			 *
+			 * The landing writes `awaiting_index` on the very row a pull came from, and
+			 * nothing local holds the media until the media server has indexed it — so
+			 * the reading below would call it missing and every run would fetch it again
+			 * into the same folder. That is the bug those two states were added for, and
+			 * this is the place a plan reads them.
+			 */
+			const state = LANDED_SYNC_STATES.includes(source.syncState)
+				? source.syncState
+				: local === null
+					? SyncState.MISSING
+					: source.syncState;
 
 			if (this._keeps(source, local, state, effective.filter)) {
 				wanted.push({ item: source, local, state });
@@ -1623,6 +1863,14 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		state: SyncState,
 		filter: SyncFilter,
 	): boolean {
+		// The bytes are here and the index has not caught up. Pulling again would write
+		// the same file to the same path, which is a download bought for nothing — and
+		// with a second name beside the first, since nothing yet says the file there is
+		// ours.
+		if (LANDED_SYNC_STATES.includes(state)) {
+			return false;
+		}
+
 		if (local !== null && !(filter.replaceOutdated === true && state === SyncState.OUTDATED)) {
 			return false;
 		}
@@ -1845,6 +2093,21 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
  * acknowledgement — and "large" is not a decidable test. An empty array counts as
  * naming nothing: a form that cleared its last category is back to everything.
  */
+/**
+ * A scope made of subtrees and nothing else, which is the only kind another one can
+ * be added to.
+ *
+ * "These three shows" is one intent and `rootItemIds` is plural for it. Every other
+ * field of a scope intersects with the roots, so adding a show to a plan that also
+ * names a category or a library silently means "the part of that show in that
+ * category" — an answer nobody asked for, written into somebody else's plan.
+ */
+export const isSubtreeScope = (scope: SyncScope): boolean =>
+	(scope.rootItemIds?.length ?? 0) > 0 &&
+	(scope.categoryKeys?.length ?? 0) === 0 &&
+	(scope.libraryIds?.length ?? 0) === 0 &&
+	(scope.itemIds?.length ?? 0) === 0;
+
 export const isUnbounded = (scope: SyncScope): boolean =>
 	(scope.categoryKeys?.length ?? 0) === 0 &&
 	(scope.libraryIds?.length ?? 0) === 0 &&

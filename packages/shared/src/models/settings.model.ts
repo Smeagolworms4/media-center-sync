@@ -217,6 +217,31 @@ export interface Settings {
 	 * restart. Keeping one is a decision, and it is one click.
 	 */
 	keepDiscoveredPeers: boolean;
+	/**
+	 * Carry a link between two of your friends who cannot reach each other. Off.
+	 *
+	 * Two gateways both behind routers have no way to open a socket to each other. The
+	 * only thing left is a friend they have in common holding both halves and passing
+	 * the bytes across — which costs that friend their upload, for a transfer they get
+	 * nothing from, and puts every byte of somebody else's film through their machine
+	 * in plaintext. It is a neighbourly thing to do on purpose and never a thing to do
+	 * by accident, so it is off until somebody says yes.
+	 *
+	 * **It is one switch for the whole gateway, deliberately, and not one per peer.**
+	 * The cost is the household's uplink, which is one resource and one decision. More
+	 * than that: agreeing is advertised, once, as `PeerCapability.RELAY` in the
+	 * handshake, and the rule the whole protocol rests on is that a capability is a
+	 * promise. A per-peer answer could not be advertised honestly — the hello would
+	 * offer relaying to everyone and the refusal would arrive fifteen seconds later, at
+	 * the one moment it mattered.
+	 *
+	 * Turning it on affects links opened afterwards: a friend already connected learns
+	 * it at their next handshake, because that is when capabilities are exchanged.
+	 *
+	 * What it is bounded by is in `peer-relay.model.ts`: four carried links at once,
+	 * and the bytes are inside `uploadRateLimit` rather than beside it.
+	 */
+	relayForPeers: boolean;
 	/** Use the encapsulated swarm when several peers hold the same file. */
 	allowSwarm: boolean;
 

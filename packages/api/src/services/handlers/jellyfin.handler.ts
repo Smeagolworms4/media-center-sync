@@ -3,13 +3,17 @@ import {
 	LibraryKind,
 	MediaKind,
 	MediaServiceType,
+	ServerStructureSupport,
 	type MediaFileInfo,
 	type MediaServiceProbe,
+	type ServerStructure,
+	type ServerStructureRequest,
 } from '@mcs/shared';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { normalizeTitle, parseTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
 import { buildUrl, relativeTo, requestJson, requestStream } from './handler.http';
+import { serverNameOf, serverParentOf, serverRootsOf } from './server-path';
 import {
 	RescanOutcome,
 	type ByteRange,
@@ -206,6 +210,94 @@ export class JellyfinHandler implements MediaServiceHandler {
 				},
 			];
 		});
+	}
+
+	/**
+	 * Where Jellyfin says its own files are, and one level further down on request.
+	 *
+	 * The roots come from the same virtual folders a library listing reads, so the
+	 * paths offered as candidates are exactly the ones the library rows carry — two
+	 * readings of the same answer would be a screen contradicting itself.
+	 *
+	 * Walking down uses `/Environment/DirectoryContents`, which is the folder picker
+	 * Jellyfin's own setup wizard uses. Two things about it are worth knowing before
+	 * touching this. It is an administrative route: an API key belonging to a normal
+	 * user answers `401`, and that is a credentials problem rather than a missing
+	 * capability, so it is left to throw. And it answers `404` on some builds where
+	 * the route was moved or removed — which is genuinely "this server cannot say",
+	 * and is therefore reported as unsupported rather than as a failure, or every
+	 * older Jellyfin would look broken instead of merely quiet.
+	 */
+	public async listServerDirectories(
+		connection: ServiceConnection,
+		request: ServerStructureRequest = {},
+	): Promise<ServerStructure> {
+		const path = request.path?.trim() ?? '';
+
+		if (path === '') {
+			const libraries = await this.listLibraries(connection);
+
+			return {
+				support: ServerStructureSupport.REPORTED,
+				path: null,
+				parent: null,
+				entries: serverRootsOf(libraries, request.libraryExternalId),
+			};
+		}
+
+		const contents = await requestJson<unknown>(
+			connection.baseUrl,
+			'/Environment/DirectoryContents',
+			{
+				headers: this._headers(connection),
+				timeoutMs: connection.timeoutMs,
+				query: {
+					path,
+					includeDirectories: true,
+					includeFiles: request.includeFiles === true,
+				},
+			},
+		).catch((error: unknown) => {
+			if (error instanceof NotFoundException) {
+				return null;
+			}
+
+			throw error;
+		});
+
+		if (contents === null) {
+			return {
+				support: ServerStructureSupport.UNSUPPORTED,
+				path,
+				parent: serverParentOf(path),
+				entries: [],
+			};
+		}
+
+		return {
+			support: ServerStructureSupport.REPORTED,
+			path,
+			parent: serverParentOf(path),
+			entries: asRecordArray(contents).flatMap((entry) => {
+				const entryPath = asString(entry.Path);
+
+				if (!entryPath) {
+					return [];
+				}
+
+				return [{
+					path: entryPath,
+					name: asString(entry.Name) ?? serverNameOf(entryPath),
+					root: false,
+					libraryExternalId: null,
+					libraryName: null,
+					// `Type` is `File` or `Directory`; anything else Jellyfin invents
+					// later is treated as a directory, which is recoverable — a wrong
+					// file reads as an empty folder, a wrong folder cannot be opened.
+					directory: asString(entry.Type) !== 'File',
+				}];
+			}),
+		};
 	}
 
 	public async *scanLibrary(

@@ -3,14 +3,19 @@ import {
 	LibraryKind,
 	MediaKind,
 	MediaServiceType,
+	ServerStructureSupport,
 	type MediaFileInfo,
 	type MediaServiceProbe,
+	type ServerDirectory,
+	type ServerStructure,
+	type ServerStructureRequest,
 } from '@mcs/shared';
 import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { CacheService } from '../cache.service';
 import { normalizeTitle, parseTitle } from '../title-normalizer';
 import { MediaHandler } from './handler.decorator';
 import { buildUrl, relativeTo, requestJson, requestStream } from './handler.http';
+import { serverNameOf, serverParentOf, serverRootsOf } from './server-path';
 import {
 	RescanOutcome,
 	type ByteRange,
@@ -197,6 +202,135 @@ export class PlexHandler implements MediaServiceHandler {
 				},
 			];
 		});
+	}
+
+	/**
+	 * Where Plex says its own files are.
+	 *
+	 * The roots are the `Location` entries of each section — the same ones a library
+	 * listing reports, read once so the candidates and the library rows can never
+	 * disagree. `GET /library/sections` is verified against a real server and is the
+	 * half of this that works.
+	 *
+	 * **Walking down often does not work, and this was measured rather than assumed.**
+	 * `/services/browse` is the folder picker Plex's own web client uses; it is
+	 * undocumented and on the server this was tried against it answers `200` and
+	 * **ignores `path` entirely**, returning the same eight mount roots — `/`,
+	 * `mqueue`, `config`, `media`, `transcode`, `resolv.conf`, `hostname`, `hosts` —
+	 * for `path=/media`, `path=/config`, `path=/media/movies` and for no path at all.
+	 * The `key` Plex hands back for a directory in that very answer
+	 * (`/services/browse/L21lZGlh`, base64 of `/media`) is then refused with `400`, in
+	 * JSON and in XML and with every padding variant, so on an unclaimed server there
+	 * is no working way down at all.
+	 *
+	 * So the answer is checked against the question: if Plex returned entries and not
+	 * one of them is inside the directory that was asked for, it did not walk, and
+	 * this reports that it cannot rather than handing back eight entries that are not
+	 * what was asked for. Returning them would be the worst of the three outcomes —
+	 * somebody clicking into `media` and landing on the identical list concludes the
+	 * dialog is broken, whereas "this server cannot walk its folders" is a limitation
+	 * they can read and work around. It also protects the marker proof in
+	 * `LibraryManager.check()`, which would otherwise search the mount roots for a file
+	 * written three directories down and report a mismatch that is not one.
+	 *
+	 * The detection is per response and never a verdict on Plex as a type: a claimed
+	 * server, a newer build or a different token may well honour the path, and that
+	 * answer is used the moment it arrives. Every shape the route has been seen to
+	 * answer in is read (`Path`, `Directory`, `File`), and a `404` — a build with no
+	 * such route — is "this server cannot say" rather than a failure.
+	 */
+	public async listServerDirectories(
+		connection: ServiceConnection,
+		request: ServerStructureRequest = {},
+	): Promise<ServerStructure> {
+		const path = request.path?.trim() ?? '';
+
+		if (path === '') {
+			const libraries = await this.listLibraries(connection);
+
+			return {
+				support: ServerStructureSupport.REPORTED,
+				path: null,
+				parent: null,
+				entries: serverRootsOf(libraries, request.libraryExternalId),
+			};
+		}
+
+		const container = await this._container(connection, '/services/browse', {
+			path,
+			// Plex hides files from its picker by default, and the one caller that
+			// needs them is the marker proof: it asks the server whether it can see a
+			// file this gateway has just written into what should be the same folder.
+			includeFiles: request.includeFiles === true ? 1 : 0,
+		}).catch((error: unknown) => {
+			if (error instanceof NotFoundException) {
+				return null;
+			}
+
+			throw error;
+		});
+
+		if (container === null) {
+			return {
+				support: ServerStructureSupport.UNSUPPORTED,
+				path,
+				parent: serverParentOf(path),
+				entries: [],
+			};
+		}
+
+		const directories = [
+			...asRecordArray(container.Path),
+			...asRecordArray(container.Directory),
+		];
+		const files = request.includeFiles === true ? asRecordArray(container.File) : [];
+		const entries = [
+			...directories.flatMap((entry) => this._toServerEntry(entry, true)),
+			...files.flatMap((entry) => this._toServerEntry(entry, false)),
+		];
+
+		if (!this._walkedInto(path, entries)) {
+			return {
+				support: ServerStructureSupport.UNSUPPORTED,
+				path,
+				parent: serverParentOf(path),
+				entries: [],
+			};
+		}
+
+		return {
+			support: ServerStructureSupport.REPORTED,
+			path,
+			parent: serverParentOf(path),
+			entries,
+		};
+	}
+
+	/**
+	 * Whether that answer is an answer to that question.
+	 *
+	 * One entry genuinely inside the directory asked for is enough to prove the route
+	 * honoured `path`; a listing where none of them is describes somewhere else, and
+	 * on the server this was measured against it describes the mount roots whatever
+	 * is asked. Costs one comparison and is evidence rather than a version test, which
+	 * is what lets a build that does work be used immediately.
+	 *
+	 * Two answers are allowed through on purpose. An empty listing proves nothing
+	 * either way and an empty directory is an ordinary thing to open, so it is taken at
+	 * face value — the misbehaving server never answers empty. And a request for the
+	 * filesystem root cannot be told apart at all, since everything is inside `/`; the
+	 * picker never asks for it, because its starting points are the section locations.
+	 */
+	private _walkedInto(asked: string, entries: ServerDirectory[]): boolean {
+		const parent = asked.replace(/[/\\]+$/, '');
+
+		if (entries.length === 0 || parent === '') {
+			return true;
+		}
+
+		return entries.some(
+			(entry) => entry.path.startsWith(`${parent}/`) || entry.path.startsWith(`${parent}\\`),
+		);
 	}
 
 	public async *scanLibrary(
@@ -529,6 +663,31 @@ export class PlexHandler implements MediaServiceHandler {
 		).catch(() => null);
 
 		return container ? asRecordArray(container.Metadata) : [];
+	}
+
+	/**
+	 * One row of a browse answer, or nothing when it carries no path of its own.
+	 *
+	 * `key` is deliberately not used as a fallback: on this route it is the *browse
+	 * URL* of the entry, not a filesystem path, and writing one into somebody's local
+	 * path field would produce a library configured against a string that designates
+	 * no directory anywhere.
+	 */
+	private _toServerEntry(entry: Payload, directory: boolean): ServerDirectory[] {
+		const path = asString(entry.path);
+
+		if (!path) {
+			return [];
+		}
+
+		return [{
+			path,
+			name: asString(entry.title) ?? serverNameOf(path),
+			root: false,
+			libraryExternalId: null,
+			libraryName: null,
+			directory,
+		}];
 	}
 
 	/** Unwraps the `MediaContainer` every Plex answer is wrapped in. */

@@ -16,12 +16,29 @@ export * from './naming.service';
 export * from './notifications';
 export * from './nfo';
 export * from './path-containment';
+export * from './path-match.service';
 export * from './placed-by';
 export * from './peer-catalogue.service';
 export * from './peer-gateway.service';
 export * from './peer-introduction.service';
 export * from './peer-link.service';
 export * from './peer-reconnect.service';
+/*
+ * Only the provider, and the rest as types.
+ *
+ * `app.module` registers every class a barrel exports, so an `export *` here would
+ * hand Nest the frame reader and the carried-socket class as providers — objects it
+ * would build once, at startup, for nobody. See `injectables`.
+ */
+export { PeerRelayService } from './peer-relay.service';
+export type {
+	CarriedClient,
+	CarriedSession,
+	RelayChannel,
+	RelayEndpoint,
+	RelayTransport,
+	RelayedSocket,
+} from './peer-relay.service';
 export * from './placement.service';
 export * from './quality.service';
 export * from './revalidation.service';
@@ -46,12 +63,14 @@ import { MEDIA_HANDLER_PROVIDERS } from './handlers';
 import { MatchingService } from './matching.service';
 import { MetadataService } from './metadata.service';
 import { NamingService } from './naming.service';
+import { PathMatchService } from './path-match.service';
 import { NOTIFICATION_HANDLER_PROVIDERS } from './notifications';
 import { PeerCatalogueService } from './peer-catalogue.service';
 import { PeerGatewayService } from './peer-gateway.service';
 import { PeerIntroductionService } from './peer-introduction.service';
 import { PeerLinkService } from './peer-link.service';
 import { PeerReconnectService } from './peer-reconnect.service';
+import { PeerRelayService } from './peer-relay.service';
 import { PlacementService } from './placement.service';
 import { QualityService } from './quality.service';
 import { RevalidationService } from './revalidation.service';
@@ -81,12 +100,14 @@ export const SERVICE_PROVIDERS = [
 	QualityService,
 	MatchingService,
 	NamingService,
+	PathMatchService,
 	PlacementService,
 	MetadataService,
 	VerificationService,
 	RevalidationService,
 	PeerLinkService,
 	PeerReconnectService,
+	PeerRelayService,
 	PeerGatewayService,
 	PeerCatalogueService,
 	PeerIntroductionService,

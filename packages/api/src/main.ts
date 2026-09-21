@@ -7,6 +7,7 @@ import {
 	EVENTS_PATH,
 	EventGatewayService,
 	PEER_LINK_PATH,
+	PEER_RELAY_PATH,
 	PeerGatewayService,
 	refuseUnknownUpgrades,
 } from '@/services';
@@ -38,7 +39,7 @@ const start = async (): Promise<void> => {
 	// Last, and it has to be last: both handlers above return rather than reject when
 	// the path is not theirs, so without this an upgrade to anything else is left half
 	// open until some timeout somewhere gives up on it.
-	refuseUnknownUpgrades(server, [EVENTS_PATH, PEER_LINK_PATH]);
+	refuseUnknownUpgrades(server, [EVENTS_PATH, PEER_LINK_PATH, PEER_RELAY_PATH]);
 
 	Logger.log(`Gateway listening on http://0.0.0.0:${port}/${prefix}`, 'Bootstrap');
 };

@@ -9,6 +9,7 @@ export * from './notification.model';
 export * from './pagination.model';
 export * from './peer-introduction.model';
 export * from './peer-protocol.model';
+export * from './peer-relay.model';
 export * from './peer.model';
 export * from './placement.model';
 export * from './service.model';

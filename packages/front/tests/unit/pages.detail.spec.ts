@@ -144,6 +144,19 @@ describe('pages/LibraryItem', () => {
 		'/api/services': { body: [service] },
 		'/api/peers': { body: [] },
 		'/api/sync/run': { body: { id: 'j1' } },
+		'/api/sync/plans/for-item/m1': {
+			body: { suggestedName: 'The Expanse', covering: [], extendable: [] },
+		},
+		'/api/sync/plans/for-item': { body: { id: 'plan-1', name: 'The Expanse' } },
+		'/api/sync/estimate': {
+			body: {
+				itemCount: 2,
+				bytes: 3_000_000_000,
+				unbounded: false,
+				truncated: false,
+				computedAt: '2026-02-01T00:00:00.000Z',
+			},
+		},
 	};
 
 	/** The whole point of the page: what is missing is listed, not hidden. */
@@ -459,6 +472,151 @@ describe('pages/LibraryItem', () => {
 		const origin = wrapper.find('[data-test="group-source-origin"]');
 		expect(origin.attributes('data-origin')).toBe('friend_of_friend');
 		expect(origin.text()).toContain('Friends of friends');
+	});
+
+	/**
+	 * The owner's complaint, answered: a plan is made from the thing on screen.
+	 *
+	 * Everything below is about the two ways that goes wrong. A screen that offers one
+	 * button and silently picks which of the two intents it meant sends somebody home
+	 * with a nightly schedule they did not ask for, or with nothing at all; and a plan
+	 * nobody can navigate back to is a plan nobody edits.
+	 */
+	describe('keeping it in sync from the card', () => {
+		async function openKeep (group: Record<string, unknown> = mediaGroup()) {
+			const stub = stubFetchRoutes({ ...routes, '/api/media/groups/m1': { body: group } });
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+			await wrapper.find('[data-test="item-keep"]').trigger('click');
+			await settle();
+			return { wrapper, stub };
+		}
+
+		it('offers the control on the series card and on the season card', async () => {
+			for (const kind of [MediaKind.SERIES, MediaKind.SEASON]) {
+				stubFetchRoutes({ ...routes, '/api/media/groups/m1': { body: mediaGroup({ kind }) } });
+				const { wrapper } = mountWithApp(LibraryItem, {
+					props: { itemId: 'm1' },
+					global: { stubs: { ...tooltipStub, ...dialogStub } },
+				});
+				await settle();
+
+				expect(wrapper.find('[data-test="item-keep"]').exists(), kind).toBe(true);
+			}
+		});
+
+		/**
+		 * A film is finished. "Keep this film in step for ever" is a schedule that finds
+		 * nothing every night, and offering it teaches people that plans do nothing.
+		 */
+		it('does not offer it on a film, which has nothing to keep up with', async () => {
+			stubFetchRoutes({
+				...routes,
+				'/api/media/groups/m1': { body: mediaGroup({ kind: MediaKind.MOVIE }) },
+			});
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+
+			expect(wrapper.find('[data-test="item-keep"]').exists()).toBe(false);
+		});
+
+		it('says what the plan would cover before anything is created', async () => {
+			const { wrapper } = await openKeep();
+
+			const estimate = wrapper.find('[data-test="keep-estimate"]');
+			expect(estimate.text()).toContain('2 items to pull');
+			expect(estimate.text()).toContain('2.8 GB');
+		});
+
+		it('creates a plan on the subtree, named after the show, with the trigger chosen', async () => {
+			const { wrapper, stub } = await openKeep();
+
+			await wrapper.find('[data-test="keep-create"]').trigger('click');
+			await settle();
+
+			const call = stub.mock.calls.find(one =>
+				String(one[0]).includes('/api/sync/plans/for-item') && one[1]?.method === 'POST');
+
+			expect(call).toBeDefined();
+			expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+				itemId: 'm1',
+				name: 'The Expanse',
+				// Manual is what the field opens on: a schedule nobody picked is a
+				// gateway downloading at four in the morning.
+				trigger: SyncTrigger.MANUAL,
+				schedule: null,
+			});
+		});
+
+		/**
+		 * The two intents, told apart by the screen rather than by the person.
+		 *
+		 * "Get the missing episodes of this season" is a run and nothing is remembered;
+		 * "keep this series in step" is a plan. The one-off must never create a plan.
+		 */
+		it('runs once without creating anything when that is the button pressed', async () => {
+			const stub = stubFetchRoutes(routes);
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+			await wrapper.find('[data-test="item-keep"]').trigger('click');
+			await settle();
+
+			await wrapper.find('[data-test="keep-run-once"]').trigger('click');
+			await settle();
+
+			const run = stub.mock.calls.find(one => String(one[0]).includes('/api/sync/run'));
+			expect(JSON.parse(String(run?.[1]?.body))).toMatchObject({
+				scope: { rootItemIds: ['m1'] },
+				filter: { missingOnly: true },
+			});
+			expect(stub.mock.calls.some(one =>
+				String(one[0]).includes('/api/sync/plans/for-item') && one[1]?.method === 'POST',
+			)).toBe(false);
+		});
+
+		/**
+		 * The way back. Somebody who kept a show in sync in March and wants to change it
+		 * in September arrives here, not on the sync screen.
+		 */
+		it('names the plan that already covers it, and links to it from the media', async () => {
+			const covered = {
+				suggestedName: 'The Expanse',
+				covering: [{
+					plan: { id: 'plan-1', name: 'The Expanse', scope: { rootItemIds: ['m1'] } },
+					coveredItemId: 'm1',
+					exact: true,
+				}],
+				extendable: [],
+			};
+			stubFetchRoutes({ ...routes, '/api/sync/plans/for-item/m1': { body: covered } });
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+
+			const link = wrapper.find('[data-test="item-plan-link"]');
+			expect(link.text()).toContain('The Expanse');
+			expect(link.attributes('href')).toBe('/sync/plans/plan-1');
+
+			await wrapper.find('[data-test="item-keep"]').trigger('click');
+			await settle();
+
+			// And the dialog offers that plan rather than a second one to fight it.
+			expect(wrapper.find('[data-test="keep-covered"]').text()).toContain('The Expanse');
+			expect(wrapper.find('[data-test="keep-open-plan"]').attributes('href'))
+				.toBe('/sync/plans/plan-1');
+			expect(wrapper.find('[data-test="keep-create"]').exists()).toBe(false);
+		});
 	});
 
 	it('offers a retry when the item cannot be read', async () => {

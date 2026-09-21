@@ -1486,6 +1486,7 @@ describe('pages/Settings', () => {
 		uploadRateLimit: 0,
 		matchThreshold: 0.8,
 		peerMaxDepth: 3,
+		relayForPeers: false,
 		allowSwarm: true,
 		publicUrl: null,
 		peerAddress: null,
@@ -1521,6 +1522,18 @@ describe('pages/Settings', () => {
 		expect((pane.find('input').element as HTMLInputElement).checked).toBe(true);
 		expect(wrapper.text()).toContain('Keep peers discovered while downloading');
 		expect(wrapper.text()).toContain('the two gateways connect directly');
+	});
+
+	it('offers to carry links between friends, and says what it costs', async () => {
+		// Advertising the capability is the promise, so the switch is the promise being
+		// made. The wording has to say the two things somebody is agreeing to: their
+		// upload, and that they will see the bytes.
+		const { wrapper } = await openSettings({ relayForPeers: true });
+		const pane = wrapper.find('[data-test="settings-relay-for-peers"]');
+
+		expect((pane.find('input').element as HTMLInputElement).checked).toBe(true);
+		expect(wrapper.text()).toContain('Carry links between your friends');
+		expect(wrapper.text()).toContain('it spends its upload, and it sees them');
 	});
 
 	it('offers the reach as a number of hops, not as a yes or no', async () => {

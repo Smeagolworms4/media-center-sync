@@ -204,3 +204,67 @@ export interface MediaServiceProbe {
 	/** Error key when the probe failed. */
 	error: string | null;
 }
+
+/**
+ * Whether a service was able to say where its own files are.
+ *
+ * Two values and not a boolean on the entries, because "this kind of server has no
+ * way to tell us" and "this server holds nothing there" lead somewhere different: the
+ * first means stop asking and let somebody type, the second means the directory is
+ * really empty. The same reasoning as `RescanOutcome.UNSUPPORTED` on the API side —
+ * a degraded answer, never an exception, or it becomes indistinguishable from a
+ * server that is down.
+ */
+export enum ServerStructureSupport {
+	/** The server answered with paths of its own. */
+	REPORTED = 'reported',
+	/** This service cannot say. A peer never can: the disk is somebody else's. */
+	UNSUPPORTED = 'unsupported',
+}
+
+/**
+ * One directory as the media server itself spells it.
+ *
+ * `path` is the server's own string and is never resolved, cleaned or joined here:
+ * a Plex on Windows answers `D:\Media\Shows` and a gateway that tidied it into
+ * something POSIX would hand back a path that matches nothing on the machine that
+ * produced it.
+ */
+export interface ServerDirectory {
+	path: string;
+	/** Last segment, because a list of full paths is unreadable at three levels down. */
+	name: string;
+	/** True for a directory a library is declared on, false for one walked into. */
+	root: boolean;
+	/** The library the server declared this root for, when it declared one. */
+	libraryExternalId: string | null;
+	libraryName: string | null;
+	/** False for a file, which only the path-match proof ever asks for. */
+	directory: boolean;
+}
+
+/** What a service answers when asked to describe its own filesystem. */
+export interface ServerStructure {
+	support: ServerStructureSupport;
+	/** The directory these entries are inside, null when they are the library roots. */
+	path: string | null;
+	/** The directory above, when there is one to walk back up to. */
+	parent: string | null;
+	entries: ServerDirectory[];
+}
+
+/** Which part of a server's filesystem to describe. */
+export interface ServerStructureRequest {
+	/** Restrict the roots to one library's, by the identifier the service gave it. */
+	libraryExternalId?: string | null;
+	/** Walk into this directory instead of listing the library roots. */
+	path?: string | null;
+	/**
+	 * Also list files.
+	 *
+	 * The picker never wants them — a file is not a destination — and the one caller
+	 * that does is the marker proof in `LibraryManager.check()`, which asks the server
+	 * whether it can see a file the gateway has just written.
+	 */
+	includeFiles?: boolean;
+}
