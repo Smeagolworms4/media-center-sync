@@ -170,8 +170,6 @@ describe('Caller', () => {
 
 		const caller = getCaller('api', context.pinia);
 		const slow = caller.get('/page?p=1', { useAuth: false, keepLastKey: 'page' }).catch((error: unknown) => error);
-		// Two calls started in the same millisecond cannot be ordered, and ordering
-		// is the whole point of a keep-last key.
 		await flush();
 		const fast = caller.get('/page?p=2', { useAuth: false, keepLastKey: 'page' });
 
@@ -182,6 +180,34 @@ describe('Caller', () => {
 
 		resolvers[0](new Response('{"page":1}', { status: 200 }));
 		await expect(slow).resolves.toBeInstanceOf(AbortCallerException);
+	});
+
+	it('still drops the older answer when both calls start in the same millisecond', async () => {
+		// Calls used to be ordered by `Date.now()`. Two started within one millisecond
+		// shared a stamp, the older was neither aborted nor kept, and its answer arrived
+		// anyway — so this suite failed whenever a fast runner happened to start both
+		// in the same millisecond. The clock is frozen here to make that certain rather
+		// than a matter of timing: the ordering must not depend on it at all.
+		vi.spyOn(Date, 'now').mockReturnValue(1_758_000_000_000);
+
+		const resolvers: ((value: Response) => void)[] = [];
+		globalThis.fetch = vi.fn((_url: string, options: RequestInit = {}) => new Promise<Response>((resolve, reject) => {
+			resolvers.push(resolve);
+			options.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+		})) as unknown as typeof fetch;
+
+		const caller = getCaller('api', context.pinia);
+		const slow = caller.get('/page?p=1', { useAuth: false, keepLastKey: 'page' }).catch((error: unknown) => error);
+		const fast = caller.get('/page?p=2', { useAuth: false, keepLastKey: 'page' });
+
+		await flush();
+		resolvers[1](new Response('{"page":2}', { status: 200 }));
+		await expect(fast).resolves.toEqual({ page: 2 });
+
+		resolvers[0](new Response('{"page":1}', { status: 200 }));
+		await expect(slow).resolves.toBeInstanceOf(AbortCallerException);
+
+		vi.restoreAllMocks();
 	});
 
 	it('refuses to build a caller nobody registered', () => {

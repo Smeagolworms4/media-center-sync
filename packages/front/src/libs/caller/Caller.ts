@@ -51,7 +51,18 @@ export class Caller {
 	private _defaultOptions: CallerOptions;
 
 	private _abortCtrls: Record<string, AbortController> = {};
-	private _keepLasts: Record<string, { time: number; abortCtrl: AbortController }[]> = {};
+	private _keepLasts: Record<string, { sequence: number; abortCtrl: AbortController }[]> = {};
+
+	/**
+	 * The order calls were started in, which is what a keep-last key compares.
+	 *
+	 * A counter and not the clock. Two calls started within one millisecond read the
+	 * same `Date.now()`, and with equal stamps the older call was neither aborted nor
+	 * kept — both were dropped from the list, so its answer still arrived and could
+	 * overwrite the newer one on screen: the exact race a keep-last key exists to stop.
+	 * A fast machine starts two calls in one millisecond routinely.
+	 */
+	private _sequence = 0;
 
 	public constructor (
 		baseUrl: string,
@@ -70,7 +81,7 @@ export class Caller {
 		options = event.options;
 
 		try {
-			const time = Date.now();
+			const sequence = ++this._sequence;
 			const abortCtrl = new AbortController();
 			options.signal ??= abortCtrl.signal;
 
@@ -85,7 +96,7 @@ export class Caller {
 				if (!this._keepLasts[options.keepLastKey]) {
 					this._keepLasts[options.keepLastKey] = [];
 				}
-				this._keepLasts[options.keepLastKey].push({ time, abortCtrl });
+				this._keepLasts[options.keepLastKey].push({ sequence, abortCtrl });
 			}
 
 			options = {
@@ -108,11 +119,11 @@ export class Caller {
 			if (response.ok) {
 				if (options.keepLastKey && this._keepLasts[options.keepLastKey]) {
 					this._keepLasts[options.keepLastKey] = this._keepLasts[options.keepLastKey].filter(keep => {
-						if (keep.time < time) {
+						if (keep.sequence < sequence) {
 							keep.abortCtrl.abort();
 							return false;
 						}
-						return keep.time !== time;
+						return keep.sequence !== sequence;
 					});
 				}
 
