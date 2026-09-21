@@ -53,7 +53,11 @@
 			<div class="stat-tile_text">
 				<p class="stat-tile_title text-caption text-medium-emphasis">{{ title }}</p>
 
-				<p class="stat-tile_value text-h6" :class="`text-${TONE_COLOR[tone] ?? 'high-emphasis'}`">
+				<p
+					class="stat-tile_value text-h6"
+					:class="`text-${TONE_COLOR[tone] ?? 'high-emphasis'}`"
+					data-test="stat-tile-value"
+				>
 					<v-progress-circular v-if="loading" indeterminate size="18" width="2" />
 
 					<!--

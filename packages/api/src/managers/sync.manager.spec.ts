@@ -1,5 +1,6 @@
 import {
 	ErrorKey,
+	MatchStrategy,
 	MediaKind,
 	NamingScheme,
 	NotificationEvent,
@@ -36,11 +37,11 @@ import type {
 	MetadataService,
 	NamingService,
 	PlacementService,
-	QualityService,
 	SchedulerService,
 	SettingsService,
 	TransferEngineService,
 } from '@/services';
+import { QualityService } from '@/services';
 import type { LibraryManager } from './library.manager';
 import type { NotificationManager } from './notification.manager';
 import { SyncManager } from './sync.manager';
@@ -381,9 +382,15 @@ const build = (
 			get: jest.fn().mockResolvedValue({ ...SETTINGS, ...world.settings }),
 		} as unknown as SettingsService,
 		fakes.naming as unknown as NamingService,
-		// Asked for one label and nothing else — see the constructor. The real bands
-		// are pinned down in the quality service's own suite.
-		{ resolutionLabel: () => '1080p' } as unknown as QualityService,
+		// Asked for one label and whether two copies are different cuts — see the
+		// constructor. The label's real bands are pinned down in the quality service's
+		// own suite; the cut is the real rule, because a fake one would let the planner
+		// and the correlation disagree about what a different cut is.
+		{
+			resolutionLabel: () => '1080p',
+			isConflicting: (left: MediaFileInfo | null, right: MediaFileInfo | null) =>
+				new QualityService().isConflicting(left, right),
+		} as unknown as QualityService,
 		fakes.metadata as unknown as MetadataService,
 		fakes.placement as unknown as PlacementService,
 		fakes.engine as unknown as TransferEngineService,
@@ -717,6 +724,160 @@ describe('SyncManager', () => {
 			await expect(
 				build(world).manager.plan({ filter: { replaceOutdated: true, missingOnly: true } }),
 			).resolves.toMatchObject({ itemsPlanned: 0 });
+		});
+	});
+
+	/**
+	 * A theatrical cut on our disk and an extended one on a friend's server.
+	 *
+	 * Correlation puts the two together on their shared IMDb number and reads the pair
+	 * as a conflict. Everything here is the other half of that bargain: being grouped
+	 * must never make one cut stand in for the other.
+	 */
+	describe('two cuts of one film', () => {
+		const theatrical = (overrides: Partial<MediaItem> = {}): MediaItem =>
+			item({
+				id: 'item-theatrical',
+				serviceId: 'service-local',
+				externalId: 'ours',
+				kind: MediaKind.MOVIE,
+				seasonNumber: null,
+				episodeNumber: null,
+				normalizedTitle: 'titanic',
+				externalIds: { imdb: 'tt0120338' },
+				syncState: SyncState.CONFLICT,
+				file: file({
+					path: '/media/films/Titanic (1997).mkv',
+					contentId: 'q1-theatrical',
+					durationMs: 11_640_000,
+				}),
+				...overrides,
+			});
+		const extended = (overrides: Partial<MediaItem> = {}): MediaItem =>
+			item({
+				id: 'item-extended',
+				serviceId: 'service-fast',
+				kind: MediaKind.MOVIE,
+				seasonNumber: null,
+				episodeNumber: null,
+				normalizedTitle: 'titanic',
+				externalIds: { imdb: 'tt0120338' },
+				syncState: SyncState.CONFLICT,
+				file: file({
+					path: '/source/Titanic (1997) {edition-Extended}.mkv',
+					contentId: 'q1-extended',
+					durationMs: 12_540_000,
+					height: 2160,
+				}),
+				...overrides,
+			});
+		const cutConflict = {
+			localItemId: 'item-theatrical',
+			remoteItemId: 'item-extended',
+			strategy: MatchStrategy.EXTERNAL_ID,
+			state: SyncState.CONFLICT,
+		};
+		const world = (overrides: Parameters<typeof build>[0] = {}): Parameters<typeof build>[0] => ({
+			items: [theatrical(), extended()],
+			services: [service('service-fast', 1), service('service-local', 3)],
+			localServices: [service('service-local', 3)],
+			matches: [cutConflict],
+			...overrides,
+		});
+
+		it('fetches the extended cut when all we hold is the theatrical one', async () => {
+			const { manager } = build(world());
+
+			const planning = await manager.plan({ scope: { itemIds: ['item-extended'] } });
+
+			expect(planning.items).toEqual([
+				expect.objectContaining({
+					itemId: 'item-extended',
+					localItemId: null,
+					state: SyncState.MISSING,
+				}),
+			]);
+		});
+
+		it('never writes one cut over the other, even when told to replace outdated copies', async () => {
+			const { manager, fakes } = build(world());
+
+			const planning = await manager.plan({ filter: { replaceOutdated: true } });
+
+			expect(planning.items.map((planned) => planned.localItemId)).toEqual([null]);
+			expect(fakes.placement.resolve).toHaveBeenCalledWith(
+				expect.objectContaining({ replacesPath: null, existingPath: null }),
+			);
+		});
+
+		it('does not count a cut nobody fingerprinted as holding the other', async () => {
+			// No content identity on either side, so both fall into one bucket of the
+			// planner's identity and only the running time tells them apart.
+			const { manager } = build(
+				world({
+					items: [
+						theatrical({ file: file({ contentId: null, durationMs: 11_640_000 }) }),
+						extended({ file: file({ contentId: null, durationMs: 12_540_000 }) }),
+					],
+					matches: [],
+				}),
+			);
+
+			const planning = await manager.plan({});
+
+			expect(planning.items.map((planned) => planned.itemId)).toEqual(['item-extended']);
+		});
+
+		it('still counts the same bytes under two episode numbers as held', async () => {
+			// The other kind of conflict: the content is proven identical and only the
+			// label is disputed. Refusing it would fetch a file already on the disk.
+			const { manager } = build({
+				items: [
+					item({ file: file({ contentId: 'q1-same' }) }),
+					item({
+						id: 'item-local',
+						serviceId: 'service-local',
+						externalId: 'ours',
+						episodeNumber: 4,
+						syncState: SyncState.CONFLICT,
+						file: file({ contentId: 'q1-same' }),
+					}),
+				],
+				services: [service('service-fast', 1), service('service-local', 3)],
+				localServices: [service('service-local', 3)],
+				matches: [
+					{
+						localItemId: 'item-local',
+						remoteItemId: 'item-fast',
+						strategy: MatchStrategy.CHECKSUM,
+						state: SyncState.CONFLICT,
+					},
+				],
+			});
+
+			await expect(manager.plan({})).resolves.toMatchObject({ itemsPlanned: 0 });
+		});
+
+		it('never takes ranges for one cut from a server holding the other', async () => {
+			const { manager } = build(
+				world({
+					items: [extended(), theatrical({ serviceId: 'service-slow' })],
+					services: [service('service-fast', 1), service('service-slow', 2)],
+				}),
+			);
+
+			const sources = await manager.resolveSources({ itemId: 'item-extended' } as Transfer);
+
+			expect(sources.map((source) => source.serviceId)).toEqual(['service-fast']);
+		});
+
+		it('never lays one cut\'s subtitles over the other', async () => {
+			const { manager, fakes } = build(world());
+
+			const [result] = await manager.pullCompanions(['item-theatrical']);
+
+			expect(fakes.metadata.discover).not.toHaveBeenCalled();
+			expect(result.error).toBe(ErrorKey.SYNC_NO_SOURCE);
 		});
 	});
 

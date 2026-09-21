@@ -389,6 +389,23 @@ export class TransferManager {
 		const names = new Map(
 			libraries.map((library) => [library.id, library.alias?.trim() || library.name]),
 		);
+
+		/*
+		 * Only files somebody can still do something about.
+		 *
+		 * Removing a service removes its libraries and leaves the transfers that wrote
+		 * into them. Those stay: a finished transfer is history, and the transfers
+		 * screen still reads them. But this list asks a question — move the file, or
+		 * say where its category goes — and about a library nothing manages any more
+		 * there is none left. Listed, such a row sat on the dashboard for ever with no
+		 * library, no category and nothing anywhere that could clear it.
+		 *
+		 * A null library is not the same case and stays: that is the fallback folder,
+		 * which belongs to no library by design and is exactly what this list is for.
+		 */
+		const answerable = rows.filter(
+			(row) => row.targetLibraryId === null || names.has(row.targetLibraryId),
+		);
 		const categoryOf = new Map<string, { key: string; name: string }>();
 
 		for (const category of categories) {
@@ -397,7 +414,7 @@ export class TransferManager {
 			}
 		}
 
-		return rows.map((row) => {
+		return answerable.map((row) => {
 			// The item the bytes come from, whose own library is what the category table
 			// is keyed on — the same reading the plan used when it chose this path.
 			const item = itemsById.get(row.itemId);

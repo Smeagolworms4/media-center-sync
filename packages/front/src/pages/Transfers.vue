@@ -114,10 +114,15 @@
 
 	// The path under the name, because a choice made against `Shows` and a choice made
 	// against `/mnt/nas/shows` are not the same choice on a gateway with two of each.
+	// The marks ride along on the same `item-props`, which is how the offer itself can
+	// be read back — "only libraries this gateway writes into are proposed" is a
+	// statement about the options, and nothing else on the screen shows them.
 	const destinationItems = computed(() => destinations.value.map(one => ({
-		value: one.id,
-		title: one.name,
-		subtitle: one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
+		'value': one.id,
+		'title': one.name,
+		'subtitle': one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
+		'data-test': 'retarget-option',
+		'data-library': one.id,
 	})));
 
 	const pageModel = computed({
@@ -169,9 +174,14 @@
 		void load();
 	});
 
+	// `item-props`, so an option carries a mark of its own: the labels are translated
+	// and a journey that picked one by its wording would break the day the interface
+	// is read in another language.
 	const stateItems = computed(() => Object.values(TransferState).map(value => ({
-		value,
-		title: t(`transfer.state.${value}`),
+		'value': value,
+		'title': t(`transfer.state.${value}`),
+		'data-test': 'transfer-state-option',
+		'data-value': value,
 	})));
 
 	const viewItems = computed(() => Object.values(HistoryView).map(value => ({
@@ -373,6 +383,7 @@
 					data-test="transfer-state-filter"
 					density="compact"
 					hide-details
+					item-props
 					item-title="title"
 					item-value="value"
 					:items="stateItems"

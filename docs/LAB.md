@@ -4,7 +4,7 @@ Four real media servers — two Jellyfin, two Plex — each holding a library th
 disagrees with the others on purpose, and two real gateways to run them against.
 
 ```bash
-make lab/media     # generate the fixtures, a few megabytes
+make lab/media     # build the fixtures from the committed clip, about 115 MB
 make lab/up        # start the servers and both gateways, and configure the servers
 make lab/setup     # re-run the media server configuration on its own
 make lab/services  # reprint the URLs, keys, scopes and the two gateways
@@ -110,10 +110,21 @@ break. Two of the four are ours and may be written into; two are a friend's and 
 only be read. Nothing in the containers says which: that is decided at registration,
 which is exactly the point.
 
-The libraries are generated rather than downloaded: a few seconds of test pattern, at
-the real resolution the filename claims. That last point matters — the quality
-comparator reads the stream, so a file named `2160p` that is really 720p would make
-the lab prove the opposite of what it appears to prove.
+Every file is built from one committed source: thirty seconds of *Big Buck Bunny*
+(Blender Foundation, CC BY 3.0 — `docker/lab/fixtures/ATTRIBUTION`), scaled and
+re-encoded to the real resolution and codec the filename claims. The resolution
+matters — the quality comparator reads the stream, so a file named `2160p` that is
+really 720p would make the lab prove the opposite of what it appears to prove. The
+single source matters for the runtime. The lab used to generate a few seconds of test
+pattern per file, two copies of one film came out at 3.0 s and 4.0 s, and the
+different-cut rule split them into two cards. Now every file runs for the clip's
+thirty seconds, except three pairs whose runtimes are chosen on purpose (below).
+
+`seed-media.sh` only ever creates: a path that already exists is left alone, whoever
+put it there, and a file is written under a hidden name and renamed into place, so an
+interrupted run never leaves a truncated file behind. No fixture may be named
+*Animatrix* — the script refuses it — because the owner keeps a real eight-gigabyte
+film of that name in the live lab, and a generated one would correlate with it.
 
 ## What is in it, and what each case is for
 
@@ -137,9 +148,11 @@ Everything below is The Expanse unless it says otherwise.
 | `S02E01` | — | 1080p x265 | — | — | a season answered entirely from our own side |
 | `S03E01–03` | — | — | 1080p / 1080p / 720p | — | **a season nothing local holds** |
 | Cowboy Bebop `S01E01` | 720p x264 | 2160p x265, spelled apart | — | — | normalisation, then outdated |
+| Samurai Champloo `S01E01` | 480p x264, 400 s | — | 480p x264, 435 s | — | **conflict** — two cuts, neither better |
 | Tears of Steel | 1080p x265 | 1080p x265, spelled apart | — | — | a film we already share |
+| Cosmos Laundromat | 1080p x265, 30 s | — | — | 480p x264 MKV, 180 s | **two cuts of one film** — one card, conflict |
 | Elephants Dream, Sintel | — | 1080p | — | — | films only the other local holds |
-| Big Buck Bunny | — | — | 1080p x264 | 2160p x265 | **a film both remotes hold and we do not** |
+| Big Buck Bunny | — | — | 1080p x264, 30 s | 2160p x265, 42 s | **a film both remotes hold and we do not**, micro-cut |
 
 The season in A is deliberately not uniform, so the quality summary has something real
 to call `mixed` rather than a tidy row that proves nothing.
@@ -152,6 +165,31 @@ servers it is never more than a formality.
 **`S03` is the mirror image.** Three episodes, one source, nothing held by anything
 the gateway may write into. A season card in that state has to read differently from
 an empty season and from a season fully held, and there is nowhere else to see it.
+
+**The runtime pairs pin the different-cut rule from both sides.** A difference over
+two minutes, or over thirty seconds *and* over five percent of the longer runtime, is
+two cuts (`QualityService.isConflicting`). Big Buck Bunny, 30 s against 42 s, is one
+film: twelve seconds is far over five percent, and only the thirty-second floor keeps
+it one card — a trimmed credit or a studio logo must never split a film. Cosmos
+Laundromat, 30 s against 180 s, is two cuts of one film, and it is **one card in
+`CONFLICT`**: both copies carry the film's real TMDB and IMDb numbers, a shared work
+identifier proves they are the same work, and the runtime then decides that they are
+two versions of it. The identifier decides the work; the runtime decides the version.
+
+That used to be the opposite, and the lab is what shows it. The runtime was a veto asked
+*before* the identifiers, so two cuts of a film stayed two unrelated cards and
+`CONFLICT` — a state of a group — was unreachable for any film. It was also dangerous:
+the state was derived only when neither encode ranked above the other, so a 2160p
+extended cut read `OUTDATED` against a 1080p theatrical one, and a sync set to replace
+outdated copies would have written one cut over the other. The cut is now asked before
+the quality.
+
+Samurai Champloo S01E01, 400 s against 435 s, is two cuts of one episode and reads
+`CONFLICT` too. Its two copies are still encoded to rank level with each other — close
+bitrates and sizes — which was once what made `CONFLICT` reachable at all. It no longer
+matters for the verdict; it is kept so the pair reads `CONFLICT` under either rule, and
+a regression shows. `lab/media` measures all three and refuses to finish when one lands
+on the wrong side; do not tidy them to thirty seconds.
 
 **The identical pair is still the important one.** Nothing about the two names would
 let a title comparison call them the same episode with any confidence: the show is

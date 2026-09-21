@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { MediaService, RunSyncRequest, SyncPlan } from '@mcs/shared';
+	import type { MediaService, RunSyncRequest, SyncPlan, SyncScope } from '@mcs/shared';
 	import { MediaKind, SyncTrigger } from '@mcs/shared';
 	import { computed, reactive, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -49,6 +49,28 @@
 	 */
 	const { destinations, rejected } = useDestinationLibraries();
 
+	/**
+	 * The parts of the scope this form does not render, carried through untouched.
+	 *
+	 * The form edits one subtree. A plan can hold more — keeping a second show in sync
+	 * from its own page adds a root to the plan that already exists, and a plan written
+	 * over the API may name categories or libraries — and a save that rebuilt the scope
+	 * from the one field would silently drop the rest. Worse, dropping a category from
+	 * a plan that named nothing else turns it into "everything".
+	 */
+	const extraRoots: string[] = props.plan?.scope?.rootItemIds?.slice(1) ?? [];
+	const keptScope: SyncScope = {
+		...(props.plan?.scope?.categoryKeys?.length ? { categoryKeys: [...props.plan.scope.categoryKeys] } : {}),
+		...(props.plan?.scope?.libraryIds?.length ? { libraryIds: [...props.plan.scope.libraryIds] } : {}),
+		...(props.plan?.scope?.itemIds?.length ? { itemIds: [...props.plan.scope.itemIds] } : {}),
+	};
+
+	/** The gateway's own test, restated: a scope that names nothing means everything. */
+	function namesNothing (scope: SyncScope): boolean {
+		return [scope.categoryKeys, scope.libraryIds, scope.rootItemIds, scope.itemIds]
+			.every(part => (part?.length ?? 0) === 0);
+	}
+
 	const model = reactive({
 		name: props.plan?.name ?? '',
 		enabled: props.plan?.enabled ?? true,
@@ -65,6 +87,17 @@
 		minYear: props.plan?.filter?.minYear ?? null,
 		maxBytes: toByteSizeInput(props.plan?.filter?.maxBytes ?? null),
 		titleMatches: props.plan?.filter?.titleMatches ?? '',
+		maxItemsPerRun: (props.plan?.maxItemsPerRun ?? null) as number | string | null,
+		maxBytesPerRun: toByteSizeInput(props.plan?.maxBytesPerRun ?? null),
+		/*
+		 * Ticked from the start only for a plan that already stands enabled and
+		 * unbounded: the gateway refused to store it that way without the
+		 * acknowledgement, so somebody already made this choice knowingly, and the
+		 * gateway asks again on every save. Asking them to re-tick it to rename the plan
+		 * would teach the box to be clicked without being read — which is the one thing
+		 * it exists to prevent. A new plan always starts unticked.
+		 */
+		acknowledgeUnbounded: !!props.plan?.enabled && namesNothing(props.plan.scope ?? {}),
 	});
 
 	const addSource = ref<string | null>(null);
@@ -81,6 +114,15 @@
 
 	const availableSources = computed(
 		() => props.services.filter(one => !model.sourceServiceIds.includes(one.id)));
+
+	// Marked like the other menus, so a journey can find a server by what it is rather
+	// than by a label somebody may rename.
+	const sourceItems = computed(() => availableSources.value.map(one => ({
+		'value': one.id,
+		'title': one.name,
+		'data-test': 'plan-add-source-option',
+		'data-value': one.id,
+	})));
 
 	function pushSource (): void {
 		if (addSource.value && !model.sourceServiceIds.includes(addSource.value)) {
@@ -113,6 +155,38 @@
 		};
 	}
 
+	function scope (): SyncScope {
+		const roots = [model.rootItemId, ...extraRoots].filter(Boolean);
+		return { ...keptScope, ...(roots.length > 0 ? { rootItemIds: roots } : {}) };
+	}
+
+	/**
+	 * The acknowledgement is asked for exactly when the gateway would refuse without
+	 * it: an enabled plan whose scope names nothing. Shown at any other moment it
+	 * would be a box people learn to tick; hidden at this one, the refusal that sends
+	 * them to it points at nothing.
+	 */
+	const needsAcknowledgement = computed(() => model.enabled && namesNothing(scope()));
+
+	/**
+	 * A ceiling is required on top, when that plan also runs by itself.
+	 *
+	 * "Everything, knowingly" is a defensible thing to press run on: the preview says
+	 * what it comes to first. It is not a defensible thing to leave to a timer, because
+	 * the scope that was a few shows in January is a whole server by June and nobody is
+	 * watching at four in the morning. The gateway does not enforce this one; the
+	 * model's own contract says the interface does.
+	 */
+	const needsCeiling = computed(
+		() => needsAcknowledgement.value && model.trigger !== SyncTrigger.MANUAL);
+
+	function ceilings () {
+		const items = model.maxItemsPerRun === null || model.maxItemsPerRun === ''
+			? null
+			: Number(model.maxItemsPerRun);
+		return { maxItemsPerRun: items, maxBytesPerRun: parseByteSize(model.maxBytesPerRun) };
+	}
+
 	/**
 	 * The body a run would take, which is exactly the body the preview takes. The
 	 * two are built by the same function on purpose: a preview computed from
@@ -121,12 +195,13 @@
 	function runRequest (): RunSyncRequest {
 		return {
 			...(props.plan ? { planId: props.plan.id } : {}),
-			...(model.rootItemId ? { scope: { rootItemIds: [model.rootItemId] } } : {}),
+			...(namesNothing(scope()) ? {} : { scope: scope() }),
 			sourceServiceIds: [...model.sourceServiceIds],
 			// A run takes a one-off destination; the plan's preference is the default
 			// for it, so a preview shows what a run of this plan would actually do.
 			targetLibraryId: model.preferredLibraryId,
 			filter: filter(),
+			...ceilings(),
 		};
 	}
 
@@ -142,6 +217,28 @@
 			},
 			minYear: { rules: [validators.onlyInteger()] },
 			maxBytes: { rules: [validators.byteSize()] },
+			// At least one, because a ceiling of nothing is a plan that never pulls
+			// anything and reads, on the list, as a plan with a limit.
+			maxItemsPerRun: {
+				rules: [
+					validators.onlyInteger(),
+					validators.range({ min: 1 }),
+					() => {
+						const { maxItemsPerRun, maxBytesPerRun } = ceilings();
+						const capped = maxItemsPerRun !== null || maxBytesPerRun !== null;
+						return !needsCeiling.value || capped || t('sync.plan.ceiling_required');
+					},
+				],
+			},
+			maxBytesPerRun: { rules: [validators.byteSize({ min: 1 })] },
+			// The gateway's own sentence, because it says exactly what is being asked
+			// and it is already in every catalogue: the refusal and the box that answers
+			// it can then never disagree.
+			acknowledgeUnbounded: {
+				rules: computed(() => (needsAcknowledgement.value
+					? [(value: unknown) => value === true || t('error.sync.scope_unbounded')]
+					: [])),
+			},
 		},
 		handle: async () => {
 			const request = {
@@ -151,8 +248,10 @@
 				schedule: scheduled.value && model.schedule ? model.schedule : null,
 				sourceServiceIds: [...model.sourceServiceIds],
 				preferredLibraryId: model.preferredLibraryId,
-				scope: model.rootItemId ? { rootItemIds: [model.rootItemId] } : {},
+				scope: scope(),
 				filter: filter(),
+				...ceilings(),
+				...(needsAcknowledgement.value ? { acknowledgeUnbounded: model.acknowledgeUnbounded } : {}),
 			};
 			const saved = props.plan
 				? await syncStore.updatePlan(props.plan.id, request)
@@ -161,25 +260,37 @@
 		},
 	});
 
+	// `item-props`, so the options carry a mark of their own: the labels are
+	// translated and a journey that picked one by its wording would break the day the
+	// interface is read in another language.
 	const triggerItems = computed(() => Object.values(SyncTrigger).map(value => ({
-		value,
-		title: t(`sync.trigger.${value}`),
+		'value': value,
+		'title': t(`sync.trigger.${value}`),
+		'data-test': 'plan-trigger-option',
+		'data-value': value,
 	})));
 
 	/** What the chosen trigger actually does, under the field rather than in it. */
 	const triggerHelp = computed(() => t(`sync.trigger_help.${model.trigger}`));
 
 	const kindItems = computed(() => Object.values(MediaKind).map(value => ({
-		value,
-		title: t(`media.kind.${value}`),
+		'value': value,
+		'title': t(`media.kind.${value}`),
+		'data-test': 'plan-kind-option',
+		'data-value': value,
 	})));
 
 	// The path under the name: on a gateway with a `Shows` on two servers, the name
-	// alone is not a choice anybody can make correctly.
+	// alone is not a choice anybody can make correctly. The marks ride along on the
+	// same `item-props`, which is how the offer itself can be read back — "only
+	// writable libraries of our own are proposed" is a statement about the options,
+	// and nothing else on the screen shows them.
 	const destinationItems = computed(() => destinations.value.map(one => ({
-		value: one.id,
-		title: one.name,
-		subtitle: one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
+		'value': one.id,
+		'title': one.name,
+		'subtitle': one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
+		'data-test': 'plan-target-option',
+		'data-library': one.id,
 	})));
 </script>
 
@@ -211,6 +322,7 @@
 			v-bind="form.field('trigger')"
 			data-test="plan-trigger"
 			:hint="triggerHelp"
+			item-props
 			item-title="title"
 			item-value="value"
 			:items="triggerItems"
@@ -251,6 +363,7 @@
 
 				<template #append>
 					<v-btn
+						data-test="plan-source-up"
 						:disabled="index === 0"
 						icon="mdi-arrow-up"
 						size="x-small"
@@ -259,6 +372,7 @@
 					/>
 
 					<v-btn
+						data-test="plan-source-down"
 						:disabled="index === model.sourceServiceIds.length - 1"
 						icon="mdi-arrow-down"
 						size="x-small"
@@ -267,6 +381,7 @@
 					/>
 
 					<v-btn
+						data-test="plan-source-remove"
 						icon="mdi-close"
 						size="x-small"
 						variant="text"
@@ -282,13 +397,19 @@
 				data-test="plan-add-source"
 				density="compact"
 				hide-details
-				item-title="name"
-				item-value="id"
-				:items="availableSources"
+				item-props
+				item-title="title"
+				item-value="value"
+				:items="sourceItems"
 				:label="$t('sync.plan.add_source')"
 			/>
 
-			<v-btn :disabled="!addSource" variant="tonal" @click="pushSource">
+			<v-btn
+				data-test="plan-source-add"
+				:disabled="!addSource"
+				variant="tonal"
+				@click="pushSource"
+			>
 				{{ $t('actions.add') }}
 			</v-btn>
 		</div>
@@ -340,6 +461,56 @@
 			persistent-hint
 		/>
 
+		<p
+			v-if="extraRoots.length > 0"
+			class="text-caption text-medium-emphasis mb-0 mt-1"
+			data-test="plan-root-more"
+		>
+			{{ $t('sync.plan.root_more', { count: extraRoots.length }) }}
+		</p>
+
+		<!--
+			Right under the field that would have avoided it, and only while it applies:
+			the choice is about the scope, so it sits with the scope.
+		-->
+		<v-checkbox
+			v-if="needsAcknowledgement"
+			v-model="model.acknowledgeUnbounded"
+			v-bind="form.field('acknowledgeUnbounded')"
+			class="mt-2"
+			color="warning"
+			data-test="plan-acknowledge-unbounded"
+			:hint="$t('sync.plan.acknowledge_unbounded_hint')"
+			:label="$t('sync.plan.acknowledge_unbounded')"
+			persistent-hint
+		/>
+
+		<p class="text-subtitle-2 mt-6 mb-1">{{ $t('sync.plan.ceilings') }}</p>
+
+		<p class="text-caption text-medium-emphasis">{{ $t('sync.plan.ceilings_hint') }}</p>
+
+		<v-row density="compact">
+			<v-col cols="12" sm="6">
+				<v-text-field
+					v-model="model.maxItemsPerRun"
+					v-bind="form.field('maxItemsPerRun')"
+					data-test="plan-max-items-per-run"
+					inputmode="numeric"
+					:label="$t('sync.plan.max_items_per_run')"
+				/>
+			</v-col>
+
+			<v-col cols="12" sm="6">
+				<v-text-field
+					v-model="model.maxBytesPerRun"
+					v-bind="form.field('maxBytesPerRun')"
+					data-test="plan-max-bytes-per-run"
+					:label="$t('sync.plan.max_bytes_per_run')"
+					placeholder="200G"
+				/>
+			</v-col>
+		</v-row>
+
 		<p class="text-subtitle-2 mt-6 mb-1">{{ $t('sync.plan.filters') }}</p>
 
 		<v-row density="compact">
@@ -349,6 +520,7 @@
 					chips
 					clearable
 					data-test="plan-kinds"
+					item-props
 					item-title="title"
 					item-value="value"
 					:items="kindItems"
@@ -389,6 +561,7 @@
 		<v-switch
 			v-model="model.missingOnly"
 			color="primary"
+			data-test="plan-missing-only"
 			density="compact"
 			hide-details
 			:label="$t('sync.plan.missing_only')"
@@ -397,6 +570,7 @@
 		<v-switch
 			v-model="model.replaceOutdated"
 			color="primary"
+			data-test="plan-replace-outdated"
 			density="compact"
 			hide-details
 			:label="$t('sync.plan.replace_outdated')"

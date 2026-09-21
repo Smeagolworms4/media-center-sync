@@ -17,6 +17,7 @@
 							`components-notify_card--${notify.type}`,
 						]"
 						data-test="notify"
+						:data-type="notify.type"
 					>
 						{{ notify.message }}
 					</div>

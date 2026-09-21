@@ -25,6 +25,11 @@
 # Runtime data: the SQLite file, transfers in flight, the gateway keypair.
 var
 packages/api/data
+
+# The lab is a development tool and has no business in the production image. It
+# carries a committed video clip, and without this every build would ship it to the
+# daemon for nothing — and would keep doing so as the lab grows.
+docker/lab
 **/.env.local
 
 docs

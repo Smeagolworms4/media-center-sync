@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
-import type { MatchStrategy } from '@mcs/shared';
-import { SyncState } from '@mcs/shared';
+import { MatchStrategy, SyncState } from '@mcs/shared';
 import { MediaMatch } from '@/entities';
 
 /** What a correlation pass produces for one pair. */
@@ -16,10 +15,22 @@ export interface MatchClaim {
 	reason?: string | null;
 }
 
+/** The strategies whose word on identity survives a conflict; see `findAppliedPairs`. */
+const VOUCHING_STRATEGIES: MatchStrategy[] = [
+	MatchStrategy.EXTERNAL_ID,
+	MatchStrategy.SEASON_EPISODE,
+	MatchStrategy.MANUAL,
+];
+
 /** Two items an applied match joined — the edge grouping walks. */
 export interface MatchPair {
 	localItemId: string;
 	remoteItemId: string;
+	/**
+	 * Carried because a joined conflict is two versions of one work, and a copy at
+	 * either end of one holds its own version and not the other.
+	 */
+	state: SyncState;
 }
 
 @Injectable()
@@ -29,17 +40,27 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 	}
 
 	/**
-	 * The pairs the gateway actually acted on, as two identifiers and nothing else.
+	 * The pairs the gateway actually acted on, as two identifiers and a state.
 	 *
-	 * Runs `SELECT localItemId, remoteItemId FROM media_matches WHERE localItemId IS
-	 * NOT NULL AND state <> 'conflict' AND (confidence >= :threshold OR confirmedAt IS
-	 * NOT NULL)`. It is what grouping joins on, and each clause is one of the rules:
+	 * Runs `SELECT localItemId, remoteItemId, state FROM media_matches WHERE
+	 * localItemId IS NOT NULL AND (state <> 'conflict' OR strategy IN (:...vouching))
+	 * AND (confidence >= :threshold OR confirmedAt IS NOT NULL)`. It is what grouping
+	 * joins on, and each clause is one of the rules:
 	 *
 	 * - a null `localItemId` is a pair a person detached one half of, so there is no
 	 *   second identifier to join to — it is not, despite the column's name, the mark
 	 *   of a media only a friend holds; see `MediaMatch.localItemId`;
-	 * - a conflict is a disputed pair, and the whole point of that state is that nobody
-	 *   has decided the two are the same thing;
+	 * - a conflict joins only when something that names the work vouched for the pair:
+	 *   a work identifier, season and episode numbers under a series already matched,
+	 *   or a person. Two cuts of one film are then one work in two versions, and one
+	 *   card reading `conflict` says so where two unrelated-looking cards never could.
+	 *   Every other conflict is a disputed identity and stays two. The same bytes filed
+	 *   under two episode numbers — `MediaManager.labelDisagreement` — is written over a
+	 *   checksum, and joining it would silently renumber one library after the other;
+	 *   a title or a path that agrees over two different running times is exactly the
+	 *   evidence `MatchingService` refuses to merge a film on, and it proves no more for
+	 *   an episode. The strategy is what tells them apart, without a column that would
+	 *   have to be migrated to say so;
 	 * - below the threshold a match was proposed and not applied, which has to stay two
 	 *   posters rather than become one;
 	 * - a confirmation overrules the score, because a human said so.
@@ -53,8 +74,12 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 		return this.createQueryBuilder('match')
 			.select('match.localItemId', 'localItemId')
 			.addSelect('match.remoteItemId', 'remoteItemId')
+			.addSelect('match.state', 'state')
 			.where('match.localItemId IS NOT NULL')
-			.andWhere('match.state != :conflict', { conflict: SyncState.CONFLICT })
+			.andWhere('(match.state != :conflict OR match.strategy IN (:...vouching))', {
+				conflict: SyncState.CONFLICT,
+				vouching: VOUCHING_STRATEGIES,
+			})
 			.andWhere('(match.confidence >= :threshold OR match.confirmedAt IS NOT NULL)', {
 				threshold,
 			})

@@ -45,7 +45,15 @@ export enum SyncState {
 	IN_SYNC = 'in_sync',
 	/** Present here, but a better version exists elsewhere. */
 	OUTDATED = 'outdated',
-	/** Two versions that cannot be ordered — different cuts, different languages. */
+	/**
+	 * Two versions of one work that cannot be ordered — different cuts, different
+	 * languages.
+	 *
+	 * A state of a pair that belongs together: the identifier says they are one work,
+	 * the running time says they are not one version. Never interchangeable — a copy in
+	 * this state does not count as holding the other one, and a sync never pulls one to
+	 * satisfy a request for the other.
+	 */
 	CONFLICT = 'conflict',
 	/** A transfer is running for this item. */
 	SYNCING = 'syncing',

@@ -55,7 +55,9 @@
 			await Promise.all([
 				syncStore.loadPlans(),
 				loadJobs(),
-				servicesStore.loaded ? Promise.resolve() : servicesStore.load().catch(() => undefined),
+				// Asked again on every visit — see `SyncPlan.vue` for why a list loaded
+				// earlier in the session is not good enough to name a plan's sources.
+				servicesStore.reload().catch(() => undefined),
 				librariesStore.loaded ? Promise.resolve() : librariesStore.load().catch(() => undefined),
 			]);
 		} catch {
@@ -198,6 +200,7 @@
 								v-if="!plan.enabled"
 								class="ml-2"
 								color="state-unknown"
+								data-test="plan-disabled"
 								label
 								size="small"
 								variant="tonal"

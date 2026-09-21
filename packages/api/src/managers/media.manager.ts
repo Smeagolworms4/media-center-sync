@@ -1,10 +1,10 @@
 import { Readable } from 'node:stream';
 import {
 	ErrorKey,
+	MediaKind,
 	MediaServiceMode,
 	MatchStrategy,
 	SyncState,
-	type MediaFileInfo,
 	type MediaItem,
 	type MediaMatch,
 	type MediaOverride,
@@ -22,13 +22,17 @@ import {
 } from '@/repositories';
 import {
 	CacheService,
+	contentKeys,
 	HandlerRegistry,
+	identifierValue,
 	landingSyncState,
 	MatchingService,
 	applyOverride,
 	normalizeTitle,
+	sameContent,
 	serviceMode,
 	SettingsService,
+	WORK_IDENTIFIERS,
 	type MatchCandidate,
 	type MatchProposal,
 } from '@/services';
@@ -49,6 +53,8 @@ interface CorrelationContext {
 	local: Set<string>;
 	everything: MediaItemEntity[];
 	byContent: Map<string, MediaItemEntity[]>;
+	/** Films and series by work identifier; see `_indexByWork`. */
+	byWork: Map<string, MediaItemEntity[]>;
 	/**
 	 * Items whose file the gateway has already put on the disk, and the state that
 	 * makes. Read once per pass rather than per item — the table holds one row per
@@ -134,13 +140,14 @@ export class MediaManager {
 		);
 		const everything = await this._items.find();
 		const byContent = this._indexByContent(everything);
+		const byWork = this._indexByWork(everything);
 		const landed = new Map(
 			(await this._landings.findOpen()).map((landing) => [
 				landing.itemId,
 				landingSyncState(landing.state),
 			]),
 		);
-		const context = { threshold, peers, local, everything, byContent, landed };
+		const context = { threshold, peers, local, everything, byContent, byWork, landed };
 
 		const mine = everything.filter((item) => item.serviceId === serviceId);
 		const touched = new Set<string>();
@@ -197,7 +204,11 @@ export class MediaManager {
 
 		const candidates = new Map<string, MediaItemEntity>();
 
-		for (const candidate of [...byTitle, ...this._sameContentAs(item, context.byContent)]) {
+		for (const candidate of [
+			...byTitle,
+			...this._sameContentAs(item, context.byContent),
+			...this._sameWorkAs(item, context.byWork),
+		]) {
 			if (candidate.id !== item.id && candidate.serviceId !== item.serviceId) {
 				candidates.set(candidate.id, candidate);
 			}
@@ -249,7 +260,7 @@ export class MediaManager {
 	 * comparison and goes through the quality comparator like anything else.
 	 */
 	public labelDisagreement(local: MediaItemEntity, remote: MediaItemEntity): string | null {
-		if (!this._sameContent(local.file, remote.file)) {
+		if (!sameContent(local.file, remote.file)) {
 			return null;
 		}
 
@@ -507,43 +518,11 @@ export class MediaManager {
 		return { ...proposal, state: SyncState.CONFLICT, reason: disagreement };
 	}
 
-	/** Files are the same when anything that identifies their content agrees. */
-	private _sameContent(left: MediaFileInfo | null, right: MediaFileInfo | null): boolean {
-		return this._contentKeys(left).some((key) => this._contentKeys(right).includes(key));
-	}
-
-	/**
-	 * The identities a file can be recognised by, strongest first.
-	 *
-	 * A checksum is proof. `contentId` is a few sampled ranges plus the exact size,
-	 * which two gateways compute identically without exchanging anything — the whole
-	 * reason it exists. A size on its own is deliberately not in the list: two files of
-	 * the same length are not the same file, and treating them as such would turn this
-	 * rule into a machine for inventing conflicts.
-	 */
-	private _contentKeys(file: MediaFileInfo | null): string[] {
-		if (file === null) {
-			return [];
-		}
-
-		const keys: string[] = [];
-
-		if (file.checksum !== null && file.checksum !== '') {
-			keys.push(`checksum:${file.checksum}`);
-		}
-
-		if (file.contentId !== null && file.contentId !== '') {
-			keys.push(`content:${file.contentId}`);
-		}
-
-		return keys;
-	}
-
 	private _indexByContent(items: MediaItemEntity[]): Map<string, MediaItemEntity[]> {
 		const index = new Map<string, MediaItemEntity[]>();
 
 		for (const item of items) {
-			for (const key of this._contentKeys(item.file)) {
+			for (const key of contentKeys(item.file)) {
 				index.set(key, [...(index.get(key) ?? []), item]);
 			}
 		}
@@ -555,7 +534,53 @@ export class MediaManager {
 		item: MediaItemEntity,
 		index: Map<string, MediaItemEntity[]>,
 	): MediaItemEntity[] {
-		return this._contentKeys(item.file).flatMap((key) => index.get(key) ?? []);
+		return contentKeys(item.file).flatMap((key) => index.get(key) ?? []);
+	}
+
+	/**
+	 * Films and series by the identifiers that name a work.
+	 *
+	 * The title lookup only ever puts two copies side by side when their normalised
+	 * titles are identical, so a film filed as *Le Fabuleux Destin d'Amélie Poulain* on
+	 * one server and *Amélie* on another was never compared at all, however loudly their
+	 * IMDb numbers agreed. If the identifier decides the work, it has to be able to
+	 * introduce the two copies too.
+	 *
+	 * Films and series only. A season and an episode routinely carry their series'
+	 * identifier rather than their own, so indexing them would make every episode of a
+	 * show a candidate for every other — a quadratic walk to be told no — and a season
+	 * has no number check in the identifier strategy to stop season one meeting season
+	 * two.
+	 */
+	private _indexByWork(items: MediaItemEntity[]): Map<string, MediaItemEntity[]> {
+		const index = new Map<string, MediaItemEntity[]>();
+
+		for (const item of items) {
+			for (const key of this._workKeys(item)) {
+				index.set(key, [...(index.get(key) ?? []), item]);
+			}
+		}
+
+		return index;
+	}
+
+	private _sameWorkAs(
+		item: MediaItemEntity,
+		index: Map<string, MediaItemEntity[]>,
+	): MediaItemEntity[] {
+		return this._workKeys(item).flatMap((key) => index.get(key) ?? []);
+	}
+
+	private _workKeys(item: MediaItemEntity): string[] {
+		if (item.kind !== MediaKind.MOVIE && item.kind !== MediaKind.SERIES) {
+			return [];
+		}
+
+		// The kind is part of the key because TMDB and TVDB number films and series
+		// separately: film 1399 and series 1399 are two works.
+		return WORK_IDENTIFIERS.map((provider) => [provider, identifierValue(item.externalIds, provider)])
+			.filter(([, value]) => value !== null)
+			.map(([provider, value]) => `${item.kind}:${provider}:${value}`);
 	}
 
 	/** `S01E05`, with a question mark where a library told us nothing. */

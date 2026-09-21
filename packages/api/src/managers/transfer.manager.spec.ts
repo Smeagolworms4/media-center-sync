@@ -153,7 +153,12 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 						: { id: 'lib-shows', name: 'Shows', alias: null, serviceId: 'service-1', localPath: '/media/shows' },
 				),
 			),
-			find: jest.fn().mockResolvedValue([OURS]),
+			// Both shelves `findOne` answers for: a fake world where a library can be read
+			// one by one but is missing from the list would be one no gateway can be in.
+			find: jest.fn().mockResolvedValue([
+				OURS,
+				{ id: 'lib-shows', name: 'Shows', alias: null, serviceId: 'service-1', localPath: '/media/shows' },
+			]),
 		},
 		lines: { findLine: jest.fn().mockResolvedValue(null), save: jest.fn() },
 		libraryManager: {
@@ -656,6 +661,21 @@ describe('TransferManager', () => {
 			expect(rows).toHaveLength(1);
 			expect(rows[0].categoryName).toBe('Animés');
 			expect(rows[0].placedBy).toBe(PlacedBy.DEFAULT_LIBRARY);
+		});
+
+		it('leaves out a file whose library has since been removed', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			fakes.transfers.findUnconfigured.mockResolvedValue([
+				transfer({ id: 'orphaned', targetLibraryId: 'lib-gone', placedBy: PlacedBy.DEFAULT_LIBRARY }),
+				transfer({ id: 'fallback', targetLibraryId: null, placedBy: PlacedBy.FALLBACK_PATH }),
+			]);
+
+			const rows = await manager.unconfigured();
+
+			// Nothing manages that shelf any more, so there is no decision left to offer.
+			// The fallback folder belongs to no library by design and stays.
+			expect(rows.map((row) => row.transferId)).toEqual(['fallback']);
 		});
 
 		it('says nothing at all when every file went where it was meant to', async () => {

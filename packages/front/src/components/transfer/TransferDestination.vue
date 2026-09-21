@@ -46,6 +46,7 @@
 	<div class="transfer-destination" data-test="transfer-destination">
 		<v-select
 			v-model="chosen"
+			data-test="transfer-destination-library"
 			density="compact"
 			hide-details
 			item-props
@@ -81,6 +82,21 @@
 			</v-btn>
 		</div>
 
+		<!--
+			Said where the choice is made, because the gateway does more than the button
+			names: a destination is also a statement about what the category is called,
+			and the category is renamed after the library. Somebody who pressed "send
+			here from now on" and then found their category under another name would
+			reasonably conclude the product broke it.
+		-->
+		<p
+			v-if="categoryName"
+			class="transfer-destination_note text-caption text-medium-emphasis mb-0"
+			data-test="transfer-destination-renames"
+		>
+			{{ $t('transfer.unconfigured.remember_renames', { category: categoryName }) }}
+		</p>
+
 		<p
 			v-if="!loading && destinations.length === 0"
 			class="text-caption text-warning mb-0"
@@ -101,6 +117,10 @@
 		.v-select {
 			min-width: 220px;
 			flex: 1 1 220px;
+		}
+
+		&_note {
+			flex: 1 1 100%;
 		}
 
 		&_actions {

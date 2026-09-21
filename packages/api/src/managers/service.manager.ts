@@ -189,6 +189,8 @@ export class ServiceManager implements OnApplicationBootstrap {
 
 		await this._adoptLibraries(service, probe.libraries);
 
+		this._events.emit(EventName.SERVICE_CHANGED, { id: service.id });
+
 		// Re-read rather than presented from the row saved above. Adopting the
 		// libraries derives whether we hold the files, and the object in hand still
 		// carries the answer from before that ran — a service registered with its root
@@ -274,6 +276,8 @@ export class ServiceManager implements OnApplicationBootstrap {
 			await this.probe(saved.id);
 		}
 
+		this._events.emit(EventName.SERVICE_CHANGED, { id: saved.id });
+
 		return this._present(await this._require(saved.id));
 	}
 
@@ -284,6 +288,8 @@ export class ServiceManager implements OnApplicationBootstrap {
 		// only one of them cascades.
 		await this._matches.deleteForService(service.id);
 		await this._services.delete({ id: service.id });
+
+		this._events.emit(EventName.SERVICE_CHANGED, { id: service.id });
 	}
 
 	/** Test a connection nobody has registered. Answers, never throws. */

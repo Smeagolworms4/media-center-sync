@@ -21,6 +21,7 @@ import {
 	MediaMatchRepository,
 	MediaServiceRepository,
 	PeerRepository,
+	type GroupSeedQuery,
 	type MatchPair,
 	type MediaItemDigest,
 } from '@/repositories';
@@ -76,12 +77,23 @@ const GROUP_STATE_ORDER = [
  */
 class MatchGraph {
 	private readonly _parent = new Map<string, string>();
+	private readonly _otherCut = new Set<string>();
 	private _components: Map<string, string[]> | null = null;
 
 	public constructor(pairs: MatchPair[]) {
 		for (const pair of pairs) {
 			this._union(pair.localItemId, pair.remoteItemId);
+
+			if (pair.state === SyncState.CONFLICT) {
+				this._otherCut.add(pair.localItemId);
+				this._otherCut.add(pair.remoteItemId);
+			}
 		}
+	}
+
+	/** Whether the group holds another version of the work this copy is one version of. */
+	public besideAnotherCut(id: string): boolean {
+		return this._otherCut.has(id);
 	}
 
 	/** The component's representative node. An item nobody matched is its own. */
@@ -183,8 +195,11 @@ interface GroupContext {
  * whose title, whose artwork and whose file size survive. Browsing wants the opposite,
  * so a group is computed from the match graph at read time and never stored. Two rows
  * only join when a match was **applied**: a proposal below the threshold stays two
- * posters, and a conflict stays two, because both of those states exist precisely to
- * say that nobody has decided the pair is one thing.
+ * posters, because that state exists precisely to say that nobody has decided the pair
+ * is one thing. Two cuts of one work do join — the identifier decided the work, and
+ * one card reading `conflict` says what two unrelated cards never could — and that is
+ * safe only because a copy in `conflict` never counts as holding the media; see
+ * `_holds`.
  *
  * It is a manager of its own rather than four more methods on `MediaManager` because
  * nothing here is shared with correlation or artwork: it reads, folds and ranks, and
@@ -229,7 +244,7 @@ export class MediaGroupManager {
 		const parentIds =
 			query.parentId === undefined ? undefined : await this._parentScope(query.parentId, context);
 
-		const seeds = await this._items.findGroupSeeds({
+		const seedQuery: GroupSeedQuery = {
 			serviceIds: this._servicesFor(query, context),
 			libraryIds: await this._librariesFor(query),
 			kind: query.kind,
@@ -238,14 +253,15 @@ export class MediaGroupManager {
 			sort: query.sort,
 			direction: query.direction,
 			parentIds,
-		});
+		};
+		const seeds = await this._items.findGroupSeeds(seedQuery);
 
 		const skeletons = await this._skeletons(seeds, context, query.hideOwned === true);
 		const states = query.states ?? [];
 		const byState =
 			states.length === 0
 				? skeletons
-				: skeletons.filter((skeleton) => states.includes(skeleton.sync));
+				: await this._inState(skeletons, states, seedQuery, context);
 
 		/*
 		 * "Hide what I already have" means hidden only when there is nothing left to
@@ -301,6 +317,75 @@ export class MediaGroupManager {
 	 */
 	public groupChildren(id: string, query: MediaGroupQuery): Promise<ResultList<MediaGroup>> {
 		return this.groups({ ...query, parentId: id });
+	}
+
+	/**
+	 * The groups in one of these states — themselves, or somewhere beneath them.
+	 *
+	 * On a listing of whole media (`rootsOnly`) a state filter that only read the
+	 * top of each tree answered a question nobody asks. A series is almost never
+	 * itself `awaiting_index` or `missing`; its episodes are. So the wall filtered on
+	 * "downloaded, waiting" said *nothing matches* while an episode had really landed,
+	 * and the dashboard's line counting it linked to that empty wall — a screen
+	 * contradicting itself. A poster matches when the thing asked for is under it,
+	 * because that poster is the only way to reach it from this screen.
+	 *
+	 * Two alternatives were rejected. Switching the wall to episode level whenever a
+	 * state is chosen turns "what is missing" into thirty thousand episode posters and
+	 * loses the show they belong to. Carrying a kind in the dashboard's link fixes one
+	 * link and leaves the filter itself broken for everybody who uses it by hand.
+	 *
+	 * The descendants are read in the same scope as the roots — same services, same
+	 * libraries — but not narrowed by the search, which names the poster rather than
+	 * its episodes. They are narrow rows, and only read when a state is asked for.
+	 */
+	private async _inState(
+		skeletons: GroupSkeleton[],
+		states: SyncState[],
+		seedQuery: GroupSeedQuery,
+		context: GroupContext,
+	): Promise<GroupSkeleton[]> {
+		const ownState = (skeleton: GroupSkeleton): boolean => states.includes(skeleton.sync);
+
+		if (seedQuery.rootsOnly !== true) {
+			return skeletons.filter(ownState);
+		}
+
+		const scope = await this._items.findGroupSeeds({
+			...seedQuery,
+			rootsOnly: false,
+			search: undefined,
+			kind: undefined,
+		});
+		const parentOf = new Map(scope.map((seed) => [seed.id, seed.parentId]));
+		const below = scope.filter((seed) => seed.parentId !== null);
+		const matching = (await this._skeletons(below, context)).filter(ownState);
+
+		const roots = new Set<string>();
+
+		for (const skeleton of matching) {
+			for (const memberId of skeleton.memberIds) {
+				let current: string | null | undefined = memberId;
+
+				// Bounded, because a parent chain is data a media server wrote: a
+				// series, a season, an episode is three steps, and a loop in somebody's
+				// index must cost a few iterations rather than the request.
+				for (let depth = 0; depth < 8 && current; depth += 1) {
+					const parent = parentOf.get(current);
+
+					if (parent === null) {
+						roots.add(current);
+						break;
+					}
+
+					current = parent;
+				}
+			}
+		}
+
+		return skeletons.filter(
+			(skeleton) => ownState(skeleton) || skeleton.memberIds.some((memberId) => roots.has(memberId)),
+		);
 	}
 
 	private async _context(): Promise<GroupContext> {
@@ -454,10 +539,7 @@ export class MediaGroupManager {
 				// "hide what I already have" hides it. It is the same answer the wall
 				// gives about it, and a filter that kept offering a file already on the
 				// disk is the behaviour this whole state exists to remove.
-				held: members.some(
-					(member) =>
-						context.local.has(member.serviceId) || LANDED_STATES.has(member.syncState),
-				),
+				held: members.some((member) => this._holds(member, context)),
 				missingCount: gaps.get(root) ?? 0,
 			};
 		});
@@ -520,10 +602,7 @@ export class MediaGroupManager {
 			const held = copies.some((id) => {
 				const copy = byId.get(id);
 
-				return (
-					copy !== undefined
-					&& (context.local.has(copy.serviceId) || LANDED_STATES.has(copy.syncState))
-				);
+				return copy !== undefined && this._holds(copy, context);
 			});
 
 			if (!held) {
@@ -686,17 +765,35 @@ export class MediaGroupManager {
 						.some((id) => {
 							const copy = children.byId.get(id);
 
-							return (
-								copy !== undefined
-								&& (context.local.has(copy.serviceId)
-									|| LANDED_STATES.has(copy.syncState))
-							);
+							return copy !== undefined && this._holds(copy, context);
 						}),
 				);
 			}
 		}
 
 		return groups;
+	}
+
+	/**
+	 * Whether this copy means we have the media, for every count and filter that asks.
+	 *
+	 * A copy on one of our own services, or a file we already put on the disk — with one
+	 * exception. A local copy the group joined to another cut is one version of a work
+	 * the group holds another version of elsewhere: the theatrical cut here, the
+	 * extended one on a friend's server. Counting it as held would drop the group from
+	 * "hide what I already have" and the episode from its season's missing count, which
+	 * are the two places somebody looks to find what is left to fetch — the other cut
+	 * would become unfindable the moment correlation put the two together.
+	 *
+	 * Read off the joining edge and not off the copy's own `conflict` state, because
+	 * that state has a second meaning the edge does not: the same bytes filed under two
+	 * episode numbers, which never joins, and which we hold perfectly well.
+	 */
+	private _holds(copy: MediaItemDigest, context: GroupContext): boolean {
+		return (
+			(context.local.has(copy.serviceId) && !context.graph.besideAnotherCut(copy.id))
+			|| LANDED_STATES.has(copy.syncState)
+		);
 	}
 
 	/**

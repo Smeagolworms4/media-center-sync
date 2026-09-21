@@ -161,7 +161,9 @@ describe('components/sync/PlanForm interactions', () => {
 		sourceServiceIds: ['s1', 's2'],
 		preferredLibraryId: null,
 		scope: {},
-		maxItemsPerRun: null,
+		// A scheduled plan that names no scope must carry a ceiling per run, or the
+		// form refuses it — see the same fixture in components.forms.spec.ts.
+		maxItemsPerRun: 50,
 		maxBytesPerRun: null,
 		estimate: null,
 		filter: {},

@@ -51,11 +51,23 @@
 		<template #actions>
 			<v-spacer />
 
-			<v-btn :disabled="loading" variant="flat" @click="onCancel">
+			<!--
+				Marked here rather than by every caller: the two buttons are this
+				component's own, so a journey that confirms a removal would otherwise have
+				to reach for a label — which changes the day somebody rewords it, and
+				again the moment the interface is read in another language.
+			-->
+			<v-btn data-test="confirm-cancel" :disabled="loading" variant="flat" @click="onCancel">
 				{{ cancelText ?? $t('actions.cancel') }}
 			</v-btn>
 
-			<v-btn :color="confirmColor" :loading="loading" variant="flat" @click="emit('confirm')">
+			<v-btn
+				:color="confirmColor"
+				data-test="confirm-accept"
+				:loading="loading"
+				variant="flat"
+				@click="emit('confirm')"
+			>
 				{{ confirmText ?? $t('actions.validate') }}
 			</v-btn>
 		</template>

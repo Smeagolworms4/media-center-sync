@@ -109,6 +109,7 @@
 				class="unconfigured_row"
 				:data-placed-by="item.placedBy"
 				data-test="dashboard-unconfigured-row"
+				:data-transfer="item.transferId"
 			>
 				<p class="unconfigured_title mb-0">
 					{{ item.title }}

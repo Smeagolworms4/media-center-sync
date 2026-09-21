@@ -50,6 +50,7 @@ import type { MediaConfig } from '@/config';
 import type {
 	Library as LibraryEntity,
 	MediaItem,
+	MediaMatch as MediaMatchEntity,
 	MediaService as MediaServiceEntity,
 	SyncJob as SyncJobEntity,
 	SyncJobItem as SyncJobItemEntity,
@@ -79,6 +80,7 @@ import {
 	editionOf,
 	needsAcknowledgement,
 	refusesRun,
+	sameContent,
 	serviceMode,
 	targetSpace,
 	toLocalPath,
@@ -217,11 +219,14 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		private readonly _settings: SettingsService,
 		private readonly _naming: NamingService,
 		/**
-		 * Asked for one thing only: what to call a copy that has to sit beside another.
+		 * Asked two things: what to call a copy that has to sit beside another, and
+		 * whether two copies are different cuts.
 		 *
 		 * The resolution band is the suffix both media servers read as a version name,
 		 * and re-deriving it from a height here would be a second set of thresholds to
-		 * disagree with the one the comparator ranks on.
+		 * disagree with the one the comparator ranks on. The cut is the same argument:
+		 * `isConflicting` is the rule a `conflict` state is derived from, and a planner
+		 * with its own idea of a different cut would hold what the screen says it lacks.
 		 */
 		private readonly _quality: QualityService,
 		private readonly _metadata: MetadataService,
@@ -1182,9 +1187,12 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		}
 
 		const matches = await this._matches.findForLocalItem(item.id);
-		const counterparts = await this._items.find({
-			where: { id: In(matches.map((match) => match.remoteItemId)) },
-		});
+		const byRemote = new Map(matches.map((match) => [match.remoteItemId, match]));
+		const counterparts = (
+			await this._items.find({ where: { id: In([...byRemote.keys()]) } })
+		).filter((counterpart) =>
+			this._interchangeable(byRemote.get(counterpart.id) as MediaMatchEntity, item, counterpart),
+		);
 
 		if (counterparts.length === 0) {
 			result.error = ErrorKey.SYNC_NO_SOURCE;
@@ -1316,7 +1324,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			return [];
 		}
 
-		const siblings = await this._correlatedItems(item.id);
+		const siblings = await this._correlatedItems(item);
 		const candidates = [item, ...siblings];
 		// One read per service, and the only one that brings the credentials back. It
 		// is a handful of rows — the services holding one episode — and keeping the
@@ -1400,16 +1408,6 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const wanted: { item: MediaItem; local: MediaItem | null; state: SyncState }[] = [];
 
 		for (const members of groups.values()) {
-			// Our own copy is either one of the rows of this group — the same media on a
-			// local service — or a row correlated with one of them. Both count: what
-			// makes something missing is that nothing local holds it.
-			const local =
-				members.find((member) => localServiceIds.has(member.serviceId)) ??
-				members
-					.flatMap((member) => counterparts.get(member.id) ?? [])
-					.find((other) => localServiceIds.has(other.serviceId)) ??
-				null;
-
 			// The same episode on three services is one transfer, from whichever of them
 			// the order puts first. Keeping all three would pull it three times into the
 			// same path.
@@ -1426,6 +1424,30 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			if (source === undefined) {
 				continue;
 			}
+
+			/*
+			 * Our own copy is either one of the rows of this group — the same media on a
+			 * local service — or a row correlated with one of them. Both count: what
+			 * makes something missing is that nothing local holds it.
+			 *
+			 * Except a different cut, which holds another version and not this one. Two
+			 * cuts of one film are correlated on purpose — one work, shown as one group in
+			 * `conflict` — and counting the theatrical copy on our disk as holding the
+			 * extended one would answer somebody who ticked the extended cut with a run
+			 * that fetches nothing. `_counterparts` drops the correlated half of that; the
+			 * test here drops the other half, two cuts nobody fingerprinted, which fall
+			 * into one bucket of `_identity` because nothing tells them apart but a clock.
+			 */
+			const local =
+				members.find(
+					(member) =>
+						localServiceIds.has(member.serviceId)
+						&& !this._quality.isConflicting(member.file, source.file),
+				) ??
+				members
+					.flatMap((member) => counterparts.get(member.id) ?? [])
+					.find((other) => localServiceIds.has(other.serviceId)) ??
+				null;
 
 			/*
 			 * A file already on our disk is not missing, whatever the absence of a local
@@ -1779,7 +1801,10 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		return seen;
 	}
 
-	/** Every item correlated with each candidate, by candidate identifier. */
+	/**
+	 * Every item correlated with each candidate that can stand in for it, by candidate
+	 * identifier. See `_interchangeable` for the ones that cannot.
+	 */
 	private async _counterparts(candidates: MediaItem[]): Promise<Map<string, MediaItem[]>> {
 		const ids = candidates.map((candidate) => candidate.id);
 
@@ -1809,10 +1834,16 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		);
 
 		const byCandidate = new Map<string, MediaItem[]>();
-		const push = (candidateId: string, otherId: string | null): void => {
+		const mine = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+		const push = (match: MediaMatchEntity, candidateId: string, otherId: string | null): void => {
+			const candidate = mine.get(candidateId) ?? others.get(candidateId);
 			const other = otherId === null ? undefined : others.get(otherId);
 
 			if (other === undefined || other.id === candidateId) {
+				return;
+			}
+
+			if (candidate !== undefined && !this._interchangeable(match, candidate, other)) {
 				return;
 			}
 
@@ -1820,34 +1851,61 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		};
 
 		for (const match of matches) {
-			push(match.remoteItemId, match.localItemId);
+			push(match, match.remoteItemId, match.localItemId);
 
 			if (match.localItemId !== null) {
-				push(match.localItemId, match.remoteItemId);
+				push(match, match.localItemId, match.remoteItemId);
 			}
 		}
 
 		return byCandidate;
 	}
 
-	private async _correlatedItems(itemId: string): Promise<MediaItem[]> {
+	/** The copies correlated with this one that can serve its bytes. */
+	private async _correlatedItems(item: MediaItem): Promise<MediaItem[]> {
 		const matches = await this._matches.find({
-			where: [{ localItemId: itemId }, { remoteItemId: itemId }],
+			where: [{ localItemId: item.id }, { remoteItemId: item.id }],
 		});
 
-		const ids = new Set<string>();
+		const byOther = new Map<string, MediaMatchEntity>();
 
 		for (const match of matches) {
-			if (match.localItemId !== null && match.localItemId !== itemId) {
-				ids.add(match.localItemId);
+			if (match.localItemId !== null && match.localItemId !== item.id) {
+				byOther.set(match.localItemId, match);
 			}
 
-			if (match.remoteItemId !== itemId) {
-				ids.add(match.remoteItemId);
+			if (match.remoteItemId !== item.id) {
+				byOther.set(match.remoteItemId, match);
 			}
 		}
 
-		return ids.size === 0 ? [] : this._items.find({ where: { id: In([...ids]) } });
+		if (byOther.size === 0) {
+			return [];
+		}
+
+		const others = await this._items.find({ where: { id: In([...byOther.keys()]) } });
+
+		return others.filter((other) =>
+			this._interchangeable(byOther.get(other.id) as MediaMatchEntity, item, other),
+		);
+	}
+
+	/**
+	 * Whether a correlated copy can stand in for this one.
+	 *
+	 * Three readers ask, and all three would do damage with a different cut: the plan,
+	 * which would count the theatrical copy on our disk as holding the extended one and
+	 * fetch nothing; the transfer, which would take ranges from both files and assemble
+	 * a third that is neither; and the companion pull, which would lay subtitles timed
+	 * against one cut over the other, drifting by however many minutes the cuts differ.
+	 *
+	 * A conflict is only interchangeable when the two are the same bytes. That is the
+	 * other kind of conflict — one file filed under two different episode numbers —
+	 * where the content is proven identical and only the label is in dispute, and where
+	 * refusing would have the gateway fetch a file it already holds.
+	 */
+	private _interchangeable(match: MediaMatchEntity, left: MediaItem, right: MediaItem): boolean {
+		return match.state !== SyncState.CONFLICT || sameContent(left.file, right.file);
 	}
 
 	/**

@@ -115,12 +115,12 @@
 					{{ $t('peer.invite.create_action') }}
 				</v-btn>
 
-				<div v-if="invite" class="invite-dialog_result mt-4">
+				<div v-if="invite" class="invite-dialog_result mt-4" data-test="invite-result">
 					<CopyField :label="$t('peer.invite.url')" :value="invite.url" wrap />
 
 					<CopyField class="mt-3" :label="$t('peer.invite.code')" :value="invite.code" wrap />
 
-					<p class="text-caption text-medium-emphasis mt-3 mb-0">
+					<p class="text-caption text-medium-emphasis mt-3 mb-0" data-test="invite-expiry">
 						{{ $t('peer.invite.expires') }}
 						<RelativeDate :date="invite.expiresAt" />
 						— {{ $t('peer.invite.one_shot') }}

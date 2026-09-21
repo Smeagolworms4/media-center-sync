@@ -274,32 +274,53 @@ describe('MatchingService', () => {
 	});
 
 	/**
-	 * The line between "encoded twice" and "two different films under one title".
+	 * The identifier decides the work; the running time decides the version.
 	 *
-	 * Everything in this table shares an IMDb number, a title and a year, because that
-	 * is the real case: a theatrical cut and an extended one are the same work to every
-	 * scraper on earth. Only the running time separates them, and getting the threshold
-	 * wrong costs something in both directions — too tight and every film in the library
-	 * doubles, too loose and somebody who asked for the extended cut is handed the
-	 * theatrical one and told it is the same file.
+	 * Everything in the first table shares an IMDb number, a title and a year, because
+	 * that is the real case: a theatrical cut and an extended one are the same work to
+	 * every scraper on earth. They are one group — the owner's rule, and the only way a
+	 * `conflict` can ever be shown for a film — and the running time only decides which
+	 * state that group is in. Getting that threshold wrong still costs something in both
+	 * directions: too tight and every re-encode reads as a decision somebody has to
+	 * make, too loose and a sync replaces the theatrical cut with the extended one as if
+	 * it were a better copy of the same thing.
 	 */
 	describe('versions of one film', () => {
 		const theatrical = 194 * 60 * 1000;
 
-		const cases: { name: string; durationMs: number; merges: boolean }[] = [
-			{ name: 'the same encode twice', durationMs: theatrical, merges: true },
-			{ name: 'a re-encode a few seconds shorter', durationMs: theatrical - 8_000, merges: true },
+		// The remote copy is a 2160p encode against our 1080p one, on purpose: as a copy of
+		// the same cut it is better and reads `outdated`; as another cut it is not better
+		// or worse at all, and must read `conflict` however much sharper it is.
+		const cases: { name: string; durationMs: number; state: SyncState }[] = [
+			{ name: 'the same encode twice', durationMs: theatrical, state: SyncState.OUTDATED },
 			{
-				name: 'a copy with a second of black trimmed off each end',
-				durationMs: theatrical - 2_000,
-				merges: true,
+				name: 'a re-encode a few seconds shorter',
+				durationMs: theatrical - 8_000,
+				state: SyncState.OUTDATED,
 			},
-			{ name: 'a copy just inside two minutes', durationMs: theatrical - 119_000, merges: true },
-			{ name: 'a copy just outside two minutes', durationMs: theatrical - 121_000, merges: false },
-			{ name: 'an extended cut', durationMs: theatrical + 15 * 60 * 1000, merges: false },
+			{
+				name: 'a copy with a studio logo trimmed off the front',
+				durationMs: theatrical - 25_000,
+				state: SyncState.OUTDATED,
+			},
+			{
+				name: 'a copy just inside two minutes',
+				durationMs: theatrical - 119_000,
+				state: SyncState.OUTDATED,
+			},
+			{
+				name: 'a copy just outside two minutes',
+				durationMs: theatrical - 121_000,
+				state: SyncState.CONFLICT,
+			},
+			{
+				name: 'an extended cut',
+				durationMs: theatrical + 15 * 60 * 1000,
+				state: SyncState.CONFLICT,
+			},
 		];
 
-		it.each(cases)('$name: merges = $merges', ({ durationMs, merges }) => {
+		it.each(cases)('$name: correlates and reads $state', ({ durationMs, state }) => {
 			const local = candidate({
 				kind: MediaKind.MOVIE,
 				parentId: null,
@@ -328,17 +349,162 @@ describe('MatchingService', () => {
 				}),
 			});
 
-			const scored = service.score(local, remote, options());
+			expect(service.score(local, remote, options())?.strategy).toBe(MatchStrategy.EXTERNAL_ID);
+			expect(service.correlate(local, [remote], options())).toEqual([
+				expect.objectContaining({ remoteItemId: 'remote-1', applied: true, state }),
+			]);
+		});
 
-			expect(scored === null ? null : scored.strategy).toBe(
-				merges ? MatchStrategy.EXTERNAL_ID : null,
+		it('says which cut is which, in the reason a person arbitrates from', () => {
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				externalIds: { imdb: 'tt0120338' },
+				file: file({ durationMs: theatrical }),
+			});
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				file: file({ durationMs: theatrical + 15 * 60 * 1000 }),
+			});
+
+			expect(service.correlate(local, [remote], options())[0].reason).toBe(
+				'different cut (209 min there against 194 min here)',
 			);
 		});
 
-		it('keeps two cuts apart even when nothing but the title is left to go on', () => {
-			// The guard has to sit in front of every strategy and not only the identifier
-			// one: two cuts of one film have the same title and the same year, so a title
-			// match would put back together exactly what the duration just separated.
+		it.each([
+			['a TMDB number', { tmdb: '597' }],
+			['a TVDB number', { tvdb: '232' }],
+		])('treats %s as proof of the work too', (_name, externalIds) => {
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				normalizedTitle: 'titanic',
+				externalIds,
+				file: file({ durationMs: theatrical }),
+			});
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				// A French library's title for it: the identifier needs no help from the
+				// string, and the running time is not allowed to argue.
+				normalizedTitle: 'titanic version longue',
+				file: file({ durationMs: theatrical + 15 * 60 * 1000 }),
+			});
+
+			expect(service.score(local, remote, options())?.strategy).toBe(MatchStrategy.EXTERNAL_ID);
+			expect(service.deriveState(local, remote)).toBe(SyncState.CONFLICT);
+		});
+
+		/**
+		 * The trap the owner's own database set: a Plex copy carrying
+		 * `externalIds: { provider: "5" }`.
+		 *
+		 * That is Plex's row key, and the fifth row of every other Plex server is some
+		 * other film. If it counted as an identity, two unrelated films that happen to sit
+		 * at the same row on two servers would merge whatever their lengths — the one
+		 * thing a work identifier is now trusted to do.
+		 */
+		describe('a server-local key', () => {
+			const rowFive = (overrides: Partial<MatchCandidate>): MatchCandidate =>
+				candidate({
+					kind: MediaKind.MOVIE,
+					parentId: null,
+					seasonNumber: null,
+					episodeNumber: null,
+					year: 2010,
+					externalIds: { provider: '5' },
+					...overrides,
+				});
+
+			it('never correlates two films on their own', () => {
+				const plex = rowFive({
+					normalizedTitle: 'inception',
+					file: file({ path: '/media/Films/Inception (2010).mkv', durationMs: 8_880_000 }),
+				});
+				const otherPlex = rowFive({
+					id: 'remote-1',
+					serviceId: 'service-remote',
+					normalizedTitle: 'the social network',
+					file: file({
+						path: '/media/Films/The Social Network (2010).mkv',
+						durationMs: 8_880_000,
+					}),
+				});
+
+				expect(service.score(plex, otherPlex, options())).toBeNull();
+			});
+
+			it('does not lift the running-time veto from two namesakes', () => {
+				const plex = rowFive({ normalizedTitle: 'the thing', file: file({ durationMs: 6_540_000 }) });
+				const otherPlex = rowFive({
+					id: 'remote-1',
+					serviceId: 'service-remote',
+					file: file({ durationMs: 6_180_000 }),
+				});
+
+				expect(service.score(plex, otherPlex, options())).toBeNull();
+			});
+		});
+
+		it('does not take a placeholder zero for an identity', () => {
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				normalizedTitle: 'first film',
+				externalIds: { tmdb: '0', imdb: 'tt0000000' },
+				file: file({ path: '/media/Films/First Film.mkv' }),
+			});
+			const remote = candidate({
+				...local,
+				id: 'remote-1',
+				serviceId: 'service-remote',
+				normalizedTitle: 'second film',
+				file: file({ path: '/media/Films/Second Film.mkv' }),
+			});
+
+			expect(service.score(local, remote, options())).toBeNull();
+		});
+
+		it('lets a MusicBrainz number correlate but not overrule the running time', () => {
+			// The Jellyfin handler files an artist's identifier here when a video has no
+			// track of its own, so two recordings by one artist can share it.
+			const local = candidate({
+				kind: MediaKind.MOVIE,
+				parentId: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				normalizedTitle: 'live at wembley',
+				externalIds: { musicbrainz: 'b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d' },
+				file: file({ durationMs: 5_400_000 }),
+			});
+			const sameLength = candidate({ ...local, id: 'remote-1', serviceId: 'service-remote' });
+			const otherConcert = candidate({
+				...sameLength,
+				id: 'remote-2',
+				file: file({ durationMs: 3_600_000 }),
+			});
+
+			expect(service.score(local, sameLength, options())?.strategy).toBe(
+				MatchStrategy.EXTERNAL_ID,
+			);
+			expect(service.score(local, otherConcert, options())).toBeNull();
+		});
+
+		it('keeps two cuts apart when nothing but the title is left to go on', () => {
+			// Where no identifier vouches for the pair, the running time is the only
+			// evidence against a false merge: two films sharing a title and a year and
+			// running forty minutes apart may be a remake, a namesake, or a documentary
+			// about the other. A title match would put together what nothing proves is one.
 			const local = candidate({
 				kind: MediaKind.MOVIE,
 				parentId: null,
@@ -455,9 +621,10 @@ describe('MatchingService', () => {
 			]);
 		});
 
-		it('still keeps two short films apart when a minute of content separates them', () => {
-			// The floor is half a minute, not "anything brief merges". Four minutes
-			// against five is a cut, and a cut stays two things even here.
+		it('still reads two short films a minute apart as two cuts', () => {
+			// The floor is half a minute, not "anything brief is the same version". Four
+			// minutes against five is a cut: grouped when an identifier vouches for the
+			// work, kept apart when only the title does.
 			const local = candidate({
 				kind: MediaKind.MOVIE,
 				parentId: null,
@@ -475,7 +642,14 @@ describe('MatchingService', () => {
 				file: file({ durationMs: 240_000 }),
 			});
 
-			expect(service.score(local, remote, options())).toBeNull();
+			expect(service.correlate(local, [remote], options())[0].state).toBe(SyncState.CONFLICT);
+			expect(
+				service.score(
+					{ ...local, externalIds: {} },
+					{ ...remote, externalIds: {} },
+					options(),
+				),
+			).toBeNull();
 		});
 	});
 
@@ -566,6 +740,19 @@ describe('MatchingService', () => {
 			const remote = candidate({ id: 'r', serviceId: 's2', file: file({ height: 1080 }) });
 
 			expect(service.deriveState(local, remote)).toBe(SyncState.IN_SYNC);
+		});
+
+		it('says conflict for two cuts even when the remote one is the better encode', () => {
+			// Ranked on quality first, this pair read `outdated`, and a sync allowed to
+			// replace outdated copies would have written the extended cut over ours.
+			const local = candidate({ file: file({ durationMs: 7_200_000, height: 1080 }) });
+			const remote = candidate({
+				id: 'r',
+				serviceId: 's2',
+				file: file({ durationMs: 9_000_000, height: 2160 }),
+			});
+
+			expect(service.deriveState(local, remote)).toBe(SyncState.CONFLICT);
 		});
 
 		it('says conflict for two cuts of different lengths at the same quality', () => {

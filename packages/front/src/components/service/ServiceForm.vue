@@ -451,6 +451,7 @@
 						<template #append-inner>
 							<v-icon
 								class="cursor-pointer"
+								data-test="service-local-root-browse"
 								icon="mdi-folder-search-outline"
 								:title="$t('browse.open')"
 								@click="browsingLocalRoot = true"

@@ -184,6 +184,30 @@ export const useServicesStore = defineStore('services', () => {
 		}
 	});
 
+	/**
+	 * The list again, one request at a time.
+	 *
+	 * A registration adopts its libraries and may re-probe, so one change can arrive as
+	 * several events in a row; overlapping loads would each replace the list and the
+	 * last to answer — not the newest — would win.
+	 */
+	let reloading: Promise<MediaService[]> | null = null;
+
+	function reload (): Promise<MediaService[]> {
+		reloading ??= load().finally(() => {
+			reloading = null;
+		});
+		return reloading;
+	}
+
+	// Only once somebody has read the list: a session that never opened a screen
+	// naming services has nothing stale to correct, and should not fetch on its behalf.
+	events.on(EventName.SERVICE_CHANGED, () => {
+		if (loaded.value) {
+			void reload().catch(() => undefined);
+		}
+	});
+
 	events.on(EventName.SCAN_PROGRESS, payload => {
 		if (payload.done) {
 			const { [payload.serviceId]: _done, ...rest } = scans.value;
@@ -197,6 +221,7 @@ export const useServicesStore = defineStore('services', () => {
 		services,
 		loading,
 		loaded,
+		reload,
 		error,
 		scans,
 		byId,

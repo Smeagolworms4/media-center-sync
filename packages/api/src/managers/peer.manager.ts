@@ -674,6 +674,7 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 			await this._forgetLibraries(service.id, await this._libraries.findByService(service.id));
 			await this._mediaMatches.deleteForService(service.id);
 			await this._services.delete({ id: service.id });
+			this._events.emit(EventName.SERVICE_CHANGED, { id: service.id });
 		}
 
 		await this._peers.delete({ id: peer.id });
@@ -766,7 +767,7 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		);
 
 		if (existing === undefined) {
-			return this._services.save(
+			const created = await this._services.save(
 				this._services.create({
 					name: peer.name,
 					type: MediaServiceType.PEER,
@@ -777,6 +778,10 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 					status: MediaServiceStatus.UNKNOWN,
 				}),
 			);
+
+			this._events.emit(EventName.SERVICE_CHANGED, { id: created.id });
+
+			return created;
 		}
 
 		if (existing.name === peer.name) {
@@ -785,7 +790,11 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 
 		existing.name = peer.name;
 
-		return this._services.save(existing);
+		const renamed = await this._services.save(existing);
+
+		this._events.emit(EventName.SERVICE_CHANGED, { id: renamed.id });
+
+		return renamed;
 	}
 
 	/**

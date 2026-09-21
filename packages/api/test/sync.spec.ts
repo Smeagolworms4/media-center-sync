@@ -832,10 +832,12 @@ describe('Syncing', () => {
 			);
 		});
 
-		it('leaves them as two media, because two cuts are not one thing', async () => {
+		it('shows them as one media with two versions, because the identifier decides the work', async () => {
 			// The real correlation, over the real index, then the grouped route — which
 			// is the question somebody asks on the screen: is this one poster or two?
-			// It used to be one, on the strength of the IMDb number they share.
+			// One, on the strength of the IMDb number they share; the running time only
+			// decides that they are two versions of it, and the plan above already pulls
+			// each of them as its own transfer.
 			await context.app.get(MediaManager).correlateService(secondServiceId);
 
 			const page = await request(context.app.getHttpServer())
@@ -846,18 +848,22 @@ describe('Syncing', () => {
 			const holding = (itemId: string): MediaGroup | undefined =>
 				groups.find((group) => group.sources.some((source) => source.itemId === itemId));
 
-			expect(holding(theatricalId)?.id).not.toBe(holding(extendedId)?.id);
-			expect(holding(theatricalId)?.sources).toHaveLength(1);
-			expect(holding(extendedId)?.sources).toHaveLength(1);
-			// Each stands alone and each says which version it is, which is what the
-			// picker offers and what a pull is chosen from.
-			expect(holding(extendedId)?.versions).toEqual([
-				expect.objectContaining({
-					versionId: 'q1-extended',
-					edition: 'Extended Cut',
-					heldLocally: false,
-				}),
-			]);
+			expect(holding(theatricalId)?.id).toBe(holding(extendedId)?.id);
+			expect(holding(theatricalId)?.sources).toHaveLength(2);
+			// Each version says which it is, which is what the picker offers and what a
+			// pull is chosen from — and neither is ours, so the group is still missing
+			// here rather than in conflict: there is nothing local to arbitrate yet.
+			expect(holding(extendedId)?.versions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ versionId: 'q1-theatrical', heldLocally: false }),
+					expect.objectContaining({
+						versionId: 'q1-extended',
+						edition: 'Extended Cut',
+						heldLocally: false,
+					}),
+				]),
+			);
+			expect(holding(extendedId)?.sync).toBe(SyncState.MISSING);
 		});
 	});
 

@@ -42,7 +42,12 @@
 		failed.value = false;
 		try {
 			await Promise.all([
-				servicesStore.loaded ? Promise.resolve() : servicesStore.load().catch(() => undefined),
+				// Always asked again, never taken from a list loaded earlier in the session:
+				// a server registered since then is otherwise named on this plan by its
+				// identifier, and missing from "Add a source" altogether. The event
+				// stream keeps an open page current; this covers a stream that was down
+				// while the tab slept, because events are not replayed.
+				servicesStore.reload().catch(() => undefined),
 				librariesStore.loaded ? Promise.resolve() : librariesStore.load().catch(() => undefined),
 			]);
 			plan.value = creating.value ? null : await syncStore.plan(props.id);

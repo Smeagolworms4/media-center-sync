@@ -59,3 +59,40 @@ export const editionOf = (file: MediaFileInfo | null | undefined): string | null
 
 	return editionInPath(file.path);
 };
+
+/**
+ * The identities a file can be recognised by, strongest first.
+ *
+ * A checksum is proof. `contentId` is a few sampled ranges plus the exact size, which
+ * two gateways compute identically without exchanging anything — the whole reason it
+ * exists. A size on its own is deliberately not in the list: two files of the same
+ * length are not the same file, and treating them as such would turn every rule built
+ * on this into a machine for inventing matches.
+ */
+export const contentKeys = (file: MediaFileInfo | null | undefined): string[] => {
+	if (!file) {
+		return [];
+	}
+
+	const keys: string[] = [];
+
+	if (file.checksum !== null && file.checksum !== undefined && file.checksum !== '') {
+		keys.push(`checksum:${file.checksum}`);
+	}
+
+	if (file.contentId !== null && file.contentId !== undefined && file.contentId !== '') {
+		keys.push(`content:${file.contentId}`);
+	}
+
+	return keys;
+};
+
+/** Two files are the same bytes when anything that identifies their content agrees. */
+export const sameContent = (
+	left: MediaFileInfo | null | undefined,
+	right: MediaFileInfo | null | undefined,
+): boolean => {
+	const theirs = contentKeys(right);
+
+	return contentKeys(left).some((key) => theirs.includes(key));
+};

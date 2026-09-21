@@ -401,7 +401,12 @@ describe('components/sync/PlanForm', () => {
 		sourceServiceIds: ['s1', 's2'],
 		preferredLibraryId: null,
 		scope: {},
-		maxItemsPerRun: null,
+		// A scheduled plan that names no scope must carry a ceiling per run: that is
+		// the rule the form now enforces, because "everything, every night, uncapped"
+		// is what an empty form used to produce. Without one, this fixture describes a
+		// plan the form rightly refuses to save, and every test below that saves it
+		// would fail on a rule it is not about.
+		maxItemsPerRun: 50,
 		maxBytesPerRun: null,
 		estimate: null,
 		filter: { missingOnly: true },

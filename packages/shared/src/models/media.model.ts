@@ -21,7 +21,13 @@ export interface ExternalIds {
 	tmdb?: string;
 	imdb?: string;
 	musicbrainz?: string;
-	/** Identifier inside the service that reported the item. */
+	/**
+	 * Identifier inside the service that reported the item.
+	 *
+	 * A row key, meaningful only on that one server — a Plex rating key of `5` is some
+	 * other film on every other Plex. It is how the gateway asks that service for the
+	 * item again, and never evidence that two copies are the same work.
+	 */
 	provider?: string;
 }
 

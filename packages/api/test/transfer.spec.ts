@@ -278,6 +278,47 @@ describe('The transfer queue', () => {
 				.get('/api/transfers/unconfigured')
 				.expect(401);
 		});
+
+		/*
+		 * A library that is no longer registered cannot be answered for.
+		 *
+		 * Removing a service takes its libraries with it and leaves the transfers that
+		 * wrote into them, which are history and stay readable. But the zone asks a
+		 * question — move this file, or choose where the category goes — and about a
+		 * shelf nothing manages any more there is no question left: listed, it stayed
+		 * there for ever with no library, no category and nothing that could clear it.
+		 */
+		it('stops listing a file whose library has been removed, and keeps the transfer', async () => {
+			const transfers = context.app.get(TransferRepository);
+			const id = randomUUID();
+
+			await transfers.save(
+				transfers.create({
+					id,
+					itemId: randomUUID(),
+					title: 'Orphaned',
+					state: TransferState.DONE,
+					targetPath: '/media/gone/Orphaned.mkv',
+					targetLibraryId: randomUUID(),
+					placedBy: PlacedBy.DEFAULT_LIBRARY,
+					workPath: `/var/transfer/${id}.part`,
+					bytesTotal: 1_000,
+					bytesDone: 1_000,
+					chunkSize: 1_000,
+					chunksTotal: 1,
+				}),
+			);
+
+			try {
+				const response = await asReader('/unconfigured').expect(200);
+				const rows = response.body as UnconfiguredPlacement[];
+
+				expect(rows.map((row) => row.transferId)).not.toContain(id);
+				await asReader(`/${id}`).expect(200);
+			} finally {
+				await transfers.delete({ id });
+			}
+		});
 	});
 
 	describe('changing where a transfer goes', () => {

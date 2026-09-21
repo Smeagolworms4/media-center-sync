@@ -80,6 +80,54 @@ const CONFIDENCE = {
 } as const;
 
 /**
+ * The identifiers that name a work, and are therefore proof that two copies are it.
+ *
+ * IMDb, TMDB and TVDB each allocate one number per work, for the whole world, and
+ * every scraper that files a copy under one of them is saying which film or which
+ * show it is. TMDB and TVDB number films and series separately, so the same value can
+ * name two works of two kinds; that is harmless only because `score` refuses two
+ * different kinds before it reads any identifier.
+ *
+ * Two keys are left out, and each would merge things that are not one work:
+ *
+ * - `provider` is the row key inside the one service that reported the item — a Plex
+ *   rating key, a Jellyfin item identifier, a peer's row. On the owner's own database a
+ *   Plex film carried `provider: "5"`, and the fifth row of any other Plex server is
+ *   some other film. It identifies nothing across servers and is never compared.
+ * - `musicbrainz` is global, but the Jellyfin handler fills it from whichever of the
+ *   track, the album or the artist identifier comes first, so two recordings by one
+ *   artist can carry the same value. It still correlates, as it always has, but only
+ *   where the running time is still allowed to say the two are different things.
+ */
+export const WORK_IDENTIFIERS: readonly (keyof ExternalIds)[] = ['imdb', 'tmdb', 'tvdb'];
+
+/** Identifiers that correlate without being allowed to overrule the running time. */
+const CATALOGUE_IDENTIFIERS: readonly (keyof ExternalIds)[] = ['musicbrainz'];
+
+/**
+ * The value one identifier carries, or null when it carries none worth comparing.
+ *
+ * Zero is rejected along with the empty string: it is what a scraper writes when it
+ * has a field and no answer, and since a work identifier now overrules the running
+ * time, a placeholder shared by two unrelated films would merge them whatever their
+ * lengths.
+ */
+export const identifierValue = (
+	ids: ExternalIds | null | undefined,
+	key: keyof ExternalIds,
+): string | null => {
+	const value = ids?.[key];
+
+	if (typeof value !== 'string') {
+		return null;
+	}
+
+	const trimmed = value.trim();
+
+	return trimmed === '' || /^(tt)?0+$/i.test(trimmed) ? null : trimmed;
+};
+
+/**
  * Correlates the same media across services.
  *
  * The strategies are tried in order of how much they prove, and the order is the
@@ -90,7 +138,9 @@ const CONFIDENCE = {
  *   re-encode of the same episode.
  * - A provider identifier is what the metadata agents agreed on, which is close to
  *   proof — but libraries carry them inconsistently, an episode often inherits its
- *   series' identifier, and two different cuts of a film share one.
+ *   series' identifier, and two different cuts of a film share one. That last is
+ *   why a work identifier settles which work a copy is and leaves which version it
+ *   is to the running time — see `WORK_IDENTIFIERS` and `score`.
  * - Season and episode numbers are exact and meaningless without a parent: every
  *   library on earth has an `S01E02`. They are only usable below a series that has
  *   already been matched some other way, which is why they come after the
@@ -133,17 +183,37 @@ export class MatchingService {
 			return checksum;
 		}
 
-		// Asked before the identifier, because the identifier is exactly what these two
-		// share. Two cuts of one film carry one IMDb number between them, and merging on
-		// it hands the theatrical copy to somebody who asked for the extended one.
+		/*
+		 * The identifier decides the work; the running time decides the version.
+		 *
+		 * So an identifier that names a work is asked before the duration, not after it.
+		 * It used to be the other way round, on the reasoning that two cuts of one film
+		 * share one IMDb number and merging them hands the theatrical copy to somebody
+		 * who asked for the extended one. The concern is real and that answer to it was
+		 * wrong: it made `CONFLICT` — "two versions of one media" — unreachable for a
+		 * film, because the pair it describes was never allowed to be a pair. Two cuts
+		 * showed as two unrelated cards, and nothing said they were the same film.
+		 *
+		 * The concern is now answered where the decision is taken. `deriveState` reads
+		 * the pair as a conflict from the very difference that used to veto it, and a
+		 * conflicting copy is never interchangeable with the other one: a sync neither
+		 * counts it as holding the media nor pulls from it (`SyncManager`), and a group
+		 * does not call it held (`MediaGroupManager`).
+		 */
+		const work = this._externalIdMatch(local, remote, WORK_IDENTIFIERS);
+
+		if (work) {
+			return work;
+		}
+
 		if (this._separateCuts(local, remote)) {
 			return null;
 		}
 
-		const external = this._externalIdMatch(local, remote);
+		const catalogue = this._externalIdMatch(local, remote, CATALOGUE_IDENTIFIERS);
 
-		if (external) {
-			return external;
+		if (catalogue) {
+			return catalogue;
 		}
 
 		const episode = this._seasonEpisodeMatch(local, remote, options);
@@ -224,20 +294,19 @@ export class MatchingService {
 			return SyncState.LOCAL_ONLY;
 		}
 
-		const comparison = this._quality.compare(remote.file, local.file);
-
-		if (comparison.order > 0) {
-			return SyncState.OUTDATED;
-		}
-
-		// Equal rank does not mean interchangeable: two cuts of different lengths are
-		// a conflict, and replacing one with the other would be a surprise nobody
-		// asked for.
-		if (comparison.order === 0 && this._quality.isConflicting(local.file, remote.file)) {
+		// The cut before the quality. A different cut is not a better or a worse copy of
+		// this one, it is another version of the work — and asked second, as it was, a
+		// 2160p extended cut read `outdated` against a 1080p theatrical one, which is
+		// the state a sync set to replace outdated copies acts on by writing over ours.
+		// Now that a shared identifier groups two cuts, that ordering would have turned
+		// every such pair into a replacement nobody asked for.
+		if (this._quality.isConflicting(local.file, remote.file)) {
 			return SyncState.CONFLICT;
 		}
 
-		return SyncState.IN_SYNC;
+		return this._quality.compare(remote.file, local.file).order > 0
+			? SyncState.OUTDATED
+			: SyncState.IN_SYNC;
 	}
 
 	/**
@@ -289,15 +358,47 @@ export class MatchingService {
 			strategy: scored.strategy,
 			confidence: Number(scored.confidence.toFixed(4)),
 			state,
-			// Only worth a sentence when the remote copy wins; "nothing to say" is a
-			// null the interface renders as nothing at all.
-			reason: state === SyncState.OUTDATED ? comparison.reason : null,
+			// Only worth a sentence when there is something to do about the pair: the
+			// remote copy wins, or the two are different cuts somebody has to choose
+			// between. "Nothing to say" is a null the interface renders as nothing.
+			reason: this._reason(state, local, remote, comparison.reason),
 			applied: scored.confidence >= options.threshold,
 		};
 	}
 
+	private _reason(
+		state: SyncState,
+		local: MatchCandidate,
+		remote: MatchCandidate,
+		qualityReason: string | null,
+	): string | null {
+		if (state === SyncState.OUTDATED) {
+			return qualityReason;
+		}
+
+		if (state === SyncState.CONFLICT) {
+			return `different cut (${this._minutes(remote.file)} there against ${this._minutes(local.file)} here)`;
+		}
+
+		return null;
+	}
+
+	private _minutes(file: MediaFileInfo | null): string {
+		return `${Math.round((file?.durationMs ?? 0) / 60_000)} min`;
+	}
+
 	/**
-	 * Two cuts of one work, which must stay two things however much metadata agrees.
+	 * The veto for a pair no work identifier vouches for.
+	 *
+	 * Asked only once `WORK_IDENTIFIERS` has had its say, and that is the distinction
+	 * the whole correlation rests on. Where an IMDb, TMDB or TVDB number agrees, the two
+	 * copies are one work and a different running time makes them two versions of it —
+	 * a `CONFLICT`, grouped. Where nothing but a normalised title and a year agree, the
+	 * running time is the only evidence left against a false merge: a remake, a
+	 * namesake, or a documentary sharing a film's title all look identical from there,
+	 * and a copy two hours long against one ninety minutes long may genuinely be two
+	 * different films. There it stays a veto, because merging on a guess would put a
+	 * stranger's film in the group somebody pulls from.
 	 *
 	 * The test is the duration and nothing else, because the duration is the only field
 	 * on a file that says anything about its content: the same cut encoded twice runs
@@ -357,13 +458,12 @@ export class MatchingService {
 	private _externalIdMatch(
 		local: MatchCandidate,
 		remote: MatchCandidate,
+		providers: readonly (keyof ExternalIds)[],
 	): { strategy: MatchStrategy; confidence: number } | null {
-		const providers: (keyof ExternalIds)[] = ['tvdb', 'tmdb', 'imdb', 'musicbrainz'];
 		const agreed = providers.some((provider) => {
-			const left = local.externalIds?.[provider];
-			const right = remote.externalIds?.[provider];
+			const left = identifierValue(local.externalIds, provider);
 
-			return !!left && !!right && left === right;
+			return left !== null && left === identifierValue(remote.externalIds, provider);
 		});
 
 		if (!agreed) {

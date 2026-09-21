@@ -15,7 +15,30 @@ import { MediaLandingState, SyncState } from '@mcs/shared';
  * could reason about from a settings screen — and the right fix for a server that
  * never indexes is never to lengthen the wait, it is the state at the end of it.
  */
-export const LANDING_GRACE_MS = 12 * 60 * 60 * 1000;
+export const DEFAULT_LANDING_GRACE_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * The grace actually in force: the constant above, unless a test says otherwise.
+ *
+ * `MCS_LANDING_GRACE_MS` is a **test hook, not a user setting**, and it is kept out of
+ * `Settings` for the reason the constant exists: the wait describes media servers, not
+ * the household. It exists because the terminal state of a landing, `not_indexed`, is
+ * otherwise reachable only by waiting twelve hours — so no journey could ever check
+ * the badge, the wording or the dashboard row that are the only places anybody learns
+ * a file was never indexed. A gateway started with a few seconds here lets one.
+ *
+ * Read once, at start-up: a wait that changed under landings already recorded would
+ * give two rows written a minute apart two different deadlines. Anything that is not a
+ * positive integer is ignored rather than refused, so a typo leaves production on the
+ * twelve hours instead of stopping it from starting.
+ */
+export function landingGraceMs(raw: string | undefined = process.env.MCS_LANDING_GRACE_MS): number {
+	const parsed = Number(raw);
+
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_LANDING_GRACE_MS;
+}
+
+export const LANDING_GRACE_MS = landingGraceMs();
 
 /**
  * How long after asking a media server to rescan we go and look ourselves.

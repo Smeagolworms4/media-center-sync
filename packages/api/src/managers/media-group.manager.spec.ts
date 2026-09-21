@@ -1,4 +1,5 @@
 import {
+	MatchStrategy,
 	MediaKind,
 	MediaServiceType,
 	SyncState,
@@ -23,6 +24,7 @@ import { MediaGroupManager } from './media-group.manager';
 interface Correlation {
 	localItemId: string | null;
 	remoteItemId: string;
+	strategy: MatchStrategy;
 	confidence: number;
 	state: SyncState;
 	confirmedAt: Date | null;
@@ -86,6 +88,7 @@ const service = (overrides: Partial<MediaService> = {}): MediaService =>
 const correlation = (overrides: Partial<Correlation> = {}): Correlation => ({
 	localItemId: 'a',
 	remoteItemId: 'b',
+	strategy: MatchStrategy.EXTERNAL_ID,
 	confidence: 0.95,
 	state: SyncState.IN_SYNC,
 	confirmedAt: null,
@@ -114,10 +117,11 @@ const digest = (row: MediaItem): MediaItemDigest => ({
  * The repositories, answering out of an in-memory world.
  *
  * `findAppliedPairs` repeats here the condition the repository expresses in SQL —
- * not null, not a conflict, above the threshold or confirmed. That duplication is
- * deliberate and bounded: this file is about what the manager does with the edges it
- * is given, and the functional tests run the real statement against a real database,
- * which is the only place the SQL itself can be proven.
+ * not null, not a conflict nothing naming the work vouched for, above the threshold or
+ * confirmed. That duplication is deliberate and bounded: this file is about what the
+ * manager does with the edges it is given, and the functional tests run the real
+ * statement against a real database, which is the only place the SQL itself can be
+ * proven.
  */
 const build = (
 	world: Partial<World> = {},
@@ -181,13 +185,19 @@ const build = (
 					.filter(
 						(match) =>
 							match.localItemId !== null &&
-							match.state !== SyncState.CONFLICT &&
+							(match.state !== SyncState.CONFLICT ||
+								[
+									MatchStrategy.EXTERNAL_ID,
+									MatchStrategy.SEASON_EPISODE,
+									MatchStrategy.MANUAL,
+								].includes(match.strategy)) &&
 							(match.confidence >= threshold || match.confirmedAt !== null),
 					)
 					.map(
 						(match): MatchPair => ({
 							localItemId: match.localItemId as string,
 							remoteItemId: match.remoteItemId,
+							state: match.state,
 						}),
 					),
 			),
@@ -259,19 +269,59 @@ describe('MediaGroupManager', () => {
 			expect((await manager.groups(query())).items).toHaveLength(1);
 		});
 
-		it('leaves a conflict as two groups, which is what that state is for', async () => {
+		it('leaves the same bytes under two labels as two groups, which is what that conflict is for', async () => {
+			// Nobody has decided which episode the file is; joining the two would
+			// renumber one library after the other on a guess.
 			const { manager } = build({
 				items: [
 					item({ id: 'a', syncState: SyncState.CONFLICT }),
 					item({ id: 'b', serviceId: 'remote', syncState: SyncState.CONFLICT }),
 				],
-				matches: [correlation({ confidence: 1, state: SyncState.CONFLICT })],
+				matches: [
+					correlation({
+						confidence: 1,
+						state: SyncState.CONFLICT,
+						strategy: MatchStrategy.CHECKSUM,
+					}),
+				],
 			});
 
 			const page = await manager.groups(query());
 
 			expect(page.items).toHaveLength(2);
 			expect(page.items[0].sync).toBe(SyncState.CONFLICT);
+		});
+
+		it('joins two cuts of one film into one group that reads conflict', async () => {
+			// The identifier decided the work, the running time the version: one card that
+			// says "two versions", where there used to be two cards that looked unrelated.
+			const { manager } = build({
+				items: [
+					item({
+						id: 'a',
+						kind: MediaKind.MOVIE,
+						syncState: SyncState.CONFLICT,
+						file: file({ durationMs: 11_640_000, contentId: 'q1-theatrical' }),
+					}),
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						kind: MediaKind.MOVIE,
+						syncState: SyncState.CONFLICT,
+						file: file({ durationMs: 12_540_000, contentId: 'q1-extended' }),
+					}),
+				],
+				matches: [correlation({ confidence: 0.98, state: SyncState.CONFLICT })],
+			});
+
+			const page = await manager.groups(query());
+
+			expect(page.items).toHaveLength(1);
+			expect(page.items[0].sync).toBe(SyncState.CONFLICT);
+			expect(page.items[0].versions).toEqual([
+				expect.objectContaining({ versionId: 'q1-theatrical', heldLocally: true }),
+				expect.objectContaining({ versionId: 'q1-extended', heldLocally: false }),
+			]);
 		});
 
 		it('folds three services into one group with three sources', async () => {
@@ -429,6 +479,45 @@ describe('MediaGroupManager', () => {
 			// `rootsOnly`, so the episodes come back as groups of their own and a
 			// length would be asserting the harness, not the filter.
 			expect(answer.items.map((group) => group.id)).not.toContain('show');
+		});
+
+		it('keeps a film whose only copy here is a different cut', async () => {
+			// Holding the theatrical cut is not holding the extended one, and hiding the
+			// group would make the other cut unfindable the moment the two were joined.
+			const { manager } = build({
+				items: [
+					item({ id: 'a', kind: MediaKind.MOVIE, syncState: SyncState.CONFLICT }),
+					item({ id: 'b', serviceId: 'remote', kind: MediaKind.MOVIE, syncState: SyncState.CONFLICT }),
+				],
+				matches: [correlation({ state: SyncState.CONFLICT })],
+			});
+
+			const answer = await manager.groups(query({ hideOwned: true }));
+
+			expect(answer.items.map((group) => group.id)).toEqual(['a']);
+		});
+
+		it('counts an episode held here only in another cut as a gap', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'show', serviceId: 'local', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-here', serviceId: 'local', parentId: 'show', syncState: SyncState.CONFLICT }),
+					item({ id: 'show-remote', serviceId: 'remote', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'ep-there', serviceId: 'remote', parentId: 'show-remote' }),
+				],
+				matches: [
+					correlation({ localItemId: 'show', remoteItemId: 'show-remote' }),
+					correlation({
+						localItemId: 'ep-here',
+						remoteItemId: 'ep-there',
+						state: SyncState.CONFLICT,
+					}),
+				],
+			});
+
+			const answer = await manager.groups(query({ hideOwned: true, rootsOnly: true }));
+
+			expect(answer.items.find((group) => group.id === 'show')?.missingCount).toBe(1);
 		});
 
 		it('keeps what only somebody else holds', async () => {

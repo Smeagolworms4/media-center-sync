@@ -22,6 +22,16 @@ export const EventName = {
 	QUEUE_STATS: 'queue.stats',
 	JOB_STATE: 'job.state',
 	SERVICE_STATUS: 'service.status',
+	/**
+	 * A service was registered, edited or removed — by anybody, from anywhere.
+	 *
+	 * It carries the identifier and nothing else, on purpose: every connected session
+	 * receives it, and a registration's name and address are for whoever may list the
+	 * services. A session that holds the list asks the API again, which applies the
+	 * rights. Without it, a server registered in another tab showed on every open plan
+	 * as a raw identifier until somebody reloaded the page.
+	 */
+	SERVICE_CHANGED: 'service.changed',
 	PEER_STATUS: 'peer.status',
 	SCAN_PROGRESS: 'scan.progress',
 	/**
@@ -53,6 +63,7 @@ export interface EventPayloads {
 	[EventName.QUEUE_STATS]: TransferQueueStats;
 	[EventName.JOB_STATE]: SyncJob;
 	[EventName.SERVICE_STATUS]: Pick<MediaService, 'id' | 'status' | 'lastProbeAt'>;
+	[EventName.SERVICE_CHANGED]: Pick<MediaService, 'id'>;
 	[EventName.PEER_STATUS]: Pick<Peer, 'id' | 'status' | 'linkMode' | 'lastSeenAt'>;
 	[EventName.SCAN_PROGRESS]: ScanProgress;
 	[EventName.TRANSFER_VERIFIED]: TransferVerification;

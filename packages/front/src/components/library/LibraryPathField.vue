@@ -157,6 +157,7 @@
 				<template #append-inner>
 					<v-icon
 						class="cursor-pointer"
+						data-test="library-path-browse"
 						icon="mdi-folder-search-outline"
 						:title="$t('browse.open')"
 						@click="browsing = true"

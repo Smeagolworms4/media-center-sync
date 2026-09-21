@@ -356,8 +356,9 @@ cache/redis:
 # It exists because correlation, quality comparison and transfers cannot be proven
 # against mocks. A handler that maps a recorded payload correctly still has to survive
 # a real server's pagination, its idea of what a season is, and the fields it leaves
-# out. The fixtures are generated — a few megabytes of test pattern, nothing
-# downloaded — and `lab/media` prints what each file is meant to prove.
+# out. The fixtures are built from one committed clip — thirty seconds of Big Buck
+# Bunny, re-encoded under every title, nothing downloaded — and `lab/media` prints what
+# each file is meant to prove.
 #
 # Four rather than two because two is the shape the gateway is never used in. Two of
 # these are ours and may be written into; two are a friend's and may only be read. Only
@@ -382,7 +383,7 @@ export LAB_GATEWAY_REMOTE_PORT    ## Lab gateway, a friend's (default: 4301)
 LAB_COMPOSE=docker compose -p media-center-sync-lab -f docker/lab/docker-compose.yml
 LAB_KEYS=$(PROJECT_PATH)var/lab/keys
 
-## Generate the four lab libraries (needs ffmpeg; a few megabytes)
+## Generate the four lab libraries (needs ffmpeg; about 115 MB, four minutes the first time)
 lab/media:
 	@./docker/lab/seed-media.sh "$(PROJECT_PATH)var/lab/media"
 

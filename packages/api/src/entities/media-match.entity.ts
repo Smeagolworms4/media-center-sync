@@ -28,8 +28,8 @@ export class MediaMatch extends Timestampable {
 	 * rows are exactly that, pairing one friend's Jellyfin with another's Plex and
 	 * nothing of ours. Read as "ours", the column makes two posters for one film look
 	 * like correlation refusing to relate remote copies to each other, which it has
-	 * never refused to do — the veto in `MatchingService._separateCuts` is what splits
-	 * such a pair, and that is where to look.
+	 * never refused to do — the veto in `MatchingService._separateCuts`, for a pair no
+	 * work identifier vouches for, is what splits such a pair, and that is where to look.
 	 *
 	 * Nullable because `confirmMatch` lets a person detach the near side of a pair they
 	 * are re-pointing. Correlation itself never writes null, so a null row is a human's

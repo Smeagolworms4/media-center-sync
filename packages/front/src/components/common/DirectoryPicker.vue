@@ -299,7 +299,12 @@
 				/>
 			</div>
 
-			<p class="text-caption text-medium-emphasis mb-1">
+			<!--
+				The sentence tying the two halves together, marked because it is the one
+				thing that makes the pair readable: two folder lists with no statement of
+				how they relate is a dialog showing the same thing twice.
+			-->
+			<p class="text-caption text-medium-emphasis mb-1" data-test="browse-server-hint">
 				{{ $t('browse.server_hint') }}
 			</p>
 

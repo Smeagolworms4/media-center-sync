@@ -247,5 +247,27 @@ describe('QualityService', () => {
 				service.isConflicting(file({ durationMs: 11_640_000 }), file({ durationMs: 11_521_000 })),
 			).toBe(false);
 		});
+
+		it('does not call a trimmed studio logo a different cut', () => {
+			// The micro-cut the owner named: the same film with twenty-five seconds of
+			// logo taken off the front. One version, so an ordinary state, never a
+			// decision somebody has to make.
+			expect(
+				service.isConflicting(file({ durationMs: 7_200_000 }), file({ durationMs: 7_175_000 })),
+			).toBe(false);
+		});
+
+		it('answers about the content and never about the encode', () => {
+			// The correlation now groups two cuts on their shared identifier and reads the
+			// state from this rule alone, asked before the comparator ranks them. If the
+			// better encode could make two cuts "not conflicting", a sync would treat the
+			// extended cut as an upgrade of the theatrical one and write it over ours.
+			const theatrical = file({ durationMs: 7_200_000, height: 1080, videoCodec: 'x264' });
+			const extended = file({ durationMs: 8_100_000, height: 2160, videoCodec: 'x265' });
+
+			expect(service.isBetter(extended, theatrical)).toBe(true);
+			expect(service.isConflicting(theatrical, extended)).toBe(true);
+			expect(service.isConflicting(extended, theatrical)).toBe(true);
+		});
 	});
 });

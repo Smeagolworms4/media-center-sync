@@ -316,6 +316,22 @@ describe('Browsing the index by media rather than by row', () => {
 		expect(page.items.every((group) => group.sources.every((source) => !source.local))).toBe(true);
 	});
 
+	it('finds a whole media by the state of what is beneath it', async () => {
+		// The series is in sync as a group; two of its episodes on their server are
+		// not. A wall of whole media asked for what is missing has to show the series —
+		// it is the only poster from which those episodes can be reached.
+		const page = await groups(`/media/groups?rootsOnly=true&states=${SyncState.MISSING}&limit=50`);
+
+		expect(page.pagination.total).toBe(1);
+		expect(page.items[0].kind).toBe(MediaKind.SERIES);
+	});
+
+	it('finds nothing beneath a media when nothing beneath it is in that state', async () => {
+		const page = await groups(`/media/groups?rootsOnly=true&states=${SyncState.AWAITING_INDEX}&limit=50`);
+
+		expect(page.pagination.total).toBe(0);
+	});
+
 	it('refuses a page size nobody could render rather than quietly shrinking it', async () => {
 		await browse('/media/groups?limit=100000').expect(400);
 	});

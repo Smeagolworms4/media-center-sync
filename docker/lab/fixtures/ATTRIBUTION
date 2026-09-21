@@ -1,0 +1,27 @@
+big-buck-bunny-30s.mp4
+
+Title:    Big Buck Bunny
+Author:   Blender Foundation, www.bigbuckbunny.org
+          (c) copyright 2008, Blender Foundation
+Licence:  Creative Commons Attribution 3.0 (CC BY 3.0)
+          https://creativecommons.org/licenses/by/3.0/
+Source:   https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_640x360.m4v.zip
+          sha256 of the downloaded archive:
+          7118242b6728d40c871479c5b3c0f0fb27d748089df15d7f1b469f297c74a2d6
+
+Changes made: thirty seconds were cut from the original, starting at 1:10, and
+re-encoded to 640x360 H.264 (CRF 26) with AAC stereo audio at 96 kb/s. Nothing else
+was altered. The command, for anyone who wants to reproduce the file:
+
+    ffmpeg -ss 70 -i BigBuckBunny_640x360.m4v -t 30 \
+        -vf "scale=640:360,setsar=1" -r 24 \
+        -c:v libx264 -preset slow -crf 26 -profile:v high -pix_fmt yuv420p -g 48 \
+        -c:a aac -b:a 96k -ac 2 -ar 44100 \
+        -movflags +faststart -map_metadata -1 \
+        -fflags +bitexact -flags:v +bitexact -flags:a +bitexact \
+        big-buck-bunny-30s.mp4
+
+This clip is the single source of every file the lab builds: `seed-media.sh` copies
+and re-encodes it under many titles. The titles are there so the media servers fetch
+real artwork and identifiers; the picture in every one of them is this clip, and it
+remains the Blender Foundation's work under the licence above.
