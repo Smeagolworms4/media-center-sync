@@ -21,12 +21,20 @@ Les bibliothèques de même nom deviennent une seule catégorie, quel que soit l
 de serveurs où elles vivent, et chaque affiche porte l'essentiel : si vous l'avez, où
 sont les copies, et `x265 · 1080p` — ou `mixed`, quand les sources ne s'accordent pas.
 
-![Services média : un Jellyfin dont la passerelle peut écrire les dossiers, un Plex qu'elle ne fait que lire](docs/images/services.png)
+![Services média en trois bandes : les serveurs dont la passerelle atteint les dossiers, ceux qu'elle ne fait que joindre par le réseau, et les passerelles d'amis](docs/images/services.png)
 
 Un service dont la passerelle atteint les dossiers est un endroit où des fichiers
-peuvent atterrir. Un service où l'on a seulement un compte est un endroit où lire et
-puiser. La différence est affichée sur la ligne, parce qu'elle décide de ce qu'une
+peuvent atterrir. Un service qu'elle ne fait que joindre en HTTP est un endroit où lire
+et puiser — le vôtre ou celui d'autrui, la distinction tenant au montage et non à la
+propriété. La différence est affichée sur la ligne, parce qu'elle décide de ce qu'une
 synchronisation peut faire.
+
+Que les bibliothèques d'un service soient proposées à vos pairs est un interrupteur
+distinct, activé par défaut : le cas le plus courant de tous est un serveur ordinaire
+dont personne n'a renseigné les dossiers, et il ressortait invisible pour tout le monde.
+La passerelle d'un ami occupe sa propre bande et ne s'édite pas ici — ce qu'elle montre,
+jusqu'où elle porte et si elle peut lire chez vous sont des décisions qui vivent sur
+l'écran des pairs.
 
 ---
 

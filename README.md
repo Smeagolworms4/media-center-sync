@@ -21,11 +21,18 @@ Libraries of the same name become one category, however many servers they live o
 and a poster carries what it is worth knowing at a glance: whether you hold it,
 where the copies are, and `x265 · 1080p` — or `mixed`, when the sources disagree.
 
-![Media services: one Jellyfin whose folders the gateway can write into, one Plex it can only read](docs/images/services.png)
+![Media services in three bands: the servers whose folders this gateway reaches, the ones it only talks to over HTTP, and friends' gateways](docs/images/services.png)
 
-A service whose library folders this gateway can reach is a place files can land. One
-you merely have an account on is a place to read from and pull out of. The difference
-is stated on the row, because it decides what a sync can do.
+A service whose library folders this gateway reaches is a place files can land. One it
+only talks to over HTTP is a place to read from and pull out of — yours or somebody
+else's, the distinction being the mount and not the ownership. The difference is stated
+on the row, because it decides what a sync can do.
+
+Whether a service's libraries are offered to your peers is a separate switch, on by
+default, because the commonest case of all is an ordinary server nobody has mapped
+folders for and it used to come out invisible to everybody. A friend's gateway sits in
+its own band and is not edited here: what it shows, how far it reaches and whether it
+may read from you are decisions that live on the peers screen.
 
 ---
 
