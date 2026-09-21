@@ -78,12 +78,24 @@ add_section() {
 		return 0
 	fi
 
-	local code
-	code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-		"$BASE/library/sections?name=$(urlencode "$name")&type=$type&agent=$agent&scanner=$(urlencode "$scanner")&language=en-US&location=$(urlencode "$path")")
+	# Asked until it is accepted, because acceptance is the only readiness signal Plex
+	# gives that can be trusted. The wait above lets the script through as soon as
+	# `/identity` names the machine without a start state, and on a warm server that is
+	# right; on a cold one — a fresh CI runner pulling the image for the first time —
+	# Plex answers exactly that while its plugins are still loading, and refuses the
+	# section with a bare 400. That made the lab fail before a single journey ran, on
+	# a pipeline that had passed an hour earlier with nothing changed but the cache.
+	# Bounded, so a request Plex will never accept still fails, naming its last answer.
+	local code attempt
+	for attempt in $(seq 1 30); do
+		code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+			"$BASE/library/sections?name=$(urlencode "$name")&type=$type&agent=$agent&scanner=$(urlencode "$scanner")&language=en-US&location=$(urlencode "$path")")
+		[ "$code" = '201' ] || [ "$code" = '200' ] && break
+		sleep 2
+	done
 
 	if [ "$code" != '201' ] && [ "$code" != '200' ]; then
-		echo "  section $name refused ($code)" >&2
+		echo "  section $name refused ($code) after $attempt attempts" >&2
 		return 1
 	fi
 	echo "  section $name -> $path"
