@@ -1,23 +1,4 @@
 import { InitialSchema1758240000000 } from './1758240000000-InitialSchema';
-import { MediaCompanions1758330000000 } from './1758330000000-MediaCompanions';
-import { PeerDirection1758340000000 } from './1758340000000-PeerDirection';
-import { DropCatalogueOnly1758350000000 } from './1758350000000-DropCatalogueOnly';
-import { CategoriesAndIdentity1758360000000 } from './1758360000000-CategoriesAndIdentity';
-import { RelayConsent1758370000000 } from './1758370000000-RelayConsent';
-import { PeerProtocol1758380000000 } from './1758380000000-PeerProtocol';
-import { IgnoredItems1758390000000 } from './1758390000000-IgnoredItems';
-import { SyncScopeAndSpace1758400000000 } from './1758400000000-SyncScopeAndSpace';
-import { ServiceRootMapping1758410000000 } from './1758410000000-ServiceRootMapping';
-import { PeerDepthAndBans1758420000000 } from './1758420000000-PeerDepthAndBans';
-import { NotificationChannels1758430000000 } from './1758430000000-NotificationChannels';
-import { PlacementProvenance1758440000000 } from './1758440000000-PlacementProvenance';
-import { ParentExternalId1758450000000 } from './1758450000000-ParentExternalId';
-import { ForbidPeerReading1758460000000 } from './1758460000000-ForbidPeerReading';
-import { ServiceSharingAndMount1758470000000 } from './1758470000000-ServiceSharingAndMount';
-import { DiscoveredPeers1758480000000 } from './1758480000000-DiscoveredPeers';
-import { MediaLandings1758490000000 } from './1758490000000-MediaLandings';
-import { CategoryKeywords1758500000000 } from './1758500000000-CategoryKeywords';
-import { PlanPreferredLibrary1758510000000 } from './1758510000000-PlanPreferredLibrary';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -44,47 +25,11 @@ import { PlanPreferredLibrary1758510000000 } from './1758510000000-PlanPreferred
  *
  * Adding a migration means adding a line here. Forgetting it now fails the same way in
  * every context instead of only in one.
+ *
+ * There is exactly one entry because the nineteen that used to follow `InitialSchema`
+ * were folded back into it before the first release; that file says what it cost and
+ * why it is no longer an option. From here on the list only grows.
  */
-export const MIGRATIONS = [
-	InitialSchema1758240000000,
-	MediaCompanions1758330000000,
-	PeerDirection1758340000000,
-	DropCatalogueOnly1758350000000,
-	CategoriesAndIdentity1758360000000,
-	RelayConsent1758370000000,
-	PeerProtocol1758380000000,
-	IgnoredItems1758390000000,
-	SyncScopeAndSpace1758400000000,
-	ServiceRootMapping1758410000000,
-	PeerDepthAndBans1758420000000,
-	NotificationChannels1758430000000,
-	PlacementProvenance1758440000000,
-	ParentExternalId1758450000000,
-	ForbidPeerReading1758460000000,
-	ServiceSharingAndMount1758470000000,
-	DiscoveredPeers1758480000000,
-	MediaLandings1758490000000,
-	CategoryKeywords1758500000000,
-	PlanPreferredLibrary1758510000000,
-];
+export const MIGRATIONS = [InitialSchema1758240000000];
 
 export * from './1758240000000-InitialSchema';
-export * from './1758330000000-MediaCompanions';
-export * from './1758340000000-PeerDirection';
-export * from './1758350000000-DropCatalogueOnly';
-export * from './1758360000000-CategoriesAndIdentity';
-export * from './1758370000000-RelayConsent';
-export * from './1758380000000-PeerProtocol';
-export * from './1758390000000-IgnoredItems';
-export * from './1758400000000-SyncScopeAndSpace';
-export * from './1758410000000-ServiceRootMapping';
-export * from './1758420000000-PeerDepthAndBans';
-export * from './1758430000000-NotificationChannels';
-export * from './1758440000000-PlacementProvenance';
-export * from './1758450000000-ParentExternalId';
-export * from './1758460000000-ForbidPeerReading';
-export * from './1758470000000-ServiceSharingAndMount';
-export * from './1758480000000-DiscoveredPeers';
-export * from './1758490000000-MediaLandings';
-export * from './1758500000000-CategoryKeywords';
-export * from './1758510000000-PlanPreferredLibrary';

@@ -392,7 +392,14 @@ episodes would be a tax on every install for the benefit of almost none.
 The constraint that follows is real and permanent: every migration must run on both
 engines. Tables are built with TypeORM's `Table` objects rather than raw SQL, column
 types stay inside the intersection of the two dialects, and primary keys are
-application-generated UUIDs stored as `varchar(36)`.
+application-generated UUIDs stored as an unbounded `varchar` — unbounded because
+TypeORM normalises a `uuid` column to exactly that, and a declared `varchar(36)` reads
+back as a difference that makes `migration:generate` propose rebuilding the table.
+
+There is one migration, `InitialSchema`, and it stays one until the first release:
+before that, a schema change is folded into it and the two development databases are
+recreated. After the release it becomes untouchable and every change is a new file
+beside it.
 
 ## Delivery
 
