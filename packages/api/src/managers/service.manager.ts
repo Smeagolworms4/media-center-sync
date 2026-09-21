@@ -3,12 +3,14 @@ import {
 	EventName,
 	LibraryKind,
 	MediaServiceStatus,
+	normaliseRootPath,
 	type CreateMediaServiceRequest,
 	type MediaCompanions,
 	type Library,
 	type MediaService,
 	type MediaServiceProbe,
 	type MediaServiceType,
+	type RootMapping,
 	type ServerStructure,
 	type ServerStructureRequest,
 	type UpdateMediaServiceRequest,
@@ -222,8 +224,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 				password: request.password ?? null,
 				authProvider: request.authProvider ?? false,
 				priority: request.priority ?? 100,
-				remoteRoot: this._normaliseRoot(request.remoteRoot),
-				localRoot: this._normaliseRoot(request.localRoot),
+				rootMappings: this._normaliseMappings(request.rootMappings ?? []),
 				status: this._statusOf(probe),
 				version: probe.version,
 				lastProbeAt: new Date(),
@@ -236,8 +237,8 @@ export class ServiceManager implements OnApplicationBootstrap {
 
 		// Re-read rather than presented from the row saved above. Adopting the
 		// libraries derives whether we hold the files, and the object in hand still
-		// carries the answer from before that ran — a service registered with its root
-		// mapping would be reported remote in the very response that created it.
+		// carries the answer from before that ran — a service registered with its
+		// mappings would be reported remote in the very response that created it.
 		return this._present(await this._require(service.id));
 	}
 
@@ -288,17 +289,16 @@ export class ServiceManager implements OnApplicationBootstrap {
 		service.authProvider = patch.authProvider ?? service.authProvider;
 		service.priority = patch.priority ?? service.priority;
 
-		const rootsMoved =
-			(patch.remoteRoot !== undefined && this._normaliseRoot(patch.remoteRoot) !== service.remoteRoot)
-			|| (patch.localRoot !== undefined && this._normaliseRoot(patch.localRoot) !== service.localRoot);
+		const nextMappings = patch.rootMappings === undefined
+			? service.rootMappings
+			: this._normaliseMappings(patch.rootMappings);
+		// Compared as written, order included. A reordered list derives the same paths
+		// — the most specific prefix wins whatever its row — so re-applying it costs one
+		// pass over the libraries and changes nothing, while missing a real change
+		// would leave every library pointing at the disk somebody just corrected.
+		const rootsMoved = JSON.stringify(nextMappings) !== JSON.stringify(service.rootMappings);
 
-		if (patch.remoteRoot !== undefined) {
-			service.remoteRoot = this._normaliseRoot(patch.remoteRoot);
-		}
-
-		if (patch.localRoot !== undefined) {
-			service.localRoot = this._normaliseRoot(patch.localRoot);
-		}
+		service.rootMappings = nextMappings;
 
 		const saved = await this._services.save(service);
 
@@ -1047,14 +1047,19 @@ export class ServiceManager implements OnApplicationBootstrap {
 	}
 
 	/**
-	 * An emptied root is no mapping, not an empty prefix.
+	 * The one spelling of every mapping that is stored.
 	 *
-	 * Stored as `''` it would match the start of every path in existence and derive
-	 * the whole filesystem into `localRoot`, which is the one outcome worse than
-	 * deriving nothing.
+	 * Fresh objects holding only the two sides, never the entries as they arrived: the
+	 * list is written into a JSON column, and whatever else a request put on an entry
+	 * would be stored and returned forever. Refusals already happened at the edge —
+	 * `findRootMappingFault` — so nothing here decides; it only makes `/data/` and
+	 * `/data` the same stored prefix, which is what the duplicate check compared.
 	 */
-	private _normaliseRoot(root: string | null | undefined): string | null {
-		return root?.trim().replace(/\/+$/, '') || null;
+	private _normaliseMappings(mappings: readonly RootMapping[]): RootMapping[] {
+		return mappings.map((mapping) => ({
+			remoteRoot: normaliseRootPath(mapping.remoteRoot),
+			localRoot: normaliseRootPath(mapping.localRoot),
+		}));
 	}
 
 	/** A trailing slash is the same server, and the unique index does not know that. */

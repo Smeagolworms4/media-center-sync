@@ -51,6 +51,37 @@ export const ErrorKey = {
 	 * the only thing on offer is "wrong credentials".
 	 */
 	SERVICE_AUTH_UNSUPPORTED: 'error.service.auth_unsupported',
+	/**
+	 * A root mapping with nothing on one of its two sides.
+	 *
+	 * Refused rather than dropped: half a mapping derives nothing, and a row that
+	 * vanished on save would leave somebody believing they had mapped a disk that the
+	 * gateway still does not know about.
+	 */
+	SERVICE_MAPPING_EMPTY: 'error.service.mapping_empty',
+	/**
+	 * A root mapping side that is not an absolute path.
+	 *
+	 * A relative path resolves against whatever directory the process was started in,
+	 * which differs between the container, a development shell and a command — one
+	 * stored value, three directories.
+	 */
+	SERVICE_MAPPING_RELATIVE: 'error.service.mapping_relative',
+	/**
+	 * The same server prefix listed twice.
+	 *
+	 * Two rows claiming one prefix would derive a library's path from whichever came
+	 * first in the list, so reordering the rows would silently move where transfers
+	 * land. Nested prefixes are a different thing and are allowed: the most specific
+	 * one wins, which is an answer that does not depend on the order.
+	 */
+	SERVICE_MAPPING_DUPLICATE: 'error.service.mapping_duplicate',
+	/**
+	 * A list of mappings that is not one: not a list, entries that are not pairs of
+	 * strings, a path past any length a filesystem accepts, or more rows than any
+	 * installation has disks. The form never sends this; a hand-written request does.
+	 */
+	SERVICE_MAPPING_INVALID: 'error.service.mapping_invalid',
 
 	LIBRARY_NOT_FOUND: 'error.library.not_found',
 	LIBRARY_PATH_UNREADABLE: 'error.library.path_unreadable',

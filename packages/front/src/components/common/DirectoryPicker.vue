@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { DirectoryListing, ServerDirectory, ServerStructure } from '@mcs/shared';
-	import { ServerStructureSupport } from '@mcs/shared';
+	import { pathComponents, ServerStructureSupport } from '@mcs/shared';
 	import { computed, ref, watch } from 'vue';
 	import Window from '@/components/Window.vue';
 	import { useApiError } from '@/hooks/useApiError';
@@ -37,10 +37,30 @@
 		serviceId?: string | null;
 		/** Restrict the server's folders to one library's, by the id the service gave. */
 		libraryExternalId?: string | null;
+		/**
+		 * Offer the server's folders and nothing else.
+		 *
+		 * For the server's side of a root mapping, where this gateway's disk is the
+		 * wrong answer by definition: listing it under the server's folders would
+		 * invite somebody to fill the server's field with one of our paths, which is
+		 * the exact mix-up the two sides of a mapping exist to keep apart.
+		 */
+		serverOnly?: boolean;
+		/**
+		 * The library roots a probe reported, for a service not registered yet.
+		 *
+		 * Such a service has no identifier to ask about its folders, but the probe
+		 * already said where its libraries are, and those roots are the server's own
+		 * words. Shown as the server's half without a way deeper, because walking needs
+		 * a registration to ask through.
+		 */
+		reportedRoots?: readonly string[];
 	}>(), {
 		path: null,
 		serviceId: null,
 		libraryExternalId: null,
+		serverOnly: false,
+		reportedRoots: () => [],
 	});
 
 	const emit = defineEmits<{ choose: [path: string] }>();
@@ -176,8 +196,13 @@
 	 * "no folder in here" about a server that never answered is a lie in the place
 	 * where this dialog is meant to be the trustworthy half.
 	 */
-	const showServer = computed(
-		() => props.serviceId !== null && (server.value !== null || serverLoading.value));
+	const showServer = computed(() => {
+		const askable = props.serviceId !== null || props.reportedRoots.length > 0;
+		return askable && (server.value !== null || serverLoading.value);
+	});
+
+	/** Walking deeper asks the service, which needs one that is registered. */
+	const canWalk = computed(() => props.serviceId !== null);
 
 	/**
 	 * Whether the server was asked and said it has no way to answer.
@@ -198,6 +223,21 @@
 	 */
 	async function loadServer (path?: string | null): Promise<void> {
 		if (props.serviceId === null) {
+			server.value = props.reportedRoots.length === 0
+				? null
+				: {
+					support: ServerStructureSupport.REPORTED,
+					path: null,
+					parent: null,
+					entries: [...new Set(props.reportedRoots)].map(root => ({
+						path: root,
+						name: pathComponents(root).at(-1) ?? root,
+						root: true,
+						libraryExternalId: null,
+						libraryName: null,
+						directory: true,
+					})),
+				};
 			return;
 		}
 
@@ -235,7 +275,10 @@
 			listing.value = null;
 			server.value = null;
 			serverDeadEnd.value = false;
-			void load(props.path, true);
+			// The server's side of a mapping never lists this disk, so it is not asked.
+			if (!props.serverOnly) {
+				void load(props.path, true);
+			}
 			void loadServer(null);
 		}
 	}, { immediate: true });
@@ -326,7 +369,7 @@
 					:title="entry.path"
 					@click="onChooseServer(entry.path)"
 				>
-					<template #append>
+					<template v-if="canWalk" #append>
 						<v-btn
 							data-test="browse-server-enter"
 							icon="mdi-chevron-right"
@@ -359,89 +402,105 @@
 			</p>
 		</section>
 
+		<!--
+			Said rather than left blank: on the server's side there is no disk below to
+			fall back on, so an empty dialog would read as broken rather than as a server
+			that could not be asked — and the field it came from still takes a typed path.
+		-->
 		<p
-			v-if="showServer"
-			class="text-subtitle-2 mb-1 mt-3"
-			data-test="browse-gateway-title"
+			v-if="serverOnly && !showServer"
+			class="text-caption text-medium-emphasis mb-0"
+			data-test="browse-server-unavailable"
 		>
-			{{ $t('browse.gateway_title') }}
+			{{ $t('browse.server_unavailable') }}
 		</p>
 
-		<div class="directory-picker_bar">
-			<v-btn
-				data-test="browse-up"
-				:disabled="!listing?.parent"
-				icon="mdi-arrow-up"
-				size="small"
-				:title="$t('browse.up')"
-				variant="text"
-				@click="load(listing?.parent)"
-			/>
+		<template v-if="!serverOnly">
+			<p
+				v-if="showServer"
+				class="text-subtitle-2 mb-1 mt-3"
+				data-test="browse-gateway-title"
+			>
+				{{ $t('browse.gateway_title') }}
+			</p>
 
-			<div class="directory-picker_crumbs" data-test="browse-crumbs">
-				<template v-for="(crumb, index) of crumbs" :key="crumb.path">
-					<span v-if="index > 0" class="directory-picker_separator">/</span>
+			<div class="directory-picker_bar">
+				<v-btn
+					data-test="browse-up"
+					:disabled="!listing?.parent"
+					icon="mdi-arrow-up"
+					size="small"
+					:title="$t('browse.up')"
+					variant="text"
+					@click="load(listing?.parent)"
+				/>
 
-					<v-btn
-						class="directory-picker_crumb"
-						density="compact"
-						size="small"
-						variant="text"
-						@click="load(crumb.path)"
-					>
-						{{ crumb.label }}
-					</v-btn>
-				</template>
+				<div class="directory-picker_crumbs" data-test="browse-crumbs">
+					<template v-for="(crumb, index) of crumbs" :key="crumb.path">
+						<span v-if="index > 0" class="directory-picker_separator">/</span>
+
+						<v-btn
+							class="directory-picker_crumb"
+							density="compact"
+							size="small"
+							variant="text"
+							@click="load(crumb.path)"
+						>
+							{{ crumb.label }}
+						</v-btn>
+					</template>
+				</div>
 			</div>
-		</div>
 
-		<v-alert
-			v-if="error"
-			data-test="browse-error"
-			density="compact"
-			type="warning"
-			variant="tonal"
-		>
-			{{ error }}
-		</v-alert>
+			<v-alert
+				v-if="error"
+				data-test="browse-error"
+				density="compact"
+				type="warning"
+				variant="tonal"
+			>
+				{{ error }}
+			</v-alert>
 
-		<v-list v-else data-test="browse-list" density="compact" max-height="360">
-			<v-list-item
-				v-for="entry of listing?.entries ?? []"
-				:key="entry.path"
-				data-test="browse-entry"
-				:disabled="!entry.readable"
-				:prepend-icon="entry.writable ? 'mdi-folder-outline' : 'mdi-folder-lock-outline'"
-				:subtitle="entry.writable ? undefined : $t('browse.not_writable')"
-				:title="entry.name"
-				@click="load(entry.path)"
-			/>
+			<v-list v-else data-test="browse-list" density="compact" max-height="360">
+				<v-list-item
+					v-for="entry of listing?.entries ?? []"
+					:key="entry.path"
+					data-test="browse-entry"
+					:disabled="!entry.readable"
+					:prepend-icon="entry.writable ? 'mdi-folder-outline' : 'mdi-folder-lock-outline'"
+					:subtitle="entry.writable ? undefined : $t('browse.not_writable')"
+					:title="entry.name"
+					@click="load(entry.path)"
+				/>
 
-			<v-list-item
-				v-if="!loading && (listing?.entries.length ?? 0) === 0"
-				data-test="browse-empty"
-				:title="$t('browse.empty')"
-			/>
-		</v-list>
+				<v-list-item
+					v-if="!loading && (listing?.entries.length ?? 0) === 0"
+					data-test="browse-empty"
+					:title="$t('browse.empty')"
+				/>
+			</v-list>
 
-		<p
-			v-if="listing?.truncated"
-			class="text-caption text-medium-emphasis mt-2"
-			data-test="browse-truncated"
-		>
-			{{ $t('browse.truncated', { count: listing.limit }) }}
-		</p>
+			<p
+				v-if="listing?.truncated"
+				class="text-caption text-medium-emphasis mt-2"
+				data-test="browse-truncated"
+			>
+				{{ $t('browse.truncated', { count: listing.limit }) }}
+			</p>
 
-		<p
-			v-if="listing && !writable"
-			class="text-caption text-warning mt-2"
-			data-test="browse-unwritable"
-		>
-			{{ $t('browse.current_not_writable') }}
-		</p>
+			<p
+				v-if="listing && !writable"
+				class="text-caption text-warning mt-2"
+				data-test="browse-unwritable"
+			>
+				{{ $t('browse.current_not_writable') }}
+			</p>
+		</template>
 
 		<template #actions>
 			<v-switch
+				v-if="!serverOnly"
 				v-model="includeHidden"
 				class="ml-2"
 				color="primary"
@@ -457,6 +516,7 @@
 			</v-btn>
 
 			<v-btn
+				v-if="!serverOnly"
 				color="primary"
 				data-test="browse-choose"
 				:disabled="!listing || !writable"

@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { normaliseRootPath, pathComponents, type RootMapping } from '@mcs/shared';
 
 /** The parts of a library this mapping needs, so a caller can pass a row or a fake. */
 export interface PathMappedLibrary {
@@ -40,32 +41,73 @@ export const toLocalPath = (library: PathMappedLibrary, reported: string | null)
 	return null;
 };
 
-/** A service's statement about where its own root is, as the gateway reaches it. */
-export interface ServiceRootMapping {
-	/** The prefix the service reports, in its own filesystem. */
-	remoteRoot: string | null;
-	/** The same directory, in ours. */
-	localRoot: string | null;
+/** The part of a service this derivation reads, so a caller can pass a row or a fake. */
+export interface ServiceRootMappings {
+	rootMappings: readonly RootMapping[];
 }
 
-/** Trailing separators say nothing about a directory and break every prefix test. */
-const withoutTrailingSlash = (path: string): string => path.trim().replace(/\/+$/, '');
+/**
+ * One reported path, rewritten through the most specific mapping it sits under.
+ *
+ * Longest prefix, measured in path components, and that is the whole rule. In
+ * components because `/data/movies2` is not under `/data/movies` however the letters
+ * line up. Longest because nested mounts are a real setup — `/data` on the NAS and
+ * `/data/4k` on a faster disk — and a film under `/data/4k` would otherwise be sent
+ * to the NAS directory that merely shares its parent. Validation refuses the same
+ * prefix listed twice, so the most specific match is always a single answer and never
+ * depends on the order somebody typed the rows in.
+ *
+ * A path climbing out of its prefix with `..` gets nothing: rewriting it would name a
+ * directory outside the one the mapping declared, which is a guess, not a mapping.
+ */
+export const mappedLocalPath = (reported: string, mappings: readonly RootMapping[]): string | null => {
+	if (!reported.trim().startsWith('/')) {
+		return null;
+	}
+
+	const path = pathComponents(reported);
+
+	if (path.some((component) => component === '..' || component === '.')) {
+		return null;
+	}
+
+	let best: { depth: number; localRoot: string } | null = null;
+
+	for (const mapping of mappings) {
+		const prefix = pathComponents(mapping.remoteRoot);
+		const local = mapping.localRoot.trim();
+
+		if (local === '' || prefix.length > path.length || (best !== null && prefix.length <= best.depth)) {
+			continue;
+		}
+
+		if (prefix.every((component, index) => path[index] === component)) {
+			best = { depth: prefix.length, localRoot: local };
+		}
+	}
+
+	if (best === null) {
+		return null;
+	}
+
+	return join(normaliseRootPath(best.localRoot), ...path.slice(best.depth));
+};
 
 /**
- * Where a library's files are for us, worked out from its service's root mapping.
+ * Where a library's files are for us, worked out from its service's mappings.
  *
- * This is what a service states once instead of every library stating it again. A
- * server with six libraries was six paths to type and six chances to get one wrong,
- * and a library whose two paths do not designate the same directory accepts transfers
- * the media server never sees, with nothing anywhere reporting an error.
+ * This is what a service states once per disk instead of every library stating it
+ * again: a server with six libraries was six paths to type and six chances to get one
+ * wrong, and a library whose two paths do not designate the same directory accepts
+ * transfers the media server never sees, with nothing anywhere reporting an error.
  *
- * Null whenever the mapping cannot answer: no roots stated, no reported path, or a
- * path that does not sit under `remoteRoot`. A null is the caller's signal to fall
- * back to what somebody typed, and it is deliberately preferred to a guess — a
- * rewritten prefix that was never declared points the gateway at a directory nobody
- * chose, which is the failure this whole mapping exists to prevent.
+ * Null whenever the mappings cannot answer: none stated, no reported path, or no path
+ * under any of them. A null is the caller's signal to fall back to what somebody
+ * typed, and it is deliberately preferred to a guess — a rewritten prefix that was
+ * never declared points the gateway at a directory nobody chose, which is the failure
+ * this whole mapping exists to prevent.
  *
- * Only the first reported path that the mapping can answer for is used. A library
+ * Only the first reported path the mappings can answer for is used. A library
  * declaring several roots is declaring several places its own service reads from, and
  * a gateway has one directory to write into; taking the first keeps the answer stable
  * across scans, where picking "the best" would depend on the order the service listed
@@ -73,30 +115,13 @@ const withoutTrailingSlash = (path: string): string => path.trim().replace(/\/+$
  */
 export const derivedLocalPath = (
 	reported: readonly string[],
-	mapping: ServiceRootMapping,
+	service: ServiceRootMappings,
 ): string | null => {
-	if (mapping.remoteRoot === null || mapping.localRoot === null) {
-		return null;
-	}
-
-	const from = withoutTrailingSlash(mapping.remoteRoot);
-	const to = withoutTrailingSlash(mapping.localRoot);
-
-	if (from === '' || to === '') {
-		return null;
-	}
-
 	for (const entry of reported) {
-		const path = withoutTrailingSlash(entry);
+		const local = mappedLocalPath(entry, service.rootMappings);
 
-		if (path === from) {
-			// The library is the root itself, which is the ordinary case for a service
-			// whose whole media directory is one library.
-			return to;
-		}
-
-		if (path.startsWith(`${from}/`)) {
-			return join(to, path.slice(from.length));
+		if (local !== null) {
+			return local;
 		}
 	}
 

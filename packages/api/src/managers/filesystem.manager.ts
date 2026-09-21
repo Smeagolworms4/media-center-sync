@@ -102,7 +102,7 @@ export class FilesystemManager {
 	 * gateway has already been pointed at.
 	 *
 	 * The second half closes an inconsistency rather than opening a door. A service's
-	 * `localRoot` and a library's `localPath` are directories somebody configured and
+	 * mapped `localRoot`s and a library's `localPath` are directories somebody configured and
 	 * that the gateway **writes into** — refusing to *list* them protected nothing,
 	 * and it left the picker unable to reach the only places a local path is ever
 	 * going to name. Nothing is reachable here that the gateway was not already told
@@ -114,7 +114,8 @@ export class FilesystemManager {
 	 */
 	private async _allowedRoots(): Promise<string[]> {
 		const configured = [
-			...(await this._services.find()).map((service) => service.localRoot),
+			...(await this._services.find()).flatMap((service) =>
+				service.rootMappings.map((mapping) => mapping.localRoot)),
 			...(await this._libraries.find()).map((library) => library.localPath),
 		].filter((root): root is string => typeof root === 'string' && root !== '');
 

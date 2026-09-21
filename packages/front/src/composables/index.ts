@@ -10,6 +10,7 @@ export * from './useMediaOverride';
 export * from './useMediaPoster';
 export * from './useMediaTrail';
 export * from './useRateLimit';
+export * from './useRootMappings';
 export * from './useSyncState';
 export * from './useTransferError';
 export * from './useViewMode';

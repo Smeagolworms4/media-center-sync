@@ -20,7 +20,17 @@ import {
  * links, the sync plans and the accounts — a few minutes of retyping on each of the
  * two machines that had them.
  *
- * That option closed on the day the first release went out. From then on a schema
+ * It has been used once more since, deliberately, and the cost is the same one: the
+ * service's single root pair (`remoteRoot`, `localRoot`) became a list,
+ * `rootMappings`, because one pair cannot describe a server whose films and shows are
+ * on two disks. The owner asked for that change to be folded in here rather than
+ * written as a second migration, since the product is still at its initial version —
+ * but an image had already been published from `main` that day, so **any database
+ * created from that image, or from this file before that change, must be dropped and
+ * recreated as well**. Nothing here converts the old two columns; a database that has
+ * them is refused by every query that reads a service, not quietly misread.
+ *
+ * That option closes on the day the first release goes out. From then on a schema
  * change is a new migration in this directory and this file is never touched again:
  * somebody, somewhere, has rows in it.
  *
@@ -175,8 +185,7 @@ export class InitialSchema1758240000000 implements MigrationInterface {
 					{ name: 'password', type: 'varchar', isNullable: true },
 					{ name: 'status', type: 'varchar', default: "'unknown'" },
 					{ name: 'version', type: 'varchar', isNullable: true },
-					{ name: 'remoteRoot', type: 'varchar', length: '1024', isNullable: true },
-					{ name: 'localRoot', type: 'varchar', length: '1024', isNullable: true },
+					{ name: 'rootMappings', type: 'text', default: "'[]'" },
 					{ name: 'authProvider', type: 'boolean', default: no },
 					{ name: 'priority', type: 'integer', default: '100' },
 					{ name: 'peerId', type: 'varchar', isNullable: true },

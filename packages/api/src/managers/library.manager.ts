@@ -34,7 +34,7 @@ import {
 	PathMatchService,
 	reachesFiles,
 	serviceMode,
-	type ServiceRootMapping,
+	type ServiceRootMappings,
 } from '@/services';
 import { toLibrary } from './mappers';
 
@@ -650,7 +650,7 @@ export class LibraryManager {
 	}
 
 	/**
-	 * Re-apply a service's root mapping to every library under it.
+	 * Re-apply a service's root mappings to every library under it.
 	 *
 	 * Called after a probe reports the libraries and after the roots themselves are
 	 * changed, because both are moments where the answer moves: a library the service
@@ -676,7 +676,7 @@ export class LibraryManager {
 	 *
 	 * The derivation itself is `reachesFiles`; this is the one place that stores it, so
 	 * the column cannot be written two ways. Every path that can move the answer ends
-	 * here: registering, probing, changing the root mapping, and setting or clearing a
+	 * here: registering, probing, changing the root mappings, and setting or clearing a
 	 * library's own path.
 	 *
 	 * Nothing caches it. `serviceMode` reads the row and the row is re-read after every
@@ -864,7 +864,7 @@ export class LibraryManager {
 	 */
 	private async _deriveFor(
 		library: LibraryEntity,
-		service: ServiceRootMapping | null,
+		service: ServiceRootMappings | null,
 	): Promise<void> {
 		if (service === null || (library.localPath !== null && !library.localPathDerived)) {
 			return;

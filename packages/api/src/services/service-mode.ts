@@ -8,8 +8,8 @@ export interface MountedLibrary {
 
 /** The parts of a service this derivation reads. */
 export interface MountedService {
-	/** The same directory as the service's own root, as this gateway reaches it. */
-	localRoot: string | null;
+	/** Where the service's disks are, as this gateway reaches them. */
+	rootMappings: readonly unknown[];
 }
 
 /**
@@ -18,11 +18,16 @@ export interface MountedService {
  * The fact behind `MediaService.filesMounted`, kept pure so the derivation can be
  * tested on its own and so the two places that write the column cannot drift apart.
  *
- * Two ways a mapping can exist, and either is enough. A root stated on the service is
- * the ordinary one, and it answers before any library has been scanned — a service
- * registered with its roots is a destination immediately rather than after its first
- * scan. A library with a path of its own is the exception the root mapping cannot
- * express, and a service that has only those is just as mounted as one with a root.
+ * Two ways a mapping can exist, and either is enough. A mapping stated on the service
+ * is the ordinary one, and it answers before any library has been scanned — a service
+ * registered with its mappings is a destination immediately rather than after its
+ * first scan. A library with a path of its own is the exception the mappings cannot
+ * express, and a service that has only those is just as mounted as one with a mapping.
+ *
+ * Any mapping at all counts, including one no library sits under yet. That is a
+ * declaration that this gateway reaches that server's disk, and the library the server
+ * adds there tomorrow derives its path at the next probe; a service that turned remote
+ * until then would drop out of the destinations in between for no reason anybody set.
  *
  * Deliberately **not** a filesystem probe. A mapping is a declaration and a disk is a
  * state: a NAS that goes down for ten minutes must not turn the service remote, drop
@@ -34,7 +39,7 @@ export const reachesFiles = (
 	service: MountedService,
 	libraries: readonly MountedLibrary[],
 ): boolean => {
-	if (service.localRoot !== null && service.localRoot !== '') {
+	if (service.rootMappings.length > 0) {
 		return true;
 	}
 

@@ -183,13 +183,15 @@ done
 
 # The dataset (see `data.spec.ts`): the first server is ours — the gateway reaches the
 # files it serves from `/media` under the run's own copy of them — and the second is
-# somebody else's, which it only reads over HTTP.
+# somebody else's, which it only reads over HTTP. The first is mapped one pair per
+# library folder rather than once at `/media`, so every run registers a real server
+# through a list of mappings and needs each library to find its own.
 say "Running the journeys: install, then data, then journeys"
 status=0
 "${COMPOSE[@]}" run --rm --no-deps -T \
 	-e E2E_JELLYFIN_TOKEN="$(cat "$STATE/keys/jellyfin.key")" \
 	-e E2E_PLEX_URL="$PLEX_URL" \
-	-e E2E_DATASET="http://jellyfin-a:8096|$(cat "$STATE/keys/jellyfin-a.key")|/media=/app/var/e2e-ci/state/lab-media,http://jellyfin-b:8096|$(cat "$STATE/keys/jellyfin-b.key")" \
+	-e E2E_DATASET="http://jellyfin-a:8096|$(cat "$STATE/keys/jellyfin-a.key")|/media/shows=/app/var/e2e-ci/state/lab-media/shows;/media/movies=/app/var/e2e-ci/state/lab-media/movies,http://jellyfin-b:8096|$(cat "$STATE/keys/jellyfin-b.key")" \
 	e2e npx playwright test "$@" || status=$?
 
 echo

@@ -212,8 +212,7 @@ test.describe('changing where a pull lands', () => {
 			status: 'online',
 			version: null,
 			mode,
-			remoteRoot: null,
-			localRoot: null,
+			rootMappings: [],
 		};
 	}
 

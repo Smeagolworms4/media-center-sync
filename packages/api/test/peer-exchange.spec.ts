@@ -434,8 +434,7 @@ describe('The peer protocol', () => {
 					token: 'an-account-somebody-gave-us',
 					// No root mapping, which is what makes this the case under test: the
 					// gateway cannot reach one byte of this server on disk.
-					remoteRoot: null,
-					localRoot: null,
+					rootMappings: [],
 					filesMounted: false,
 				}),
 			);

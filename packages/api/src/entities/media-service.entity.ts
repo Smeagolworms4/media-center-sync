@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Exclude } from 'class-transformer';
 import { Column, Entity, Index, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import { MediaServiceStatus, MediaServiceType } from '@mcs/shared';
+import { MediaServiceStatus, MediaServiceType, type RootMapping } from '@mcs/shared';
 import { Peer } from './peer.entity';
 import { Timestampable } from './timestampable.entity';
 
@@ -64,8 +64,8 @@ export class MediaService extends Timestampable {
 	 * that for services it still counts as ours.
 	 *
 	 * Written by `LibraryManager.refreshMount`, which every path that can move the
-	 * answer calls — registering, probing, setting the root mapping, and setting or
-	 * clearing a library's own path.
+	 * answer calls — registering, probing, setting the root mappings, and setting
+	 * or clearing a library's own path.
 	 */
 	@ApiProperty()
 	@Column({ default: false })
@@ -100,20 +100,28 @@ export class MediaService extends Timestampable {
 	public version!: string | null;
 
 	/**
-	 * The service's own root, and the same directory as this gateway reaches it.
+	 * Where this service's disks are, as this gateway reaches them.
 	 *
-	 * Stated once here so that every library under it derives its own local path,
-	 * instead of six libraries being six paths to type and six chances to get one
-	 * wrong. A library's explicit `localPath` still wins: that field exists for the
-	 * exceptions this mapping cannot express.
+	 * Stated once per disk so that every library under the service derives its own
+	 * local path, instead of six libraries being six paths to type and six chances to
+	 * get one wrong. A library's explicit `localPath` still wins: that field exists for
+	 * the exceptions no mapping can express. See `MediaService.rootMappings` in the
+	 * shared contract for why this is a list.
+	 *
+	 * `simple-json` in a `text` column, because that is the only structured shape
+	 * both engines store the same way, and one list replaces the two scalar columns it
+	 * grew from rather than sitting beside them: two ways of saying where the files are
+	 * is how the two would come to disagree.
 	 */
-	@ApiProperty({ nullable: true })
-	@Column({ type: 'varchar', length: 1024, nullable: true })
-	public remoteRoot!: string | null;
-
-	@ApiProperty({ nullable: true })
-	@Column({ type: 'varchar', length: 1024, nullable: true })
-	public localRoot!: string | null;
+	@ApiProperty({
+		type: 'array',
+		items: {
+			type: 'object',
+			properties: { remoteRoot: { type: 'string' }, localRoot: { type: 'string' } },
+		},
+	})
+	@Column({ type: 'simple-json', default: '[]' })
+	public rootMappings!: RootMapping[];
 
 	/** Set when this service also authenticates users of the gateway. */
 	@ApiProperty()

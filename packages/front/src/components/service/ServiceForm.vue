@@ -4,12 +4,19 @@
 		MediaService,
 		MediaServiceProbe,
 		ProbeMediaServiceRequest,
+		RootMapping,
 	} from '@mcs/shared';
-	import { MediaServiceMode, MediaServiceType, ShareVisibility } from '@mcs/shared';
+	import {
+		MediaServiceMode,
+		MediaServiceType,
+		ROOT_MAPPING_PATH_MAX,
+		rootMappingSideFault,
+		ShareVisibility,
+	} from '@mcs/shared';
 	import { computed, onMounted, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
-	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
 	import FormMainError from '@/components/FormMainError.vue';
+	import RootMappingList from '@/components/service/RootMappingList.vue';
 	import { useForm } from '@/composables/useForm';
 	import { useValidators } from '@/plugins/validators';
 	import { useServicesStore } from '@/stores/services';
@@ -44,7 +51,7 @@
 	const probing = ref(false);
 	const probe = ref<MediaServiceProbe | null>(null);
 
-	const model = reactive<CreateMediaServiceRequest>({
+	const model = reactive<CreateMediaServiceRequest & { rootMappings: RootMapping[] }>({
 		name: props.service?.name ?? '',
 		type: props.service?.type ?? MediaServiceType.JELLYFIN,
 		/*
@@ -61,8 +68,9 @@
 		token: '',
 		authProvider: props.service?.authProvider ?? false,
 		priority: props.service?.priority ?? 10,
-		remoteRoot: props.service?.remoteRoot ?? '',
-		localRoot: props.service?.localRoot ?? '',
+		// Copies, so that editing a row and cancelling leaves the service in the store
+		// exactly as it was.
+		rootMappings: (props.service?.rootMappings ?? []).map(mapping => ({ ...mapping })),
 	});
 
 	/**
@@ -92,11 +100,13 @@
 	/**
 	 * Whether this gateway would be reading the files off disk or over the connection.
 	 *
-	 * Read live from the form rather than from the saved row, so that typing a local
-	 * root makes the warning below disappear as somebody fixes the thing it warns about.
+	 * Read live from the form rather than from the saved row, so that filling in where
+	 * a disk is reached from here makes the warning below disappear as somebody fixes
+	 * the thing it warns about.
 	 */
 	const filesHere = computed(() =>
-		Boolean(model.localRoot?.trim()) || props.service?.mode === MediaServiceMode.LOCAL);
+		model.rootMappings.some(mapping => mapping.localRoot.trim() !== '')
+		|| props.service?.mode === MediaServiceMode.LOCAL);
 
 	/**
 	 * What turning it on actually does, named at the moment somebody does it.
@@ -127,52 +137,35 @@
 	});
 
 	/**
-	 * The folder browser over `localRoot`, which is a directory on *this* gateway.
-	 *
-	 * Only the local side gets one: `remoteRoot` is a path inside the media server's
-	 * own container and nothing here can see it, so offering the same icon next to it
-	 * would list our directories for a field that is about theirs — the exact mix-up
-	 * the two fields exist to keep apart.
+	 * Every path the last probe reported, which is what the mapping rows suggest their
+	 * server side from. Empty when the server reported none — the ordinary answer for
+	 * a Jellyfin reached with a key that cannot see the library settings.
 	 */
-	const browsingLocalRoot = ref(false);
+	const reportedPaths = computed(() =>
+		(probe.value?.libraries ?? []).flatMap(library => library.paths));
 
 	/**
-	 * The directory the server itself says everything it holds is under.
+	 * One rule per side of each row, from the same function the API refuses with.
 	 *
-	 * The left-hand side of the mapping, taken from the server rather than typed: the
-	 * longest directory prefix common to every library it reported. With one library
-	 * that is the library's own folder; with `/data/media/shows` and `/data/media/films`
-	 * it is `/data/media`, which is exactly what `remoteRoot` is for — one statement
-	 * instead of one path per library and one chance per library to get it wrong.
-	 *
-	 * Null when the server reported no path at all, which is the ordinary answer for a
-	 * peer and for a Jellyfin reached with a key that cannot see the library settings.
+	 * The wording is the API's error key, so the sentence under the input is the one
+	 * the gateway would have answered — said before sending rather than after. Built
+	 * per row because the rows come and go: the form only validates the fields it is
+	 * told about, and a row added after mounting would otherwise have no rule at all.
 	 */
-	const serverRoot = computed(() => {
-		const paths = (probe.value?.libraries ?? []).flatMap(library => library.paths);
-
-		if (paths.length === 0) {
-			return null;
-		}
-
-		const segments = paths.map(path => path.split('/'));
-		const shared: string[] = [];
-
-		for (let index = 0; index < segments[0].length; index += 1) {
-			const part = segments[0][index];
-
-			if (!segments.every(one => one[index] === part)) {
-				break;
-			}
-
-			shared.push(part);
-		}
-
-		// A single shared segment is the empty root: every absolute path starts with
-		// one, and `/` as a remote root would match every path in existence and derive
-		// the whole filesystem into the local root.
-		return shared.length > 1 ? shared.join('/') : null;
-	});
+	const mappingFields = computed(() => Object.fromEntries(
+		model.rootMappings.flatMap((_, index) => (['remoteRoot', 'localRoot'] as const).map(side => [
+			`rootMappings.${index}.${side}`,
+			{
+				rules: [
+					() => {
+						const key = rootMappingSideFault(model.rootMappings, index, side);
+						return key === null ? true : t(key);
+					},
+					validators.maxlength({ max: ROOT_MAPPING_PATH_MAX }),
+				],
+			},
+		])),
+	));
 
 	/** A probe answer stops describing what is in the form as soon as it changes. */
 	watch(() => [model.baseUrl, model.token, model.type], () => {
@@ -190,11 +183,13 @@
 			...(model.token ? { token: model.token } : {}),
 			authProvider: model.authProvider,
 			priority: model.priority,
-			// Both or neither: either half on its own derives nothing, and the API
-			// refuses it by name rather than storing a mapping that does nothing. An
-			// emptied pair is a mapping being withdrawn, which the API spells null.
-			remoteRoot: model.remoteRoot || null,
-			localRoot: model.localRoot || null,
+			// Always sent, the whole list: the API compares it with what it holds and
+			// re-derives the libraries only when it moved, and an empty list is every
+			// mapping being withdrawn.
+			rootMappings: model.rootMappings.map(mapping => ({
+				remoteRoot: mapping.remoteRoot.trim(),
+				localRoot: mapping.localRoot.trim(),
+			})),
 		};
 	}
 
@@ -245,19 +240,14 @@
 
 	const form = useForm({
 		fallbackError: 'error.service.unreachable',
-		fields: {
+		fields: () => ({
 			name: { rules: [validators.required(), validators.maxlength({ max: 120 })] },
 			type: { rules: [validators.required()] },
 			baseUrl: { rules: [validators.required(), validators.urlWithPort()] },
 			token: { rules: [] },
 			priority: { rules: [validators.onlyInteger(), validators.range({ min: 0, max: 999 })] },
-			remoteRoot: {
-				rules: [validators.absolutePath(), validators.maxlength({ max: 1024 })],
-			},
-			localRoot: {
-				rules: [validators.absolutePath(), validators.maxlength({ max: 1024 })],
-			},
-		},
+			...mappingFields.value,
+		}),
 		handle: async () => {
 			// Saving a service that cannot be reached registers a row that will never
 			// do anything; the probe runs first and its answer decides. A save that
@@ -401,79 +391,13 @@
 			</p>
 		</div>
 
-		<div class="service-form_roots mt-4">
-			<p class="text-subtitle-2 mb-0">{{ $t('service.field.roots') }}</p>
-
-			<p class="text-caption text-medium-emphasis mb-2">
-				{{ $t('service.field.roots_hint') }}
-			</p>
-
-			<v-row density="compact">
-				<v-col cols="12" sm="6">
-					<v-text-field
-						v-model="model.remoteRoot"
-						v-bind="form.field('remoteRoot')"
-						data-test="service-remote-root"
-						:hint="$t('service.field.remote_root_hint')"
-						:label="$t('service.field.remote_root')"
-						persistent-hint
-					/>
-
-					<!--
-						What the server itself answered, offered rather than typed. This is
-						the half of the mapping nobody should have to remember, and getting
-						it wrong is invisible until a transfer lands somewhere the server
-						never scans.
-					-->
-					<v-btn
-						v-if="serverRoot && serverRoot !== model.remoteRoot"
-						class="mt-1"
-						data-test="service-remote-root-suggestion"
-						density="compact"
-						prepend-icon="mdi-server"
-						size="small"
-						variant="text"
-						@click="model.remoteRoot = serverRoot"
-					>
-						{{ $t('service.field.remote_root_reported', { path: serverRoot }) }}
-					</v-btn>
-				</v-col>
-
-				<v-col cols="12" sm="6">
-					<v-text-field
-						v-model="model.localRoot"
-						v-bind="form.field('localRoot')"
-						data-test="service-local-root"
-						:hint="$t('service.field.local_root_hint')"
-						:label="$t('service.field.local_root')"
-						persistent-hint
-					>
-						<template #append-inner>
-							<v-icon
-								class="cursor-pointer"
-								data-test="service-local-root-browse"
-								icon="mdi-folder-search-outline"
-								:title="$t('browse.open')"
-								@click="browsingLocalRoot = true"
-							/>
-						</template>
-					</v-text-field>
-
-					<!--
-						An existing service can be asked where its own folders are, so the
-						dialog shows both sides of the mapping at once. A registration that
-						has not been saved yet has no identifier to ask about; the reported
-						paths from the probe above are what somebody reads instead.
-					-->
-					<DirectoryPicker
-						v-model="browsingLocalRoot"
-						:path="model.localRoot"
-						:service-id="service?.id ?? null"
-						@choose="model.localRoot = $event"
-					/>
-				</v-col>
-			</v-row>
-		</div>
+		<RootMappingList
+			v-model="model.rootMappings"
+			class="service-form_roots mt-4"
+			:form="form"
+			:reported="reportedPaths"
+			:service-id="service?.id ?? null"
+		/>
 
 		<v-alert
 			v-if="probe"

@@ -8,6 +8,7 @@ import { buildChunkMap } from '@/composables/useChunkMap';
 import { describeCron } from '@/composables/useCron';
 import { posterInitials, posterPlaceholder } from '@/composables/useMediaPoster';
 import { bytesToRate, RATE_PRESETS, rateToBytes } from '@/composables/useRateLimit';
+import { suggestedServerRoots } from '@/composables/useRootMappings';
 import { describeTransferError, TransferAction } from '@/composables/useTransferError';
 import { useViewMode } from '@/composables/useViewMode';
 
@@ -333,5 +334,33 @@ describe('useViewMode', () => {
 
 		getItem.mockRestore();
 		setItem.mockRestore();
+	});
+});
+
+describe('suggestedServerRoots', () => {
+	it('offers one mapping per disk when the libraries share nothing but /', () => {
+		// The case the list exists for. The old single suggestion — the prefix common
+		// to every library — answered nothing here.
+		expect(suggestedServerRoots(['/data/movies', '/srv/shows'], [])).toEqual(['/data/movies', '/srv/shows']);
+	});
+
+	it('keeps a one-disk server one row, cut at what its libraries share', () => {
+		expect(suggestedServerRoots(['/data/media/shows', '/data/media/films', '/data/media/films/4k'], []))
+			.toEqual(['/data/media']);
+		expect(suggestedServerRoots(['/data/shows/', '/data/shows'], [])).toEqual(['/data/shows']);
+	});
+
+	it('stops offering what a listed row already covers, by components', () => {
+		const listed = [{ remoteRoot: '/data/movies/', localRoot: '' }];
+
+		expect(suggestedServerRoots(['/data/movies/4k', '/srv/shows'], listed)).toEqual(['/srv/shows']);
+		// `/data/movies2` starts with the same letters and is not covered.
+		expect(suggestedServerRoots(['/data/movies2'], listed)).toEqual(['/data/movies2']);
+	});
+
+	it('leaves out what no mapping could match', () => {
+		// A Plex on Windows, a relative answer, the root itself.
+		expect(suggestedServerRoots([String.raw`D:\Media\Shows`, 'media', '/'], [{ remoteRoot: 'rel', localRoot: '' }]))
+			.toEqual([]);
 	});
 });

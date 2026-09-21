@@ -1,7 +1,7 @@
 import { mkdtemp, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { categoryKeyOf, ErrorKey, LibraryKind, MediaServiceType, PathMatch } from '@mcs/shared';
+import { categoryKeyOf, ErrorKey, LibraryKind, MediaServiceType, PathMatch, type RootMapping } from '@mcs/shared';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { CategoryKeyword, Library, MediaService } from '@/entities';
 import type {
@@ -87,8 +87,7 @@ const build = (
 			findOne: jest.fn().mockResolvedValue({
 				id: 'service-1',
 				name: 'Living room',
-				remoteRoot: null,
-				localRoot: null,
+				rootMappings: [],
 				filesMounted: false,
 			}),
 			// The one read that brings the credentials back, which `check` needs before
@@ -354,7 +353,7 @@ describe('LibraryManager', () => {
 
 	describe('deriving a path from the service mapping', () => {
 		const mapped = (localRoot: string): MediaService =>
-			({ id: 'service-1', remoteRoot: '/media', localRoot }) as MediaService;
+			({ id: 'service-1', rootMappings: [{ remoteRoot: '/media', localRoot }] }) as MediaService;
 
 		it('gives a library with no path of its own the one the mapping implies', async () => {
 			const { manager, fakes } = build(library({ paths: ['/media'] }));
@@ -407,10 +406,38 @@ describe('LibraryManager', () => {
 			expect(saved.writable).toBe(false);
 		});
 
+		it('gives each library the path of the disk it is on', async () => {
+			// Films on one disk, shows on another, nothing in common but `/`: the setup a
+			// single pair could not describe, which is why a service carries a list.
+			const films = join(writable, 'nas1-movies');
+			const shows = join(writable, 'nas2-shows');
+			const { manager, fakes } = build([
+				library({ id: 'films', paths: ['/data/movies'] }),
+				library({ id: 'shows', paths: ['/srv/shows'] }),
+				library({ id: 'music', paths: ['/opt/music'] }),
+			]);
+
+			await manager.applyRootMapping({
+				id: 'service-1',
+				rootMappings: [
+					{ remoteRoot: '/data/movies', localRoot: films },
+					{ remoteRoot: '/srv/shows', localRoot: shows },
+				],
+			} as MediaService);
+
+			const saved = fakes.libraries.save.mock.calls.map(([row]) => row as Library);
+			expect(saved.map((row) => [row.id, row.localPath])).toEqual([
+				['films', films],
+				['shows', shows],
+			]);
+			// Under no mapping: left without a path rather than sent to the closer disk.
+			expect(saved.find((row) => row.id === 'music')).toBeUndefined();
+		});
+
 		it('derives nothing for a service nobody gave roots', async () => {
 			const { manager, fakes } = build(library({ paths: ['/media'] }));
 
-			await manager.applyRootMapping({ id: 'service-1', remoteRoot: null, localRoot: null } as MediaService);
+			await manager.applyRootMapping({ id: 'service-1', rootMappings: [] as RootMapping[] } as MediaService);
 
 			expect(fakes.libraries.save).not.toHaveBeenCalled();
 		});
@@ -440,7 +467,7 @@ describe('LibraryManager', () => {
 			// every sync — which is what leaving it with no path at all would do.
 			const { manager, fakes } = build(library({ paths: ['/media'], localPath: '/elsewhere', writable: true }));
 
-			fakes.services.findOne.mockResolvedValue({ remoteRoot: '/media', localRoot: writable });
+			fakes.services.findOne.mockResolvedValue({ rootMappings: [{ remoteRoot: '/media', localRoot: writable }] });
 
 			const saved = await manager.update('library-1', { localPath: null });
 
@@ -467,8 +494,7 @@ describe('LibraryManager', () => {
 			fakes.services.findOne.mockResolvedValue({
 				id: 'service-1',
 				name: 'JellyProd',
-				remoteRoot: '/media',
-				localRoot: writable,
+				rootMappings: [{ remoteRoot: '/media', localRoot: writable }],
 				filesMounted: false,
 			});
 
@@ -485,8 +511,7 @@ describe('LibraryManager', () => {
 			fakes.services.findOne.mockResolvedValue({
 				id: 'service-1',
 				name: 'JellyProd',
-				remoteRoot: null,
-				localRoot: null,
+				rootMappings: [],
 				filesMounted: true,
 			});
 
@@ -505,8 +530,7 @@ describe('LibraryManager', () => {
 			fakes.services.findOne.mockResolvedValue({
 				id: 'service-1',
 				name: 'Odd one',
-				remoteRoot: null,
-				localRoot: null,
+				rootMappings: [],
 				filesMounted: false,
 			});
 
@@ -521,8 +545,7 @@ describe('LibraryManager', () => {
 			fakes.services.findOne.mockResolvedValue({
 				id: 'service-1',
 				name: 'Odd one',
-				remoteRoot: null,
-				localRoot: null,
+				rootMappings: [],
 				filesMounted: true,
 			});
 
@@ -537,8 +560,7 @@ describe('LibraryManager', () => {
 			fakes.services.findOne.mockResolvedValue({
 				id: 'service-1',
 				name: 'Odd one',
-				remoteRoot: null,
-				localRoot: null,
+				rootMappings: [],
 				filesMounted: false,
 			});
 

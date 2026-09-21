@@ -1,4 +1,6 @@
+import { BadRequestException } from '@nestjs/common';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
 	IsBoolean,
 	IsEnum,
@@ -7,42 +9,98 @@ import {
 	IsOptional,
 	IsString,
 	IsUrl,
-	Matches,
 	Max,
 	MaxLength,
 	Min,
-	ValidateIf,
+	registerDecorator,
 } from 'class-validator';
-import { MediaServiceType } from '@mcs/shared';
+import {
+	ErrorKey,
+	findRootMappingFault,
+	MediaServiceType,
+	ROOT_MAPPING_LIMIT,
+	ROOT_MAPPING_PATH_MAX,
+	type RootMapping,
+} from '@mcs/shared';
 
 /**
- * A path that means the same thing to every process that reads it.
+ * Refuse a list of mappings by key, on the one input that is wrong.
  *
- * A relative root resolves against whatever directory the process was started in,
- * which is not the same one in a container, in a development shell and in a command —
- * so the same stored value would designate three different directories and only one
- * of them would be the one somebody meant.
+ * Thrown from inside the validator rather than returned as false, and that is the
+ * point of this decorator. The pipe's own refusal is a list of English sentences
+ * naming `rootMappings` as a whole; the form renders one input per side of each row,
+ * so a sentence about the list lands on no input at all and somebody presses save
+ * against a screen that shows nothing wrong. `{ key, field }` names the side of the
+ * row — `rootMappings.1.remoteRoot` — which is exactly the input the form declared.
+ *
+ * `undefined` is a request that says nothing about the mappings, which on an update
+ * leaves the stored list alone. `null` is refused rather than read as "clear": an
+ * empty list already says that, and two spellings for one instruction is how a
+ * client ends up sending the one nobody tested.
  */
-const ABSOLUTE_PATH = /^\//;
+const IsRootMappings = (): PropertyDecorator => (target, propertyName) => {
+	registerDecorator({
+		name: 'isRootMappings',
+		target: target.constructor,
+		propertyName: propertyName as string,
+		validator: {
+			validate(value: unknown): boolean {
+				if (value === undefined) {
+					return true;
+				}
 
-/**
- * Whether this registration says anything about a root mapping at all.
- *
- * The two roots are one statement in two halves — a prefix and what to replace it
- * with — and either half on its own derives nothing whatsoever: there is no prefix to
- * match, or nothing to rewrite it to. Storing half of it would leave a service that
- * looks configured on screen and behaves exactly like one that is not, which is the
- * failure this feature exists to remove rather than to reproduce one level up.
- *
- * So both are validated as soon as one is stated, and the missing half is refused by
- * name while somebody is still looking at the form. A caller changing one side must
- * send the pair, which is what the interface does; sending neither leaves the stored
- * mapping alone, and sending both as null clears it.
- */
-const statesRootMapping = (dto: {
-	remoteRoot?: string | null;
-	localRoot?: string | null;
-}): boolean => (dto.remoteRoot ?? null) !== null || (dto.localRoot ?? null) !== null;
+				const field = String(propertyName);
+				const refuse = (key: string, at: string = field): never => {
+					throw new BadRequestException({ key, field: at });
+				};
+
+				if (!Array.isArray(value) || value.length > ROOT_MAPPING_LIMIT) {
+					return refuse(ErrorKey.SERVICE_MAPPING_INVALID);
+				}
+
+				for (const [index, entry] of (value as unknown[]).entries()) {
+					const pair = entry as Record<string, unknown> | null;
+					const shaped = typeof pair === 'object' && pair !== null && !Array.isArray(pair)
+						&& Object.keys(pair).every((key) => key === 'remoteRoot' || key === 'localRoot');
+
+					if (!shaped) {
+						return refuse(ErrorKey.SERVICE_MAPPING_INVALID, `${field}.${index}`);
+					}
+
+					for (const side of ['remoteRoot', 'localRoot'] as const) {
+						const path = pair[side] ?? '';
+
+						if (typeof path !== 'string' || path.length > ROOT_MAPPING_PATH_MAX) {
+							return refuse(ErrorKey.SERVICE_MAPPING_INVALID, `${field}.${index}.${side}`);
+						}
+					}
+				}
+
+				const fault = findRootMappingFault(
+					(value as Partial<RootMapping>[]).map((pair) => ({
+						remoteRoot: pair.remoteRoot ?? '',
+						localRoot: pair.localRoot ?? '',
+					})),
+				);
+
+				if (fault !== null) {
+					return refuse(fault.key, `${field}.${fault.index}.${fault.side}`);
+				}
+
+				return true;
+			},
+		},
+	});
+};
+
+/** The shape of one mapping, for the API description only: validation is above. */
+class RootMappingDto implements RootMapping {
+	@ApiProperty({ example: '/data/movies' })
+	public remoteRoot!: string;
+
+	@ApiProperty({ example: '/mnt/nas1/movies' })
+	public localRoot!: string;
+}
 
 /**
  * Registering a service.
@@ -110,30 +168,21 @@ export class CreateMediaServiceDto {
 	public priority?: number;
 
 	/**
-	 * The prefix the service reports, and the same directory as the gateway reaches it.
+	 * Where the service's disks are, for us: one server prefix and one local directory
+	 * per disk.
 	 *
-	 * Stated once here so that every library under the service derives its own local
-	 * path instead of six libraries being six paths to type. A library's own
+	 * Stated once per disk so that every library under the service derives its own
+	 * local path, instead of six libraries being six paths to type. A library's own
 	 * `localPath` still wins: that field is for the exceptions this cannot express.
-	 *
-	 * 1024 matches the column and is well past any path a filesystem will accept, so
-	 * the limit only ever catches a field somebody pasted a document into.
+	 * Omitted on an update leaves the stored list alone; an empty list withdraws it.
 	 */
-	@ApiPropertyOptional({ example: '/media' })
-	@ValidateIf(statesRootMapping)
-	@IsString()
-	@IsNotEmpty()
-	@MaxLength(1024)
-	@Matches(ABSOLUTE_PATH)
-	public remoteRoot?: string | null;
-
-	@ApiPropertyOptional({ example: '/mnt/nas' })
-	@ValidateIf(statesRootMapping)
-	@IsString()
-	@IsNotEmpty()
-	@MaxLength(1024)
-	@Matches(ABSOLUTE_PATH)
-	public localRoot?: string | null;
+	@ApiPropertyOptional({ type: [RootMappingDto] })
+	// Without it, implicit conversion reads the declared array type and turns every
+	// entry into an array of its own — `[{ remoteRoot }]` arrives as `[[]]`, and the
+	// validator below refuses a perfectly good body as malformed.
+	@Type(() => RootMappingDto)
+	@IsRootMappings()
+	public rootMappings?: RootMapping[];
 }
 
 export class UpdateMediaServiceDto extends CreateMediaServiceDto {

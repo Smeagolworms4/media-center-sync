@@ -461,13 +461,12 @@ describe('Peers', () => {
 			const response = await request(context.app.getHttpServer())
 				.patch(`/api/services/${service.id}`)
 				.set('Authorization', `Bearer ${admin.token}`)
-				.send({ remoteRoot: '/media', localRoot: '/mnt/nas' })
+				.send({ rootMappings: [{ remoteRoot: '/media', localRoot: '/mnt/nas' }] })
 				.expect(409);
 
 			expect(response.body).toMatchObject({ message: 'error.service.peer_not_editable' });
 			await expect(services.findOne({ where: { id: service.id } })).resolves.toMatchObject({
-				remoteRoot: null,
-				localRoot: null,
+				rootMappings: [],
 			});
 		});
 

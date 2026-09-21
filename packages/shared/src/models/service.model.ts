@@ -1,4 +1,114 @@
+import { ErrorKey } from './error.model';
 import type { LibraryKind } from './library.model';
+
+/**
+ * One disk of a media server, as the server names it and as this gateway reaches it.
+ *
+ * One statement in two halves: `remoteRoot` is a prefix of the paths the server
+ * reports, `localRoot` the same directory on this machine. Either half alone derives
+ * nothing, which is why neither may be empty.
+ */
+export interface RootMapping {
+	/** The prefix as the media server reports it, such as `/data/movies`. */
+	remoteRoot: string;
+	/** The same directory as this gateway reaches it, such as `/mnt/nas1/movies`. */
+	localRoot: string;
+}
+
+/** Past any path a filesystem accepts: the limit only catches a pasted document. */
+export const ROOT_MAPPING_PATH_MAX = 1024;
+
+/** Far past any installation's count of disks, so it only bounds a hostile body. */
+export const ROOT_MAPPING_LIMIT = 64;
+
+/**
+ * The components of a path, which is what every prefix comparison is made on.
+ *
+ * Never the raw string: `/data/movies2` starts with the letters `/data/movies` and is
+ * a different directory, and a string prefix test is how a transfer lands on the
+ * wrong disk. Empty components are dropped, so doubled and trailing slashes say
+ * nothing — `/data//movies/` and `/data/movies` are one directory.
+ */
+export const pathComponents = (path: string): string[] =>
+	path.split('/').filter(component => component !== '');
+
+/**
+ * The one spelling of a mapping side that is stored and compared.
+ *
+ * Trimmed, with doubled and trailing slashes folded away, so that `/data/` and
+ * `/data` are recognised as the same prefix when somebody lists both. The root stays
+ * `/` rather than becoming an empty string, which would read as a side nobody filled.
+ * A path that is not absolute is only trimmed: it is refused, and the refusal should
+ * quote what was typed.
+ */
+export const normaliseRootPath = (path: string): string => {
+	const trimmed = path.trim();
+
+	return trimmed.startsWith('/') ? `/${pathComponents(trimmed).join('/')}` : trimmed;
+};
+
+/** Which side of which row a list of mappings is refused on, and why. */
+export interface RootMappingFault {
+	index: number;
+	side: keyof RootMapping;
+	key: string;
+}
+
+/**
+ * What is wrong with one side of one row, as an error key, or null.
+ *
+ * Shared by the API, which refuses on it, and the form, which says the same thing
+ * under the input before anything is sent — two copies of the rule would drift, and
+ * the form would accept what the API then refuses or refuse what it would accept.
+ *
+ * What is refused is only what is wrong whatever the disks look like: an empty side,
+ * a relative path, and the same server prefix as an earlier row. Overlapping prefixes
+ * are not a fault — nested mounts are a legitimate setup and the most specific one
+ * wins — and neither is two server prefixes pointing at one local directory, which is
+ * what a server that reaches one share through two paths looks like. The duplicate is
+ * blamed on the later row, so the row somebody just added is the one that goes red.
+ */
+export const rootMappingSideFault = (
+	mappings: readonly RootMapping[],
+	index: number,
+	side: keyof RootMapping,
+): string | null => {
+	const value = mappings[index][side].trim();
+
+	if (value === '') {
+		return ErrorKey.SERVICE_MAPPING_EMPTY;
+	}
+
+	if (!value.startsWith('/')) {
+		return ErrorKey.SERVICE_MAPPING_RELATIVE;
+	}
+
+	if (side === 'remoteRoot') {
+		const prefix = normaliseRootPath(value);
+		const earlier = mappings.slice(0, index).map(mapping => normaliseRootPath(mapping.remoteRoot));
+
+		if (earlier.includes(prefix)) {
+			return ErrorKey.SERVICE_MAPPING_DUPLICATE;
+		}
+	}
+
+	return null;
+};
+
+/** The first side of the first row that `rootMappingSideFault` refuses, or null. */
+export const findRootMappingFault = (mappings: readonly RootMapping[]): RootMappingFault | null => {
+	for (const index of mappings.keys()) {
+		for (const side of ['remoteRoot', 'localRoot'] as const) {
+			const key = rootMappingSideFault(mappings, index, side);
+
+			if (key !== null) {
+				return { index, side, key };
+			}
+		}
+	}
+
+	return null;
+};
 
 /**
  * The kind of media service behind a registration.
@@ -105,26 +215,29 @@ export interface MediaService {
 	 */
 	mode: MediaServiceMode;
 	/**
-	 * The service's own root, and where that same directory is for us.
+	 * Where this service's files are, for us: one pair per disk it reads.
 	 *
-	 * Jellyfin says `/media/Shows/…` and this gateway sees `/mnt/nas/Shows/…`. Until
-	 * now that had to be spelled out per library, so a server with six libraries was
-	 * six paths to type and six chances to get one wrong — and a library whose two
-	 * paths do not designate the same directory accepts transfers the media server
-	 * will never see, with nothing anywhere reporting an error.
+	 * Jellyfin says `/data/movies/…` and this gateway sees `/mnt/nas1/movies/…`. A
+	 * library's own path used to be spelled out one library at a time, so a server
+	 * with six libraries was six paths to type and six chances to get one wrong — and
+	 * a library whose two paths do not designate the same directory accepts transfers
+	 * the media server will never see, with nothing anywhere reporting an error.
 	 *
-	 * Stated once here, every library under it derives its own. `remoteRoot` is the
-	 * prefix as the service reports it, `localRoot` the same directory as we reach it;
-	 * both are null when nobody has said, and a library's explicit `localPath` always
-	 * wins over anything derived, because the exception is why that field exists.
+	 * A list, and not one pair, because the ordinary server has more than one disk:
+	 * films on one NAS mounted here at `/mnt/nas1/movies`, shows on another at
+	 * `/mnt/nas2/shows`, with nothing in common but `/`. Every library derives its
+	 * path from the most specific mapping its reported path sits under, so nested
+	 * mounts — `/data` on one disk and `/data/4k` on a faster one — say what they mean.
+	 * A library under none of them derives nothing, and a library's explicit
+	 * `localPath` always wins over anything derived, because the exception is why
+	 * that field exists.
 	 *
-	 * Setting this mapping is also what makes the service ours: `filesMounted` and
+	 * Setting this list is also what makes the service ours: `filesMounted` and
 	 * therefore `mode` are re-derived the moment it lands, so a service registered
 	 * before anybody mapped its folders becomes a destination without being
-	 * re-registered.
+	 * re-registered. Empty when nobody has said.
 	 */
-	remoteRoot: string | null;
-	localRoot: string | null;
+	rootMappings: RootMapping[];
 	/** Set when this service also authenticates users of the gateway. */
 	authProvider: boolean;
 	/**
@@ -162,9 +275,11 @@ export interface CreateMediaServiceRequest {
 	authProvider?: boolean;
 	priority?: number;
 
-	/** The service's own root, and the same directory as this gateway reaches it. */
-	remoteRoot?: string | null;
-	localRoot?: string | null;
+	/**
+	 * Where its files are, for us. Omitted on an update leaves the stored list alone;
+	 * an empty list withdraws every mapping. See `MediaService.rootMappings`.
+	 */
+	rootMappings?: RootMapping[];
 }
 
 export type UpdateMediaServiceRequest = Partial<CreateMediaServiceRequest>;

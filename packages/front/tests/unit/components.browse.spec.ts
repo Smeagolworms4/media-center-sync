@@ -318,6 +318,77 @@ describe('the two sides of the mapping', () => {
 	});
 });
 
+/**
+ * The server's side of a mapping row: its folders and nothing of this disk.
+ *
+ * Listing our directories there would invite somebody to fill the server's field with
+ * one of our paths — the mix-up the two sides of a mapping exist to keep apart.
+ */
+describe('the server\'s side on its own', () => {
+	it('lists the server\'s folders and never asks for this disk', async () => {
+		const fetched = stubFetchRoutes({
+			'/api/services/s1/structure': { body: structure() },
+			'/api/filesystem/directories': { body: listing() },
+		});
+		const { wrapper } = mountWithApp(DirectoryPicker, {
+			props: { modelValue: true, serviceId: 's1', serverOnly: true },
+			global: { stubs: dialogStub },
+		});
+		await settle();
+
+		expect(wrapper.findAll('[data-test="browse-server-entry"]')).toHaveLength(1);
+		expect(wrapper.find('[data-test="browse-gateway-title"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="browse-list"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="browse-choose"]').exists()).toBe(false);
+		expect(fetched.mock.calls.some(call => String(call[0]).includes('/filesystem/'))).toBe(false);
+
+		await wrapper.find('[data-test="browse-server-entry"]').trigger('click');
+		expect(wrapper.emitted('choose')).toEqual([['/data/media/shows']]);
+	});
+
+	it('says the server could not be asked, rather than showing an empty dialog', async () => {
+		// There is no disk below to fall back on here, and the field still takes a
+		// typed path — which is what the sentence tells somebody to do.
+		stubFetchRoutes({
+			'/api/services/s1/structure': { status: 503, body: { message: 'error.service.unreachable' } },
+		});
+		const { wrapper } = mountWithApp(DirectoryPicker, {
+			props: { modelValue: true, serviceId: 's1', serverOnly: true },
+			global: { stubs: dialogStub },
+		});
+		await settle();
+
+		expect(wrapper.find('[data-test="browse-server"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="browse-server-unavailable"]').exists()).toBe(true);
+	});
+
+	it('offers the roots a probe reported for a service not registered yet, without a way deeper', async () => {
+		// No identifier to ask through, but the probe already said where the libraries
+		// are, in the server's own words. Walking would need a registration.
+		const fetched = stubFetchRoutes({ '/api/filesystem/directories': { body: listing() } });
+		const { wrapper } = mountWithApp(DirectoryPicker, {
+			props: {
+				modelValue: true,
+				serverOnly: true,
+				reportedRoots: ['/data/movies', '/srv/shows', '/data/movies'],
+			},
+			global: { stubs: dialogStub },
+		});
+		await settle();
+
+		const entries = wrapper.findAll('[data-test="browse-server-entry"]');
+		expect(entries.map(entry => entry.text())).toEqual([
+			expect.stringContaining('/data/movies'),
+			expect.stringContaining('/srv/shows'),
+		]);
+		expect(wrapper.find('[data-test="browse-server-enter"]').exists()).toBe(false);
+		expect(fetched).not.toHaveBeenCalled();
+
+		await entries[1].trigger('click');
+		expect(wrapper.emitted('choose')).toEqual([['/srv/shows']]);
+	});
+});
+
 describe('components/library/LibraryPathField', () => {
 	it('opens the browser from the icon on the field', async () => {
 		stubFetchRoutes({ '/api/filesystem/directories': { body: listing() } });

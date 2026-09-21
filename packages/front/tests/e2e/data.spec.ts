@@ -28,24 +28,31 @@ import { LAB_JELLYFIN, LAB_JELLYFIN_ACCOUNT, LAB_PLEX } from './lab';
  */
 
 /**
- * `url|token[|serverRoot=gatewayRoot]` entries, comma-separated.
+ * `url|token[|serverRoot=gatewayRoot[;serverRoot=gatewayRoot…]]` entries, comma-separated.
  *
  * Addresses as the gateway reaches them. Registered under names that are not a
  * journey's (`Journey …`), so no journey's clean-up ever mistakes them for a leftover.
  *
- * The optional mapping is what makes a server *ours*: the gateway reaches its files
- * under `gatewayRoot`. At least one is needed — the placement screen gives a row only
- * to the categories of our own servers, and a dataset of nothing but other people's
- * shelves leaves that screen, and its journey, with nothing to show.
+ * The optional mappings are what make a server *ours*: the gateway reaches the files
+ * the server reports under each `serverRoot` at the matching `gatewayRoot`, as many
+ * pairs as the server has disks. At least one server needs one — the placement screen
+ * gives a row only to the categories of our own servers, and a dataset of nothing but
+ * other people's shelves leaves that screen, and its journey, with nothing to show.
  */
 const DATASET = (process.env.E2E_DATASET ?? '')
 	.split(',')
 	.map(entry => entry.trim())
 	.filter(entry => entry !== '')
 	.map(entry => {
-		const [url, token = '', mapping = ''] = entry.split('|');
-		const [remoteRoot = '', localRoot = ''] = mapping.split('=');
-		return { url: url.replace(/\/+$/, ''), token, remoteRoot, localRoot };
+		const [url, token = '', mappings = ''] = entry.split('|');
+		const rootMappings = mappings
+			.split(';')
+			.filter(pair => pair !== '')
+			.map(pair => {
+				const [remoteRoot = '', localRoot = ''] = pair.split('=');
+				return { remoteRoot, localRoot };
+			});
+		return { url: url.replace(/\/+$/, ''), token, rootMappings };
 	});
 
 interface Category {
@@ -90,7 +97,7 @@ test.describe('the dataset', () => {
 		expect(DATASET.length, 'E2E_DATASET must name two servers: a merge needs two libraries of one name')
 			.toBeGreaterThanOrEqual(2);
 		expect(
-			DATASET.some(one => one.localRoot !== ''),
+			DATASET.some(one => one.rootMappings.length > 0),
 			'E2E_DATASET must map one server onto this gateway\'s disk: only our own categories can be placed',
 		).toBe(true);
 
@@ -116,7 +123,7 @@ test.describe('the dataset', () => {
 					shared: false,
 					baseUrl: server.url,
 					...(server.token ? { token: server.token } : {}),
-					...(server.localRoot ? { remoteRoot: server.remoteRoot, localRoot: server.localRoot } : {}),
+					rootMappings: server.rootMappings,
 				},
 			});
 			expect(created.ok(), `${server.url} was refused: ${created.status()} ${await created.text()}`).toBeTruthy();

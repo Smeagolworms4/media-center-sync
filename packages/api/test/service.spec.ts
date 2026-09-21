@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
 import {
+	ErrorKey,
 	LibraryKind,
 	MediaServiceType,
 	PeerStatus,
@@ -271,11 +272,13 @@ describe('Media services', () => {
 		expect(response.body).toMatchObject({ reachable: false, authenticated: false });
 	});
 
-	describe('the root mapping', () => {
+	describe('the root mappings', () => {
 		let localRoot: string;
+		let nas2: string;
 		let serviceId: string;
 		let derivedId: string;
 		let exceptionId: string;
+		let secondDiskId: string;
 
 		const patchService = (body: Record<string, unknown>): request.Test =>
 			request(context.app.getHttpServer())
@@ -292,12 +295,27 @@ describe('Media services', () => {
 			return response.body as Library;
 		};
 
+		/** A registration refused by key, on the one input that is wrong. */
+		const refusal = async (rootMappings: unknown): Promise<{ key: string; field: string }> => {
+			const response = await authorised()
+				.send({
+					name: 'Refused',
+					type: MediaServiceType.JELLYFIN,
+					baseUrl: 'http://127.0.0.1:15',
+					rootMappings,
+				})
+				.expect(400);
+
+			return response.body as { key: string; field: string };
+		};
+
 		beforeAll(async () => {
 			// Directories that really exist, because the derived path is probed like any
 			// other: a made-up one would come back unwritable for the right reason and
 			// prove nothing about the derivation.
 			localRoot = mkdtempSync(join(tmpdir(), 'mcs-roots-'));
 			mkdirSync(join(localRoot, 'Shows'));
+			nas2 = mkdtempSync(join(tmpdir(), 'mcs-roots-nas2-'));
 
 			const created = await authorised()
 				.send({
@@ -308,6 +326,7 @@ describe('Media services', () => {
 				.expect(201);
 
 			serviceId = (created.body as MediaService).id;
+			expect((created.body as MediaService).rootMappings).toEqual([]);
 
 			// Written straight to the repository: the probe above could not reach
 			// anything, so the service has no libraries of its own to adopt.
@@ -338,21 +357,43 @@ describe('Media services', () => {
 					}),
 				)
 			).id;
+
+			secondDiskId = (
+				await libraries.save(
+					libraries.create({
+						serviceId,
+						externalId: 'lib-docs',
+						name: 'Documentaries',
+						kind: LibraryKind.MOVIES,
+						paths: ['/srv/docs'],
+					}),
+				)
+			).id;
 		});
 
-		it('stores both roots and reads them back', async () => {
-			const response = await patchService({ remoteRoot: '/media', localRoot }).expect(200);
+		it('stores the pairs, in one spelling, and reads them back', async () => {
+			const response = await patchService({
+				rootMappings: [
+					{ remoteRoot: '/media/', localRoot },
+					{ remoteRoot: '/srv/docs', localRoot: `${nas2}/` },
+				],
+			}).expect(200);
 
-			expect(response.body as MediaService).toMatchObject({ remoteRoot: '/media', localRoot });
+			expect((response.body as MediaService).rootMappings).toEqual([
+				{ remoteRoot: '/media', localRoot },
+				{ remoteRoot: '/srv/docs', localRoot: nas2 },
+			]);
+			expect((response.body as MediaService).filesMounted).toBe(true);
 		});
 
-		it('gives a library with no path of its own the one the mapping implies', async () => {
+		it('gives each library with no path of its own the one its disk implies', async () => {
 			const library = await readLibrary(derivedId);
 
 			expect(library.localPath).toBe(join(localRoot, 'Shows'));
 			// Probed, not assumed: the directory exists, so this library really can
 			// receive transfers.
 			expect(library.writable).toBe(true);
+			expect((await readLibrary(secondDiskId)).localPath).toBe(nas2);
 		});
 
 		it('leaves a path somebody typed for one library alone', async () => {
@@ -372,41 +413,84 @@ describe('Media services', () => {
 			expect(checks.find((check) => check.libraryId === exceptionId)?.derived).toBe(false);
 		});
 
-		it('moves the derived paths when a root is corrected', async () => {
+		it('moves the derived paths when a pair is corrected, and drops them when it is removed', async () => {
 			const moved = mkdtempSync(join(tmpdir(), 'mcs-roots-moved-'));
 
-			await patchService({ remoteRoot: '/media', localRoot: moved }).expect(200);
+			await patchService({ rootMappings: [{ remoteRoot: '/media', localRoot: moved }] }).expect(200);
 
 			expect((await readLibrary(derivedId)).localPath).toBe(join(moved, 'Shows'));
+			// Its disk is no longer mapped: no path, rather than the one it had.
+			expect((await readLibrary(secondDiskId)).localPath).toBeNull();
 			// And the exception is still the exception.
 			expect((await readLibrary(exceptionId)).localPath).toBe(localRoot);
 		});
 
-		it('refuses half a mapping, which would derive nothing while looking configured', async () => {
-			const response = await authorised()
-				.send({
-					name: 'Half',
-					type: MediaServiceType.JELLYFIN,
-					baseUrl: 'http://127.0.0.1:15',
-					remoteRoot: '/media',
-				})
-				.expect(400);
+		it('lets the most specific of two nested prefixes win', async () => {
+			await patchService({
+				rootMappings: [
+					{ remoteRoot: '/media/Shows', localRoot: nas2 },
+					{ remoteRoot: '/media', localRoot },
+				],
+			}).expect(200);
 
-			expect((response.body as { message: string[] }).message.join(' ')).toContain('localRoot');
+			expect((await readLibrary(derivedId)).localPath).toBe(nas2);
 		});
 
-		it('refuses a relative root, which means a different directory in every process', async () => {
-			const response = await authorised()
-				.send({
-					name: 'Relative',
-					type: MediaServiceType.JELLYFIN,
-					baseUrl: 'http://127.0.0.1:16',
-					remoteRoot: 'media',
-					localRoot: 'mnt/nas',
-				})
-				.expect(400);
+		it('withdraws every mapping on an empty list, keeping the service ours through its typed path', async () => {
+			const response = await patchService({ rootMappings: [] }).expect(200);
 
-			expect((response.body as { message: string[] }).message.join(' ')).toContain('remoteRoot');
+			expect((response.body as MediaService).rootMappings).toEqual([]);
+			expect((await readLibrary(derivedId)).localPath).toBeNull();
+			// The typed path is a mapping of its own, so the files are still ours.
+			expect((response.body as MediaService).filesMounted).toBe(true);
+		});
+
+		it('refuses an empty side by key, naming the input', async () => {
+			await expect(refusal([{ remoteRoot: '/media', localRoot: '' }])).resolves.toEqual(
+				expect.objectContaining({ key: ErrorKey.SERVICE_MAPPING_EMPTY, field: 'rootMappings.0.localRoot' }),
+			);
+			await expect(refusal([{ localRoot: '/mnt/nas' }])).resolves.toEqual(
+				expect.objectContaining({ key: ErrorKey.SERVICE_MAPPING_EMPTY, field: 'rootMappings.0.remoteRoot' }),
+			);
+		});
+
+		it('refuses a relative path, which means a different directory in every process', async () => {
+			await expect(
+				refusal([
+					{ remoteRoot: '/media', localRoot: '/mnt/nas' },
+					{ remoteRoot: 'srv/docs', localRoot: '/mnt/nas2' },
+				]),
+			).resolves.toEqual(
+				expect.objectContaining({ key: ErrorKey.SERVICE_MAPPING_RELATIVE, field: 'rootMappings.1.remoteRoot' }),
+			);
+		});
+
+		it('refuses the same server prefix twice, however it is spelled', async () => {
+			await expect(
+				refusal([
+					{ remoteRoot: '/media', localRoot: '/mnt/nas' },
+					{ remoteRoot: '/media/', localRoot: '/mnt/other' },
+				]),
+			).resolves.toEqual(
+				expect.objectContaining({ key: ErrorKey.SERVICE_MAPPING_DUPLICATE, field: 'rootMappings.1.remoteRoot' }),
+			);
+		});
+
+		it('refuses what is not a list of pairs of strings', async () => {
+			// `null` included: an empty list already says "none", and a second spelling
+			// is the one a client ends up sending untested.
+			for (const [body, field] of [
+				[null, 'rootMappings'],
+				['/media=/mnt/nas', 'rootMappings'],
+				[['/media'], 'rootMappings.0'],
+				[[{ remoteRoot: '/media', localRoot: '/mnt/nas', extra: true }], 'rootMappings.0'],
+				[[['/media', '/mnt/nas']], 'rootMappings.0'],
+				[[{ remoteRoot: `/${'a'.repeat(1100)}`, localRoot: '/mnt/nas' }], 'rootMappings.0.remoteRoot'],
+			] as const) {
+				await expect(refusal(body)).resolves.toEqual(
+					expect.objectContaining({ key: ErrorKey.SERVICE_MAPPING_INVALID, field }),
+				);
+			}
 		});
 
 		it('registers a service with no mapping at all, which is the ordinary case', async () => {

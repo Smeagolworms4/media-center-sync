@@ -96,19 +96,31 @@ Secrets are write-only. A token sent in a create or update is never returned by 
 route — a token that leaks through a list opens somebody's whole library, and nothing
 in the response would say so.
 
-`remoteRoot` and `localRoot` are one statement in two halves: the prefix the service
-reports about itself, and the same directory as this gateway reaches it. Stated once,
-every library under the service derives its own local path from them, which is what a
-server with six libraries used to spell out six times. They are refused one at a time —
-either half on its own derives nothing while leaving a service that looks configured —
-and both must be absolute, for the reason any path stored here must be: a relative one
-designates a different directory in the container, in a development shell and in a
-command. Sending both as null withdraws the mapping.
+`rootMappings` is a list of pairs, one per disk the server reads: `remoteRoot`, the
+prefix the service reports about itself, and `localRoot`, the same directory as this
+gateway reaches it. A list because the ordinary server has more than one disk — films
+under `/data/movies` mounted here at `/mnt/nas1/movies`, shows under `/srv/shows` at
+`/mnt/nas2/shows` — and no single pair describes that. Every library under the service
+derives its own local path from the **most specific** pair its reported path sits under,
+compared by path component (`/data/movies2` is not under `/data/movies`), so nested
+mounts such as `/data` and `/data/4k` are allowed and say what they mean. A library
+under no pair derives nothing.
+
+Refusals answer `400` with `{ key, field }`, the field naming the side of the row —
+`rootMappings.1.remoteRoot` — so the form marks the input that is wrong:
+`error.service.mapping_empty` for a side left empty (either half alone derives nothing
+while looking configured), `error.service.mapping_relative` for a path that is not
+absolute (a relative one designates a different directory in the container, in a
+development shell and in a command), `error.service.mapping_duplicate` for a server
+prefix an earlier row already lists, however it is spelled, and
+`error.service.mapping_invalid` for a body that is not a list of pairs of strings. Paths
+are stored trimmed, without trailing or doubled slashes. On an update, omitting
+`rootMappings` leaves the list alone, `[]` withdraws every pair, and `null` is refused.
 
 The mapping also decides `filesMounted`, and through it `mode`. Whether this gateway
-reaches a service's files is **derived**, never declared: it is true once a root is
-stated here or a library under the service carries a path of its own, and it is
-re-derived on every registration, probe, mapping change and library path change. A
+reaches a service's files is **derived**, never declared: it is true once any pair is
+stated in `rootMappings` or a library under the service carries a path of its own, and
+it is re-derived on every registration, probe, mapping change and library path change. A
 service registered before anybody mapped its folders is `remote` and becomes `local`
 the moment the mapping lands, without being re-registered. Only a `local` service can
 be a destination — a pull has to land where the media server actually scans.
@@ -237,9 +249,9 @@ into — answers `unknown` rather than `mismatched`, because a warning that is w
 more often than right stops being read.
 
 **Most libraries never need a `localPath` of their own.** A service carries
-`remoteRoot` and `localRoot` — the prefix it reports, and the same directory as the
-gateway reaches it — and every library under it derives its own path by replacing the
-one with the other. A library's explicit `localPath` always wins: that field is for
+`rootMappings` — pairs of the prefix it reports and the same directory as the gateway
+reaches it — and every library under it derives its own path by replacing the most
+specific matching prefix with its directory. A library's explicit `localPath` always wins: that field is for
 the exceptions the mapping cannot express, and clearing it hands the library back to
 the mapping rather than leaving it with no path at all.
 

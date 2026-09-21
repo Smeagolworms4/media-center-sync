@@ -58,8 +58,7 @@ const service = (overrides: Partial<MediaService> = {}): MediaService =>
 		version: '10.9.0',
 		authProvider: false,
 		priority: 100,
-		remoteRoot: null,
-		localRoot: null,
+		rootMappings: [],
 		peerId: null,
 		lastProbeAt: null,
 		lastScanAt: null,
@@ -772,7 +771,9 @@ describe('ServiceManager', () => {
 			fakes.services.findWithSecrets.mockResolvedValue(service({ peerId: 'peer-1' }));
 
 			await expect(
-				manager.update('service-1', { localRoot: '/mnt/nas', remoteRoot: '/media' }),
+				manager.update('service-1', {
+					rootMappings: [{ remoteRoot: '/media', localRoot: '/mnt/nas' }],
+				}),
 			).rejects.toThrow(ErrorKey.SERVICE_PEER_NOT_EDITABLE);
 			expect(fakes.services.save).not.toHaveBeenCalled();
 		});
@@ -840,78 +841,127 @@ describe('ServiceManager', () => {
 		});
 	});
 
-	describe('the root mapping', () => {
-		it('stores both roots when a service is registered with them', async () => {
+	describe('the root mappings', () => {
+		const films = { remoteRoot: '/data/movies', localRoot: '/mnt/nas1/movies' };
+		const shows = { remoteRoot: '/srv/shows', localRoot: '/mnt/nas2/shows' };
+
+		it('stores every pair a service is registered with, in one spelling', async () => {
 			const { manager, fakes } = build();
 
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
 				baseUrl: 'http://jellyfin:8096',
-				remoteRoot: '/media/',
-				localRoot: '/mnt/nas',
+				rootMappings: [
+					{ remoteRoot: ' /data/movies/ ', localRoot: '/mnt//nas1/movies' },
+					shows,
+				],
 			});
 
 			const saved = fakes.services.save.mock.calls[0][0] as MediaService;
 
-			// The trailing slash goes: it says nothing about the directory and would
-			// stop every prefix test from matching.
-			expect(saved.remoteRoot).toBe('/media');
-			expect(saved.localRoot).toBe('/mnt/nas');
+			// Trailing and doubled slashes go: they say nothing about the directory, and
+			// `/data/` beside `/data` must read as the one prefix it is.
+			expect(saved.rootMappings).toEqual([films, shows]);
 		});
 
-		it('reads an emptied root as no mapping rather than as an empty prefix', async () => {
-			// Stored as an empty string it would match the start of every path there is
-			// and derive the whole filesystem into `localRoot`.
+		it('stores only the two sides of each pair, whatever else an entry carried', async () => {
+			// The list lands in a JSON column; anything else on an entry would be kept
+			// and returned forever.
 			const { manager, fakes } = build();
 
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
 				baseUrl: 'http://jellyfin:8096',
-				remoteRoot: '   ',
-				localRoot: '',
+				rootMappings: [{ ...films, role: 'admin' } as typeof films],
 			});
 
-			const saved = fakes.services.save.mock.calls[0][0] as MediaService;
-
-			expect(saved.remoteRoot).toBeNull();
-			expect(saved.localRoot).toBeNull();
+			expect((fakes.services.save.mock.calls[0][0] as MediaService).rootMappings).toEqual([films]);
 		});
 
-		it('applies the mapping to the libraries a probe just reported', async () => {
+		it('registers a service with no mapping as one with an empty list', async () => {
 			const { manager, fakes } = build();
 
 			await manager.create({
 				name: 'Living room',
 				type: MediaServiceType.JELLYFIN,
 				baseUrl: 'http://jellyfin:8096',
-				remoteRoot: '/media',
-				localRoot: '/mnt/nas',
+			});
+
+			expect((fakes.services.save.mock.calls[0][0] as MediaService).rootMappings).toEqual([]);
+		});
+
+		it('applies the mappings to the libraries a probe just reported', async () => {
+			const { manager, fakes } = build();
+
+			await manager.create({
+				name: 'Living room',
+				type: MediaServiceType.JELLYFIN,
+				baseUrl: 'http://jellyfin:8096',
+				rootMappings: [films, shows],
 			});
 
 			expect(fakes.libraryManager.applyRootMapping).toHaveBeenCalledWith(
-				expect.objectContaining({ remoteRoot: '/media', localRoot: '/mnt/nas' }),
+				expect.objectContaining({ rootMappings: [films, shows] }),
 			);
 		});
 
-		it('re-derives every library when a root is corrected', async () => {
+		it('re-derives every library when the list changes', async () => {
 			// A corrected mapping is worthless until something re-reads it, and the next
 			// thing that would is a scan nobody may run for a day.
 			const { manager, fakes } = build();
 
-			await manager.update('service-1', { remoteRoot: '/media', localRoot: '/mnt/nas' });
+			await manager.update('service-1', { rootMappings: [films, shows] });
 
 			expect(fakes.libraryManager.applyRootMapping).toHaveBeenCalledWith(
-				expect.objectContaining({ remoteRoot: '/media', localRoot: '/mnt/nas' }),
+				expect.objectContaining({ rootMappings: [films, shows] }),
 			);
 		});
 
-		it('leaves the libraries alone when the edit was about something else', async () => {
+		it('re-derives when one pair of several is removed, so its libraries lose the path', async () => {
 			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ rootMappings: [films, shows] }));
+
+			await manager.update('service-1', { rootMappings: [films] });
+
+			expect(fakes.libraryManager.applyRootMapping).toHaveBeenCalledWith(
+				expect.objectContaining({ rootMappings: [films] }),
+			);
+		});
+
+		it('withdraws every mapping on an empty list', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ rootMappings: [films] }));
+
+			await manager.update('service-1', { rootMappings: [] });
+
+			expect((fakes.services.save.mock.calls[0][0] as MediaService).rootMappings).toEqual([]);
+			expect(fakes.libraryManager.applyRootMapping).toHaveBeenCalled();
+		});
+
+		it('leaves the libraries alone when the list sent is the one stored', async () => {
+			// Sent back unchanged by a form saved for another field; re-deriving would
+			// re-probe every library directory for nothing.
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ rootMappings: [films] }));
+
+			await manager.update('service-1', { rootMappings: [{ remoteRoot: '/data/movies/', localRoot: films.localRoot }] });
+
+			expect(fakes.libraryManager.applyRootMapping).not.toHaveBeenCalled();
+		});
+
+		it('leaves the list and the libraries alone when the edit was about something else', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.findWithSecrets.mockResolvedValue(service({ rootMappings: [films] }));
 
 			await manager.update('service-1', { name: 'Renamed' });
 
+			expect((fakes.services.save.mock.calls[0][0] as MediaService).rootMappings).toEqual([films]);
 			expect(fakes.libraryManager.applyRootMapping).not.toHaveBeenCalled();
 		});
 	});

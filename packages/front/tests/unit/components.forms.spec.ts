@@ -38,8 +38,7 @@ function service (overrides: Partial<MediaService> = {}): MediaService {
 		baseUrl: 'http://10.0.0.2:8096',
 		status: MediaServiceStatus.ONLINE,
 		version: null,
-		remoteRoot: null,
-		localRoot: null,
+		rootMappings: [],
 		authProvider: false,
 		priority: 10,
 		peerId: null,
@@ -172,49 +171,213 @@ describe('components/service/ServiceForm', () => {
 		expect(wrapper.emitted('saved')?.[0]?.[0]).toMatchObject({ id: 'new' });
 	});
 
-	it('sends both roots, so a service states once where its files are for us', async () => {
-		const stub = stubFetchRoutes({
-			'/api/services/probe': { body: probeOk },
-			'/api/services': { body: service({ id: 'new' }) },
-		});
-		const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
-
-		await wrapper.find('[data-test="service-name"] input').setValue('Attic');
-		await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
-		await wrapper.find('[data-test="service-remote-root"] input').setValue('/media');
-		await wrapper.find('[data-test="service-local-root"] input').setValue('/mnt/nas');
-		await wrapper.find('form').trigger('submit');
-		await settle();
-
+	/** The body of the registration the form sent, once it has sent one. */
+	function posted (stub: ReturnType<typeof stubFetchRoutes>): Record<string, unknown> {
 		const post = stub.mock.calls.find(
 			call => call[1]?.method === 'POST' && String(call[0]).endsWith('/api/services'),
 		);
+		return JSON.parse(String(post?.[1]?.body)) as Record<string, unknown>;
+	}
 
-		expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
-			remoteRoot: '/media',
-			localRoot: '/mnt/nas',
+	/** Fills row `index` of the mapping list, adding rows until it exists. */
+	async function fillMapping (
+		wrapper: ReturnType<typeof mountWithApp>['wrapper'],
+		index: number,
+		remoteRoot: string,
+		localRoot: string,
+	): Promise<void> {
+		while (wrapper.findAll('[data-test="service-mapping"]').length <= index) {
+			await wrapper.find('[data-test="service-mapping-add"]').trigger('click');
+		}
+		const row = wrapper.findAll('[data-test="service-mapping"]')[index];
+		await row.find('[data-test="service-mapping-remote"] input').setValue(remoteRoot);
+		await row.find('[data-test="service-mapping-local"] input').setValue(localRoot);
+	}
+
+	describe('the mappings', () => {
+		it('sends one pair per disk, so films and shows on two disks both find their files', async () => {
+			const stub = stubFetchRoutes({
+				'/api/services/probe': { body: probeOk },
+				'/api/services': { body: service({ id: 'new' }) },
+			});
+			const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+			await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+			await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+			await fillMapping(wrapper, 0, '/data/movies', '/mnt/nas1/movies');
+			await fillMapping(wrapper, 1, ' /srv/shows ', '/mnt/nas2/shows');
+			await wrapper.find('form').trigger('submit');
+			await settle();
+
+			expect(posted(stub).rootMappings).toEqual([
+				{ remoteRoot: '/data/movies', localRoot: '/mnt/nas1/movies' },
+				{ remoteRoot: '/srv/shows', localRoot: '/mnt/nas2/shows' },
+			]);
 		});
-	});
 
-	it('spells an empty mapping as null, which is a mapping being withdrawn', async () => {
-		const stub = stubFetchRoutes({
-			'/api/services/probe': { body: probeOk },
-			'/api/services': { body: service({ id: 'new' }) },
+		it('sends an empty list when nothing is mapped, and says what that means', async () => {
+			const stub = stubFetchRoutes({
+				'/api/services/probe': { body: probeOk },
+				'/api/services': { body: service({ id: 'new' }) },
+			});
+			const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+			// No row is an answer, not a blank: the gateway reaches none of the files.
+			expect(wrapper.find('[data-test="service-mappings-empty"]').exists()).toBe(true);
+
+			await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+			await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+			await wrapper.find('form').trigger('submit');
+			await settle();
+
+			expect(posted(stub).rootMappings).toEqual([]);
 		});
-		const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
 
-		await wrapper.find('[data-test="service-name"] input').setValue('Attic');
-		await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
-		await wrapper.find('form').trigger('submit');
-		await settle();
+		it('shows the pairs a registered service already carries, one row each', () => {
+			const { wrapper } = mountWithApp(ServiceForm, {
+				props: {
+					service: service({
+						rootMappings: [
+							{ remoteRoot: '/data/movies', localRoot: '/mnt/nas1/movies' },
+							{ remoteRoot: '/srv/shows', localRoot: '/mnt/nas2/shows' },
+						],
+					}),
+				},
+				global: { stubs: tooltipStub },
+			});
 
-		const post = stub.mock.calls.find(
-			call => call[1]?.method === 'POST' && String(call[0]).endsWith('/api/services'),
-		);
+			const rows = wrapper.findAll('[data-test="service-mapping"]');
+			const value = (index: number, side: string): string =>
+				(rows[index].find(`[data-test="service-mapping-${side}"] input`).element as HTMLInputElement).value;
 
-		expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
-			remoteRoot: null,
-			localRoot: null,
+			expect(rows).toHaveLength(2);
+			expect([value(0, 'remote'), value(0, 'local'), value(1, 'remote'), value(1, 'local')]).toEqual([
+				'/data/movies',
+				'/mnt/nas1/movies',
+				'/srv/shows',
+				'/mnt/nas2/shows',
+			]);
+			expect(wrapper.find('[data-test="service-mappings-empty"]').exists()).toBe(false);
+		});
+
+		it('removes the row asked for, and sends the list without it', async () => {
+			const stub = stubFetchRoutes({
+				'/api/services/s1/probe': { body: probeOk },
+				'/api/services/s1': { body: service() },
+			});
+			const { wrapper } = mountWithApp(ServiceForm, {
+				props: {
+					service: service({
+						rootMappings: [
+							{ remoteRoot: '/data/movies', localRoot: '/mnt/nas1/movies' },
+							{ remoteRoot: '/srv/shows', localRoot: '/mnt/nas2/shows' },
+						],
+					}),
+				},
+				global: { stubs: tooltipStub },
+			});
+
+			await wrapper.findAll('[data-test="service-mapping-remove"]')[0].trigger('click');
+			await settle();
+
+			// The first row's inputs went, not the last ones on screen.
+			const rows = wrapper.findAll('[data-test="service-mapping"]');
+			expect(rows).toHaveLength(1);
+			expect((rows[0].find('[data-test="service-mapping-remote"] input').element as HTMLInputElement).value)
+				.toBe('/srv/shows');
+
+			await wrapper.find('form').trigger('submit');
+			await settle();
+
+			const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+			expect(JSON.parse(String(patch?.[1]?.body)).rootMappings).toEqual([
+				{ remoteRoot: '/srv/shows', localRoot: '/mnt/nas2/shows' },
+			]);
+		});
+
+		it('refuses an empty side, a relative path and a prefix listed twice, under the input, before sending', async () => {
+			const stub = stubFetchRoutes({
+				'/api/services/probe': { body: probeOk },
+				'/api/services': { body: service({ id: 'new' }) },
+			});
+			const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+			await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+			await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+			await fillMapping(wrapper, 0, '/data/movies', '');
+			await fillMapping(wrapper, 1, 'srv/shows', '/mnt/nas2/shows');
+			await fillMapping(wrapper, 2, '/data/movies/', '/mnt/other');
+			await wrapper.find('form').trigger('submit');
+			await settle();
+
+			const rows = wrapper.findAll('[data-test="service-mapping"]');
+			expect(stub.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false);
+			// Each sentence under the row it is about — a refusal shown nowhere is the
+			// defect this form has shipped before.
+			expect(rows[0].find('[data-test="service-mapping-local"]').text()).toContain('Both sides');
+			expect(rows[1].find('[data-test="service-mapping-remote"]').text()).toContain('absolute path');
+			expect(rows[2].find('[data-test="service-mapping-remote"]').text()).toContain('already mapped');
+			// Nested prefixes are not a fault: the first row's server side is clean.
+			expect(rows[0].find('[data-test="service-mapping-remote"]').text()).not.toContain('already mapped');
+		});
+
+		it('puts a refusal from the gateway under the side of the row it names', async () => {
+			stubFetchRoutes({
+				'/api/services/probe': { body: probeOk },
+				'/api/services': {
+					status: 400,
+					body: { statusCode: 400, key: 'error.service.mapping_relative', field: 'rootMappings.1.localRoot' },
+				},
+			});
+			const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+			await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+			await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+			await fillMapping(wrapper, 0, '/data/movies', '/mnt/nas1/movies');
+			await fillMapping(wrapper, 1, '/srv/shows', '/mnt/nas2/shows');
+			await wrapper.find('form').trigger('submit');
+			await settle();
+
+			const rows = wrapper.findAll('[data-test="service-mapping"]');
+			expect(rows[1].find('[data-test="service-mapping-local"]').text()).toContain('absolute path');
+			expect(rows[0].text()).not.toContain('absolute path');
+			expect(wrapper.find('[data-test="form-main-error"]').exists()).toBe(false);
+		});
+
+		it('offers one mapping per distinct root the probe reported, and stops offering what it took', async () => {
+			stubFetchRoutes({
+				'/api/services/probe': {
+					body: {
+						...probeOk,
+						libraries: [
+							{ externalId: 'm', name: 'Films', kind: LibraryKind.MOVIES, paths: ['/data/movies'] },
+							{ externalId: 's', name: 'Shows', kind: LibraryKind.SHOWS, paths: ['/srv/shows'] },
+						],
+					},
+				},
+			});
+			const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
+
+			await wrapper.find('[data-test="service-name"] input').setValue('Attic');
+			await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
+			await wrapper.find('[data-test="service-probe"]').trigger('click');
+			await settle();
+
+			const offered = (): string[] =>
+				wrapper.findAll('[data-test="service-mapping-suggestion"]').map(one => one.text());
+			expect(offered()).toHaveLength(2);
+			expect(offered()[0]).toContain('/data/movies');
+			expect(offered()[1]).toContain('/srv/shows');
+
+			await wrapper.findAll('[data-test="service-mapping-suggestion"]')[1].trigger('click');
+			await settle();
+
+			const rows = wrapper.findAll('[data-test="service-mapping"]');
+			expect(rows).toHaveLength(1);
+			expect((rows[0].find('[data-test="service-mapping-remote"] input').element as HTMLInputElement).value)
+				.toBe('/srv/shows');
+			expect(offered()).toHaveLength(1);
+			expect(offered()[0]).toContain('/data/movies');
 		});
 	});
 
@@ -262,7 +425,7 @@ describe('components/service/ServiceForm', () => {
 			expect(hint.text()).toContain('bandwidth');
 		});
 
-		it('drops the warning as soon as a local root is typed', async () => {
+		it('drops the warning as soon as a disk is mapped from here', async () => {
 			const { wrapper } = mountWithApp(ServiceForm, {
 				props: { service: service({ mode: MediaServiceMode.REMOTE, filesMounted: false }) },
 				global: { stubs: tooltipStub },
@@ -271,7 +434,7 @@ describe('components/service/ServiceForm', () => {
 
 			expect(wrapper.find('[data-test="service-shared-hint"]').text()).toContain('bandwidth');
 
-			await wrapper.find('[data-test="service-local-root"] input').setValue('/mnt/nas');
+			await fillMapping(wrapper, 0, '/media', '/mnt/nas');
 			await settle();
 
 			expect(wrapper.find('[data-test="service-shared-hint"]').text()).not.toContain('bandwidth');
@@ -337,39 +500,6 @@ describe('components/service/ServiceForm', () => {
 
 			expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({ shared: false });
 		});
-	});
-
-	it('shows the roots a registered service already carries', () => {
-		const { wrapper } = mountWithApp(ServiceForm, {
-			props: { service: service({ remoteRoot: '/media', localRoot: '/mnt/nas' }) },
-			global: { stubs: tooltipStub },
-		});
-
-		expect(
-			(wrapper.find('[data-test="service-remote-root"] input').element as HTMLInputElement).value,
-		).toBe('/media');
-		expect(
-			(wrapper.find('[data-test="service-local-root"] input').element as HTMLInputElement).value,
-		).toBe('/mnt/nas');
-	});
-
-	it('refuses a relative root before the gateway has to', async () => {
-		// A relative root resolves against whatever directory a process started in,
-		// which is a different one in the container and in a development shell.
-		const stub = stubFetchRoutes({
-			'/api/services/probe': { body: probeOk },
-			'/api/services': { body: service({ id: 'new' }) },
-		});
-		const { wrapper } = mountWithApp(ServiceForm, { global: { stubs: tooltipStub } });
-
-		await wrapper.find('[data-test="service-name"] input').setValue('Attic');
-		await wrapper.find('[data-test="service-url"] input').setValue('http://10.0.0.2:8096');
-		await wrapper.find('[data-test="service-remote-root"] input').setValue('media');
-		await wrapper.find('form').trigger('submit');
-		await settle();
-
-		expect(stub.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false);
-		expect(wrapper.text()).toContain('absolute path');
 	});
 
 	it('keeps the registered token when an edit leaves the field empty', async () => {

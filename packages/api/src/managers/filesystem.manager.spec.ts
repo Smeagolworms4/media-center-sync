@@ -238,9 +238,9 @@ describe('FilesystemManager — restricted by MCS_BROWSE_ROOTS', () => {
 		const { manager, fakes } = build({ browseRoots: join(base, 'media') });
 
 		fakes.services.find.mockResolvedValue([
-			{ localRoot: join(base, 'service-root') },
-			{ localRoot: null },
-			{ localRoot: '' },
+			{ rootMappings: [{ remoteRoot: '/media', localRoot: join(base, 'service-root') }] },
+			{ rootMappings: [] },
+			{ rootMappings: [{ remoteRoot: '/data', localRoot: '' }] },
 		]);
 		fakes.libraries.find.mockResolvedValue([
 			{ localPath: join(base, 'library-root') },

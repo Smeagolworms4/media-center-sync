@@ -93,8 +93,9 @@ export const toMediaService = (
 	shared: service.shared,
 	filesMounted: service.filesMounted,
 	mode: serviceMode(service),
-	remoteRoot: service.remoteRoot,
-	localRoot: service.localRoot,
+	// Copied rather than handed over, so a caller editing the answer cannot reach
+	// the row a later save would write back.
+	rootMappings: service.rootMappings.map((mapping) => ({ ...mapping })),
 	baseUrl: service.baseUrl,
 	status: service.status,
 	version: service.version,

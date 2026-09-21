@@ -80,18 +80,21 @@ function directories (structure: Structure): string[] {
 }
 
 /**
- * Opens the local-root picker of a registered service, from its edit dialog.
+ * Opens the gateway-side picker of a new mapping row, from a registered service's
+ * edit dialog.
  *
  * That dialog is where the server's half first appears for most people: the service
- * exists, so it can be asked where its folders are, and the local root is the field
- * the answer is for.
+ * exists, so it can be asked where its folders are, and the gateway side of a mapping
+ * is the field the answer is for. The services these journeys register carry no
+ * mapping, so a row is added first — which is what somebody configuring one does.
  */
 async function openServicePicker (page: Page, name: string): Promise<void> {
 	await page.goto('/services');
 	const row = page.locator(test0('service-row')).filter({ hasText: name });
 	await expect(row).toHaveCount(1);
 	await row.locator(test0('service-edit')).click();
-	await page.locator(test0('service-local-root-browse')).click();
+	await page.locator(test0('service-mapping-add')).click();
+	await page.locator(test0('service-mapping-local-browse')).click();
 	await expect(page.locator(test0('browse-crumbs'))).toBeVisible();
 }
 
@@ -257,12 +260,12 @@ test.describe('directory picker', () => {
 			await expect(page.locator(test0('browse-crumbs'))).toBeVisible();
 			await expect(page.locator(test0('browse-list'))).toBeVisible();
 
-			// Choosing one of the server's own paths fills the local root — and only
-			// the field: it is saved by the same button and the same probe as a typed
-			// one, because the picker assists the input and never replaces it.
+			// Choosing one of the server's own paths fills the row's gateway side — and
+			// only the field: it is saved by the same button and the same probe as a
+			// typed one, because the picker assists the input and never replaces it.
 			await page.locator(test0('browse-server-entry')).filter({ hasText: fake.shows }).click();
 			await expect(server).toHaveCount(0);
-			await expect(page.locator(field0('service-local-root'))).toHaveValue(fake.shows);
+			await expect(page.locator(field0('service-mapping-local'))).toHaveValue(fake.shows);
 		} finally {
 			await removeServices(request, FAKE_NAME);
 			await fake?.server.close();

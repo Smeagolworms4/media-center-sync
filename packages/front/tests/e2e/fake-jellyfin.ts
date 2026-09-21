@@ -598,7 +598,7 @@ export interface OwnDestination {
 }
 
 /** Where the journeys make the directory, whichever side they run from. */
-function landingPaths (tag: string): { ours: string; gateway: string } {
+export function landingPaths (tag: string): { ours: string; gateway: string } {
 	return {
 		// Relative to this file rather than to the working directory: the journeys are
 		// started from `packages/front` by the compose service and from the repository
@@ -660,8 +660,7 @@ export async function useOwnDestination (
 			// The mapping is what makes this a *local* service: the gateway reaches
 			// these files itself, which is the whole difference between a shelf it can
 			// write into and one it can only read from.
-			remoteRoot: '/data',
-			localRoot: paths.gateway,
+			rootMappings: [{ remoteRoot: '/data', localRoot: paths.gateway }],
 		},
 	});
 	expect(created.ok(), `landing service failed: ${created.status()} ${await created.text()}`)
