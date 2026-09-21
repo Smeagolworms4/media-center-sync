@@ -732,6 +732,7 @@
 	"settings": {
 		"subtitle": "Wie dieses Gateway ablegt, holt und indexiert.",
 		"saved": "Einstellungen gespeichert.",
+		"nothing_changed": "Nichts wurde geändert, daher wurde nichts gesendet.",
 		"group": {
 			"placement": "Wohin Dateien kommen",
 			"gateway": "Name und Adresse",
@@ -942,7 +943,9 @@
 			"covered": "Wird bereits vom Plan {name} synchron gehalten.",
 			"covered_above": "Wird bereits vom Plan {name} abgedeckt, der alles darunter auf Stand hält.",
 			"open_plan": "Plan öffnen",
-			"estimate_unknown": "Es hat noch niemand ausgerechnet, wie viel das ist.",
+			"estimate_no_destination": "Keine Angabe: Dieses Gateway hat keine Bibliothek, in die es schreiben kann. Fügen Sie unter Mediendienste eine hinzu — öffnen Sie einen Ihrer eigenen Server und geben Sie einer Bibliothek ihren lokalen Pfad.",
+			"estimate_no_destination_action": "Mediendienste öffnen",
+			"estimate_failed": "Das Gateway konnte nicht ausrechnen, wie viel das ist: {reason}",
 			"estimate_truncated": "Mindestens so viel: hier liegt mehr, als ein Lauf durchgeht.",
 			"mode": "Was tun",
 			"mode_create": "Einen Plan dafür anlegen",
@@ -1112,6 +1115,7 @@
 			"permission_denied": "Das Gateway darf dort nicht schreiben",
 			"target_missing": "Das Zielverzeichnis ist verschwunden",
 			"cancelled": "Absichtlich gestoppt",
+			"service_removed": "Ihre Quelle wurde entfernt",
 			"unknown": "Sie ist aus unklarem Grund stehen geblieben"
 		},
 		"error_help": {
@@ -1123,6 +1127,7 @@
 			"permission_denied": "Das Verzeichnis existiert, aber das Gateway kann nicht hineinschreiben.",
 			"target_missing": "Das Verzeichnis, in das die Datei sollte, existiert nicht mehr.",
 			"cancelled": "Jemand hat sie gestoppt. Sie kann erneut gestartet werden.",
+			"service_removed": "Der Dienst, von dem sie kam, wurde von diesem Gateway entfernt. Die Übertragung wurde deshalb gestoppt und ihre Teildatei gelöscht. Um sie zu bekommen, suchen Sie das Medium erneut in der Bibliothek und holen Sie es von einer anderen Quelle.",
 			"unknown": "Zu prüfen, was auf der Platte liegt, ist der billigste Weg zu mehr Klarheit."
 		},
 		"action": {

@@ -146,6 +146,16 @@ describe('useTransferError', () => {
 		expect(describeTransferError(TransferErrorKind.NETWORK).actions[0]).toBe(TransferAction.RETRY);
 	});
 
+	it('names a removed source service as the reason, and offers nothing that would fail again', () => {
+		// The gateway stopped it, nobody pressed cancel, and its source no longer exists:
+		// a retry would go back to it.
+		const descriptor = describeTransferError(TransferErrorKind.SERVICE_REMOVED);
+
+		expect(descriptor.labelKey).toBe('transfer.error_kind.service_removed');
+		expect(descriptor.helpKey).toBe('transfer.error_help.service_removed');
+		expect(descriptor.actions).toEqual([]);
+	});
+
 	it('falls back to the unknown case for a kind this build does not know', () => {
 		const descriptor = describeTransferError('something_new_from_the_api');
 

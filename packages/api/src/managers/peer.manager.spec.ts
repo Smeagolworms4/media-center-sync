@@ -84,7 +84,7 @@ interface Fakes {
 	libraries: { findByService: jest.Mock; delete: jest.Mock };
 	matches: { deleteForItems: jest.Mock; deleteForService: jest.Mock };
 	items: { countByService: jest.Mock; findStale: jest.Mock; remove: jest.Mock };
-	serviceManager: { probe: jest.Mock; scan: jest.Mock; refresh: jest.Mock };
+	serviceManager: { probe: jest.Mock; scan: jest.Mock; refresh: jest.Mock; releaseService: jest.Mock };
 	notifications: { notify: jest.Mock };
 	/**
 	 * The retry schedule, faked down to "dial once and tell me what happened".
@@ -208,6 +208,7 @@ const build = (
 			probe: jest.fn().mockResolvedValue({ libraries: [] }),
 			scan: jest.fn().mockResolvedValue(undefined),
 			refresh: jest.fn().mockResolvedValue(undefined),
+			releaseService: jest.fn().mockResolvedValue(undefined),
 		},
 		notifications: { notify: jest.fn().mockResolvedValue(undefined) },
 		bans: {
@@ -397,6 +398,11 @@ describe('PeerManager', () => {
 			});
 			expect(fakes.services.delete).toHaveBeenCalledWith({ id: 'service-1' });
 			expect(fakes.peers.delete).toHaveBeenCalledWith({ id: 'peer-1' });
+			// Their server leaves the way a removed service does: what it was feeding
+			// is stopped first, while its items still say which transfers those are.
+			expect(fakes.serviceManager.releaseService).toHaveBeenCalledWith('service-1');
+			expect(fakes.serviceManager.releaseService.mock.invocationCallOrder[0])
+				.toBeLessThan(fakes.services.delete.mock.invocationCallOrder[0]);
 		});
 
 		it('renames what a peer brought without opening a link to do it', async () => {

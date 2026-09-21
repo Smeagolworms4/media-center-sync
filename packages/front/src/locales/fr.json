@@ -732,6 +732,7 @@
 	"settings": {
 		"subtitle": "Comment cette passerelle range, récupère et indexe.",
 		"saved": "Paramètres enregistrés.",
+		"nothing_changed": "Rien n’avait changé : rien n’a été envoyé.",
 		"group": {
 			"placement": "Où atterrissent les fichiers",
 			"gateway": "Nom et adresse",
@@ -942,7 +943,9 @@
 			"covered": "Déjà suivi par le plan {name}.",
 			"covered_above": "Déjà couvert par le plan {name}, qui maintient à jour tout ce qui est en dessous.",
 			"open_plan": "Ouvrir le plan",
-			"estimate_unknown": "Personne n'a encore calculé ce que cela représente.",
+			"estimate_no_destination": "Pas de chiffre : cette passerelle n’a aucune bibliothèque où elle peut écrire. Ajoutez-en une dans Services média — ouvrez l’un de vos propres serveurs et donnez à une bibliothèque son chemin local.",
+			"estimate_no_destination_action": "Ouvrir les services média",
+			"estimate_failed": "La passerelle n’a pas pu calculer ce que cela représente : {reason}",
 			"estimate_truncated": "Au minimum : il y a ici plus que ce qu'une exécution parcourt.",
 			"mode": "Que faire",
 			"mode_create": "Créer un plan pour ce contenu",
@@ -1112,6 +1115,7 @@
 			"permission_denied": "La passerelle ne peut pas écrire là",
 			"target_missing": "Le répertoire cible a disparu",
 			"cancelled": "Arrêté volontairement",
+			"service_removed": "Sa source a été retirée",
 			"unknown": "Arrêté pour une raison indéterminée"
 		},
 		"error_help": {
@@ -1123,6 +1127,7 @@
 			"permission_denied": "Le répertoire existe mais la passerelle ne peut pas y écrire.",
 			"target_missing": "Le répertoire vers lequel allait le fichier n'existe plus.",
 			"cancelled": "Quelqu'un l'a arrêté. Il peut repartir.",
+			"service_removed": "Le service d’où il venait a été retiré de cette passerelle : le transfert a été arrêté et son fichier partiel supprimé. Pour l’obtenir, retrouvez le média dans la bibliothèque et récupérez-le depuis une autre source.",
 			"unknown": "Vérifier ce qui est sur le disque est le moyen le moins coûteux d'en savoir plus."
 		},
 		"action": {

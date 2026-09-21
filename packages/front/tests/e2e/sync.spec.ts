@@ -5,7 +5,7 @@ import { API_URL, apiToken, signIn, test0, watchApi } from './helpers';
  * The synchronisation screen: the standing intents, and what they have done.
  *
  * Everything here is built by the journey itself over the API, because `make e2e/ci`
- * seeds an administrator and some settings and nothing else — no service, no library,
+ * installs a gateway with an administrator and nothing else — no service, no library,
  * no media, no plan. A journey that needed the owner's catalogue would pass on his
  * machine and fail on a runner for reasons nobody could reproduce.
  *

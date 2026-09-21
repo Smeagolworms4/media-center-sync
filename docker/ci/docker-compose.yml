@@ -1,0 +1,185 @@
+# The stack `make e2e/ci` runs the journeys against, and nothing else.
+#
+# A compose project of its own rather than the development stack started a second
+# time, because on a workstation the development stack is usually running — often not
+# even in containers, but on the host, from the same working tree. Everything below
+# follows from not touching it:
+#
+# - **No port is published.** The journeys reach the gateway from inside this
+#   project's network, so nothing here can collide with a development API on 4200 or
+#   an interface on 3200, and a second run cannot collide with a first.
+# - **Dependencies are installed into volumes.** The repository is mounted as it is in
+#   development, but `node_modules` of each package and the built `shared` package are
+#   covered by volumes of this project. `npm ci` deletes `node_modules` before it
+#   installs, and doing that on the working tree would pull the modules out from under
+#   a development server that is running on them — and replace a glibc build of
+#   `better-sqlite3` with a musl one that the host then refuses to load.
+# - **Every file the gateway writes lives under `var/e2e-ci/`**: its database, its
+#   identity and its transfer scratch space. A gateway left on its defaults would open
+#   the development database, and the install journey would find it claimed.
+# - **No administrator is given to the gateway.** `MCS_ADMIN_USER` is absent on
+#   purpose: the install journey creates the first one through the setup screen, and a
+#   gateway that came up already claimed would leave it nothing to install.
+#
+# The name is pinned here and on the command line (`-p`), because `.env` exports
+# `COMPOSE_PROJECT_NAME=media-center-sync` into every make recipe, and an environment
+# variable outranks `name:` — without `-p`, `down -v` at the end of a run would remove
+# the development project instead.
+name: media-center-sync-ci
+
+x-node: &node
+    image: registry.gitlab.com/damienduboeuf/docker/node-custom-userid:24
+    # The image's command is a Node prompt; a terminal keeps it, and with it the
+    # container, alive until the servers are started into it with `exec`.
+    tty: true
+    stdin_open: true
+    working_dir: /app
+
+services:
+    api:
+        <<: *node
+        environment:
+            - USER_ID=${USER_ID:-1000}
+            - USER_GID=${USER_GID:-1000}
+            - API_PORT=4200
+            - DB_TYPE=sqlite
+            # Absolute, and under the run's own directory: the API starts from
+            # `packages/api`, and the relative default would be the development
+            # database, claimed since its first `make init`.
+            - DB_FILE=/app/var/e2e-ci/state/gateway.db
+            - REDIS_HOST=
+            - MCS_JWT_SECRET=e2e-ci-secret
+            # The peer key pair and node identity. Shared with the development gateway,
+            # this one would present itself to any friend as that gateway.
+            - MCS_DATA_DIR=/app/var/e2e-ci/state/data
+            # On the same mount as `var/e2e-landing`, where the pulling journeys'
+            # libraries are: a finished file is then renamed into place. Inside the
+            # container's own filesystem it would be copied across devices instead,
+            # which is a different code path from the one a deployment usually takes.
+            - MCS_TRANSFER_ROOT=/app/var/e2e-ci/state/transfer
+            - MCS_MEDIA_ROOT=/media
+            # A test hook: how long a landed file waits before it reads "never indexed".
+            # The last journey of `media-states.spec.ts` waits it out; the journeys are
+            # given the same value, and without it that journey skips.
+            - MCS_LANDING_GRACE_MS=20000
+            # A test hook too: every placement waits this long with the transfer
+            # already reading `placing`, which on this same-filesystem stack otherwise
+            # lasts one rename. It is what lets a journey ask for a transfer to be
+            # re-pointed at that moment, and see the gateway refuse.
+            - MCS_PLACING_HOLD_MS=3000
+        volumes: &sources
+            - ../../:/app
+            - shared-modules:/app/packages/shared/node_modules
+            - shared-dist:/app/packages/shared/dist
+            - api-modules:/app/packages/api/node_modules
+            - front-modules:/app/packages/front/node_modules
+
+    front:
+        <<: *node
+        environment:
+            - USER_ID=${USER_ID:-1000}
+            - USER_GID=${USER_GID:-1000}
+            - API_PROXY_TARGET=http://api:4200
+            # The journeys address the interface as `front`, and Vite answers 403 to a
+            # `Host` that is neither `localhost` nor an IP — its guard against DNS
+            # rebinding. This is the variable Vite reads for exactly this, so the
+            # development configuration does not have to open itself to any name.
+            - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=front
+        volumes: *sources
+
+    # The journeys. Same image and version rule as the development stack's `e2e`: the
+    # version follows `@playwright/test` exactly, because a gap between the driver and
+    # the browsers shows up as "Executable doesn't exist" and never names a version.
+    e2e:
+        image: mcr.microsoft.com/playwright:v1.56.0-noble
+        profiles: [e2e]
+        user: ${USER_ID:-1000}:${USER_GID:-1000}
+        environment:
+            - E2E_BASE_URL=http://front:3200
+            - E2E_API_URL=http://api:4200/api
+            # One set of credentials for the whole run: the install journey creates
+            # this administrator, and every journey after it signs in as it.
+            - E2E_ADMIN_USER=e2e-admin
+            - E2E_ADMIN_PASSWORD=e2e-admin-password
+            # This run must be complete: the install journey fails rather than skips
+            # on a gateway that is already claimed, and the data phase fails when
+            # something a journey needs is missing — rather than letting the journey
+            # skip and the run read green.
+            - E2E_COMPLETE=1
+            - MCS_LANDING_GRACE_MS=20000
+            - MCS_PLACING_HOLD_MS=3000
+            # The lab, as the API reaches it on this network. Two values are only
+            # known once the run is under way and are passed by `e2e.sh` then: the
+            # Jellyfin key, minted by `setup-jellyfin.sh`, and the Plex address, which
+            # has to be an IP (see there).
+            - E2E_JELLYFIN_URL=http://jellyfin:8096
+            - E2E_JELLYFIN_USER=lab
+            - E2E_JELLYFIN_PASSWORD=lab
+            # Artefacts of this run only. The default `test-results/` is shared with
+            # every other run on the workstation, and Playwright empties it on start:
+            # two runs at once wipe each other's traces.
+            - E2E_OUTPUT_DIR=/app/var/e2e-ci/results
+            - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+            - HOME=/tmp
+        volumes: *sources
+        working_dir: /app/packages/front
+
+    # A lab of this run's own: one Jellyfin and one Plex, for the three journeys that
+    # need behaviour only a real server has. Not the owner's lab, which holds media
+    # placed by hand and whose `lab/down` deletes it — this one is configured from
+    # scratch on every run, holds a copy of the committed clip, and goes with `down -v`.
+    #
+    # Root rather than the host user, and on volumes rather than under `var/`: nothing
+    # it writes then lands in the working tree, owned by nobody who can remove it.
+    jellyfin:
+        image: jellyfin/jellyfin:10.10.3
+        volumes:
+            - jellyfin-config:/config
+            - jellyfin-cache:/cache
+            - ../../var/e2e-ci/state/lab-media:/media:ro
+
+    # The dataset the `data` phase registers, and two of them for a reason: the
+    # journeys about categories need two libraries of the same name on two servers —
+    # a merge — and nothing short of two servers produces one. Kept apart from the
+    # `jellyfin` above because the lab journeys register that one themselves, and the
+    # gateway refuses a server it already holds.
+    jellyfin-a:
+        image: jellyfin/jellyfin:10.10.3
+        volumes:
+            - jellyfin-a-config:/config
+            - jellyfin-a-cache:/cache
+            - ../../var/e2e-ci/state/lab-media:/media:ro
+
+    jellyfin-b:
+        image: jellyfin/jellyfin:10.10.3
+        volumes:
+            - jellyfin-b-config:/config
+            - jellyfin-b-cache:/cache
+            - ../../var/e2e-ci/state/lab-media:/media:ro
+
+    plex:
+        image: plexinc/pms-docker:1.41.3.9314-a0bfb8370
+        environment:
+            - TZ=Europe/Paris
+            # Unclaimed, it answers the networks listed here without a token — which is
+            # what lets a run exist without a Plex account.
+            - ALLOWED_NETWORKS=172.16.0.0/12,192.168.0.0/16,10.0.0.0/8
+            - HOSTNAME=e2e-ci-plex
+        volumes:
+            - plex-config:/config
+            - plex-transcode:/transcode
+            - ../../var/e2e-ci/state/lab-media:/media:ro
+
+volumes:
+    shared-modules:
+    shared-dist:
+    api-modules:
+    front-modules:
+    jellyfin-config:
+    jellyfin-cache:
+    jellyfin-a-config:
+    jellyfin-a-cache:
+    jellyfin-b-config:
+    jellyfin-b-cache:
+    plex-config:
+    plex-transcode:

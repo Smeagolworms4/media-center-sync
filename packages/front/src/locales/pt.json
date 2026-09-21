@@ -732,6 +732,7 @@
 	"settings": {
 		"subtitle": "Como este gateway arruma, transfere e indexa.",
 		"saved": "Definições guardadas.",
+		"nothing_changed": "Nada tinha mudado, por isso nada foi enviado.",
 		"group": {
 			"placement": "Onde aterram os ficheiros",
 			"gateway": "Nome e endereço",
@@ -942,7 +943,9 @@
 			"covered": "Já é mantido sincronizado pelo plano {name}.",
 			"covered_above": "Já está coberto pelo plano {name}, que mantém em dia tudo o que está por baixo.",
 			"open_plan": "Abrir o plano",
-			"estimate_unknown": "Ainda ninguém calculou a quanto isto corresponde.",
+			"estimate_no_destination": "Sem valor: este gateway não tem nenhuma biblioteca onde possa escrever. Adicione uma em Serviços multimédia — abra um dos seus próprios servidores e dê a uma biblioteca o seu caminho local.",
+			"estimate_no_destination_action": "Abrir os serviços multimédia",
+			"estimate_failed": "O gateway não conseguiu calcular a quanto isto corresponde: {reason}",
 			"estimate_truncated": "No mínimo isto: há aqui mais do que uma execução percorre.",
 			"mode": "O que fazer",
 			"mode_create": "Criar um plano para isto",
@@ -1112,6 +1115,7 @@
 			"permission_denied": "O gateway não pode escrever ali",
 			"target_missing": "O diretório de destino desapareceu",
 			"cancelled": "Parada de propósito",
+			"service_removed": "A sua fonte foi removida",
 			"unknown": "Parou por uma razão pouco clara"
 		},
 		"error_help": {
@@ -1123,6 +1127,7 @@
 			"permission_denied": "O diretório existe mas o gateway não consegue escrever nele.",
 			"target_missing": "O diretório para onde o ficheiro ia já não existe.",
 			"cancelled": "Alguém a parou. Pode ser começada de novo.",
+			"service_removed": "O serviço de onde vinha foi removido deste gateway, por isso a transferência foi parada e o seu ficheiro parcial apagado. Para o obter, volte a encontrar o conteúdo na biblioteca e transfira-o de outra fonte.",
 			"unknown": "Verificar o que está no disco é a maneira mais barata de saber mais."
 		},
 		"action": {

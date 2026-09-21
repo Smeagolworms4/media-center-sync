@@ -1,55 +1,67 @@
 import { type APIRequestContext, expect, test } from '@playwright/test';
-import { field0, test0, watchApi } from './helpers';
+import { ADMIN, API_URL, COMPLETE, field0, test0, watchApi } from './helpers';
 
 /**
- * Claiming a gateway nobody has claimed yet.
+ * The installation, tested by being done.
  *
- * This is the one screen that cannot be checked against the stack every other journey
- * uses: the setup screen exists only while no account exists, and that stack has one
- * from its first minute. So these run against a second gateway of their own — an API
- * on a spare port over a throwaway database file, with a dev server pointed at it —
- * named by `E2E_SETUP_BASE_URL` and `E2E_SETUP_API_URL`. `README.md` of this folder
- * has the two commands that raise it.
- *
- * Without those variables the journeys are skipped rather than run against the shared
- * gateway, where every one of them would be redirected to the sign-in page and would
- * then pass by asserting nothing.
+ * This is the `install` project: it runs first, against the gateway under test while
+ * that gateway is still empty, and the administrator it creates through the setup
+ * screen is the one every later journey signs in as — `ADMIN`, from `E2E_ADMIN_USER`
+ * and `E2E_ADMIN_PASSWORD`. One set of credentials for both, because an install
+ * journey that created an account nobody used afterwards would prove the screen works
+ * and nothing about the gateway the journeys then run against.
  *
  * Serial, and in this order, because what they act on is one-shot: claiming is what
  * the third one does, and it is the last thing that can ever be done on that gateway.
- * A fresh database file is what makes the file runnable a second time.
+ *
+ * On a gateway that is already claimed — the development stack `make e2e` runs
+ * against — the three that need an empty one skip and say so, and the fourth still
+ * runs: it is true of every claimed gateway. Under `E2E_COMPLETE` (`make e2e/ci`) a
+ * claimed gateway is a failure instead: that run starts from a fresh database, and
+ * finding an account there means something created one behind the journey's back.
  */
-const BASE_URL = process.env.E2E_SETUP_BASE_URL ?? '';
-const SETUP_API_URL = process.env.E2E_SETUP_API_URL ?? '';
-
-/** The administrator these journeys create. Only this gateway ever sees it. */
-const FIRST_ADMIN = {
-	displayName: 'Journey Administrator',
-	username: 'journey-admin',
-	password: 'a-long-enough-password',
-};
 
 /** The floor the screen states, and the API enforces. */
 const TOO_SHORT = 'short';
 
+/** A display name for the first administrator, which only the setup screen asks for. */
+const DISPLAY_NAME = 'Journey Administrator';
+
 test.describe.serial('first run', () => {
-	test.skip(
-		BASE_URL === '' || SETUP_API_URL === '',
-		'needs a gateway with no account: set E2E_SETUP_BASE_URL and E2E_SETUP_API_URL',
-	);
-
-	test.use({ baseURL: BASE_URL || undefined });
-
-	/** Whether that gateway says it has an account, asked of the gateway itself. */
+	/** Whether the gateway says it has an account, asked of the gateway itself. */
 	async function claimed (request: APIRequestContext): Promise<boolean> {
-		const response = await request.get(`${SETUP_API_URL}/auth/setup`);
-		expect(response.ok(), `the setup gateway did not answer: ${response.status()}`).toBeTruthy();
+		const response = await request.get(`${API_URL}/auth/setup`);
+		expect(response.ok(), `the gateway did not answer: ${response.status()}`).toBeTruthy();
 		const state = await response.json() as { required: boolean };
 		return state.required === false;
 	}
 
+	/**
+	 * Skips the calling journey on a gateway somebody already installed — unless this
+	 * run must be complete, where that is a failure with the reason.
+	 */
+	async function requireEmpty (request: APIRequestContext): Promise<void> {
+		const already = await claimed(request);
+		expect(
+			COMPLETE && already,
+			'E2E_COMPLETE is set, but the gateway under test already has an account: the run did not start '
+			+ 'from a fresh database',
+		).toBe(false);
+		test.skip(already, 'this gateway is already installed; the install journey runs on an empty one (make e2e/ci)');
+	}
+
+	test.beforeAll(() => {
+		// Checked before anything is typed: the setup route would refuse this password,
+		// and the journey would then fail as "the form refused", pointing at the screen
+		// rather than at the variable.
+		expect(
+			ADMIN.password.length,
+			'E2E_ADMIN_PASSWORD must be at least 8 characters: it becomes the first administrator\'s password',
+		).toBeGreaterThanOrEqual(8);
+	});
+
 	test('every address leads to the setup screen, the sign-in page included', async ({ page, request }) => {
-		expect(await claimed(request), 'that gateway already has an account').toBe(false);
+		await requireEmpty(request);
 
 		const failures = watchApi(page);
 
@@ -76,6 +88,8 @@ test.describe.serial('first run', () => {
 	});
 
 	test('a password below the floor is refused here, not by the gateway', async ({ page, request }) => {
+		await requireEmpty(request);
+
 		const attempts: string[] = [];
 		page.on('request', one => {
 			if (one.method() === 'POST' && one.url().includes('/api/auth/setup')) {
@@ -84,7 +98,7 @@ test.describe.serial('first run', () => {
 		});
 
 		await page.goto('/setup');
-		await page.locator(field0('setup-username')).fill(FIRST_ADMIN.username);
+		await page.locator(field0('setup-username')).fill(ADMIN.username);
 		await page.locator(field0('setup-password')).fill(TOO_SHORT);
 		await page.locator(field0('setup-confirmation')).fill(TOO_SHORT);
 
@@ -118,14 +132,16 @@ test.describe.serial('first run', () => {
 		expect(await claimed(request), 'an account was created from a refused form').toBe(false);
 	});
 
-	test('creating the first administrator lands inside, signed in', async ({ page }) => {
+	test('creating the first administrator lands inside, signed in', async ({ page, request }) => {
+		await requireEmpty(request);
+
 		const failures = watchApi(page);
 
 		await page.goto('/setup');
-		await page.locator(field0('setup-display-name')).fill(FIRST_ADMIN.displayName);
-		await page.locator(field0('setup-username')).fill(FIRST_ADMIN.username);
-		await page.locator(field0('setup-password')).fill(FIRST_ADMIN.password);
-		await page.locator(field0('setup-confirmation')).fill(FIRST_ADMIN.password);
+		await page.locator(field0('setup-display-name')).fill(DISPLAY_NAME);
+		await page.locator(field0('setup-username')).fill(ADMIN.username);
+		await page.locator(field0('setup-password')).fill(ADMIN.password);
+		await page.locator(field0('setup-confirmation')).fill(ADMIN.password);
 		await page.locator(test0('setup-submit')).click();
 
 		// The route answers a session, and this is the whole point of it: being sent
@@ -145,7 +161,7 @@ test.describe.serial('first run', () => {
 
 		// The open route is what makes the screen safe, so it is the route that has to
 		// refuse — not the screen in front of it, which anybody can go around.
-		const second = await request.post(`${SETUP_API_URL}/auth/setup`, {
+		const second = await request.post(`${API_URL}/auth/setup`, {
 			data: { username: 'second-admin', password: 'another-long-password' },
 		});
 		expect(second.status(), await second.text()).toBe(409);

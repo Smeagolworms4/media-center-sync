@@ -33,11 +33,30 @@ export function field0 (name: string): string {
 
 export const API_URL = process.env.E2E_API_URL ?? 'http://localhost:4200/api';
 
-/** The account `npm run seed` creates. Overridable, because a runner may seed another. */
+/**
+ * The administrator every journey signs in as.
+ *
+ * On a workstation, the account `npm run seed` creates. Under `make e2e/ci`, the one
+ * the install journey (`setup.spec.ts`) creates through the setup screen — which is
+ * why it is read from the environment rather than written here: both have to be the
+ * same account, and the seed's `admin` password is too short for the setup screen to
+ * accept.
+ */
 export const ADMIN = {
 	username: process.env.E2E_ADMIN_USER ?? 'admin',
 	password: process.env.E2E_ADMIN_PASSWORD ?? 'admin',
 };
+
+/**
+ * Whether this run must be complete: `make e2e/ci` sets `E2E_COMPLETE=1`.
+ *
+ * A journey that finds its environment missing skips and says why, which is right on
+ * a workstation and wrong on the run that is supposed to prove everything: there, a
+ * skip for want of a lab or a writable directory reads as green and proves nothing.
+ * Under this flag the install and data phases fail instead, naming what is missing,
+ * before any journey gets the chance to skip.
+ */
+export const COMPLETE = process.env.E2E_COMPLETE === '1';
 
 /**
  * Sign in through the interface rather than by injecting a token.

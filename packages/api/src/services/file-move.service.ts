@@ -2,6 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, rename, stat, statfs, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { finished } from 'node:stream/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { Readable, Writable } from 'node:stream';
 import { ErrorKey, SpaceVerdict, type ErrorKeyValue } from '@mcs/shared';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
@@ -21,6 +22,29 @@ import { freeBytesAt, spaceVerdict } from './space';
  * a second and that several moves at once stay inside a container's memory limit.
  */
 export const COPY_CHUNK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * How long a move waits before it touches the file: nothing, unless a test says so.
+ *
+ * `MCS_PLACING_HOLD_MS` is a **test hook, not a setting**, of the same kind as
+ * `MCS_LANDING_GRACE_MS`. A transfer is `placing` only while this class runs, and on
+ * the usual same-filesystem deployment that is one rename — a millisecond. The
+ * gateway's refusal to re-point a file in that window (`error.transfer.being_placed`)
+ * is the design point of changing a destination at all, and without a way to hold the
+ * window open no journey can ever reach it: the one that checks it was a skipped
+ * placeholder. A gateway started with a few seconds here holds every placement that
+ * long, with the transfer already reading `placing`, and nothing else changes.
+ *
+ * Read once, at start-up. Anything that is not a positive integer means no hold, so a
+ * typo leaves a deployment moving files at once rather than waiting.
+ */
+export function placingHoldMs(raw: string | undefined = process.env.MCS_PLACING_HOLD_MS): number {
+	const parsed = Number(raw);
+
+	return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
+const PLACING_HOLD_MS = placingHoldMs();
 
 /**
  * Window over which the reported rate is measured.
@@ -190,6 +214,16 @@ export class FileMoveService {
 
 		if (this._stopped(request.signal)) {
 			return this._aborted(request.signal, partial, 0);
+		}
+
+		if (PLACING_HOLD_MS > 0) {
+			await sleep(PLACING_HOLD_MS);
+
+			// A pause or a cancel pressed during the hold is answered as it would have
+			// been a moment earlier, rather than after a move nobody wants any more.
+			if (this._stopped(request.signal)) {
+				return this._aborted(request.signal, partial, 0);
+			}
 		}
 
 		await this._fs.mkdir(dirname(request.destination));

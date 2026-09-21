@@ -7,7 +7,7 @@ import {
 	TransferState,
 	UNCONFIGURED_PLACEMENTS,
 } from '@mcs/shared';
-import { Transfer } from '@/entities';
+import { MediaItem, Transfer } from '@/entities';
 
 /** States in which a transfer is still moving, or about to. */
 const LIVE_STATES = [
@@ -86,6 +86,22 @@ export class TransferRepository extends Repository<Transfer> {
 
 	public findByJob(jobId: string): Promise<Transfer[]> {
 		return this.find({ where: { jobId }, order: { createdAt: 'ASC' } });
+	}
+
+	/**
+	 * Every transfer not yet finished whose source is an item of this service.
+	 *
+	 * Paused ones included: a paused transfer resumes against the same source, and
+	 * one whose service is gone can only fail when it does. Joined on the item rather
+	 * than read from a column, because a transfer names its source by item and the
+	 * item is what carries the service.
+	 */
+	public findUnfinishedFromService(serviceId: string): Promise<Transfer[]> {
+		return this.createQueryBuilder('transfer')
+			.innerJoin(MediaItem, 'item', 'item.id = transfer.itemId')
+			.where('item.serviceId = :serviceId', { serviceId })
+			.andWhere('transfer.state NOT IN (:...finished)', { finished: FINISHED_TRANSFER_STATES })
+			.getMany();
 	}
 
 	public findByItem(itemId: string): Promise<Transfer[]> {

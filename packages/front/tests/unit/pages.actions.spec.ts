@@ -583,7 +583,7 @@ describe('pages/Settings saving', () => {
 		},
 	};
 
-	it('sends where each category goes, chosen beside its keywords, with everything else', async () => {
+	it('sends where each category goes, chosen beside its keywords, and nothing it did not change', async () => {
 		// The whole point of the section: a choice made on the category has to reach the
 		// gateway, or the screen is a picture of a setting rather than the setting.
 		// Chosen on the category itself now — the separate table of destinations is
@@ -613,9 +613,10 @@ describe('pages/Settings saving', () => {
 
 		expect(body.categoryTargets).toEqual({ shows: 'l2' });
 		expect(body.defaultTargetLibraryId).toBe('l1');
-		// Alongside, not instead of: one form saves the whole page.
-		expect(body.namingOrder).toEqual([NamingScheme.SOURCE, NamingScheme.STANDARD]);
-		expect(body.cacheTtlSeconds).toBe(60);
+		// Only what moved. The API writes a row for every key a PATCH carries, and a
+		// row for a value nobody chose pins a default the gateway can never drop.
+		expect(body).not.toHaveProperty('namingOrder');
+		expect(body).not.toHaveProperty('cacheTtlSeconds');
 	});
 
 	it('offers nothing to fill in for a server in the middle, and never saves one', async () => {
@@ -628,6 +629,7 @@ describe('pages/Settings saving', () => {
 		});
 		await settle();
 
+		(wrapper.vm as any).model.peerMaxDepth = 4;
 		await (wrapper.vm as any).form.handle();
 		await settle();
 
@@ -636,7 +638,7 @@ describe('pages/Settings saving', () => {
 
 		expect(body).not.toHaveProperty('rendezvousUrl');
 		expect(wrapper.html()).not.toContain('rendezvous');
-		expect(body.peerMaxDepth).toBe(3);
+		expect(body.peerMaxDepth).toBe(4);
 	});
 
 	it('says what lowering the reach actually does, where somebody changes it', async () => {
@@ -735,15 +737,26 @@ describe('pages/Settings saving', () => {
 		await settle();
 
 		(wrapper.vm as any).model.chunkSize = '8M';
-		(wrapper.vm as any).model.downloadRateLimit = '';
+		(wrapper.vm as any).model.uploadRateLimit = '2M';
 		await (wrapper.vm as any).form.handle();
 		await settle();
 
-		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
-		const body = JSON.parse(String(patch?.[1]?.body));
+		let patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+		let body = JSON.parse(String(patch?.[1]?.body));
 		expect(body.chunkSize).toBe(8 * 1024 ** 2);
-		expect(body.downloadRateLimit).toBe(0);
-		expect(body.fullScanCron).toBe('0 4 * * *');
+		expect(body.uploadRateLimit).toBe(2 * 1024 ** 2);
+		// Read back as an empty box and left alone, so not sent at all.
+		expect(body).not.toHaveProperty('downloadRateLimit');
+
+		stub.mockClear();
+		(wrapper.vm as any).model.uploadRateLimit = '';
+		await (wrapper.vm as any).form.handle();
+		await settle();
+
+		patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
+		body = JSON.parse(String(patch?.[1]?.body));
+		expect(body.uploadRateLimit).toBe(0);
+		expect(body).not.toHaveProperty('chunkSize');
 	});
 
 	it('switches pane when a tab is clicked', async () => {
@@ -807,6 +820,72 @@ describe('pages/Settings saving', () => {
 		expect((wrapper.vm as any).form.fieldErrors.peerMaxDepth).toBeTruthy();
 		expect(wrapper.find('[data-test="settings-peer-depth"]').text())
 			.toContain('These settings were refused');
+	});
+
+	/**
+	 * The race the browser journey found against a gateway slow after a restart.
+	 *
+	 * Somebody typed before the stored values arrived, the load put them back over
+	 * the edit, and save sent the whole screen as stored — writing a row for every
+	 * default, which no route can remove. The page now offers nothing to type into
+	 * until the load lands, and sends only what moved after it.
+	 */
+	it('offers no field before the stored values land, then sends the edit and only the edit', async () => {
+		let release!: () => void;
+		const gate = new Promise<void>(resolve => {
+			release = resolve;
+		});
+		const stored = { ...settings, publicUrl: 'https://mcs.example.org', instanceName: 'Attic' };
+		const routed = stubFetchRoutes({ '/api/settings': { body: stored }, ...placementRoutes });
+		const stub = vi.fn((input: any, init?: RequestInit) => {
+			const url = String(typeof input === 'string' ? input : input?.url ?? '');
+			const late = url.includes('/api/settings') && (init?.method ?? 'GET') === 'GET';
+
+			return late ? gate.then(() => routed(input, init)) : routed(input, init);
+		});
+		globalThis.fetch = stub as unknown as typeof fetch;
+
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		// Nothing to type into, so nothing a late load can overwrite.
+		expect(wrapper.find('[data-test="settings-loading"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="settings-form"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="settings-public-url"] input').exists()).toBe(false);
+
+		release();
+		await settle();
+
+		const box = wrapper.find('[data-test="settings-public-url"] input');
+		expect((box.element as HTMLInputElement).value).toBe('https://mcs.example.org');
+
+		await box.setValue('https://elsewhere.example');
+		await wrapper.find('form').trigger('submit');
+		await settle();
+
+		expect((box.element as HTMLInputElement).value).toBe('https://elsewhere.example');
+
+		const patches = stub.mock.calls.filter(call => call[1]?.method === 'PATCH');
+
+		expect(patches).toHaveLength(1);
+		expect(JSON.parse(String(patches[0][1]?.body))).toEqual({ publicUrl: 'https://elsewhere.example' });
+	});
+
+	it('sends nothing when nothing changed, rather than every default as a row', async () => {
+		const stub = stubFetchRoutes({
+			'/api/settings': { body: { ...settings, publicUrl: 'https://mcs.example.org' } },
+		});
+		const { wrapper } = mountWithApp(Settings, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await (wrapper.vm as any).form.handle();
+		await settle();
+
+		expect(stub.mock.calls.some(call => call[1]?.method === 'PATCH')).toBe(false);
 	});
 
 	it('offers a retry when the settings cannot be read', async () => {

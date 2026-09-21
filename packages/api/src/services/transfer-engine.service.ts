@@ -111,6 +111,14 @@ interface RunningTransfer {
 	/** Set when a pause was asked for, so workers stop at a chunk boundary. */
 	pausing: boolean;
 	cancelling: boolean;
+	/**
+	 * Why it is being cancelled, carried to the moment the workers have stopped.
+	 *
+	 * The row is only written once the download loop returns, which is a chunk later;
+	 * without this the reason given to `cancel` would be lost on the way and every
+	 * cancellation would read as somebody pressing the button.
+	 */
+	cancelKind: TransferErrorKind;
 }
 
 /**
@@ -329,11 +337,23 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		await this.enqueue(transferId);
 	}
 
-	public async cancel(transferId: string): Promise<void> {
+	/**
+	 * Stop a transfer for good and throw its partial away.
+	 *
+	 * `kind` is the reason the row keeps. It defaults to somebody pressing cancel; the
+	 * gateway passes its own when it is the one stopping the transfer — a source
+	 * service removed, say — so the queue does not tell somebody they did something
+	 * they never did.
+	 */
+	public async cancel(
+		transferId: string,
+		kind: TransferErrorKind = TransferErrorKind.CANCELLED,
+	): Promise<void> {
 		const running = this._running.get(transferId);
 
 		if (running) {
 			running.cancelling = true;
+			running.cancelKind = kind;
 			// The reason is read by the move service, which cannot otherwise tell a pause
 			// from a cancellation — they are the same event to an `AbortSignal`, and the
 			// difference is whether the partial in the library survives. Without it, a
@@ -348,7 +368,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		const transfer = await this._load(transferId);
 
 		transfer.state = TransferState.CANCELLED;
-		transfer.errorKind = TransferErrorKind.CANCELLED;
+		transfer.errorKind = kind;
 		transfer.finishedAt = new Date();
 
 		await this._transfers.save(transfer);
@@ -519,6 +539,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 				rate: 0,
 				pausing: false,
 				cancelling: false,
+				cancelKind: TransferErrorKind.CANCELLED,
 			};
 
 			this._running.set(transferId, running);
@@ -535,7 +556,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 				// cancelled the transfer to free.
 				this._running.delete(transferId);
 
-				await this.cancel(transferId);
+				await this.cancel(transferId, running.cancelKind);
 
 				return;
 			}

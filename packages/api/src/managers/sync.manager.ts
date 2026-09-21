@@ -155,6 +155,13 @@ export interface SyncPlanning {
 }
 
 /** A run request with the plan behind it already folded in. */
+/** One piece of media a plan would fetch, with our own copy of it if we hold one. */
+interface WantedItem {
+	item: MediaItem;
+	local: MediaItem | null;
+	state: SyncState;
+}
+
 interface EffectiveRequest {
 	planId: string | null;
 	scope: SyncScope;
@@ -351,8 +358,9 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 * What this plan's scope currently comes to, recomputed on the spot.
 	 *
 	 * A route of its own rather than a field filled in on every read, for two reasons
-	 * that point the same way. It costs a walk of every source and a placement probe per
-	 * item, which is not something a list of six plans should pay for. And an estimate
+	 * that point the same way. It costs a walk of every source and a comparison of each
+	 * item with what we hold, which is not something a list of six plans should pay
+	 * for. Like `estimateScope`, it needs no destination. And an estimate
 	 * is only worth anything at the moment it is taken — a library grows, a friend links
 	 * a server — so one stored against the plan would be believed long after it stopped
 	 * being true. `SyncPlan.estimate` is therefore null everywhere except in the answer
@@ -361,7 +369,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	public async estimatePlan(id: string): Promise<SyncEstimate> {
 		const plan = await this._requirePlan(id);
 
-		return (await this.plan({ planId: plan.id })).estimate;
+		return (await this._select({ planId: plan.id })).estimate;
 	}
 
 	/**
@@ -373,12 +381,25 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 * between a standing intent and a surprise — asking for it afterwards, from the
 	 * edit screen, is asking after the decision was taken.
 	 *
-	 * It goes through the same `plan()` the preview and the run go through, so the
-	 * count offered at creation and the count the first run reports are the same
-	 * arithmetic rather than two readings that drift apart.
+	 * It goes through the same selection `plan()` starts with, so the count offered at
+	 * creation and the count the first run reports are the same arithmetic rather than
+	 * two readings that drift apart.
+	 *
+	 * **It asks for no destination**, and that is a decision rather than a shortcut.
+	 * The estimate is a count and a size: which items the scope covers that nothing
+	 * local holds, and how many bytes they weigh. Neither depends on where the files
+	 * would land — placement only decides a path per item, and the figure was always
+	 * taken before placement ran. Going through the whole of `plan()` made placement
+	 * a precondition anyway, so a gateway with no library it can write into (a clean
+	 * install, or a household that only reads a friend's server) was answered 409
+	 * `path_not_writable` for a question that has nothing to do with writing, and the
+	 * dialog asking it could only say that nobody had worked the figure out. Somebody
+	 * deciding whether a show is worth keeping in step is owed the size of it before
+	 * being told to set up a library; the refusal belongs to the run and the preview,
+	 * which do need a destination and still go through placement.
 	 */
 	public async estimateScope(request: EstimateSyncRequest): Promise<SyncEstimate> {
-		return (await this.plan(request)).estimate;
+		return (await this._select(request)).estimate;
 	}
 
 	/**
@@ -1377,99 +1398,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 * counts as missing, and where the file lands.
 	 */
 	public async plan(request: RunSyncRequest): Promise<SyncPlanning> {
-		const effective = await this._effective(request);
-		const settings = await this._settings.get();
-		const order = await this._sourceOrder(effective.sourceServiceIds);
-		const rank = new Map(order.map((serviceId, index) => [serviceId, index]));
-		const candidates = await this._candidates(effective, order);
-		const counterparts = await this._counterparts(candidates);
-		const localServiceIds = new Set(
-			(await this._services.findLocal()).map((service) => service.id),
-		);
-
-		// Grouped before anything is decided, and that order matters. "Do we already
-		// hold this?" is a question about a piece of media, not about a row: the same
-		// episode is a row per service, and answering row by row would drop the copy we
-		// have and then plan a transfer of the identical copy sitting beside it.
-		const groups = new Map<string, MediaItem[]>();
-
-		for (const candidate of candidates) {
-			// Only a node that carries a file can be transferred. A series is a folder,
-			// and planning one would produce a transfer with nothing to fetch.
-			if (candidate.file === null) {
-				continue;
-			}
-
-			const key = this._identity(candidate);
-
-			groups.set(key, [...(groups.get(key) ?? []), candidate]);
-		}
-
-		const wanted: { item: MediaItem; local: MediaItem | null; state: SyncState }[] = [];
-
-		for (const members of groups.values()) {
-			// The same episode on three services is one transfer, from whichever of them
-			// the order puts first. Keeping all three would pull it three times into the
-			// same path.
-			const source = members
-				.filter((member) => !localServiceIds.has(member.serviceId))
-				.sort(
-					(left, right) =>
-						(rank.get(left.serviceId) ?? Number.MAX_SAFE_INTEGER) -
-						(rank.get(right.serviceId) ?? Number.MAX_SAFE_INTEGER),
-				)[0];
-
-			// Nothing but local copies: there is no source to pull from, and the media is
-			// already where it belongs.
-			if (source === undefined) {
-				continue;
-			}
-
-			/*
-			 * Our own copy is either one of the rows of this group — the same media on a
-			 * local service — or a row correlated with one of them. Both count: what
-			 * makes something missing is that nothing local holds it.
-			 *
-			 * Except a different cut, which holds another version and not this one. Two
-			 * cuts of one film are correlated on purpose — one work, shown as one group in
-			 * `conflict` — and counting the theatrical copy on our disk as holding the
-			 * extended one would answer somebody who ticked the extended cut with a run
-			 * that fetches nothing. `_counterparts` drops the correlated half of that; the
-			 * test here drops the other half, two cuts nobody fingerprinted, which fall
-			 * into one bucket of `_identity` because nothing tells them apart but a clock.
-			 */
-			const local =
-				members.find(
-					(member) =>
-						localServiceIds.has(member.serviceId)
-						&& !this._quality.isConflicting(member.file, source.file),
-				) ??
-				members
-					.flatMap((member) => counterparts.get(member.id) ?? [])
-					.find((other) => localServiceIds.has(other.serviceId)) ??
-				null;
-
-			/*
-			 * A file already on our disk is not missing, whatever the absence of a local
-			 * row suggests.
-			 *
-			 * The landing writes `awaiting_index` on the very row a pull came from, and
-			 * nothing local holds the media until the media server has indexed it — so
-			 * the reading below would call it missing and every run would fetch it again
-			 * into the same folder. That is the bug those two states were added for, and
-			 * this is the place a plan reads them.
-			 */
-			const state = LANDED_SYNC_STATES.includes(source.syncState)
-				? source.syncState
-				: local === null
-					? SyncState.MISSING
-					: source.syncState;
-
-			if (this._keeps(source, local, state, effective.filter)) {
-				wanted.push({ item: source, local, state });
-			}
-		}
-
+		const { effective, settings, wanted, estimate } = await this._select(request);
 		const libraries = await this._placementLibraries();
 		// Which category each item belongs to, so placement can look up the library that
 		// category was configured to receive. Asked of the library manager rather than
@@ -1480,18 +1409,6 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			(await this._services.find()).map((service) => [service.id, service.name]),
 		);
 		const items: PlannedItem[] = [];
-
-		// Taken over everything the scope covers, before the ceilings and before the
-		// walk's own limit, because that is the question the estimate answers: what this
-		// plan is for, not what the next run of it will do.
-		const estimate: SyncEstimate = {
-			itemCount: wanted.length,
-			bytes: wanted.reduce((total, entry) => total + (entry.item.file?.size ?? 0), 0),
-			unbounded: isUnbounded(effective.scope),
-			truncated: wanted.length > MAX_PLANNED_ITEMS,
-			computedAt: new Date().toISOString(),
-		};
-
 		const planned = wanted.slice(0, MAX_PLANNED_ITEMS);
 		const seriesTitles = await this._seriesTitles(planned.map((entry) => entry.item));
 		const siblings = await this._localSiblings(planned.map((entry) => entry.item));
@@ -1595,6 +1512,127 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			targets: await this._targets(cut.kept, libraries, settings),
 			stoppedBy: cut.stoppedBy,
 		};
+	}
+
+	/**
+	 * What the request covers that nothing local holds, and what that comes to.
+	 *
+	 * The half of planning that needs no destination, split out so the estimate can
+	 * be answered on a gateway that has none — see `estimateScope`. Everything that
+	 * decides *what* is wanted lives here; everything that decides *where* it goes
+	 * stays in `plan()`, so the two can never count differently.
+	 */
+	private async _select(request: RunSyncRequest): Promise<{
+		effective: EffectiveRequest;
+		settings: Settings;
+		wanted: WantedItem[];
+		estimate: SyncEstimate;
+	}> {
+		const effective = await this._effective(request);
+		const settings = await this._settings.get();
+		const order = await this._sourceOrder(effective.sourceServiceIds);
+		const rank = new Map(order.map((serviceId, index) => [serviceId, index]));
+		const candidates = await this._candidates(effective, order);
+		const counterparts = await this._counterparts(candidates);
+		const localServiceIds = new Set(
+			(await this._services.findLocal()).map((service) => service.id),
+		);
+
+		// Grouped before anything is decided, and that order matters. "Do we already
+		// hold this?" is a question about a piece of media, not about a row: the same
+		// episode is a row per service, and answering row by row would drop the copy we
+		// have and then plan a transfer of the identical copy sitting beside it.
+		const groups = new Map<string, MediaItem[]>();
+
+		for (const candidate of candidates) {
+			// Only a node that carries a file can be transferred. A series is a folder,
+			// and planning one would produce a transfer with nothing to fetch.
+			if (candidate.file === null) {
+				continue;
+			}
+
+			const key = this._identity(candidate);
+
+			groups.set(key, [...(groups.get(key) ?? []), candidate]);
+		}
+
+		const wanted: WantedItem[] = [];
+
+		for (const members of groups.values()) {
+			// The same episode on three services is one transfer, from whichever of them
+			// the order puts first. Keeping all three would pull it three times into the
+			// same path.
+			const source = members
+				.filter((member) => !localServiceIds.has(member.serviceId))
+				.sort(
+					(left, right) =>
+						(rank.get(left.serviceId) ?? Number.MAX_SAFE_INTEGER) -
+						(rank.get(right.serviceId) ?? Number.MAX_SAFE_INTEGER),
+				)[0];
+
+			// Nothing but local copies: there is no source to pull from, and the media is
+			// already where it belongs.
+			if (source === undefined) {
+				continue;
+			}
+
+			/*
+			 * Our own copy is either one of the rows of this group — the same media on a
+			 * local service — or a row correlated with one of them. Both count: what
+			 * makes something missing is that nothing local holds it.
+			 *
+			 * Except a different cut, which holds another version and not this one. Two
+			 * cuts of one film are correlated on purpose — one work, shown as one group in
+			 * `conflict` — and counting the theatrical copy on our disk as holding the
+			 * extended one would answer somebody who ticked the extended cut with a run
+			 * that fetches nothing. `_counterparts` drops the correlated half of that; the
+			 * test here drops the other half, two cuts nobody fingerprinted, which fall
+			 * into one bucket of `_identity` because nothing tells them apart but a clock.
+			 */
+			const local =
+				members.find(
+					(member) =>
+						localServiceIds.has(member.serviceId)
+						&& !this._quality.isConflicting(member.file, source.file),
+				) ??
+				members
+					.flatMap((member) => counterparts.get(member.id) ?? [])
+					.find((other) => localServiceIds.has(other.serviceId)) ??
+				null;
+
+			/*
+			 * A file already on our disk is not missing, whatever the absence of a local
+			 * row suggests.
+			 *
+			 * The landing writes `awaiting_index` on the very row a pull came from, and
+			 * nothing local holds the media until the media server has indexed it — so
+			 * the reading below would call it missing and every run would fetch it again
+			 * into the same folder. That is the bug those two states were added for, and
+			 * this is the place a plan reads them.
+			 */
+			const state = LANDED_SYNC_STATES.includes(source.syncState)
+				? source.syncState
+				: local === null
+					? SyncState.MISSING
+					: source.syncState;
+
+			if (this._keeps(source, local, state, effective.filter)) {
+				wanted.push({ item: source, local, state });
+			}
+		}
+
+		// Taken over everything the scope covers, before the ceilings and before the
+		// walk's own limit, because that is the question the estimate answers: what this
+		// plan is for, not what the next run of it will do.
+		const estimate: SyncEstimate = {
+			itemCount: wanted.length,
+			bytes: wanted.reduce((total, entry) => total + (entry.item.file?.size ?? 0), 0),
+			unbounded: isUnbounded(effective.scope),
+			truncated: wanted.length > MAX_PLANNED_ITEMS,
+			computedAt: new Date().toISOString(),
+		};
+
+		return { effective, settings, wanted, estimate };
 	}
 
 	/**

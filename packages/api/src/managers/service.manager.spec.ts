@@ -933,6 +933,38 @@ describe('ServiceManager', () => {
 
 			await expect(manager.remove('ghost')).rejects.toThrow(ErrorKey.SERVICE_NOT_FOUND);
 		});
+
+		/**
+		 * What the service was feeding is found through its items, which cascade away
+		 * with the row — so whoever holds work against it hears first, and is waited for.
+		 */
+		it('tells whoever holds work against the service before its rows go', async () => {
+			const { manager, fakes } = build();
+			const order: string[] = [];
+
+			manager.onRemoving(async (serviceId) => {
+				await Promise.resolve();
+				order.push(`released ${serviceId}`);
+			});
+			fakes.services.delete.mockImplementation(() => {
+				order.push('deleted');
+				return Promise.resolve();
+			});
+
+			await manager.remove('service-1');
+
+			expect(order).toEqual(['released service-1', 'deleted']);
+		});
+
+		it('still removes the service when a listener fails', async () => {
+			const { manager, fakes } = build();
+
+			manager.onRemoving(() => Promise.reject(new Error('queue unreachable')));
+
+			await manager.remove('service-1');
+
+			expect(fakes.services.delete).toHaveBeenCalledWith({ id: 'service-1' });
+		});
 	});
 
 	describe('indexing', () => {

@@ -1181,6 +1181,33 @@ describe('SyncManager', () => {
 			expect(estimate).toMatchObject({ itemCount: 1, unbounded: false, truncated: false });
 			expect(plans.save).not.toHaveBeenCalled();
 		});
+
+		/**
+		 * A count and a size do not depend on where the files would land.
+		 *
+		 * Going through placement made a gateway with no writable library (a clean
+		 * install, a household that only reads a friend's server) answer 409 for a
+		 * question that writes nothing, and the dialog asking it could only say nobody
+		 * had worked the figure out. The run still refuses; the estimate does not.
+		 */
+		it('answers with nowhere to land, where the run still refuses', async () => {
+			const { manager, fakes } = build({
+				items: [
+					item({ id: 'item-a', normalizedTitle: 'a' }),
+					item({ id: 'item-b', normalizedTitle: 'b', externalId: 'ext-2' }),
+				],
+			});
+
+			fakes.placement.resolve.mockRejectedValue(
+				new ConflictException(ErrorKey.LIBRARY_PATH_NOT_WRITABLE),
+			);
+
+			const estimate = await manager.estimateScope({ scope: { itemIds: ['item-a', 'item-b'] } });
+
+			expect(estimate).toMatchObject({ itemCount: 2, bytes: 4_000_000, unbounded: false });
+			await expect(manager.preview({ scope: { itemIds: ['item-a', 'item-b'] } }))
+				.rejects.toThrow(ErrorKey.LIBRARY_PATH_NOT_WRITABLE);
+		});
 	});
 
 	describe('a pull landing where nobody chose', () => {

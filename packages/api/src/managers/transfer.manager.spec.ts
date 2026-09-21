@@ -4,6 +4,7 @@ import {
 	EventName,
 	MediaKind,
 	PlacedBy,
+	TransferErrorKind,
 	TransferState,
 } from '@mcs/shared';
 import { ConflictException, NotFoundException } from '@nestjs/common';
@@ -27,6 +28,7 @@ import type {
 } from '@/services';
 import type { LandingManager } from './landing.manager';
 import type { LibraryManager } from './library.manager';
+import type { ServiceManager } from './service.manager';
 import { TransferManager } from './transfer.manager';
 
 interface Fakes {
@@ -37,6 +39,7 @@ interface Fakes {
 		save: jest.Mock;
 		queueStats: jest.Mock;
 		findUnconfigured: jest.Mock;
+		findUnfinishedFromService: jest.Mock;
 	};
 	chunks: {
 		findByTransfer: jest.Mock;
@@ -60,6 +63,8 @@ interface Fakes {
 	libraryManager: { probe: jest.Mock; categories: jest.Mock };
 	mover: { move: jest.Mock };
 	landings: { record: jest.Mock };
+	/** Holds what registered with it, so a test can remove a service the way the manager would. */
+	serviceManager: { onRemoving: jest.Mock; listeners: ((serviceId: string) => Promise<void>)[] };
 }
 
 /** A library on one of our own services, writable, which is the only valid target. */
@@ -110,6 +115,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				.fn()
 				.mockResolvedValue({ active: 1, queued: 2, paused: 0, failed: 0, bytesRemaining: 600 }),
 			findUnconfigured: jest.fn().mockResolvedValue([]),
+			findUnfinishedFromService: jest.fn().mockResolvedValue([]),
 		},
 		chunks: {
 			findByTransfer: jest.fn().mockResolvedValue([
@@ -173,7 +179,12 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				.mockResolvedValue({ outcome: FileMoveOutcome.RENAMED, bytesCopied: 0, partialPath: null }),
 		},
 		landings: { record: jest.fn().mockResolvedValue(undefined) },
+		serviceManager: { onRemoving: jest.fn(), listeners: [] },
 	};
+
+	fakes.serviceManager.onRemoving.mockImplementation((listener: (serviceId: string) => Promise<void>) => {
+		fakes.serviceManager.listeners.push(listener);
+	});
 
 	const manager = new TransferManager(
 		fakes.transfers as unknown as TransferRepository,
@@ -209,6 +220,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 		fakes.engine as unknown as TransferEngineService,
 		fakes.verification as unknown as VerificationService,
 		fakes.events as unknown as EventGatewayService,
+		fakes.serviceManager as unknown as ServiceManager,
 	);
 
 	return { manager, fakes };
@@ -273,6 +285,65 @@ describe('TransferManager', () => {
 			await manager.cancel('transfer-1');
 
 			expect(fakes.engine.cancel).not.toHaveBeenCalled();
+		});
+	});
+
+	/**
+	 * A service removed while it was still feeding the queue.
+	 *
+	 * Left alone, its transfers outlived it and failed later on a source nobody could
+	 * find, reading as a fault to investigate. They are stopped at removal instead,
+	 * with a reason of their own; which rows count as unfinished is the repository's
+	 * query, pinned by the functional test against a real database.
+	 */
+	describe('a source service removed', () => {
+		const removeService = async (fakes: Fakes, serviceId: string): Promise<void> => {
+			for (const listener of fakes.serviceManager.listeners) {
+				await listener(serviceId);
+			}
+		};
+
+		it('listens for removals once the application is up', () => {
+			const { manager, fakes } = build();
+
+			expect(fakes.serviceManager.listeners).toHaveLength(0);
+
+			manager.onApplicationBootstrap();
+
+			expect(fakes.serviceManager.listeners).toHaveLength(1);
+		});
+
+		it('cancels what the service was feeding, saying the service was removed', async () => {
+			const { manager, fakes } = build();
+
+			fakes.transfers.findUnfinishedFromService.mockResolvedValue([
+				transfer({ id: 'queued', state: TransferState.QUEUED }),
+				transfer({ id: 'running', state: TransferState.DOWNLOADING }),
+				transfer({ id: 'paused', state: TransferState.PAUSED }),
+			]);
+			manager.onApplicationBootstrap();
+
+			await removeService(fakes, 'service-gone');
+
+			expect(fakes.transfers.findUnfinishedFromService).toHaveBeenCalledWith('service-gone');
+			expect(fakes.engine.cancel.mock.calls).toEqual([
+				['queued', TransferErrorKind.SERVICE_REMOVED],
+				['running', TransferErrorKind.SERVICE_REMOVED],
+				['paused', TransferErrorKind.SERVICE_REMOVED],
+			]);
+		});
+
+		it('keeps going when one transfer cannot be stopped', async () => {
+			const { manager, fakes } = build();
+
+			fakes.transfers.findUnfinishedFromService.mockResolvedValue([
+				transfer({ id: 'stuck' }),
+				transfer({ id: 'fine' }),
+			]);
+			fakes.engine.cancel.mockRejectedValueOnce(new Error('row vanished'));
+
+			await expect(manager.cancelFromService('service-gone')).resolves.toBe(1);
+			expect(fakes.engine.cancel).toHaveBeenLastCalledWith('fine', TransferErrorKind.SERVICE_REMOVED);
 		});
 	});
 

@@ -151,29 +151,22 @@ front/build:
 e2e:
 	$(COMPOSE) --profile e2e run --rm --no-deps e2e npx playwright test $(ARGS)
 
-## Bring the stack up, seed it, run the journeys — the CI target
+## Every journey from nothing: its own stack, a fresh database, the install first
 ##
-## It starts from a stopped stack and leaves it standing. On a workstation it would
-## therefore disturb the running development stack; this is an integration target,
-## not a local convenience. Locally `make e2e` is enough: the stack already runs.
+## A compose project of its own (`docker/ci/`), with no published port and its
+## dependencies in volumes, so it runs beside the development stack without touching
+## it — including a development stack running on the host from this same tree. It
+## brings up a lab of its own too (one Jellyfin, one Plex, the committed clip), never
+## the one `lab/up` builds.
 ##
-## Servers are started detached, then waited for. Vite and Nest compile on startup:
-## running the journeys without waiting would fail the first one on a timeout, for a
-## reason that has nothing to do with what it checks.
+## Nothing seeds the gateway: the first administrator is created by the install
+## journey, through the setup screen, and every journey after it signs in as that
+## account. `make init` still seeds, because that is how a workstation gets its admin.
+##
+## Everything it starts is removed when it ends, pass or fail; traces and server logs
+## stay in `var/e2e-ci/`. `E2E_CI_KEEP=1` leaves the stack up, `ARGS` goes to Playwright.
 e2e/ci:
-	USER_ID=$$(id -u) USER_GID=$$(id -g) $(COMPOSE) up -d db cache api front
-	$(COMPOSE) exec -T -u node api sh -lc 'npm run ci:all'
-	$(COMPOSE) exec -T -u node api sh -lc 'npm run build:shared'
-	$(COMPOSE) exec -T -u node api sh -lc 'npm --prefix packages/api run migration:run'
-	$(COMPOSE) exec -T -u node api sh -lc 'npm --prefix packages/api run seed'
-	$(COMPOSE) exec -d -u node api sh -lc 'npm --prefix packages/api run dev'
-	$(COMPOSE) exec -d -u node front sh -lc 'npm --prefix packages/front run dev'
-	$(COMPOSE) --profile e2e run --rm --no-deps e2e sh -lc '\
-		for i in $$(seq 1 90); do \
-			curl -sf http://api:4200/api/docs-json >/dev/null && curl -sf http://front:3200 >/dev/null && break; \
-			sleep 2; \
-		done; \
-		npx playwright test'
+	./docker/ci/e2e.sh $(ARGS)
 
 # The pictures in the README are generated, not pasted: when a screen changes, this
 # brings them back into line without anybody having to remember which window size was

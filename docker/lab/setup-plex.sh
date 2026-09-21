@@ -42,9 +42,18 @@ urlencode() {
 # Plex answers `/identity` while it is still starting its plugins, and refuses to
 # create a section until it is not. Waiting on `startState` rather than on the port is
 # the difference between this script working and failing with a 400 that says nothing.
+#
+# A server that has finished starting drops the attribute altogether, so an answer that
+# names the machine and no state is the ready one. Waiting for a state that never comes
+# spent the whole two minutes below on every run, on a server that was ready at once.
 for _ in $(seq 1 60); do
-	state=$(curl -sS --max-time 3 "$BASE/identity" 2>/dev/null | grep -o 'startState="[^"]*"' || true)
-	[ -z "$state" ] && { sleep 2; continue; }
+	identity=$(curl -sS --max-time 3 "$BASE/identity" 2>/dev/null || true)
+	state=$(printf '%s' "$identity" | grep -o 'startState="[^"]*"' || true)
+	if [ -z "$state" ]; then
+		printf '%s' "$identity" | grep -q 'machineIdentifier=' && break
+		sleep 2
+		continue
+	fi
 	[ "$state" = 'startState="starting"' ] || [ "$state" = 'startState="startingPlugins"' ] || break
 	sleep 2
 done

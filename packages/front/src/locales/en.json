@@ -732,6 +732,7 @@
 	"settings": {
 		"subtitle": "How this gateway places, pulls and indexes.",
 		"saved": "Settings saved.",
+		"nothing_changed": "Nothing had changed, so nothing was sent.",
 		"group": {
 			"placement": "Where files land",
 			"gateway": "Name and address",
@@ -942,7 +943,9 @@
 			"covered": "Already kept in sync by the plan {name}.",
 			"covered_above": "Already covered by the plan {name}, which keeps everything under it in step.",
 			"open_plan": "Open the plan",
-			"estimate_unknown": "Nobody has worked out what this comes to.",
+			"estimate_no_destination": "No figure: there is no library this gateway can write into. Add one under Media services — open one of your own servers and give a library its local path.",
+			"estimate_no_destination_action": "Open media services",
+			"estimate_failed": "The gateway could not work out what this comes to: {reason}",
 			"estimate_truncated": "At least this much: there is more here than one run walks.",
 			"mode": "What to do",
 			"mode_create": "Create a plan for it",
@@ -1112,6 +1115,7 @@
 			"permission_denied": "The gateway may not write there",
 			"target_missing": "The target directory is gone",
 			"cancelled": "Stopped on purpose",
+			"service_removed": "Its source was removed",
 			"unknown": "It stopped for an unclear reason"
 		},
 		"error_help": {
@@ -1123,6 +1127,7 @@
 			"permission_denied": "The directory exists but the gateway cannot write into it.",
 			"target_missing": "The directory the file was going to no longer exists.",
 			"cancelled": "Somebody stopped it. It can be started again.",
+			"service_removed": "The service it was coming from was removed from this gateway, so the transfer was stopped and its partial file deleted. To get it, find the media again in the library and pull it from another source.",
 			"unknown": "Verifying what is on disk is the cheapest way to learn more."
 		},
 		"action": {

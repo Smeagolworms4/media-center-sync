@@ -732,6 +732,7 @@
 	"settings": {
 		"subtitle": "Cómo coloca, trae e indexa esta pasarela.",
 		"saved": "Ajustes guardados.",
+		"nothing_changed": "No había cambiado nada, así que no se envió nada.",
 		"group": {
 			"placement": "Dónde aterrizan los archivos",
 			"gateway": "Nombre y dirección",
@@ -942,7 +943,9 @@
 			"covered": "Ya lo mantiene sincronizado el plan {name}.",
 			"covered_above": "Ya lo cubre el plan {name}, que mantiene al día todo lo que hay debajo.",
 			"open_plan": "Abrir el plan",
-			"estimate_unknown": "Nadie ha calculado todavía a cuánto asciende esto.",
+			"estimate_no_destination": "Sin cifra: esta pasarela no tiene ninguna biblioteca en la que pueda escribir. Añade una en Servicios multimedia: abre uno de tus propios servidores y asigna a una biblioteca su ruta local.",
+			"estimate_no_destination_action": "Abrir los servicios multimedia",
+			"estimate_failed": "La pasarela no ha podido calcular a cuánto asciende esto: {reason}",
 			"estimate_truncated": "Como mínimo esto: aquí hay más de lo que recorre una ejecución.",
 			"mode": "Qué hacer",
 			"mode_create": "Crear un plan para esto",
@@ -1112,6 +1115,7 @@
 			"permission_denied": "La pasarela no puede escribir ahí",
 			"target_missing": "El directorio de destino ha desaparecido",
 			"cancelled": "Detenida a propósito",
+			"service_removed": "Se eliminó su fuente",
 			"unknown": "Se detuvo por un motivo poco claro"
 		},
 		"error_help": {
@@ -1123,6 +1127,7 @@
 			"permission_denied": "El directorio existe pero la pasarela no puede escribir en él.",
 			"target_missing": "El directorio al que iba el archivo ya no existe.",
 			"cancelled": "Alguien la ha detenido. Se puede volver a empezar.",
+			"service_removed": "El servicio del que venía se eliminó de esta pasarela, así que la transferencia se detuvo y su archivo parcial se borró. Para conseguirlo, vuelve a buscar el contenido en la biblioteca y tráelo desde otra fuente.",
 			"unknown": "Verificar lo que hay en el disco es la forma más barata de saber más."
 		},
 		"action": {

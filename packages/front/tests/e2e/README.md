@@ -88,35 +88,35 @@ component somebody actually wrote — so journeys use `field0(name)` rather than
 | `override-<field>-was`, `override-<field>-cleared`, `override-<field>-clear` | `OverrideField.vue` | what the service said about a field, that it was erased on purpose, and the eraser that erases it and puts it back |
 | `dashboard-categories`, `dashboard-category` | `Dashboard.vue` | the merged categories, each opening the wall on its own |
 
-## The gateway nobody has claimed yet
+## Three phases: install, data, journeys
 
-`setup.spec.ts` is the one file that cannot run against the stack the others use. The
-setup screen exists only while no account exists, and that stack has one from its first
-minute — every journey pointed at it would be redirected to the sign-in page and would
-then pass by asserting nothing. So it runs against a second gateway, named by two
-variables, and is skipped when they are absent.
+`playwright.config.ts` runs the suite as three projects, each depending on the one
+before — Playwright's `dependencies`, so a failed install stops the run with its reason
+instead of thirty journeys failing one by one on a sign-in page:
 
-Raise one beside the running stack — a spare port, its own database file, and nothing
-that would create an administrator for it:
+1. **install** — `setup.spec.ts`. The installation is a journey, tested by being done:
+   against the gateway under test while it is still empty, it creates the first
+   administrator through the setup screen. That administrator is `ADMIN` in
+   `helpers.ts` (`E2E_ADMIN_USER`, `E2E_ADMIN_PASSWORD`) — the account every later
+   journey signs in as, so the password must pass the setup screen's floor of eight.
+2. **data** — `data.spec.ts`. Every journey builds its own fixtures and removes them,
+   so there is no shared catalogue to load; this phase proves the installed gateway is
+   ready (its administrator signs in, its API answers, its settings read) and, on a
+   complete run, that what journeys would otherwise skip without is present.
+3. **journeys** — every other file.
 
-```bash
-cd packages/api
-API_PORT=4321 PEER_PORT=4311 DB_FILE=var/journey-setup.db MCS_JWT_SECRET=journeys \
-	npm exec ts-node -- -r tsconfig-paths/register src/main.ts
+On a gateway that is already claimed — the development stack `make e2e` runs against —
+the three install journeys that need an empty gateway skip and say so, and the fourth
+(a second administrator is refused) still runs.
 
-cd packages/front
-FRONT_PORT=3321 API_PROXY_TARGET=http://localhost:4321 npm exec vite -- --host 0.0.0.0
-```
-
-```bash
-E2E_SETUP_BASE_URL=http://localhost:3321 E2E_SETUP_API_URL=http://localhost:3321/api \
-	npx playwright test setup.spec.ts
-```
-
-Claiming is what the third journey does, and it is the last thing that can ever be done
-on that gateway: deleting `packages/api/var/journey-setup.db` is what makes the file
-runnable a second time. Delete it when you are done — a database file left behind is a
-gateway with an administrator nobody chose.
+`make e2e/ci` is the complete run. It raises a stack of its own (`docker/ci/`: its own
+compose project, no published port, dependencies installed into volumes, every file
+the gateway writes under `var/e2e-ci/`), never seeds it, brings up a lab of its own
+beside it, and sets `E2E_COMPLETE=1` — under which a claimed gateway, a landing
+directory the gateway cannot write, or a lab that is not named fails the install or
+data phase rather than letting a journey skip. Playwright's artefacts go to
+`var/e2e-ci/results/` and the servers' output to `var/e2e-ci/logs/`, never to the
+`test-results/` other runs share. Everything else it created is removed when it ends.
 
 ## Synchronisation and transfers
 
@@ -212,6 +212,11 @@ pull somewhere else. Two things a reader should know:
   settle the landing and checks the badge, its words and the dashboard's row. Without
   it that journey skips and says why. Keep it short but not tiny: every journey that
   checks `awaiting_index` has to finish before the landing it made goes stale.
+- **`placing` needs a gateway started for it too.** On a same-filesystem gateway a
+  placement is one rename, so nothing can re-point a transfer during it — which is
+  exactly the refusal `transfers.spec.ts` wants to see. `MCS_PLACING_HOLD_MS` (a test
+  hook in the file mover; `make e2e/ci` sets 3000 on both sides) holds every placement
+  that long; without it that journey skips and says why.
 
 ## Forms: users, notification channels, caps, destination, sharing, the picker
 
@@ -262,8 +267,11 @@ skip with the reason when it is not named:
 | `picker.spec.ts` — a Plex that cannot walk deeper keeps its folders | a Plex (the lab's is unclaimed and answers without a token) | `E2E_PLEX_URL`, optionally `E2E_PLEX_TOKEN` |
 | `users.spec.ts` — somebody signing in through a Jellyfin | an account on that Jellyfin | the two Jellyfin variables, `E2E_JELLYFIN_USER`, `E2E_JELLYFIN_PASSWORD` |
 
-The addresses are as the *gateway* reaches them, and must be ones no other registration
-on that gateway already uses — the gateway refuses one server twice. On a gateway that
+`make e2e/ci` provides them itself, from a Jellyfin and a Plex of its own. By hand:
+the addresses are as the *gateway* reaches them, and must be ones no other registration
+on that gateway already uses — the gateway refuses one server twice. Give Plex an IP
+address or `localhost`, never a container name: it refuses a `Host` it does not know
+(its guard against DNS rebinding) with a 401 that reads like a missing token. On a gateway that
 has the lab registered as `localhost`, spell it `127.0.0.1`:
 
 ```bash

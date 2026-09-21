@@ -732,6 +732,7 @@
 	"settings": {
 		"subtitle": "此网关如何存放、拉取和索引。",
 		"saved": "设置已保存。",
+		"nothing_changed": "没有任何更改，因此未发送任何内容。",
 		"group": {
 			"placement": "文件存放位置",
 			"gateway": "名称与地址",
@@ -942,7 +943,9 @@
 			"covered": "计划「{name}」已在保持它同步。",
 			"covered_above": "已由计划「{name}」覆盖，它会让其下的全部内容保持同步。",
 			"open_plan": "打开计划",
-			"estimate_unknown": "还没有人算过这会有多少。",
+			"estimate_no_destination": "无法估算：此网关没有可写入的媒体库。请在“媒体服务”中添加一个——打开你自己的某台服务器，为一个媒体库设置本地路径。",
+			"estimate_no_destination_action": "打开媒体服务",
+			"estimate_failed": "网关无法算出这会有多少：{reason}",
 			"estimate_truncated": "至少这么多：这里的内容多于一次运行所能遍历的范围。",
 			"mode": "要做什么",
 			"mode_create": "为它新建一个计划",
@@ -1112,6 +1115,7 @@
 			"permission_denied": "网关无权写入该位置",
 			"target_missing": "目标目录已不存在",
 			"cancelled": "被主动停止",
+			"service_removed": "来源已被移除",
 			"unknown": "因不明原因停止"
 		},
 		"error_help": {
@@ -1123,6 +1127,7 @@
 			"permission_denied": "目录存在，但网关无法写入其中。",
 			"target_missing": "文件原本要去的目录已经不在了。",
 			"cancelled": "有人把它停了。可以重新开始。",
+			"service_removed": "它所来自的服务已从此网关移除，因此传输已停止，部分文件已删除。要获取它，请在媒体库中重新找到该媒体，并从其他来源拉取。",
 			"unknown": "校验磁盘上的内容是了解更多情况最省事的办法。"
 		},
 		"action": {

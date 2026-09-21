@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { ItemSyncPlans, MediaGroup, SyncEstimate, SyncPlan } from '@mcs/shared';
-	import { SyncTrigger } from '@mcs/shared';
+	import { ErrorKey, SyncTrigger } from '@mcs/shared';
 	import { computed, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import ByteSize from '@/components/common/ByteSize.vue';
@@ -9,6 +9,7 @@
 	import FormMainError from '@/components/FormMainError.vue';
 	import Window from '@/components/Window.vue';
 	import { useForm } from '@/composables/useForm';
+	import { useApiError } from '@/hooks/useApiError';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useValidators } from '@/plugins/validators';
 	import { useSyncStore } from '@/stores/sync';
@@ -52,9 +53,25 @@
 	const syncStore = useSyncStore();
 	const validators = useValidators();
 	const { notify, tryCallback } = useNotifier();
+	const { parseApiError } = useApiError();
 
 	const info = ref<ItemSyncPlans | null>(null);
 	const estimate = ref<SyncEstimate | null>(null);
+	/**
+	 * Why there is no figure, when there is none.
+	 *
+	 * The dialog used to say "Nobody has worked out what this comes to" whatever the
+	 * reason, which is a refusal nobody can act on: on a gateway with no library it
+	 * can write into, the answer was a 409 naming exactly that, and the screen threw
+	 * it away. `noDestination` is the one refusal worth its own sentence, because it
+	 * has a fix somewhere else in the product and the sentence can say where; every
+	 * other reason is the error catalogue's own wording for the key.
+	 *
+	 * The gateway no longer refuses an estimate for want of a destination (see
+	 * `SyncManager.estimateScope`), but this side is kept for a gateway still
+	 * running an image that does — the interface is not always upgraded with it.
+	 */
+	const estimateRefusal = ref<{ noDestination: boolean; reason: string } | null>(null);
 	const loading = ref(false);
 	const failed = ref(false);
 	const running = ref(false);
@@ -84,6 +101,7 @@
 		loading.value = true;
 		failed.value = false;
 		estimate.value = null;
+		estimateRefusal.value = null;
 		try {
 			const [plans, counted] = await Promise.all([
 				syncStore.itemPlans(props.group.id),
@@ -92,7 +110,10 @@
 				// answers, and only one of them means there is nothing to do.
 				syncStore
 					.estimateScope({ scope: scope.value, filter: { missingOnly: true } })
-					.catch(() => null),
+					.catch(async (error: unknown) => {
+						estimateRefusal.value = await explainRefusal(error);
+						return null;
+					}),
 			]);
 			info.value = plans;
 			estimate.value = counted;
@@ -104,6 +125,22 @@
 		} finally {
 			loading.value = false;
 		}
+	}
+
+	/** The key and the wording of a refused estimate. */
+	async function explainRefusal (error: unknown): Promise<{ noDestination: boolean; reason: string }> {
+		// Cloned first: `parseApiError` reads the body, and a body can only be read
+		// once — asking for the key afterwards would get an empty stream.
+		const body = error instanceof Response
+			? await error.clone().json().catch(() => null) as { message?: unknown; key?: unknown } | null
+			: null;
+		const key = typeof body?.key === 'string' ? body.key : body?.message;
+		const parsed = await parseApiError(error, { fallback: 'error.general', mappedFields: new Set() });
+
+		return {
+			noDestination: key === ErrorKey.LIBRARY_PATH_NOT_WRITABLE,
+			reason: parsed.mainError ?? t('error.general'),
+		};
 	}
 
 	watch(open, isOpen => {
@@ -217,8 +254,24 @@
 						</span>
 					</template>
 
-					<span v-else class="text-medium-emphasis">
-						{{ $t('sync.keep.estimate_unknown') }}
+					<template v-else-if="estimateRefusal?.noDestination">
+						<span class="d-block text-medium-emphasis" data-test="keep-estimate-no-destination">
+							{{ $t('sync.keep.estimate_no_destination') }}
+						</span>
+
+						<v-btn
+							class="mt-2"
+							data-test="keep-estimate-open-services"
+							size="small"
+							:to="{ name: 'services' }"
+							variant="tonal"
+						>
+							{{ $t('sync.keep.estimate_no_destination_action') }}
+						</v-btn>
+					</template>
+
+					<span v-else class="text-medium-emphasis" data-test="keep-estimate-failed">
+						{{ $t('sync.keep.estimate_failed', { reason: estimateRefusal?.reason ?? $t('error.general') }) }}
 					</span>
 				</p>
 

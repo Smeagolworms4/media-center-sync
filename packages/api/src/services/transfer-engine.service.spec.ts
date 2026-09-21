@@ -386,6 +386,12 @@ describe('TransferEngineService', () => {
 		await expect(readFile(join(root, 'work', 't1.part'))).rejects.toThrow();
 	});
 
+	it('keeps the reason it was given when it cancels a queued transfer', async () => {
+		await engine.cancel('t1', TransferErrorKind.SERVICE_REMOVED);
+
+		expect((transfers.get('t1') as Transfer).errorKind).toBe(TransferErrorKind.SERVICE_REMOVED);
+	});
+
 	it('tells whoever is listening about a state change, once per change', async () => {
 		// The job detail is kept up to date from this, rather than from a timer over
 		// every live job: the engine reports, and what a state change means is decided
@@ -696,6 +702,28 @@ describe('TransferEngineService', () => {
 			expect(cancelled.state).toBe(TransferState.CANCELLED);
 			expect(cancelled.errorKind).toBe(TransferErrorKind.CANCELLED);
 			await expect(readFile(join(root, 'work', 't1.part'))).rejects.toThrow();
+		});
+
+		/**
+		 * The reason survives the chunk the workers finish first.
+		 *
+		 * A running transfer is only written once its download loop returns, so a reason
+		 * given to `cancel` and not carried to that moment would come out as somebody
+		 * pressing the button — for a transfer the gateway stopped because its source
+		 * service was removed.
+		 */
+		it('keeps the reason it was given when it stops a running transfer', async () => {
+			const gate = gated();
+
+			await engine.enqueue('t1');
+			await untilRunning();
+			await engine.cancel('t1', TransferErrorKind.SERVICE_REMOVED);
+			gate.open();
+
+			const cancelled = await runToEnd();
+
+			expect(cancelled.state).toBe(TransferState.CANCELLED);
+			expect(cancelled.errorKind).toBe(TransferErrorKind.SERVICE_REMOVED);
 		});
 	});
 

@@ -12,6 +12,7 @@ import {
 	FileMoveOutcome,
 	FileMoveService,
 	NODE_FILE_MOVE_OPERATIONS,
+	placingHoldMs,
 	type FileMoveOperations,
 	type FileMoveProgress,
 } from './file-move.service';
@@ -452,5 +453,23 @@ describe('FileMoveService', () => {
 		expect(result.bytesCopied).toBe(0);
 		expect(reads).toHaveLength(0);
 		expect(await digestOf(destination)).toBe(digest(content));
+	});
+});
+
+describe('placingHoldMs', () => {
+	it('holds nothing unless a test asks for it', () => {
+		expect(placingHoldMs(undefined)).toBe(0);
+		expect(placingHoldMs('')).toBe(0);
+	});
+
+	it('takes a positive whole number of milliseconds', () => {
+		expect(placingHoldMs('3000')).toBe(3000);
+	});
+
+	// A typo must leave a deployment moving files at once, never waiting on it.
+	it('reads anything else as no hold', () => {
+		expect(placingHoldMs('3s')).toBe(0);
+		expect(placingHoldMs('-5')).toBe(0);
+		expect(placingHoldMs('1.5')).toBe(0);
 	});
 });

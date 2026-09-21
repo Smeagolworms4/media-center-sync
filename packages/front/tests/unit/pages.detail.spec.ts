@@ -534,6 +534,60 @@ describe('pages/LibraryItem', () => {
 			expect(estimate.text()).toContain('2.8 GB');
 		});
 
+		/**
+		 * No figure is never a shrug.
+		 *
+		 * A gateway with no library it can write into used to be answered "Nobody has
+		 * worked out what this comes to", while the refusal behind it named the reason
+		 * exactly. The sentence now says what is missing and where to add it.
+		 */
+		it('says there is nowhere to land, and where to add somewhere, when that is why', async () => {
+			stubFetchRoutes({
+				...routes,
+				'/api/sync/estimate': {
+					status: 409,
+					body: { statusCode: 409, message: 'error.library.path_not_writable', error: 'Conflict' },
+				},
+			});
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+			await wrapper.find('[data-test="item-keep"]').trigger('click');
+			await settle();
+
+			const estimate = wrapper.find('[data-test="keep-estimate"]');
+
+			expect(estimate.text()).toContain('no library this gateway can write into');
+			expect(estimate.text()).toContain('Media services');
+			expect(estimate.text()).not.toContain('Nobody has worked out');
+			expect(wrapper.find('[data-test="keep-estimate-open-services"]').exists()).toBe(true);
+		});
+
+		it('names any other reason in the catalogue’s own words', async () => {
+			stubFetchRoutes({
+				...routes,
+				'/api/sync/estimate': {
+					status: 404,
+					body: { statusCode: 404, message: 'error.media.not_found', error: 'Not Found' },
+				},
+			});
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+			await wrapper.find('[data-test="item-keep"]').trigger('click');
+			await settle();
+
+			const failed = wrapper.find('[data-test="keep-estimate-failed"]');
+
+			expect(failed.text()).toContain('could not work out what this comes to');
+			expect(failed.text()).toContain('This media item no longer exists.');
+			expect(wrapper.find('[data-test="keep-estimate-open-services"]').exists()).toBe(false);
+		});
+
 		it('creates a plan on the subtree, named after the show, with the trigger chosen', async () => {
 			const { wrapper, stub } = await openKeep();
 

@@ -461,19 +461,6 @@ test.describe('changing where a pull lands', () => {
 		expect(answered.status(), await answered.text()).toBe(404);
 		expect((await answered.json()).message).toBe('error.transfer.not_found');
 	});
-
-	/**
-	 * A transfer really mid-move, on a real gateway.
-	 *
-	 * Named so its absence is visible in every report rather than silently missing: the
-	 * refusal while placing is the design point of this whole feature, and the journey
-	 * above only proves the interface hides the control. Proving the gateway refuses
-	 * needs a transfer held in `placing`, which exists for a few seconds at the end of
-	 * a real pull and cannot be held there on purpose.
-	 */
-	test('a transfer really being placed is refused by the gateway', () => {
-		test.skip(true, 'needs a transfer held in `placing` on a real gateway, which cannot be set up on demand');
-	});
 });
 
 /**
@@ -607,6 +594,77 @@ test.describe('a landed file, really moved', () => {
 			expect(await exists(after), `the gateway says ${moved!.targetPath}, and nothing is there`).toBe(true);
 			expect((await stat(after)).size).toBe(FILM_BYTES);
 			expect(await exists(before), 'the file was copied, and the original left behind').toBe(false);
+		} finally {
+			await media?.remove(request);
+			await own.release(request);
+		}
+	});
+
+	/**
+	 * A transfer really being placed, refused by the gateway itself.
+	 *
+	 * The refusal while placing is the design point of this whole feature, and the
+	 * journeys on the served queue above only prove the interface hides the control.
+	 * Proving the gateway refuses needs a transfer held in `placing`, which on a
+	 * same-filesystem gateway lasts one rename. `MCS_PLACING_HOLD_MS` — a test hook in the gateway's
+	 * file mover, set on both sides by `make e2e/ci` — holds it open for a few seconds;
+	 * without it this journey skips and says so.
+	 */
+	test('a transfer really being placed is refused by the gateway', async ({ request }) => {
+		const hold = Number(process.env.MCS_PLACING_HOLD_MS ?? 0);
+		test.skip(
+			!(hold >= 1000),
+			'needs a gateway started with MCS_PLACING_HOLD_MS of a second or more, and the same variable set here',
+		);
+		test.setTimeout(180_000);
+
+		const tag = `placing-${journeyTag()}`;
+		const landing = await useOwnDestination(request, tag);
+		test.skip(
+			landing === null,
+			'no library this journey owns to pull into: the gateway cannot write where the '
+			+ 'journey can create a directory — set E2E_LANDING_PATH to the gateway\'s view of it',
+		);
+		const own = landing as OwnDestination;
+		let media: MediaFixture | null = null;
+
+		try {
+			media = await createMediaFixture(request, tag);
+			const film = media.film;
+			const headers = await authorized(request);
+
+			const ran = await request.post(`${API_URL}/sync/run`, {
+				headers,
+				data: { scope: { itemIds: [film.sourceItemId] }, targetLibraryId: own.libraryId },
+			});
+			expect(ran.ok(), `run failed: ${ran.status()} ${await ran.text()}`).toBeTruthy();
+
+			// Caught inside the hold, which is what the hook is for: polled well inside it.
+			const placing = await until(
+				() => transferOf(request, film.sourceItemId),
+				one => ['placing', 'done', 'failed'].includes(one?.state ?? ''),
+				'the fixture film never reached the library',
+				90_000,
+			);
+			expect(placing?.state, 'the transfer went past `placing` before it could be asked').toBe('placing');
+
+			const refused = await request.post(`${API_URL}/transfers/${placing!.id}/destination`, {
+				headers,
+				data: { libraryId: own.otherLibraryId },
+			});
+			expect(refused.status(), await refused.text()).toBe(409);
+			expect((await refused.json()).message).toBe('error.transfer.being_placed');
+
+			// And the refusal changed nothing: the file lands where it was going.
+			const landed = await until(
+				() => transferOf(request, film.sourceItemId),
+				one => one?.state === 'done' || one?.state === 'failed',
+				'the fixture film never finished landing',
+				60_000,
+			);
+			expect(landed?.state, `the pull failed: ${landed?.error}`).toBe('done');
+			expect(landed!.targetLibraryId, 'the refused request moved the file anyway').toBe(own.libraryId);
+			expect(await exists(onOurSide(own, landed!.targetPath)), 'nothing is where the gateway says').toBe(true);
 		} finally {
 			await media?.remove(request);
 			await own.release(request);

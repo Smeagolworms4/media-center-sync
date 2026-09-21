@@ -58,6 +58,21 @@ import { MediaManager } from './media.manager';
  */
 const PARENT_HOPS = 3;
 
+/**
+ * Told that a service is about to be removed, and awaited before it is.
+ *
+ * A callback rather than an injected `TransferManager`, following `RescanListener`
+ * in the landing manager: whatever holds work against a service has to hear about
+ * its removal, and every such holder injected here would make this manager the one
+ * that knows about all of them — the transfer manager first, and whichever manager
+ * next keeps a row pointing at a source. The listener registers itself, and this
+ * manager stays the one that only knows services.
+ *
+ * Awaited, and before the row goes, because the only way to find what a service was
+ * feeding is through its media items, and those cascade away with it.
+ */
+export type ServiceRemovalListener = (serviceId: string) => Promise<void>;
+
 /** Testing a connection that nothing has registered yet. */
 export interface ProbeRequest {
 	type: MediaServiceType;
@@ -94,6 +109,8 @@ export class ServiceManager implements OnApplicationBootstrap {
 	 * the winner had just written.
 	 */
 	private readonly _indexing = new Map<string, Promise<void>>();
+
+	private readonly _removalListeners: ServiceRemovalListener[] = [];
 
 	public constructor(
 		private readonly _services: MediaServiceRepository,
@@ -134,6 +151,32 @@ export class ServiceManager implements OnApplicationBootstrap {
 		this._landings.onRescan((serviceId) => {
 			this._start(serviceId, false);
 		});
+	}
+
+	/** Registers whoever holds work against a service. See `ServiceRemovalListener`. */
+	public onRemoving(listener: ServiceRemovalListener): void {
+		this._removalListeners.push(listener);
+	}
+
+	/**
+	 * Tell every listener a service is going, and wait for them.
+	 *
+	 * Public because a service leaves by two doors: removed from the services screen,
+	 * and taken back when the friend whose gateway it stood for is unlinked. Both have
+	 * to stop what the service was feeding, and only one of them lives here.
+	 *
+	 * A listener that fails is logged and the removal goes on. Somebody asked for the
+	 * service to be gone; refusing that because one transfer could not be stopped would
+	 * leave them a service they cannot remove and no way to find out why.
+	 */
+	public async releaseService(serviceId: string): Promise<void> {
+		for (const listener of this._removalListeners) {
+			try {
+				await listener(serviceId);
+			} catch (error: unknown) {
+				this._logger.warn(`A removal listener failed for service ${serviceId}: ${String(error)}`);
+			}
+		}
 	}
 
 	public async list(): Promise<MediaService[]> {
@@ -283,6 +326,11 @@ export class ServiceManager implements OnApplicationBootstrap {
 
 	public async remove(id: string): Promise<void> {
 		const service = await this._require(id);
+
+		// Before anything is deleted: what the service was feeding is found through its
+		// items, and they cascade with it. Left alone, a queued or running transfer from
+		// here fails later on a source nobody can find, and reads as a fault.
+		await this.releaseService(service.id);
 
 		// The rows a foreign key cannot reach: a match names services on both sides, and
 		// only one of them cascades.

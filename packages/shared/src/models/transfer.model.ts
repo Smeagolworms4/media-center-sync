@@ -164,6 +164,15 @@ export enum TransferErrorKind {
 	PERMISSION_DENIED = 'permission_denied',
 	TARGET_MISSING = 'target_missing',
 	CANCELLED = 'cancelled',
+	/**
+	 * Stopped by the gateway because the service it was coming from was removed.
+	 *
+	 * Not `CANCELLED`, which says somebody pressed cancel on this transfer: they
+	 * removed a service, and a queue reporting that they stopped a download they never
+	 * touched sends them looking for a mistake they did not make. Not a failure
+	 * either — nothing went wrong, the source was taken away on purpose.
+	 */
+	SERVICE_REMOVED = 'service_removed',
 	UNKNOWN = 'unknown',
 }
 

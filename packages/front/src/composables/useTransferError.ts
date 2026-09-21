@@ -65,6 +65,10 @@ const ACTIONS: Record<TransferErrorKind, TransferAction[]> = {
 	[TransferErrorKind.TARGET_MISSING]: [TransferAction.ANOTHER_TARGET, TransferAction.CANCEL],
 	// Somebody stopped it on purpose; starting it again is the only thing to offer.
 	[TransferErrorKind.CANCELLED]: [TransferAction.RETRY],
+	// The gateway stopped it because its source service was removed. A retry would go
+	// back to a source that no longer exists, and planning the media again from the
+	// library is what finds it wherever else it is — so nothing is offered here.
+	[TransferErrorKind.SERVICE_REMOVED]: [],
 	[TransferErrorKind.UNKNOWN]: [TransferAction.RETRY, TransferAction.VERIFY, TransferAction.CANCEL],
 };
 

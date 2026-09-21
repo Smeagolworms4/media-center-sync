@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+	import type { UpdateSettingsRequest } from '@mcs/shared';
 	import { DEFAULT_NAMING_ORDER, DEFAULT_PEER_MAX_DEPTH, MAX_PEER_MAX_DEPTH, PlacementStrategy, ShareVisibility } from '@mcs/shared';
 	import { computed, onMounted, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -41,6 +42,25 @@
 	const { parseByteSize, toByteSizeInput } = useByteSize();
 	const { destinations, rejected } = useDestinationLibraries();
 
+	/*
+	 * The form is not on screen until the stored values are in, rather than on
+	 * screen and overwritten when they arrive.
+	 *
+	 * It used to be both. Against a gateway slow after a restart, somebody typed a
+	 * value, the load landed, `apply()` put the stored one back over it, and save
+	 * then sent the whole screen as it was stored — a full PATCH that changed nothing
+	 * visible and turned every default that had no row into an explicit row. No
+	 * route removes a settings row, so a key nobody chose became a choice for good.
+	 *
+	 * Hiding was preferred over the two alternatives. Disabled controls would sit
+	 * there showing this file's defaults as though they were the gateway's values,
+	 * and the buttons inside the custom fields (the naming order, the folder picker)
+	 * do not inherit a form's disabled state, so some of it would stay clickable.
+	 * Tracking which fields were touched and sparing them from a late load keeps the
+	 * screen editable, but every field then carries a second state that the next
+	 * field added here must remember to join. A page with nothing to type into
+	 * cannot lose what was typed.
+	 */
 	const loading = ref(true);
 	const failed = ref(false);
 
@@ -73,6 +93,83 @@
 		fullScanCron: '',
 		cacheTtlSeconds: 60,
 	});
+
+	type SettingsModel = typeof model;
+
+	/** The model as the API spells it: byte counts, numbers, and null for an emptied box. */
+	function toRequest (values: SettingsModel): UpdateSettingsRequest {
+		return {
+			// Passed through rather than offered: the strategy select is gone, and a
+			// gateway somebody once pinned to a fixed path keeps that until they
+			// press the button that clears it. Rewriting it here on the first save
+			// would change where their files land without anybody asking.
+			placement: values.placement,
+			fixedPath: values.fixedPath || null,
+			categoryTargets: values.categoryTargets,
+			defaultTargetLibraryId: values.defaultTargetLibraryId || null,
+			namingOrder: values.namingOrder,
+			pullMetadata: values.pullMetadata,
+			writeNfo: values.writeNfo,
+			preferSourceMetadata: values.preferSourceMetadata,
+			maxParallelTransfers: Number(values.maxParallelTransfers),
+			maxConnectionsPerSource: Number(values.maxConnectionsPerSource),
+			chunkSize: parseByteSize(values.chunkSize) ?? 4 * 1024 * 1024,
+			// An empty rate limit is not "no value": it is no cap, which the API
+			// expresses as zero.
+			downloadRateLimit: parseByteSize(values.downloadRateLimit) ?? 0,
+			uploadRateLimit: parseByteSize(values.uploadRateLimit) ?? 0,
+			matchThreshold: Number(values.matchThreshold),
+			peerMaxDepth: Number(values.peerMaxDepth),
+			keepDiscoveredPeers: values.keepDiscoveredPeers,
+			relayForPeers: values.relayForPeers,
+			allowSwarm: values.allowSwarm,
+			defaultShareVisibility: values.defaultShareVisibility,
+			// An emptied box is a setting being cleared, which the API spells null.
+			// Empty means "no name of my own", and the hostname stands again.
+			instanceName: values.instanceName || null,
+			publicUrl: values.publicUrl || null,
+			defaultTargetPath: values.defaultTargetPath || null,
+			transferHistoryDays: Number(values.transferHistoryDays),
+			failedHistoryDays: Number(values.failedHistoryDays),
+			refreshIntervalMinutes: Number(values.refreshIntervalMinutes),
+			fullScanCron: values.fullScanCron || null,
+			cacheTtlSeconds: Number(values.cacheTtlSeconds),
+		};
+	}
+
+	/**
+	 * A request, frozen as JSON per key.
+	 *
+	 * Serialised rather than kept as values because the table and the naming order
+	 * are objects the model may share: a baseline holding the same array would
+	 * change along with the edit and report nothing changed.
+	 */
+	function snapshot (values: SettingsModel): Record<string, string> {
+		return Object.fromEntries(
+			Object.entries(toRequest(values)).map(([key, value]) => [key, JSON.stringify(value)]),
+		);
+	}
+
+	/** What the gateway holds, as this page last read or wrote it. */
+	let baseline: Record<string, string> = {};
+
+	/**
+	 * Only the fields that differ from what is stored.
+	 *
+	 * The other half of the overwritten-edit defect. The API writes a row for every
+	 * key a PATCH carries, whatever its value, and the settings table is sparse on
+	 * purpose: a key with no row follows the default, so a gateway picks up a better
+	 * default with the next image. Sending the whole screen pinned every default on
+	 * the first save anybody made, for a single changed box — and no route removes a
+	 * row, so that could not be undone from here.
+	 */
+	function changes (): UpdateSettingsRequest {
+		const next = snapshot(model);
+
+		return Object.fromEntries(
+			Object.entries(toRequest(model)).filter(([key]) => next[key] !== baseline[key]),
+		) as UpdateSettingsRequest;
+	}
 
 	/** Empty when there is no browser, which is how the unit tests mount this page. */
 	const browserOrigin = typeof window === 'undefined' ? '' : window.location.origin;
@@ -122,6 +219,12 @@
 		model.refreshIntervalMinutes = settings.refreshIntervalMinutes;
 		model.fullScanCron = settings.fullScanCron ?? '';
 		model.cacheTtlSeconds = settings.cacheTtlSeconds;
+		// Taken from the model rather than from the store, so that a value the
+		// round trip through a text box reshapes (a chunk size read back as `4M`)
+		// compares equal to itself. The address is the one exception: the box may
+		// hold the browser's origin as a suggestion, and saving is what accepts it,
+		// so the baseline is what is actually stored.
+		baseline = snapshot({ ...model, publicUrl: settings.publicUrl ?? '' });
 	}
 
 	async function load (): Promise<void> {
@@ -243,43 +346,18 @@
 			cacheTtlSeconds: { rules: [validators.range({ min: 0, max: 86_400 })] },
 		},
 		handle: async () => {
-			await settingsStore.save({
-				// Passed through rather than offered: the strategy select is gone, and a
-				// gateway somebody once pinned to a fixed path keeps that until they
-				// press the button that clears it. Rewriting it here on the first save
-				// would change where their files land without anybody asking.
-				placement: model.placement,
-				fixedPath: model.fixedPath || null,
-				categoryTargets: model.categoryTargets,
-				defaultTargetLibraryId: model.defaultTargetLibraryId || null,
-				namingOrder: model.namingOrder,
-				pullMetadata: model.pullMetadata,
-				writeNfo: model.writeNfo,
-				preferSourceMetadata: model.preferSourceMetadata,
-				maxParallelTransfers: Number(model.maxParallelTransfers),
-				maxConnectionsPerSource: Number(model.maxConnectionsPerSource),
-				chunkSize: parseByteSize(model.chunkSize) ?? 4 * 1024 * 1024,
-				// An empty rate limit is not "no value": it is no cap, which the API
-				// expresses as zero.
-				downloadRateLimit: parseByteSize(model.downloadRateLimit) ?? 0,
-				uploadRateLimit: parseByteSize(model.uploadRateLimit) ?? 0,
-				matchThreshold: Number(model.matchThreshold),
-				peerMaxDepth: Number(model.peerMaxDepth),
-				keepDiscoveredPeers: model.keepDiscoveredPeers,
-				relayForPeers: model.relayForPeers,
-				allowSwarm: model.allowSwarm,
-				defaultShareVisibility: model.defaultShareVisibility,
-				// An emptied box is a setting being cleared, which the API spells null.
-				// Empty means "no name of my own", and the hostname stands again.
-				instanceName: model.instanceName || null,
-				publicUrl: model.publicUrl || null,
-				defaultTargetPath: model.defaultTargetPath || null,
-				transferHistoryDays: Number(model.transferHistoryDays),
-				failedHistoryDays: Number(model.failedHistoryDays),
-				refreshIntervalMinutes: Number(model.refreshIntervalMinutes),
-				fullScanCron: model.fullScanCron || null,
-				cacheTtlSeconds: Number(model.cacheTtlSeconds),
-			});
+			const patch = changes();
+
+			// Nothing is sent rather than an empty PATCH, and the person is told so:
+			// a "saved" for a request that stored nothing would read as the gateway
+			// having accepted something.
+			if (Object.keys(patch).length === 0) {
+				void notify('settings.nothing_changed');
+				return;
+			}
+
+			await settingsStore.save(patch);
+			baseline = snapshot(model);
 			void notify('settings.saved');
 		},
 	});
@@ -394,6 +472,10 @@
 		/>
 
 		<ErrorState v-if="failed" @retry="load" />
+
+		<div v-else-if="loading" class="text-center py-10" data-test="settings-loading">
+			<v-progress-circular color="primary" indeterminate size="36" />
+		</div>
 
 		<v-form v-else v-form="form" data-test="settings-form">
 			<!--

@@ -48,13 +48,30 @@ test.describe('settings', () => {
 		await signIn(page);
 		await page.goto('/settings');
 
+		/*
+		 * Typed only once the page has finished loading.
+		 *
+		 * The page loads the stored settings, then the libraries, services and shares
+		 * beside them, and applies what it read over the form when that lands. A value
+		 * typed before then is overwritten by the stored one, save then sends a whole,
+		 * valid screen, and this journey fails on a refusal that was never provoked —
+		 * reading as a defect in the tab handling it is here to check.
+		 */
+		await expect(page.locator(test0('settings-form'))).toBeVisible();
+		await expect(page.locator(test0('settings-loading'))).toHaveCount(0);
+		await page.waitForLoadState('networkidle');
+
+		const depth = page.locator(field0('settings-peer-depth'));
 		await page.locator(test0('settings-tab-peers')).click();
-		await page.locator(field0('settings-peer-depth')).fill('99');
+		await depth.fill('99');
 
 		// Back to another pane, so the refusal has somewhere to hide.
 		await page.locator(test0('settings-tab-placement')).click();
-		await expect(page.locator(field0('settings-peer-depth'))).toBeHidden();
+		await expect(depth).toBeHidden();
 
+		// Still what was typed, right before it is saved: otherwise the save below is
+		// not the one this journey is about.
+		await expect(depth).toHaveValue('99');
 		await page.locator(test0('settings-save')).click();
 
 		await expect(page.locator(test0('settings-tab-error'))).toBeVisible();

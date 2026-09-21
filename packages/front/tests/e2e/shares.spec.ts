@@ -1,5 +1,7 @@
 import { type APIRequestContext, expect, test } from '@playwright/test';
+import { type FakeJellyfin, journeyTag, startFakeJellyfin } from './fake-jellyfin';
 import { API_URL, apiToken, field0, signIn, test0, watchApi } from './helpers';
+import { librariesOfService, registerService, removeServices } from './lab';
 
 /**
  * What this gateway exposes, library by library.
@@ -54,7 +56,49 @@ function policyOf (policies: Policy[], libraryId: string): Policy {
 	return held!;
 }
 
+/** The fixture's service, and therefore the name everything it leaves behind is found by. */
+const FIXTURE_NAME = 'Journey shares';
+
 test.describe('shares', () => {
+	/*
+	 * A library of this journey's own, served by the fake Jellyfin.
+	 *
+	 * It used to take the gateway's first library, which on a fresh database does not
+	 * exist — the journey then failed on `undefined` before touching the screen — and
+	 * which on a real gateway is somebody's shelf, whose sharing this journey would be
+	 * switching on and off under them.
+	 */
+	let fake: FakeJellyfin | null = null;
+	let library: Library;
+
+	test.beforeAll(async ({ request }) => {
+		const tag = journeyTag();
+		fake = await startFakeJellyfin({
+			serverName: `${FIXTURE_NAME} ${tag}`,
+			libraries: [{
+				externalId: `shares-${tag}`,
+				name: `Journey shared shelf ${tag}`,
+				collectionType: 'movies',
+				locations: ['/data/shared'],
+			}],
+			items: [],
+		});
+		const service = await registerService(request, {
+			name: FIXTURE_NAME,
+			type: 'jellyfin',
+			server: { url: fake.baseUrl, token: '' },
+		});
+		const adopted = await librariesOfService(request, service.id);
+		expect(adopted, 'the gateway adopted none of the fixture\'s libraries').toHaveLength(1);
+		library = adopted[0];
+	});
+
+	test.afterAll(async ({ request }) => {
+		// The service takes its library and every share policy on it with it.
+		await removeServices(request, FIXTURE_NAME);
+		await fake?.close();
+	});
+
 	test('every library is on the screen, saying what it exposes today', async ({ page, request }) => {
 		const libraries = await librariesOf(request);
 		const policies = await policiesOf(request);
@@ -82,9 +126,7 @@ test.describe('shares', () => {
 	});
 
 	test('a library is shared by saying who can see it, and released by deletion', async ({ page, request }) => {
-		const libraries = await librariesOf(request);
 		const before = await policiesOf(request);
-		const library = libraries[0];
 		expect(
 			policyOf(before, library.id).overridden,
 			'that library is already set, so this journey would not be the one setting it',
@@ -136,9 +178,6 @@ test.describe('shares', () => {
 	});
 
 	test('a cap the API would refuse never leaves the form', async ({ page, request }) => {
-		const libraries = await librariesOf(request);
-		const library = libraries[0];
-
 		// What the API does with a rate it cannot accept, asked of the API itself: the
 		// form below has to refuse exactly what this refuses, or somebody types a cap,
 		// waits, and is told by a round trip what the box beside them already knew.

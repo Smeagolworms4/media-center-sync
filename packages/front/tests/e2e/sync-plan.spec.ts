@@ -19,7 +19,7 @@ import { API_URL, apiToken, field0, signIn, test0, watchApi } from './helpers';
  * times, and no unit test has ever caught one of them.
  *
  * Everything is built over the API and taken back in a `finally`, because `make
- * e2e/ci` seeds an administrator and some settings and nothing else. The libraries the
+ * e2e/ci` installs a gateway with an administrator and nothing else. The libraries the
  * destination checks need come from `fake-jellyfin.ts`: a scanned fake server whose
  * shelves this gateway cannot write into, and a landing library of the journey's own
  * that it can. Without both, "only writable libraries are offered" would be checked

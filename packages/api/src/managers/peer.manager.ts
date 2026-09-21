@@ -671,6 +671,9 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 		this._links.disconnect(peer.id);
 
 		for (const service of await this._services.findByPeer(peer.id)) {
+			// The same stop the services screen gives a removed service: what their
+			// server was feeding would otherwise fail later on a source that is gone.
+			await this._serviceManager.releaseService(service.id);
 			await this._forgetLibraries(service.id, await this._libraries.findByService(service.id));
 			await this._mediaMatches.deleteForService(service.id);
 			await this._services.delete({ id: service.id });

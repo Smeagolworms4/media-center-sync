@@ -5,6 +5,7 @@ import {
 	EventName,
 	MediaServiceMode,
 	PlacedBy,
+	TransferErrorKind,
 	TransferState,
 } from '@mcs/shared';
 import type {
@@ -18,7 +19,13 @@ import type {
 	TransferVerification,
 	UnconfiguredPlacement,
 } from '@mcs/shared';
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+	ConflictException,
+	Injectable,
+	Logger,
+	NotFoundException,
+	OnApplicationBootstrap,
+} from '@nestjs/common';
 import { In } from 'typeorm';
 import type { Library as LibraryEntity, Transfer as TransferEntity } from '@/entities';
 import {
@@ -42,6 +49,7 @@ import {
 } from '@/services';
 import { LandingManager } from './landing.manager';
 import { LibraryManager } from './library.manager';
+import { ServiceManager } from './service.manager';
 import {
 	pageBounds,
 	paginate,
@@ -71,7 +79,7 @@ const FINISHED = [TransferState.DONE, TransferState.FAILED, TransferState.CANCEL
  *   nine gigabytes again.
  */
 @Injectable()
-export class TransferManager {
+export class TransferManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(TransferManager.name);
 
 	public constructor(
@@ -116,7 +124,59 @@ export class TransferManager {
 		private readonly _engine: TransferEngineService,
 		private readonly _verification: VerificationService,
 		private readonly _events: EventGatewayService,
+		/**
+		 * Only to hear that a service is going. See `onApplicationBootstrap`: the
+		 * service manager is told nothing about transfers, so this is the one direction
+		 * the two know each other in, and no cycle is possible.
+		 */
+		private readonly _serviceManager: ServiceManager,
 	) {}
+
+	/**
+	 * Stop what a removed service was feeding, at the moment it is removed.
+	 *
+	 * Registered as a listener rather than called by the service manager, the way the
+	 * landing manager asks for rescans: see `ServiceRemovalListener`.
+	 */
+	public onApplicationBootstrap(): void {
+		this._serviceManager.onRemoving(async (serviceId) => {
+			await this.cancelFromService(serviceId);
+		});
+	}
+
+	/**
+	 * Cancel every unfinished transfer whose source is an item of this service.
+	 *
+	 * Without it a queued or running transfer outlives its source, fails later on an
+	 * item nobody can find, and reads in the queue as a fault to investigate — or, for
+	 * a paused one, fails the day somebody resumes it. Cancelled, not failed, because
+	 * nothing went wrong: the source was removed on purpose. The reason is its own kind
+	 * so the row says *why* rather than claiming somebody pressed cancel.
+	 *
+	 * Finished transfers are left alone. They are the history of what was pulled, and
+	 * a finished one has nothing left to take from the source anyway.
+	 *
+	 * One transfer that cannot be stopped does not stop the others.
+	 */
+	public async cancelFromService(serviceId: string): Promise<number> {
+		const live = await this._transfers.findUnfinishedFromService(serviceId);
+		let cancelled = 0;
+
+		for (const transfer of live) {
+			try {
+				await this._engine.cancel(transfer.id, TransferErrorKind.SERVICE_REMOVED);
+				cancelled += 1;
+			} catch (error: unknown) {
+				this._logger.warn(`Could not cancel transfer ${transfer.id}: ${String(error)}`);
+			}
+		}
+
+		if (cancelled > 0) {
+			this._logger.log(`Cancelled ${cancelled} transfer(s) from removed service ${serviceId}`);
+		}
+
+		return cancelled;
+	}
 
 	/**
 	 * One page of the queue.

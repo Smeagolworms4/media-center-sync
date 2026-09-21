@@ -29,6 +29,21 @@ const start = async (): Promise<void> => {
 	// at zero while the files arrive perfectly well.
 	const server = app.getHttpServer() as Server;
 
+	// Longer than any client or proxy will keep an idle connection open, and that is
+	// the entire point. Node closes an idle keep-alive socket after five seconds by
+	// default, while a browser, a reverse proxy or a test runner reuses it for longer —
+	// nginx and most load balancers hold upstream connections for sixty. A request sent
+	// on a connection at the instant the server closes it is simply lost, and the client
+	// reports `socket hang up` on a request that was never received: intermittent,
+	// unreproducible, and blamed on whatever the request happened to be. The browser
+	// journeys hit it on one run in six, on a sign-in.
+	//
+	// `headersTimeout` has to be the larger of the two. Otherwise a connection reused
+	// right at the end of its keep-alive window can be closed while its next request's
+	// headers are still being read — the same failure, one step later.
+	server.keepAliveTimeout = 65_000;
+	server.headersTimeout = 66_000;
+
 	app.get(EventGatewayService).attach(server);
 
 	// Peer links share the same port, and that is the whole networking story: one port

@@ -12,7 +12,7 @@ import { API_URL, apiToken } from './helpers';
  *
  * ## Why this exists
  *
- * `make e2e/ci` seeds an administrator and some settings, and nothing else: no
+ * `make e2e/ci` installs a gateway with an administrator, and nothing else: no
  * service, no library, no media. Yet every screen these journeys are about — the
  * poster wall, one media's page, the dashboard — is a screen about media. A journey
  * that asserts against whatever the gateway happens to hold passes on the workstation

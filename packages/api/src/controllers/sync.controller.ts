@@ -181,8 +181,9 @@ export class SyncController {
 	/**
 	 * A `POST` although it changes nothing, and that is deliberate.
 	 *
-	 * Working out what a scope comes to walks every source and probes a placement per
-	 * item. That is not something a `GET` on the plan should pay for on every read of a
+	 * Working out what a scope comes to walks every source and compares each item with
+	 * what we hold. It asks for no destination — see `SyncManager.estimateScope` — so a
+	 * gateway with nowhere to land still gets a figure. That is not something a `GET` on the plan should pay for on every read of a
 	 * list of six, and it is not something a browser or a proxy should feel free to
 	 * cache: the answer is only worth anything at the moment it is taken. `SyncPlan.estimate`
 	 * is null everywhere else for the same reason — an estimate from last month would

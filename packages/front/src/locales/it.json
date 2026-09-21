@@ -732,6 +732,7 @@
 	"settings": {
 		"subtitle": "Come questo gateway colloca, recupera e indicizza.",
 		"saved": "Impostazioni salvate.",
+		"nothing_changed": "Non era cambiato nulla, quindi non è stato inviato nulla.",
 		"group": {
 			"placement": "Dove finiscono i file",
 			"gateway": "Nome e indirizzo",
@@ -942,7 +943,9 @@
 			"covered": "Già mantenuto sincronizzato dal piano {name}.",
 			"covered_above": "Già coperto dal piano {name}, che tiene aggiornato tutto ciò che sta sotto.",
 			"open_plan": "Apri il piano",
-			"estimate_unknown": "Nessuno ha ancora calcolato a quanto ammonta.",
+			"estimate_no_destination": "Nessuna stima: questo gateway non ha alcuna libreria in cui possa scrivere. Aggiungine una in Servizi multimediali: apri uno dei tuoi server e assegna a una libreria il suo percorso locale.",
+			"estimate_no_destination_action": "Apri i servizi multimediali",
+			"estimate_failed": "Il gateway non è riuscito a calcolare a quanto ammonta: {reason}",
 			"estimate_truncated": "Almeno questo: qui c'è più di quanto una esecuzione percorra.",
 			"mode": "Cosa fare",
 			"mode_create": "Creare un piano per questo",
@@ -1112,6 +1115,7 @@
 			"permission_denied": "Il gateway non può scrivere lì",
 			"target_missing": "La cartella di destinazione è sparita",
 			"cancelled": "Fermato di proposito",
+			"service_removed": "La sua sorgente è stata rimossa",
 			"unknown": "Si è fermato per un motivo poco chiaro"
 		},
 		"error_help": {
@@ -1123,6 +1127,7 @@
 			"permission_denied": "La cartella esiste ma il gateway non può scriverci.",
 			"target_missing": "La cartella verso cui andava il file non esiste più.",
 			"cancelled": "Qualcuno l'ha fermato. Si può riavviare.",
+			"service_removed": "Il servizio da cui proveniva è stato rimosso da questo gateway, quindi il trasferimento è stato fermato e il suo file parziale eliminato. Per ottenerlo, ritrova il contenuto nella libreria e scaricalo da un'altra sorgente.",
 			"unknown": "Verificare ciò che c'è sul disco è il modo meno costoso per saperne di più."
 		},
 		"action": {
