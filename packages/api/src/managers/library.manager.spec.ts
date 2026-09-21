@@ -698,6 +698,47 @@ describe('LibraryManager', () => {
 			return built;
 		};
 
+		it('lets a folded shelf move the band without renaming it', async () => {
+			// Two questions that were answered with one value, and only one of the two
+			// answers was right. A folded shelf must never name the category — a friend's
+			// `TV` read first would rebaptise our `Shows` — but it must still count for
+			// the order, or moving it on the libraries screen does nothing at all and
+			// nothing on screen says why.
+			const { manager, fakes } = build([
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows', position: 100 }),
+				library({ id: 'theirs', serviceId: 'friend', name: 'Series TV', position: 0 }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await manager.addKeyword('shows', 'Series TV');
+
+			const categories = await manager.categories();
+
+			expect(categories).toHaveLength(1);
+			expect(categories[0].position).toBe(0);
+			expect(categories[0].name).toBe('Shows');
+		});
+
+		it('still refuses to let a folded shelf name the category from the front', async () => {
+			// The other half of the same rule, and the reason the anchor exists: position
+			// zero buys the order, never the name.
+			const { manager, fakes } = build([
+				library({ id: 'shows', serviceId: 'plex', name: 'Shows', position: 100 }),
+				library({ id: 'theirs', serviceId: 'friend', name: 'TV', position: 0 }),
+			]);
+
+			fakes.services.find.mockResolvedValue(ours);
+
+			await manager.addKeyword('shows', 'TV');
+
+			const categories = await manager.categories();
+			const shows = categories.find((category) => category.libraryIds.includes('theirs'));
+
+			expect(shows?.name).toBe('Shows');
+			expect(shows?.position).toBe(0);
+		});
+
 		it('folds a shelf whose name differs only by case, accents or punctuation', async () => {
 			// `Series TV`, `Séries TV` and `series-tv` are the same shelf to a person,
 			// and a mapping that only caught one spelling would leave the other two in

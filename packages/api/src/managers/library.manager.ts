@@ -186,12 +186,18 @@ export class LibraryManager {
 	 * libraries screen is the repair for a mapping that filed something wrongly, so a
 	 * keyword that could override it would make that repair last until the next request.
 	 *
-	 * A folded library takes the anchor's name, kind and position rather than its own,
-	 * so the answer does not depend on which row the database returned first: a friend's
-	 * `TV` at position 100 must not be able to name our `Shows` category `TV` by being
-	 * read before it.
+	 * **A folded library never names the category, and always counts for its order.**
+	 * Those are two different questions and answering both with the anchor was a bug.
+	 * Naming is the anchor's, so that a friend's `TV` cannot rebaptise our `Shows` by
+	 * being read first — the answer must not depend on which row came back first.
+	 * Ordering is each library's own: a category sits at the lowest position among all
+	 * the libraries in it, folded or not. Taking the anchor's position too meant that
+	 * moving a folded library on the libraries screen did nothing at all, with nothing
+	 * on screen to say why — a control that silently ignores half the rows it is
+	 * offered on.
 	 *
-	 * The position is the lowest of the merged ones. That decides the order categories
+	 * So the name comes from the lowest-positioned library that was *not* folded, and
+	 * the position from the lowest of them all. That decides the order categories
 	 * appear in, and it is also the answer to which category wins when the same media
 	 * is filed in two of them: the first one.
 	 */
@@ -211,16 +217,21 @@ export class LibraryManager {
 		);
 		const filed = this._filedByKeyword(libraries, keywords);
 		const merged = new Map<string, MediaCategory>();
+		// The position of the library each category takes its name from, so a folded
+		// one can move the band without also renaming it.
+		const namedAt = new Map<string, number>();
 
 		for (const library of libraries) {
 			const mapped = this._keywordMatch(library, filed);
 			const name = mapped?.name ?? (library.alias?.trim() || library.name);
 			const kind = mapped?.kind ?? library.kind;
-			const position = mapped?.position ?? library.position;
+			const position = library.position;
+			const names = mapped === undefined;
 			const key = categoryKeyOf(name);
 			const existing = merged.get(key);
 
 			if (existing === undefined) {
+				namedAt.set(key, names ? position : Number.POSITIVE_INFINITY);
 				merged.set(key, {
 					key,
 					name,
@@ -243,11 +254,16 @@ export class LibraryManager {
 				existing.serviceIds.push(library.serviceId);
 			}
 
+			// Two independent answers. The band moves for any library somebody moved,
+			// folded or not; the name only ever changes for one that names.
 			if (position < existing.position) {
-				// The lowest position wins the whole category, including the name and the
-				// kind it is shown with: whichever library somebody put first is the one
-				// they meant this category to be.
 				existing.position = position;
+			}
+
+			if (names && position < (namedAt.get(key) ?? Number.POSITIVE_INFINITY)) {
+				// Whichever library somebody put first is the one they meant this
+				// category to be — among those entitled to say so.
+				namedAt.set(key, position);
 				existing.name = name;
 				existing.kind = kind;
 			}
