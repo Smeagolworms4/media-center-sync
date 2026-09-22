@@ -162,6 +162,7 @@ location / {
   - [Adding a Plex server without knowing its address](#adding-a-plex-server-without-knowing-its-address)
   - [Indexing, and why the gateway caches](#indexing-and-why-the-gateway-caches)
   - [Correlation: what is the same media](#correlation-what-is-the-same-media)
+  - [When the library is organised in a way your server misreads](#when-the-library-is-organised-in-a-way-your-server-misreads)
   - [Quality at a glance](#quality-at-a-glance)
   - [Syncing](#syncing)
   - [Transfers](#transfers)
@@ -271,8 +272,10 @@ that has to be right, so it is done in order of how much each signal can be trus
 1. **checksum** — certain, and almost never available up front;
 2. **external identifier** — the TVDB, TMDB or IMDb id both services already agree on;
 3. **season and episode**, under a parent that is already matched;
-4. **normalised title** and year, scored by similarity;
-5. **path**.
+4. **absolute numbering**, for a show published as one continuous run against the same
+   show cut into seasons;
+5. **normalised title** and year, scored by similarity;
+6. **path**.
 
 Each match is stored as its own row with the strategy and a confidence between 0 and
 1, so a wrong correlation can be explained and undone rather than being an
@@ -281,6 +284,60 @@ unaccountable fact. Below the configured threshold a match is *proposed*, not ap
 Items are never merged. The same episode held by three friends is three rows in the
 index — merging them would mean choosing whose title, whose artwork and whose file
 size to keep, and losing exactly the differences a sync exists to show.
+
+#### One continuous run against seasons
+
+Anime is routinely published straight through — episode 1 to 291 — while the same show
+elsewhere is filed as nine seasons. `E153` and `S06E12` then look like two different
+things, and the gateway calls missing what you already own under another numbering.
+
+An absolute number can only be turned into a season and an episode with **that show's**
+season lengths, and there is no formula for them. So they are read off the side that
+*is* split into seasons, exactly as this gateway has already indexed it — never
+guessed. Before a single episode is paired, all of this has to hold:
+
+- the two sides plainly use different conventions: one has a single season number, or
+  none, and its highest episode number runs past the longest season the other side
+  actually has;
+- the split side is contiguous from season 1 and every season is complete, because a
+  hole makes that season's length unknowable and shifts every season after it;
+- the two account for the same show end to end — the season lengths add up to the
+  highest absolute number.
+
+Two sides that both number by season and simply disagree are left disagreeing. There
+the numbers are the evidence, they say one of the episodes is missing, and a conversion
+that "fixed" that would file the wrong episode under the right name for ever. Specials
+and season 0 are left out of the arithmetic on both sides for the same reason.
+
+The pair is recorded as its own strategy, `absolute_episode`, so somebody looking at a
+correlation that turned out wrong can see at a glance whether a server said it or
+arithmetic did. An episode identifier that genuinely names *that* episode still decides
+first, whatever the numbering says — and one that appears on more than one episode of a
+show is the show's, not the episode's, and proves nothing.
+
+### When the library is organised in a way your server misreads
+
+The gateway mirrors what your media servers declare; it cannot repair one of them and
+does not try. It can notice two things that are silent, expensive to work out alone,
+and nowhere else reported:
+
+- **A library root one level too high.** Shows at
+  `/media/SeriesTV/Marvel Comics/Series TV/<show>/…` with the library root at
+  `/media/SeriesTV` make Jellyfin take `Marvel Comics/Series TV` for a *series* and
+  every show beneath it for one of its *seasons*. Its season list then reads "Season 1
+  … Season 20, Agatha All Along, Agent Carter, Agents of SHIELD, Cloak and Dagger", and
+  the shows under it are invisible. A series whose seasons are named like show titles,
+  or which claims more seasons than a show plausibly runs for, is said so — with the
+  series named, the season names quoted, and the repair spelled out: add the deeper
+  folder as a library root, or give the library a content type. It is worded as a
+  suspicion to check and never as a verdict, because some real shows do name their
+  seasons, and it can be dismissed for good.
+- **Nothing mounted.** `missing` means "known elsewhere, not held here", which is true
+  of every single row when no server has its folders declared — thirty-one thousand of
+  thirty-one thousand two hundred and sixty-five on one development gateway. The
+  library and the dashboard say so in one line, with the way to fix it, and the line
+  goes on its own the moment one mapping exists. It has no dismissal for that reason:
+  it is the one sentence that explains the whole screen.
 
 ### Quality at a glance
 

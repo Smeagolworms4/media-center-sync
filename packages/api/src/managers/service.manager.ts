@@ -758,12 +758,33 @@ export class ServiceManager implements OnApplicationBootstrap {
 		 * it. Re-applying here is what makes those corrections stick, and it is the
 		 * whole reason the instruction is kept rather than only its result.
 		 */
-		if (row.overrides !== null && row.overrides !== undefined) {
+		const corrected = row.overrides !== null && row.overrides !== undefined;
+
+		if (corrected) {
 			row.reported = null;
 			applyOverride(row, row.overrides, normalizeTitle);
 		}
 
-		return this._items.save(row);
+		const saved = await this._items.save(row);
+
+		/*
+		 * And so does the place the correction put it.
+		 *
+		 * `row.parentId` was just rewritten from the parent the service names, a few
+		 * lines above — which is precisely the link a corrected season number replaced.
+		 * Re-applying the values without re-deriving the parent would leave the episode
+		 * reading `S2E1` among season one's children again after every scan: the
+		 * correction half-undone, on a timer, in the half nobody thinks to check.
+		 *
+		 * Only for rows that carry a correction. The filing of everything else is
+		 * already right by construction, and a lookup per episode would be a second walk
+		 * of a forty-thousand-row library to be told nothing changed.
+		 */
+		if (corrected) {
+			await this._media.refile(saved);
+		}
+
+		return saved;
 	}
 
 	/**

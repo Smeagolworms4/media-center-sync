@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import {
 	ErrorKey,
@@ -25,6 +26,8 @@ import {
 	contentKeys,
 	HandlerRegistry,
 	identifierValue,
+	alignAbsoluteNumbering,
+	episodeIdentifierKeys,
 	landingSyncState,
 	MatchingService,
 	applyOverride,
@@ -55,6 +58,26 @@ interface CorrelationContext {
 	byContent: Map<string, MediaItemEntity[]>;
 	/** Films and series by work identifier; see `_indexByWork`. */
 	byWork: Map<string, MediaItemEntity[]>;
+	/** Every row by identifier, so a pair worked out elsewhere can be scored. */
+	byId: Map<string, MediaItemEntity>;
+	/**
+	 * The identifiers that name one episode rather than the show it belongs to.
+	 *
+	 * Worked out per service and per series, because that is the only scope where the
+	 * count means anything — see `episodeIdentifierKeys`. It is what lets an identifier
+	 * pair `E153` with `S06E12`, and what stops the same rule merging episode 3 with
+	 * episode 47 on a library that stamps the show's number onto all four hundred rows.
+	 */
+	episodeIdentifiers: Map<string, Set<string>>;
+	/**
+	 * Episodes related across two numbering conventions, both ways round.
+	 *
+	 * Built once per pass rather than per item, and it has to be: the conversion needs
+	 * every episode of both copies of the series in hand at once — the season lengths,
+	 * the holes, the totals — and correlation scores one pair at a time. Anything
+	 * derived per pair would be a formula, which is exactly what must not decide this.
+	 */
+	absolutePairs: Map<string, Set<string>>;
 	/**
 	 * Items whose file the gateway has already put on the disk, and the state that
 	 * makes. Read once per pass rather than per item — the table holds one row per
@@ -62,13 +85,40 @@ interface CorrelationContext {
 	 * tens of thousands of them to answer a question that is almost always "no".
 	 */
 	landed: Map<string, SyncState>;
+	/**
+	 * Every match row already on record, by each of the two items it joins.
+	 *
+	 * Read once per pass, for the same reason `landed` is: a pass over a real
+	 * catalogue is thousands of items, and asking the match table twice per item to
+	 * answer a question about a few hundred rows is thousands of queries for nothing.
+	 *
+	 * It is a snapshot taken before the pass writes anything, and only ever used to
+	 * decide about rows that existed when it was taken — which claim a person settled,
+	 * and which pair the identifiers now contradict. Nothing here is read back as the
+	 * current state of a row this pass has since rewritten.
+	 */
+	settled: Map<string, MediaMatchEntity[]>;
 }
+
+/** A person's decision about a pair, which no later pass is allowed to overturn. */
+const decidedByHand = (match: MediaMatchEntity): boolean =>
+	match.strategy === MatchStrategy.MANUAL || match.confirmedAt !== null;
 
 /** Artwork, once fetched: bytes rather than a stream, because it is cached. */
 export interface Artwork {
 	body: Buffer;
 	contentType: string;
 }
+
+/**
+ * How far below a series the walk that collects its episodes goes.
+ *
+ * Three is series, season, episode with one level spare. Bounded rather than
+ * unbounded because a parent chain that loops — which nothing stops a media server
+ * from reporting — would otherwise hang the correlation pass instead of failing
+ * somewhere a stack trace could name.
+ */
+const SUBTREE_DEPTH = 3;
 
 /** Artwork changes when a library is rescanned, not between two page loads. */
 const ARTWORK_TTL_SECONDS = 3600;
@@ -81,6 +131,53 @@ const ARTWORK_TTL_SECONDS = 3600;
  * would be the gateway spending its memory on somebody else's error.
  */
 const MAX_ARTWORK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * What the identifier of a row the gateway invented starts with.
+ *
+ * `externalId` is not nullable — the unique index on `(serviceId, externalId)` is what
+ * stops a scan writing the same item twice — so an invented row still needs a value,
+ * and the prefix is there so it can never be mistaken for a Jellyfin identifier or a
+ * Plex rating key. It is a courtesy to whoever reads the table, not a test: the
+ * `synthetic` column is what code checks.
+ */
+const SYNTHETIC_PREFIX = 'mcs:synthetic:';
+
+/** A trailing number, which is what a season's title almost always ends with. */
+const TRAILING_NUMBER = /(\d+)\s*$/;
+
+/**
+ * Name an invented season the way its siblings are named.
+ *
+ * The gateway has no idea what words the server would have used, and it matters: a
+ * household running Jellyfin in French has `Saison 1` on screen, and putting
+ * `Season 2` next to it announces that something else made this row. So the title is
+ * taken from a sibling that already exists and only its number is replaced —
+ * `Saison 1` becomes `Saison 2`, `Season 01` becomes `Season 02`, padding included.
+ *
+ * Only a sibling whose trailing number really is its season number is copied; a season
+ * called `Specials` or `Miniseries 2012` would otherwise lend its year to a season
+ * number. With nothing to copy — the first season anybody corrects into a show that
+ * reports no season level at all — English is the fallback, like every other string
+ * this codebase produces without asking a service.
+ */
+const seasonTitleBeside = (siblings: MediaItemEntity[], seasonNumber: number): string => {
+	for (const sibling of siblings) {
+		if (sibling.kind !== MediaKind.SEASON || sibling.seasonNumber === null) {
+			continue;
+		}
+
+		const found = TRAILING_NUMBER.exec(sibling.title);
+
+		if (found === null || Number(found[1]) !== sibling.seasonNumber) {
+			continue;
+		}
+
+		return sibling.title.slice(0, found.index) + String(seasonNumber).padStart(found[1].length, '0');
+	}
+
+	return `Season ${seasonNumber}`;
+};
 
 /**
  * Browsing the index, and the correlations under it.
@@ -147,7 +244,29 @@ export class MediaManager {
 				landingSyncState(landing.state),
 			]),
 		);
-		const context = { threshold, peers, local, everything, byContent, byWork, landed };
+		const settled = this._indexMatches(await this._matches.find());
+		const byId = new Map(everything.map((item) => [item.id, item]));
+		const byParent = this._indexByParent(everything);
+		const episodesOfSeries = this._episodesBySeries(everything, byParent);
+		const episodeIdentifiers = this._episodeIdentifiers(episodesOfSeries);
+		const absolutePairs = this._absolutePairs(
+			everything,
+			episodesOfSeries,
+			{ threshold, peers, byWork },
+		);
+		const context = {
+			threshold,
+			peers,
+			local,
+			everything,
+			byContent,
+			byWork,
+			byId,
+			episodeIdentifiers,
+			absolutePairs,
+			landed,
+			settled,
+		};
 
 		const mine = everything.filter((item) => item.serviceId === serviceId);
 		const touched = new Set<string>();
@@ -208,6 +327,7 @@ export class MediaManager {
 			...byTitle,
 			...this._sameContentAs(item, context.byContent),
 			...this._sameWorkAs(item, context.byWork),
+			...this._alignedWith(item, context),
 		]) {
 			if (candidate.id !== item.id && candidate.serviceId !== item.serviceId) {
 				candidates.set(candidate.id, candidate);
@@ -218,11 +338,16 @@ export class MediaManager {
 			.correlate(
 				this._candidate(item, context.peers),
 				[...candidates.values()].map((candidate) => this._candidate(candidate, context.peers)),
-				{ threshold: context.threshold },
+				{
+					threshold: context.threshold,
+					episodeIdentifiers: context.episodeIdentifiers,
+					absolutePairs: context.absolutePairs,
+				},
 			)
 			.map((proposal) =>
 				this._overruleMislabelled(item, candidates.get(proposal.remoteItemId), proposal),
-			);
+			)
+			.map((proposal) => this._respectHumanDecision(item, proposal, context));
 
 		let written = 0;
 
@@ -231,6 +356,8 @@ export class MediaManager {
 			touched?.add(proposal.remoteItemId);
 			written += 1;
 		}
+
+		await this._revokeContradicted(item, context);
 
 		const state = this._landed(
 			item,
@@ -363,13 +490,6 @@ export class MediaManager {
 	}
 
 	/**
-	 * The poster, fetched once and kept.
-	 *
-	 * The cache is what makes this bearable: a grid of sixty posters is sixty requests
-	 * from the browser, and without it every one of them would be a request to
-	 * somebody's Raspberry Pi.
-	 */
-	/**
 	 * Correct what a media server got wrong, here and only here.
 	 *
 	 * The correction is written into the fields everything reads, so it reaches
@@ -378,9 +498,12 @@ export class MediaManager {
 	 * kept alongside so the next rescan re-applies it, and the service's own answer is
 	 * kept so the change can be shown and undone.
 	 *
-	 * The item is re-correlated immediately: renaming a show or renumbering an episode
-	 * changes what it matches, and leaving that until the next scan means the screen
-	 * that made the correction still shows the old state.
+	 * The item is then re-filed and re-correlated, in that order. Re-filed because a
+	 * number is not a place: the tree, the missing counts and the gap detection all
+	 * navigate by `parentId`, so an episode moved to season two that stays among season
+	 * one's children has been relabelled rather than corrected. Re-correlated because
+	 * renumbering an episode changes what it matches, and leaving that until the next
+	 * scan means the screen that made the correction still shows the old state.
 	 */
 	public async setOverride(id: string, override: MediaOverride | null): Promise<MediaItem> {
 		const item = await this._require(id);
@@ -389,11 +512,81 @@ export class MediaManager {
 
 		const saved = await this._items.save(item);
 
+		await this.refile(saved);
 		await this.correlateService(saved.serviceId);
 
 		return toMediaItem(await this._require(id));
 	}
 
+	/**
+	 * Hang an episode under the season its numbers say it belongs to.
+	 *
+	 * This is the other half of a correction, and the half that was missing: everything
+	 * a person sees of this product is reached through `parentId`. The tree walks it,
+	 * the missing counts group by it, the gap detection lists a season's children to
+	 * find the holes. An episode that reads `S2E1` from inside season one is not merely
+	 * untidy — it shows up under the wrong season, and because children are ordered by
+	 * season and then episode it sorts after every episode of season one, at the bottom
+	 * of a list nobody scrolls. Both of the owner's words for it, "it doesn't show up
+	 * under season 2" and "it disappeared", are that one missing write.
+	 *
+	 * **A corrected episode number alone needs nothing.** The place an episode lives is
+	 * decided by its season and nothing else, and the ordering inside a season already
+	 * follows `episodeNumber` in the query. Renumbering within a season therefore moves
+	 * the row on screen without moving it in the tree, which is the correct outcome —
+	 * so this walks out early for every correction that leaves the season alone, rather
+	 * than writing the same parent back and moving `updatedAt` on rows nothing happened
+	 * to.
+	 *
+	 * **Only episodes.** A season's parent is its series, and no correction changes
+	 * which series a season belongs to — renumbering a season moves it among its
+	 * siblings, where the same ordering rule already puts it. A film has no parent to
+	 * reconsider.
+	 *
+	 * Answers whether it moved anything, which is what the functional tests and the
+	 * scan's logging read.
+	 */
+	public async refile(item: MediaItemEntity): Promise<boolean> {
+		if (item.kind !== MediaKind.EPISODE) {
+			return false;
+		}
+
+		/*
+		 * Two different questions, and collapsing them would break the undo.
+		 *
+		 * With a correction in force the season number in the column is the effective
+		 * one and decides the parent. With none, the only right answer is the one the
+		 * service gave — the parent it named — because "clear the correction" has to put
+		 * the episode back exactly where that server files it, whatever we had derived
+		 * while the correction stood.
+		 */
+		const parentId =
+			item.overrides === null || item.overrides === undefined
+				? await this._reportedParent(item)
+				: await this._seasonFor(item);
+
+		if (parentId === null || parentId === item.parentId) {
+			return false;
+		}
+
+		const left = item.parentId;
+
+		item.parentId = parentId;
+
+		await this._items.save(item);
+		await this._settle(left);
+		await this._settle(parentId);
+
+		return true;
+	}
+
+	/**
+	 * The poster, fetched once and kept.
+	 *
+	 * The cache is what makes this bearable: a grid of sixty posters is sixty requests
+	 * from the browser, and without it every one of them would be a request to
+	 * somebody's Raspberry Pi.
+	 */
 	public async artwork(id: string): Promise<Artwork> {
 		const item = await this._require(id);
 
@@ -469,6 +662,182 @@ export class MediaManager {
 	}
 
 	/**
+	 * Where the service itself files this episode, for a correction being withdrawn.
+	 *
+	 * Read from `parentExternalId` rather than from the link, because the link is
+	 * exactly what a correction moved: the identifier is the fact the server stated and
+	 * it survives every reparenting we do. An episode whose service named no parent —
+	 * or whose parent has no row of ours — keeps the parent it has, which is the only
+	 * answer that does not turn a withdrawn correction into an orphaned episode.
+	 */
+	private async _reportedParent(item: MediaItemEntity): Promise<string | null> {
+		if (item.parentExternalId === null) {
+			return null;
+		}
+
+		const parent = await this._items.findByExternalId(item.serviceId, item.parentExternalId);
+
+		return parent?.id ?? null;
+	}
+
+	/**
+	 * The season of this episode's series that carries the effective season number,
+	 * created when there is none — which is the owner's case and the ordinary one.
+	 *
+	 * Creating it is unavoidable. The season a correction names is a season the service
+	 * does not believe in, so asking the server for it — which is what
+	 * `_reconcileParents` does for a parent a walk merely skipped — answers nothing.
+	 * Either the gateway makes the node or the correction has nowhere to land.
+	 *
+	 * The series is found by climbing at most one level, because that is the depth this
+	 * model has: an episode hangs from a season, or straight from its series on the
+	 * services that report no season level at all. An episode hanging from nothing has
+	 * no series to file it in and is left alone.
+	 */
+	private async _seasonFor(item: MediaItemEntity): Promise<string | null> {
+		const series = await this._seriesOf(item);
+
+		if (series === null) {
+			return null;
+		}
+
+		// A correction that removed the season number entirely means the episode belongs
+		// to no season, and the show itself is the only honest place for it.
+		if (item.seasonNumber === null) {
+			return series.id;
+		}
+
+		const siblings = await this._items.findChildren(series.id);
+		const existing = siblings.find(
+			(one) => one.kind === MediaKind.SEASON && one.seasonNumber === item.seasonNumber,
+		);
+
+		if (existing !== undefined) {
+			return existing.id;
+		}
+
+		return (await this._createSeason(series, item.seasonNumber, siblings)).id;
+	}
+
+	/** The series an episode belongs to, through its season or directly. */
+	private async _seriesOf(item: MediaItemEntity): Promise<MediaItemEntity | null> {
+		const parent = item.parentId === null ? null : await this._items.findOne({ where: { id: item.parentId } });
+
+		if (parent === null) {
+			return null;
+		}
+
+		if (parent.kind === MediaKind.SERIES) {
+			return parent;
+		}
+
+		const grandparent =
+			parent.parentId === null
+				? null
+				: await this._items.findOne({ where: { id: parent.parentId } });
+
+		return grandparent?.kind === MediaKind.SERIES ? grandparent : null;
+	}
+
+	/**
+	 * A season row the gateway invents, because no server will ever report it.
+	 *
+	 * It is marked `synthetic` so the stale pass at the end of a scan leaves it alone —
+	 * without that the very next scan deletes it as a row the service dropped, and the
+	 * episode is filed back under season one. The identifier is ours and prefixed, so
+	 * that the unique index on `(serviceId, externalId)` still holds and no server's own
+	 * identifier can collide with it; `parentExternalId` is the series', so the link
+	 * repair at the end of a scan understands the row like any other.
+	 *
+	 * It is filed in the series' library and not the episode's. A parent lives where its
+	 * children do, and the child here is a whole show: the child-count and quality
+	 * rollup at the end of a scan is computed one library at a time, so a season sitting
+	 * in another library than its series would simply be missing from its series'
+	 * summary.
+	 */
+	private async _createSeason(
+		series: MediaItemEntity,
+		seasonNumber: number,
+		siblings: MediaItemEntity[],
+	): Promise<MediaItemEntity> {
+		const season = await this._items.save(
+			this._items.create({
+				serviceId: series.serviceId,
+				libraryId: series.libraryId,
+				externalId: `${SYNTHETIC_PREFIX}${randomUUID()}`,
+				synthetic: true,
+				parentId: series.id,
+				parentExternalId: series.externalId,
+				kind: MediaKind.SEASON,
+				title: seasonTitleBeside(siblings, seasonNumber),
+				// A season compares under its series' name, exactly as the handlers
+				// normalise one: two libraries agree about the name of a show far more
+				// often than about the name of anything under it.
+				normalizedTitle: series.normalizedTitle,
+				year: series.year,
+				seasonNumber,
+				episodeNumber: null,
+				externalIds: {},
+				overview: null,
+				artworkUrl: null,
+				file: null,
+				syncState: SyncState.UNKNOWN,
+				addedAt: null,
+				ignored: false,
+				childCount: 0,
+			}),
+		);
+
+		this._logger.log(
+			`Created season ${seasonNumber} of ${series.title}: the service does not report it`,
+		);
+
+		return season;
+	}
+
+	/**
+	 * Bring one end of a move back into line: the child count, and litter.
+	 *
+	 * The count is written here rather than left to the next scan because the tree draws
+	 * it immediately — a season that has just gained an episode and still says it holds
+	 * none is the correction looking as though it had not worked. The quality rollup
+	 * above it is not recomputed here on purpose: it is a walk of the whole subtree per
+	 * node, which is what `_recompute` does once per library at the end of a scan, and
+	 * paying for it on every correction would make a screen wait on a number nobody is
+	 * reading yet.
+	 *
+	 * An invented season nobody is under any more is removed rather than left standing.
+	 * It would otherwise appear on the tree and be counted for the rest of the gateway's
+	 * life, with no way for anybody to delete it — the season is not something a service
+	 * will stop reporting, because no service ever reported it. Its correlations go with
+	 * it, or they would point at a row that no longer exists.
+	 */
+	private async _settle(id: string | null): Promise<void> {
+		if (id === null) {
+			return;
+		}
+
+		const row = await this._items.findOne({ where: { id } });
+
+		if (row === null) {
+			return;
+		}
+
+		const children = await this._items.findChildren(id);
+
+		if (children.length === 0 && row.synthetic) {
+			await this._matches.deleteForItems([row.id]);
+			await this._items.remove(row);
+
+			return;
+		}
+
+		if (row.childCount !== children.length) {
+			await this._items.update({ id }, { childCount: children.length });
+		}
+	}
+
+	/**
 	 * The state a media gets when its bytes are already here and the server is not.
 	 *
 	 * Applied only over `missing`, and that narrowness is the point. `missing` is the
@@ -516,6 +885,390 @@ export class MediaManager {
 		this._logger.warn(`${local.title}: ${disagreement}`);
 
 		return { ...proposal, state: SyncState.CONFLICT, reason: disagreement };
+	}
+
+	/** Every match row filed under both of the items it joins, for lookup by either. */
+	private _indexMatches(matches: MediaMatchEntity[]): Map<string, MediaMatchEntity[]> {
+		const index = new Map<string, MediaMatchEntity[]>();
+
+		for (const match of matches) {
+			for (const side of [match.localItemId, match.remoteItemId]) {
+				if (side !== null) {
+					index.set(side, [...(index.get(side) ?? []), match]);
+				}
+			}
+		}
+
+		return index;
+	}
+
+	/** The row already on record for this exact pair, in whichever direction it was written. */
+	private _recorded(
+		itemId: string,
+		otherId: string,
+		context: CorrelationContext,
+	): MediaMatchEntity | undefined {
+		return context.settled
+			.get(itemId)
+			?.find(
+				(match) =>
+					(match.localItemId === itemId && match.remoteItemId === otherId) ||
+					(match.localItemId === otherId && match.remoteItemId === itemId),
+			);
+	}
+
+	/**
+	 * A pair somebody settled keeps what they said about it.
+	 *
+	 * The two halves of a match row answer two different questions and only one of them
+	 * belongs to a person. *Are these the same media* is `strategy` and `confidence`:
+	 * confirming a proposal is precisely the act of overruling the score, and a later
+	 * pass that recomputed it would undo the confirmation the next time a scan ran —
+	 * silently, because nothing on the screen would say the machine had changed its
+	 * mind back. *What is the state of the two copies* is `state` and `reason`, and
+	 * that is nobody's opinion: a remote copy re-encoded in 2160p is newer than ours
+	 * whoever confirmed the pair, and freezing it would leave a confirmed match
+	 * reporting a quality comparison from the day it was confirmed.
+	 *
+	 * So the human half is restored onto the fresh proposal and the measured half is
+	 * let through. Dropping the proposal entirely was the other option and is worse for
+	 * exactly that reason: it would have been the shorter code and would have frozen
+	 * the sync state of every confirmed pair on the gateway.
+	 *
+	 * A decision is a person's when the strategy is `MANUAL` or `confirmedAt` is set.
+	 * Both are tested rather than either: `confirmMatch` writes the two together, but a
+	 * row detached and re-pointed by hand carries the confirmation without the strategy
+	 * ever having been rewritten, and reading only the strategy would lose it.
+	 */
+	private _respectHumanDecision(
+		item: MediaItemEntity,
+		proposal: MatchProposal,
+		context: CorrelationContext,
+	): MatchProposal {
+		const recorded = this._recorded(item.id, proposal.remoteItemId, context);
+
+		if (recorded === undefined || !decidedByHand(recorded)) {
+			return proposal;
+		}
+
+		return {
+			...proposal,
+			strategy: recorded.strategy,
+			confidence: recorded.confidence,
+			applied: recorded.confidence >= context.threshold || recorded.confirmedAt !== null,
+		};
+	}
+
+	/**
+	 * Unpick the matches this item's identifiers now contradict.
+	 *
+	 * Reading Plex's `Guid` list only ever helps the pairs correlated *after* the
+	 * reading. Everything already on the gateway was decided when a Plex item carried
+	 * nothing but its own row key, which meant every Plex-to-Jellyfin pair was decided
+	 * on the title — the one strategy that can be confidently wrong. Leaving those rows
+	 * alone would have the feature change nothing at all on a catalogue that already
+	 * exists, and would leave the wrong ones applied for good.
+	 *
+	 * So each pass asks the question the other way round: of the pairs already on
+	 * record for this item, which ones do the identifiers now say are two different
+	 * works? Those are deleted rather than downgraded — a match nothing vouches for is
+	 * not a weaker match, it is not a match — and a deleted row is re-proposed by the
+	 * very next pass if the evidence ever comes back, which is what makes this safe to
+	 * run twice.
+	 *
+	 * Three things it deliberately does not do. It never revokes a pair where only one
+	 * side carries an identifier: the ordinary house has one library that scrapes and
+	 * one that does not, and absence is not disagreement — see
+	 * `MatchingService.contradicted`. It never touches a decision somebody made by
+	 * hand. And it works from the whole match table rather than from the candidates
+	 * this pass happened to look at, because a pair whose two titles no longer meet in
+	 * the title index would otherwise never be re-examined by anybody.
+	 */
+	private async _revokeContradicted(
+		item: MediaItemEntity,
+		context: CorrelationContext,
+	): Promise<void> {
+		const recorded = context.settled.get(item.id);
+
+		// The overwhelming majority of a catalogue takes part in no match at all, and
+		// this runs once per item on every pass: leaving before the candidate shape is
+		// built keeps the whole thing off the hot path.
+		if (recorded === undefined) {
+			return;
+		}
+
+		const mine = this._candidate(item, context.peers);
+
+		for (const match of recorded) {
+			const otherId = match.localItemId === item.id ? match.remoteItemId : match.localItemId;
+			// The pass's own index, never a fresh one built here: this runs once per item
+			// and a map rebuilt from every row each time would turn a walk of a
+			// thirty-thousand-item catalogue into a quadratic one.
+			const other = otherId === null ? undefined : context.byId.get(otherId);
+
+			if (other === undefined || decidedByHand(match)) {
+				continue;
+			}
+
+			if (!this._matching.contradicted(mine, this._candidate(other, context.peers))) {
+				continue;
+			}
+
+			this._logger.warn(
+				`${item.title}: dropping a match with ${other.title}, their identifiers name two different works`,
+			);
+
+			await this._matches.delete({ id: match.id });
+			// Struck off the snapshot as well as the table. A pass settles both halves of
+			// every pair it touched, so the far side reaches this loop with the same row
+			// still in hand, and without this it would delete an identifier that no longer
+			// exists and log the same sentence about the same pair a second time.
+			MediaManager._forget(context.settled, match);
+		}
+	}
+
+	/** Drop one match row from both of the sides the snapshot filed it under. */
+	private static _forget(
+		settled: Map<string, MediaMatchEntity[]>,
+		match: MediaMatchEntity,
+	): void {
+		for (const side of [match.localItemId, match.remoteItemId]) {
+			const rows = side === null ? undefined : settled.get(side);
+
+			if (side !== null && rows !== undefined) {
+				settled.set(side, rows.filter((row) => row.id !== match.id));
+			}
+		}
+	}
+
+	/**
+	 * Every item by the parent it hangs from, so a subtree can be walked in memory.
+	 *
+	 * Built once per pass because the alternative is a query per series, and the
+	 * question — "which episodes are under this show" — is asked of every series the
+	 * gateway holds.
+	 */
+	private _indexByParent(items: MediaItemEntity[]): Map<string, MediaItemEntity[]> {
+		const index = new Map<string, MediaItemEntity[]>();
+
+		for (const item of items) {
+			if (item.parentId !== null) {
+				index.set(item.parentId, [...(index.get(item.parentId) ?? []), item]);
+			}
+		}
+
+		return index;
+	}
+
+	/**
+	 * The episodes under each series, however deep the service files them.
+	 *
+	 * Walked down from the series rather than up from each episode, because the depth
+	 * is not fixed: most servers put a season between the two and some report episodes
+	 * directly under the show. The descent is bounded because a parent chain that loops
+	 * — two rows naming each other, which a service has no reason not to report — would
+	 * otherwise spin here rather than fail somewhere a stack trace could name it.
+	 *
+	 * A group is one series on one service by construction, since a row's children are
+	 * rows of the same service. That matters: it is the scope the identifier count in
+	 * `episodeIdentifierKeys` has to be taken in.
+	 */
+	private _episodesBySeries(
+		items: MediaItemEntity[],
+		byParent: Map<string, MediaItemEntity[]>,
+	): Map<string, MediaItemEntity[]> {
+		const groups = new Map<string, MediaItemEntity[]>();
+
+		for (const series of items) {
+			if (series.kind !== MediaKind.SERIES) {
+				continue;
+			}
+
+			const episodes: MediaItemEntity[] = [];
+			let level = byParent.get(series.id) ?? [];
+
+			for (let depth = 0; depth < SUBTREE_DEPTH && level.length > 0; depth += 1) {
+				episodes.push(...level.filter((item) => item.kind === MediaKind.EPISODE));
+				level = level.flatMap((item) => byParent.get(item.id) ?? []);
+			}
+
+			if (episodes.length > 0) {
+				groups.set(series.id, episodes);
+			}
+		}
+
+		return groups;
+	}
+
+	/** The `provider:value` keys one row carries that are worth comparing at all. */
+	private _identifierKeys(item: MediaItemEntity): string[] {
+		return WORK_IDENTIFIERS.map(
+			(provider) => [provider, identifierValue(item.externalIds, provider)] as const,
+		)
+			.filter(([, value]) => value !== null)
+			.map(([provider, value]) => `${provider}:${value as string}`);
+	}
+
+	private _episodeIdentifiers(
+		groups: Map<string, MediaItemEntity[]>,
+	): Map<string, Set<string>> {
+		const distinctive = new Map<string, Set<string>>();
+
+		for (const episodes of groups.values()) {
+			const keys = episodeIdentifierKeys(
+				episodes.map((episode) => ({ id: episode.id, keys: this._identifierKeys(episode) })),
+			);
+
+			for (const [id, values] of keys) {
+				distinctive.set(id, values);
+			}
+		}
+
+		return distinctive;
+	}
+
+	/**
+	 * The series this gateway has already decided are the same show, both ways round.
+	 *
+	 * Worked out in the pass rather than read back from the match table, and that is a
+	 * choice worth explaining. The rows are written as the same pass walks, so reading
+	 * them would answer with the *previous* pass's conclusions — episodes under a series
+	 * matched for the first time would stay unrelated until a second scan happened to
+	 * run, and nothing on any screen would say why. Asking the correlation itself costs
+	 * one comparison per series, which is a few hundred against the tens of thousands
+	 * the pass already does, and gives the answer this pass would give.
+	 */
+	private _seriesPairs(
+		items: MediaItemEntity[],
+		context: { threshold: number; peers: Map<string, string | null>; byWork: Map<string, MediaItemEntity[]> },
+	): Map<string, Set<string>> {
+		const series = items.filter((item) => item.kind === MediaKind.SERIES);
+		const byTitle = new Map<string, MediaItemEntity[]>();
+
+		for (const one of series) {
+			byTitle.set(one.normalizedTitle, [...(byTitle.get(one.normalizedTitle) ?? []), one]);
+		}
+
+		const pairs = new Map<string, Set<string>>();
+
+		for (const one of series) {
+			const candidates = new Map<string, MediaItemEntity>();
+
+			for (const candidate of [
+				...(byTitle.get(one.normalizedTitle) ?? []),
+				...this._sameWorkAs(one, context.byWork),
+			]) {
+				if (candidate.id !== one.id && candidate.serviceId !== one.serviceId) {
+					candidates.set(candidate.id, candidate);
+				}
+			}
+
+			const proposals = this._matching.correlate(
+				this._candidate(one, context.peers),
+				[...candidates.values()].map((candidate) => this._candidate(candidate, context.peers)),
+				{ threshold: context.threshold },
+			);
+
+			for (const proposal of proposals) {
+				// Proposed is not matched. A correlation the score did not apply is one
+				// nobody has agreed to, and building a numbering conversion on top of it
+				// would let a doubtful series pairing quietly renumber four hundred
+				// episodes.
+				if (proposal.applied) {
+					MediaManager._link(pairs, one.id, proposal.remoteItemId);
+					MediaManager._link(pairs, proposal.remoteItemId, one.id);
+				}
+			}
+		}
+
+		return pairs;
+	}
+
+	/**
+	 * Episodes related across two numbering conventions, for every matched series.
+	 *
+	 * Every guard lives in `alignAbsoluteNumbering`; this only decides which two sets of
+	 * episodes are handed to it, which is the part that needs the index. Each pair of
+	 * series is aligned once — the relation is symmetric, and aligning it twice would
+	 * do the same arithmetic to reach the same answer.
+	 */
+	private _absolutePairs(
+		items: MediaItemEntity[],
+		groups: Map<string, MediaItemEntity[]>,
+		context: { threshold: number; peers: Map<string, string | null>; byWork: Map<string, MediaItemEntity[]> },
+	): Map<string, Set<string>> {
+		const pairs = new Map<string, Set<string>>();
+		const aligned = new Set<string>();
+
+		for (const [seriesId, others] of this._seriesPairs(items, context)) {
+			for (const otherId of others) {
+				const key = seriesId < otherId ? `${seriesId}|${otherId}` : `${otherId}|${seriesId}`;
+
+				if (aligned.has(key)) {
+					continue;
+				}
+
+				aligned.add(key);
+
+				const left = groups.get(seriesId) ?? [];
+				const right = groups.get(otherId) ?? [];
+
+				for (const pair of alignAbsoluteNumbering(
+					left.map((item) => this._numbered(item)),
+					right.map((item) => this._numbered(item)),
+				)) {
+					MediaManager._link(pairs, pair.absoluteId, pair.splitId);
+					MediaManager._link(pairs, pair.splitId, pair.absoluteId);
+				}
+			}
+		}
+
+		return pairs;
+	}
+
+	private _numbered(item: MediaItemEntity): {
+		id: string;
+		seasonNumber: number | null;
+		episodeNumber: number | null;
+	} {
+		return {
+			id: item.id,
+			seasonNumber: item.seasonNumber,
+			episodeNumber: item.episodeNumber,
+		};
+	}
+
+	/**
+	 * The rows the numbering alignment paired this one with.
+	 *
+	 * Added to the candidate set because nothing else would ever bring them together:
+	 * the candidate lookup joins on the normalised title and the episode coordinates,
+	 * and the whole point of this pair is that neither of those agrees.
+	 */
+	private _alignedWith(item: MediaItemEntity, context: CorrelationContext): MediaItemEntity[] {
+		const related: MediaItemEntity[] = [];
+
+		for (const id of context.absolutePairs.get(item.id) ?? []) {
+			const candidate = context.byId.get(id);
+
+			if (candidate !== undefined) {
+				related.push(candidate);
+			}
+		}
+
+		return related;
+	}
+
+	private static _link(pairs: Map<string, Set<string>>, from: string, to: string): void {
+		const existing = pairs.get(from);
+
+		if (existing === undefined) {
+			pairs.set(from, new Set([to]));
+
+			return;
+		}
+
+		existing.add(to);
 	}
 
 	private _indexByContent(items: MediaItemEntity[]): Map<string, MediaItemEntity[]> {

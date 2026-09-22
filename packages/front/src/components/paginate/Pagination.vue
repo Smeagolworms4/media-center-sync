@@ -13,26 +13,36 @@
 </script>
 
 <template>
+	<!--
+		Marked for the journeys, and it had to be: paging is one of the few things whose
+		defect is only visible from a browser — the address bar and the request have to
+		agree, and nothing but a real click proves they do.
+	-->
 	<div
 		class="components-paginate-pagination"
 		:class="{
 			'components-paginate-pagination--dense': dense,
 		}"
+		data-test="pagination"
 	>
 		<span>{{ label }}</span>
 
 		<v-select
 			v-model="limit_sync"
+			data-test="pagination-limit"
 			hide-details
 			:items="[10, 20, 50, 100, 200]"
 			variant="outlined"
 			@update:model-value="limit_sync = $event; page_sync = 0;"
 		/>
 
-		{{ page_sync * limit_sync + 1 }}-{{ page_sync * limit_sync + limit_sync }} / {{ total }}
+		<span data-test="pagination-range">
+			{{ page_sync * limit_sync + 1 }}-{{ page_sync * limit_sync + limit_sync }} / {{ total }}
+		</span>
 
 		<span class="paginate-pagination-action">
 			<v-btn
+				data-test="pagination-first"
 				:disabled="page_sync === 0"
 				icon="mdi-page-first"
 				size="smallest"
@@ -41,6 +51,7 @@
 			/>
 
 			<v-btn
+				data-test="pagination-previous"
 				:disabled="page_sync === 0"
 				icon="mdi-chevron-left"
 				size="smallest"
@@ -49,6 +60,7 @@
 			/>
 
 			<v-btn
+				data-test="pagination-next"
 				:disabled="(page_sync + 1) * limit_sync >= total!"
 				icon="mdi-chevron-right"
 				size="smallest"
@@ -57,6 +69,7 @@
 			/>
 
 			<v-btn
+				data-test="pagination-last"
 				:disabled="(page_sync + 1) * limit_sync >= total!"
 				icon="mdi-page-last"
 				size="smallest"

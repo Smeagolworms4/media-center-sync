@@ -3,6 +3,7 @@ import {
 	type CategoryKeyword,
 	type Library,
 	type LibraryCheck,
+	type LibraryHint,
 	type MediaCategory,
 } from '@mcs/shared';
 import {
@@ -69,6 +70,27 @@ export class LibraryController {
 	@ApiOkResponse({ description: 'LibraryCheck[]' })
 	public check(): Promise<LibraryCheck[]> {
 		return this._libraries.check();
+	}
+
+	/**
+	 * Declared before `:id` like its neighbours, and read with `LIBRARY_READ`.
+	 *
+	 * Both hints answer a question somebody is already asking while looking at the
+	 * library — why is everything missing, why does this show have forty seasons — so
+	 * the right to see them is the right to see the library.
+	 */
+	@Get('hints')
+	@Granted(Right.LIBRARY_READ)
+	@ApiOperation({
+		summary: 'Ways this gateway is set up that make the library read wrongly',
+		description:
+			'No server with its folders declared, so every row reads missing; and a series '
+			+ 'that looks like a folder of shows the media server took for one show. '
+			+ 'Suspicions to check, never verdicts, and dismissed through the settings.',
+	})
+	@ApiOkResponse({ description: 'LibraryHint[]' })
+	public hints(): Promise<LibraryHint[]> {
+		return this._libraries.hints();
 	}
 
 	/**

@@ -135,6 +135,88 @@ describe('applyOverride', () => {
 		expect(item).toMatchObject({ title: 'Dulcinea', seasonNumber: 1, year: 2015 });
 		expect(item.overrides).toBeNull();
 	});
+
+	/**
+	 * A correction that reproduces the service's own answer is not a correction.
+	 *
+	 * The difference is invisible the day it is made and decides everything afterwards:
+	 * an item with no correction keeps following its server, so the day Jellyfin fixes a
+	 * title the next scan picks it up; an item whose correction happens to equal today's
+	 * reported values is frozen on them for ever and no scan will ever change it again.
+	 */
+	describe('a correction that says what the service already says', () => {
+		it('records nothing at all when every field matches', () => {
+			// What the interface sends after "reset to what the service reports": every
+			// box holds the reported value, so the body is a correction of nothing.
+			const item = anItem();
+
+			applyOverride(item, {
+				libraryId: 'library-films',
+				title: 'Dulcinea',
+				seriesTitle: 'The Expanse',
+				year: 2015,
+				seasonNumber: 1,
+				episodeNumber: 1,
+				overview: 'The crew looks for answers.',
+				externalIds: { tvdb: '5312341', imdb: 'tt4192812' },
+			}, normalize);
+
+			expect(item.overrides).toBeNull();
+			expect(item.reported).toBeNull();
+			expect(item).toMatchObject({ title: 'Dulcinea', year: 2015, seasonNumber: 1 });
+		});
+
+		it('keeps only the fields that really differ', () => {
+			// Per field rather than all-or-nothing: a form sends every box it renders, and
+			// an item corrected on its year alone must not end up frozen on the title, the
+			// overview and the identifiers nobody touched.
+			const item = anItem();
+
+			applyOverride(item, { title: 'Dulcinea', year: 2016 }, normalize);
+
+			expect(item.overrides).toEqual({ year: 2016 });
+			expect(item.year).toBe(2016);
+			expect(item.title).toBe('Dulcinea');
+		});
+
+		it('drops an identifier that repeats the service and keeps one that corrects it', () => {
+			const item = anItem();
+
+			applyOverride(
+				item,
+				{ externalIds: { tvdb: '5312341', imdb: 'tt9999999' } },
+				normalize,
+			);
+
+			expect(item.overrides).toEqual({ externalIds: { imdb: 'tt9999999' } });
+			// Merged over the service's answer, so the TVDB number it got right survives.
+			expect(item.externalIds).toEqual({ tvdb: '5312341', imdb: 'tt9999999' });
+		});
+
+		it('reads erasing a field the service never filled as nothing to erase', () => {
+			// There is no year to remove, so "remove the year" is an instruction with no
+			// effect — and storing it would stop the item ever taking the year the service
+			// finally scrapes.
+			const item = anItem({ year: null });
+
+			applyOverride(item, { year: null }, normalize);
+
+			expect(item.overrides).toBeNull();
+		});
+
+		it('drops a whole correction the moment its last real field is withdrawn', () => {
+			const item = anItem();
+
+			applyOverride(item, { title: 'Wrong' }, normalize);
+			expect(item.overrides).toEqual({ title: 'Wrong' });
+
+			applyOverride(item, { title: 'Dulcinea' }, normalize);
+
+			expect(item.overrides).toBeNull();
+			expect(item.reported).toBeNull();
+			expect(item.title).toBe('Dulcinea');
+		});
+	});
 });
 
 describe('snapshotReported', () => {

@@ -176,6 +176,7 @@ the network and therefore answered both questions wrongly at once.
 | PATCH | `/libraries/:id` | `UpdateLibraryDto` | `Library` | `LIBRARY_MANAGE` |
 | GET | `/libraries/categories` | — | `MediaCategory[]` | `LIBRARY_READ` |
 | GET | `/libraries/check` | — | `LibraryCheck[]` | `LIBRARY_READ` |
+| GET | `/libraries/hints` | — | `LibraryHint[]` | `LIBRARY_READ` |
 | GET | `/libraries/keywords` | — | `CategoryKeyword[]` | `LIBRARY_READ` |
 | POST | `/libraries/categories/:key/keywords` | `AddCategoryKeywordDto` | `CategoryKeyword` | `LIBRARY_MANAGE` |
 | PATCH | `/libraries/keywords/:id` | `MoveCategoryKeywordDto` | `CategoryKeyword` | `LIBRARY_MANAGE` |
@@ -224,6 +225,26 @@ list stored under `shows` would be orphaned by exactly the rename it exists to s
 A library identifier survives a rename and survives a rescan, which matches rows on
 `(serviceId, externalId)` and updates them in place. `CategoryKeyword.categoryKey` is
 therefore computed at read time, and the row is removed with its library.
+
+`/libraries/hints` answers the two ways this gateway can be set up that make the
+library read wrongly. Neither is a fault of the gateway — it mirrors what the media
+servers declare — and neither is reported anywhere else, which is the whole reason the
+route exists.
+
+`nothing_mounted` fires when at least one service is registered and none of them is
+local: `missing` means "known elsewhere, not held here", so on such a gateway every
+single row reads missing, correctly and unreadably. It carries no series and cannot be
+dismissed, because it goes on its own the moment one mapping exists and it is the one
+sentence that explains the whole screen.
+
+`misread_folder` names a series whose seasons read like show titles, or which claims
+more seasons than a show plausibly runs for — what a library root one level too high
+produces, with the media server taking a folder of shows for one show and every show
+beneath it for a season. It carries the series, the library, the service, the season
+names as `examples` and which `signals` fired, so the interface can say what looks odd
+rather than only that something does. It is a suspicion to check and never a verdict:
+some real shows do name their seasons. Adding its `key` to the `dismissedLibraryHints`
+setting through `PATCH /settings` stops it being answered, for good and for everybody.
 
 `/libraries/check` probes each declared `localPath`: does it exist, can it be read,
 can it be written, how much room is left. This is the answer to the failure that

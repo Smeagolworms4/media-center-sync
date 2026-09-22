@@ -2,12 +2,14 @@ import type {
 	CategoryKeyword,
 	Library,
 	LibraryCheck,
+	LibraryHint,
 	MediaCategory,
 	UpdateLibraryRequest,
 } from '@mcs/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
+import { useSettingsStore } from '@/stores/settings';
 
 /**
  * Libraries and the state of the directories behind them.
@@ -24,6 +26,8 @@ export const useLibrariesStore = defineStore('libraries', () => {
 	const categories = ref<MediaCategory[]>([]);
 	const checks = ref<LibraryCheck[]>([]);
 	const keywords = ref<CategoryKeyword[]>([]);
+	const hints = ref<LibraryHint[]>([]);
+	const hintsLoaded = ref(false);
 	const loading = ref(false);
 	const loaded = ref(false);
 	const categoriesLoaded = ref(false);
@@ -226,6 +230,58 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		await reloadMapping();
 	}
 
+	/**
+	 * Ways this gateway is set up that make the library read wrongly.
+	 *
+	 * Read as its own call and never folded into `load`, because the two answer
+	 * different questions and the screens that want one rarely want the other: the
+	 * settings screen edits libraries one at a time and has nothing to say about the
+	 * shape of a folder, while the wall and the dashboard show the line and never name
+	 * a library at all.
+	 *
+	 * A gateway that cannot answer is not a reason to take a page down. The hints are
+	 * the explanation beside the data, so failing to read them leaves the screen exactly
+	 * as it was before they existed.
+	 */
+	async function loadHints (): Promise<LibraryHint[]> {
+		const loadedHints = await caller('api').get<LibraryHint[]>('/libraries/hints', {
+			keepLastKey: 'libraries|hints',
+		});
+		// An empty body parses to `null`, and both screens read this as a list.
+		hints.value = Array.isArray(loadedHints) ? loadedHints : [];
+		hintsLoaded.value = true;
+		return hints.value;
+	}
+
+	/**
+	 * Put one hint away for good.
+	 *
+	 * Stored on the gateway rather than in this browser, because a hint is about the
+	 * gateway and not about whoever happened to be looking at it: dismissed on the
+	 * laptop and back on the phone is a notice nobody can get rid of, which is worse
+	 * than one that was never shown.
+	 *
+	 * The row is dropped here as well as sent, so the line goes the moment it is
+	 * clicked. Waiting for the reload would leave it on screen for a round trip, which
+	 * reads as a button that did nothing.
+	 */
+	async function dismissHint (key: string): Promise<void> {
+		const settings = useSettingsStore();
+
+		// The whole list is sent, so it has to be the whole list. On a screen that never
+		// needed the settings — the wall is one — the store is still empty, and sending
+		// this one key over an unread list would wake every hint somebody had already put
+		// away, with nothing anywhere saying why they came back.
+		if (!settings.loaded) {
+			await settings.load();
+		}
+
+		const already = settings.settings?.dismissedLibraryHints ?? [];
+
+		hints.value = hints.value.filter(one => one.key !== key);
+		await settings.save({ dismissedLibraryHints: [...new Set([...already, key])] });
+	}
+
 	async function loadChecks (): Promise<LibraryCheck[]> {
 		checking.value = true;
 		try {
@@ -250,6 +306,8 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		categories,
 		checks,
 		keywords,
+		hints,
+		hintsLoaded,
 		loading,
 		loaded,
 		categoriesLoaded,
@@ -272,6 +330,8 @@ export const useLibrariesStore = defineStore('libraries', () => {
 		get,
 		update,
 		loadChecks,
+		loadHints,
+		dismissHint,
 		ofService,
 	};
 });

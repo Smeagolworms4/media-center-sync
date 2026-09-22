@@ -33,6 +33,18 @@ import {
 const NAMING_STEP_LIMIT = Object.keys(NamingScheme).length;
 
 /**
+ * How many dismissed hints are kept, and how long a key may be.
+ *
+ * Bounded because the list arrives whole from a browser and is stored as one row: a
+ * body carrying a hundred thousand keys would be accepted, written, and read back on
+ * every settings request for ever. Five hundred is far past the number of series a
+ * gateway could plausibly produce a hint for, and a key is an identifier with a short
+ * prefix, never a name somebody typed.
+ */
+const DISMISSED_HINT_LIMIT = 500;
+const HINT_KEY_MAX = 80;
+
+/**
  * Refuse from inside the validator, rather than letting the pipe word it.
  *
  * Every other refusal on this screen answers `{ key, field }`, which is what puts the
@@ -388,4 +400,18 @@ export class UpdateSettingsDto {
 	@Min(0)
 	@Max(3600)
 	public cacheTtlSeconds?: number;
+
+	@ApiPropertyOptional({
+		description:
+			'Keys of the organisation hints somebody has read and does not want again. ' +
+			'Sent whole: the list replaces the stored one, so dismissing a hint means ' +
+			'sending the list with its key added.',
+		type: [String],
+	})
+	@IsOptional()
+	@IsArray()
+	@ArrayMaxSize(DISMISSED_HINT_LIMIT)
+	@IsString({ each: true })
+	@MaxLength(HINT_KEY_MAX, { each: true })
+	public dismissedLibraryHints?: string[];
 }

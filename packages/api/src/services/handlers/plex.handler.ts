@@ -65,10 +65,127 @@ const LIBRARY_KIND_BY_SECTION_TYPE: Record<string, LibraryKind> = {
 	movie: LibraryKind.MOVIES,
 	show: LibraryKind.SHOWS,
 	artist: LibraryKind.MUSIC,
+	// Plex has no mixed section in its own interface, but a section restored from a
+	// backup or written by a third-party tool can arrive carrying the word, and it
+	// means exactly what Jellyfin means by it.
+	mixed: LibraryKind.MIXED,
+};
+
+/**
+ * What a Plex section type says a library holds.
+ *
+ * A section that names no type is not a section holding nothing: it is a server that
+ * did not answer the question, and the only honest reading of that is "films or
+ * shows, we were not told". Reading it as `OTHER` sent it to the back of destination
+ * ranking, which is the wrong end for the one library that can hold anything.
+ *
+ * A type Plex did name and this model has no media for — `photo` — stays `OTHER`, so
+ * a photo album is never offered as somewhere to put a film.
+ */
+export const sectionKindFor = (sectionType: string | null | undefined): LibraryKind => {
+	const type = sectionType?.toLowerCase() ?? '';
+
+	if (type === '') {
+		return LibraryKind.MIXED;
+	}
+
+	return LIBRARY_KIND_BY_SECTION_TYPE[type] ?? LibraryKind.OTHER;
 };
 
 /** How long a resolved part key stays usable. See `_partKey` for why it is cached. */
 const PART_KEY_TTL_SECONDS = 300;
+
+/**
+ * Ask Plex for the identifiers it already holds, on every route that returns items.
+ *
+ * Without it the answer simply has no `Guid` array — not an empty one, absent — and
+ * nothing anywhere says a field was omitted. That single missing parameter is why a
+ * catalogue of twenty Plex films carried nothing but Plex's own row key and could
+ * never be matched by identifier against the same films on a Jellyfin: the numbers
+ * were always published, they were never asked for. Whichever route grows next and
+ * returns `Metadata`, it needs this too.
+ */
+const WITH_GUIDS = { includeGuids: 1 } as const;
+
+/**
+ * Plex's own agent names, folded onto the identifiers correlation actually joins on.
+ *
+ * This is an allow list and not a normalisation, and that is the point. Plex publishes
+ * its own row key as `plex://movie/5d776be17a53e9001e732ab9`, and a rule that took
+ * whatever scheme it found would file `movie` under an identifier named `plex` — or,
+ * worse the day somebody widens the read, hand correlation a string that means one
+ * film on this server and a different one on the next. Only the four registries whose
+ * numbers mean the same thing on every server in the world are kept.
+ *
+ * Both spellings of each exist because Plex changed agent naming: the legacy agents
+ * are `com.plexapp.agents.thetvdb` and `com.plexapp.agents.themoviedb`, the modern
+ * `Guid` entries are `tvdb://` and `tmdb://`, and a library built in 2016 and one
+ * built last week sit side by side in the same server.
+ */
+const IDENTIFIER_BY_PLEX_AGENT: Record<string, 'imdb' | 'tmdb' | 'tvdb' | 'musicbrainz'> = {
+	imdb: 'imdb',
+	tmdb: 'tmdb',
+	themoviedb: 'tmdb',
+	moviedb: 'tmdb',
+	tvdb: 'tvdb',
+	thetvdb: 'tvdb',
+	musicbrainz: 'musicbrainz',
+};
+
+/**
+ * Every identifier Plex publishes for one item, by the name the rest of the gateway
+ * uses.
+ *
+ * Two shapes, both real, both seen on the same server. The modern agents publish a
+ * `Guid` array of `imdb://tt0417299`, `tmdb://1234`, `tvdb://5678`; the legacy agents
+ * publish a single `guid` string like `com.plexapp.agents.imdb://tt0417299?lang=en`,
+ * and an item matched by a legacy agent has no `Guid` array at all. Reading only one
+ * shape leaves half of somebody's catalogue with no identity, and which half depends
+ * on when each library was created.
+ *
+ * `plex://` is refused rather than ignored, and it is the whole reason this is a
+ * function worth testing: it is the guid a modern Plex puts in the legacy field, so
+ * the naive parser finds it first, finds it on every single item, and produces a
+ * confident identifier that is meaningless one server away.
+ *
+ * Exported because correlation depends on it and a fetch stub is the wrong place to
+ * pin down a parser.
+ */
+export const plexIdentifiers = (
+	guid: string | null | undefined,
+	guids: readonly (string | null | undefined)[] = [],
+): Partial<Record<'imdb' | 'tmdb' | 'tvdb' | 'musicbrainz', string>> => {
+	const ids: Partial<Record<'imdb' | 'tmdb' | 'tvdb' | 'musicbrainz', string>> = {};
+	const take = (agent: string, value: string): void => {
+		const key = IDENTIFIER_BY_PLEX_AGENT[agent.toLowerCase()];
+
+		// First writer wins: the `Guid` list is read before the legacy field, because a
+		// server that publishes both has the modern one right and the legacy one
+		// pointing at whatever agent used to match the item.
+		if (key !== undefined && ids[key] === undefined && value !== '') {
+			ids[key] = value;
+		}
+	};
+
+	for (const entry of guids) {
+		const match = /^([A-Za-z]+):\/\/([^/?#]+)/.exec(entry ?? '');
+
+		if (match) {
+			take(match[1], match[2]);
+		}
+	}
+
+	// The legacy shape carries the registry after `agents.`; nothing else in the
+	// string is an identifier, and `plex://…` has no `agents.` segment at all, which
+	// is what keeps it out without a special case.
+	const legacy = /agents\.([A-Za-z]+):\/\/([^/?#]+)/.exec(guid ?? '');
+
+	if (legacy) {
+		take(legacy[1], legacy[2]);
+	}
+
+	return ids;
+};
 
 /**
  * Plex, over its HTTP API.
@@ -189,13 +306,11 @@ export class PlexHandler implements MediaServiceHandler {
 				return [];
 			}
 
-			const type = asString(section.type)?.toLowerCase() ?? '';
-
 			return [
 				{
 					externalId,
 					name: asString(section.title) ?? externalId,
-					kind: LIBRARY_KIND_BY_SECTION_TYPE[type] ?? LibraryKind.OTHER,
+					kind: sectionKindFor(asString(section.type)),
 					paths: asRecordArray(section.Location)
 						.map((location) => asString(location.path))
 						.filter((path): path is string => !!path),
@@ -377,11 +492,13 @@ export class PlexHandler implements MediaServiceHandler {
 			const container =
 				since === null
 					? await this._container(connection, `/library/sections/${library.externalId}/newest`, {
+						...WITH_GUIDS,
 						type: PLEX_TYPE_BY_KIND[kind],
 						'X-Plex-Container-Start': 0,
 						'X-Plex-Container-Size': 100,
 					})
 					: await this._container(connection, `/library/sections/${library.externalId}/all`, {
+						...WITH_GUIDS,
 						type: PLEX_TYPE_BY_KIND[kind],
 						'updatedAt>=': since,
 						sort: 'updatedAt:asc',
@@ -459,6 +576,7 @@ export class PlexHandler implements MediaServiceHandler {
 		const container = await this._container(
 			connection,
 			`/library/metadata/${encodeURIComponent(externalId)}`,
+			WITH_GUIDS,
 		).catch((error: unknown) => {
 			if (error instanceof NotFoundException) {
 				return null;
@@ -573,6 +691,7 @@ export class PlexHandler implements MediaServiceHandler {
 				connection,
 				`/library/sections/${library.externalId}/all`,
 				{
+					...WITH_GUIDS,
 					type: PLEX_TYPE_BY_KIND[kind],
 					// Paging happens through these two parameters rather than through
 					// headers, because a header-paged request that loses its headers to
@@ -660,6 +779,7 @@ export class PlexHandler implements MediaServiceHandler {
 		const container = await this._container(
 			connection,
 			`/library/metadata/${encodeURIComponent(ratingKey)}/children`,
+			WITH_GUIDS,
 		).catch(() => null);
 
 		return container ? asRecordArray(container.Metadata) : [];
@@ -739,6 +859,9 @@ export class PlexHandler implements MediaServiceHandler {
 			return [MediaKind.SERIES, MediaKind.SEASON, MediaKind.EPISODE];
 		}
 
+		// `MIXED` lands here and this is the right answer for it rather than a fallback:
+		// the server said the section may hold either, so asking for both is the
+		// accurate question. `JellyfinHandler._includeTypes` reads the same way.
 		return [MediaKind.MOVIE, MediaKind.SERIES, MediaKind.SEASON, MediaKind.EPISODE];
 	}
 
@@ -822,35 +945,19 @@ export class PlexHandler implements MediaServiceHandler {
 	}
 
 	private _toExternalIds(raw: Payload, externalId: string) {
-		const ids: Record<string, string> = {};
-
-		// The modern shape is a `Guid` array of `tvdb://121361` entries; the legacy one
-		// is a single `guid` string like
-		// `com.plexapp.agents.thetvdb://121361/1/2?lang=en`. Libraries built years apart
-		// carry one or the other, and both are the most reliable match we will get.
-		for (const entry of asRecordArray(raw.Guid)) {
-			const value = asString(entry.id) ?? '';
-			const match = /^(\w+):\/\/([^/?]+)/.exec(value);
-
-			if (match) {
-				ids[match[1].toLowerCase()] = match[2];
-			}
-		}
-
-		const legacy = asString(raw.guid) ?? '';
-		const legacyMatch = /agents\.(\w+):\/\/([^/?]+)/.exec(legacy);
-
-		if (legacyMatch) {
-			const agent = legacyMatch[1].toLowerCase().replace('the', '');
-
-			ids[agent] = ids[agent] ?? legacyMatch[2];
-		}
+		const ids = plexIdentifiers(
+			asString(raw.guid),
+			asRecordArray(raw.Guid).map((entry) => asString(entry.id)),
+		);
 
 		return {
 			tvdb: ids.tvdb,
-			tmdb: ids.tmdb ?? ids.themoviedb,
+			tmdb: ids.tmdb,
 			imdb: ids.imdb,
 			musicbrainz: ids.musicbrainz,
+			// Plex's own row key, kept because it is how this item is addressed on this
+			// server — and never treated as an identity, because row 5 on one Plex is a
+			// different film on the next. `WORK_IDENTIFIERS` deliberately excludes it.
 			provider: externalId,
 		};
 	}

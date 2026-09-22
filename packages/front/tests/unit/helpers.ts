@@ -70,7 +70,37 @@ export function mountWithApp<T> (
 	component: Component,
 	options: Record<string, any> = {},
 ): MountResult<T> {
+	return mountInto(createTestContext(), component, options);
+}
+
+/**
+ * Mount a page at an address, the way opening a link does.
+ *
+ * Mounting at `/` and pushing afterwards is a different thing entirely: that is an
+ * in-app navigation, where a page changing its own filters legitimately starts over at
+ * the first one, and a test written that way proves nothing about a link somebody
+ * pasted into a chat. The navigation has to settle *before* the component is mounted,
+ * because a page reads its filters out of the address in `setup` — which is why this
+ * one is async and `mountWithApp` is not.
+ */
+export async function mountWithAppAt<T> (
+	component: Component,
+	route: Parameters<Router['push']>[0],
+	options: Record<string, any> = {},
+): Promise<MountResult<T>> {
 	const context = createTestContext();
+
+	await context.router.push(route);
+	await context.router.isReady();
+
+	return mountInto(context, component, options);
+}
+
+function mountInto<T> (
+	context: TestContext,
+	component: Component,
+	options: Record<string, any>,
+): MountResult<T> {
 	const { global: globalOptions = {}, ...rest } = options;
 
 	const wrapper = mount(component as any, {

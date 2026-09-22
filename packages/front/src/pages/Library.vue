@@ -1,12 +1,13 @@
 <script lang="ts" setup>
 	import type { TrailStep } from '@/composables/useMediaTrail';
 	import type { LibraryKind, MediaCategory, MediaGroup, MediaGroupQuery } from '@mcs/shared';
-	import { MediaKind, MediaOrigin, SyncState } from '@mcs/shared';
+	import { MediaKind, MediaOrigin, Right, SyncState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
+	import LibraryHints from '@/components/library/LibraryHints.vue';
 	import LibrarySection from '@/components/media/LibrarySection.vue';
 	import MediaBreadcrumb from '@/components/media/MediaBreadcrumb.vue';
 	import MediaFilters from '@/components/media/MediaFilters.vue';
@@ -102,7 +103,26 @@
 	}));
 	const sort = queryRef<string>('sort', queryTypes.string({ defaultValue: 'title' }));
 	const direction = queryRef<string>('direction', queryTypes.string({ defaultValue: 'asc' }));
-	const page = queryRef<number>('page', queryTypes.integer({ defaultValue: 0 }));
+	/**
+	 * The page, counted from one — the same number the API counts in.
+	 *
+	 * One convention across the whole screen, and this is the one, because the address
+	 * bar and the request have to say the same thing. They did not: the parameter was
+	 * zero-based, the API is one-based, and the conversion was written into one of the
+	 * two branches that build a query. The other sent `page: 1` whatever the address
+	 * said, so paging an opened category asked for the first page again and again; and
+	 * a `page=0` that reached the API at all was refused outright with
+	 * `page must not be less than 1` — a 400 in place of a wall, for pressing "next".
+	 *
+	 * A number below one is read as the first page rather than forwarded. A hand-edited
+	 * or truncated link is the ordinary way that happens, and answering it with the
+	 * first page is better than answering it with a validation error about a parameter
+	 * nobody typed on purpose.
+	 */
+	const page = queryRef<number>('page', queryTypes.integer({
+		defaultValue: 1,
+		validate: value => value >= 1,
+	}));
 	const limit = queryRef<number>('limit', queryTypes.integer({ defaultValue: 60 }));
 
 	/**
@@ -120,13 +140,18 @@
 	const syncing = ref(false);
 
 	/**
-	 * The pagination control works on plain numbers while a query parameter is always
-	 * nullable — an address with no `page` in it is the first page.
+	 * The one place the two conventions meet.
+	 *
+	 * `Pagination` counts from zero — it is shared with every table in the application
+	 * and changing it would renumber all of them — while the address and the API count
+	 * from one. Converting here and nowhere else is what keeps them from drifting
+	 * apart again: every other line on this page reads `page` and means the page number
+	 * a person would say out loud.
 	 */
 	const pageModel = computed({
-		get: () => page.value ?? 0,
+		get: () => (page.value ?? 1) - 1,
 		set: (value: number) => {
-			page.value = value;
+			page.value = value + 1;
 		},
 	});
 	const limitModel = computed({
@@ -256,6 +281,15 @@
 		return deduplicated.value[band.key] ?? [];
 	}
 
+	/**
+	 * How many the category holds, and zero when nobody has said.
+	 *
+	 * Zero is the safe answer rather than the true one. The pager decides whether a
+	 * next page exists by comparing this with the page it is on, so an unknown total
+	 * has to mean "there is nothing after this" — offering a next page that leads
+	 * nowhere is the same defect as sending a page number the API refuses. A band whose
+	 * call has not answered yet, or answered with an error, is in exactly that state.
+	 */
 	function totalOf (band: Band): number {
 		return mediaStore.groupPagination[band.key]?.total ?? 0;
 	}
@@ -325,8 +359,11 @@
 			// is a list somebody is working through, and there the order is theirs.
 			sort: (focused.value ? sort.value ?? 'title' : 'addedAt') as 'title' | 'year' | 'addedAt',
 			direction: (focused.value ? direction.value ?? 'asc' : 'desc') as 'asc' | 'desc',
-			// The pagination control counts from zero; the API counts from one.
-			page: focused.value ? (page.value ?? 0) + 1 : 1,
+			// The address and the API count pages the same way, so this forwards the
+			// number rather than converting it. The home screen's bands are not paged at
+			// all — they are the latest of each category — so they always ask for the
+			// first one.
+			page: focused.value ? (page.value ?? 1) : 1,
 			limit: focused.value ? (limit.value ?? 60) : OVERVIEW_LIMIT,
 		};
 	}
@@ -344,7 +381,7 @@
 	const debouncedSearch = useDebounce(runSearch, 300);
 
 	watch(search, () => {
-		page.value = 0;
+		page.value = 1;
 		void debouncedSearch();
 	});
 
@@ -352,12 +389,12 @@
 		// The bands about to be drawn are not the ones on screen, and a band nobody is
 		// looking at must not keep answering with what it held for another filter.
 		mediaStore.clearGroups();
-		page.value = 0;
+		page.value = 1;
 		void runSearch();
 	});
 
 	watch([serviceIds, origins, kind, states, sort, direction, limit], () => {
-		page.value = 0;
+		page.value = 1;
 		void runSearch();
 	});
 
@@ -378,6 +415,12 @@
 				? Promise.resolve()
 				: librariesStore.loadCategories().catch(() => undefined),
 			peersStore.loaded ? Promise.resolve() : peersStore.load().catch(() => undefined),
+			// The line that explains why every row underneath reads missing. Never a
+			// reason to take the wall down: a gateway that cannot answer leaves the
+			// screen exactly as it was before the hints existed.
+			librariesStore.hintsLoaded
+				? Promise.resolve()
+				: librariesStore.loadHints().catch(() => undefined),
 		]);
 		await runSearch();
 	});
@@ -427,6 +470,19 @@
 		libraryId.value = null;
 		everything.value = value;
 	}
+
+	/**
+	 * Put one organisation hint away for good.
+	 *
+	 * Through the store, because it is a setting on the gateway rather than something
+	 * this browser remembers: dismissed here and back on another machine is a notice
+	 * nobody can be rid of.
+	 */
+	const dismissHint = tryCallback(
+		async (key: string) => {
+			await librariesStore.dismissHint(key);
+		},
+	);
 
 	const syncSelected = tryCallback(async () => {
 		syncing.value = true;
@@ -489,6 +545,13 @@
 				</v-btn-toggle>
 			</template>
 		</PageHeader>
+
+		<LibraryHints
+			class="mb-4"
+			:dismissable="$isGranted(Right.SETTINGS_MANAGE)"
+			:hints="librariesStore.hints"
+			@dismiss="dismissHint"
+		/>
 
 		<MediaBreadcrumb :steps="trail" />
 

@@ -1,11 +1,12 @@
 <script lang="ts" setup>
-	import { MediaServiceStatus, PeerStatus, SyncState } from '@mcs/shared';
+	import { MediaServiceStatus, PeerStatus, Right, SyncState } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import Rate from '@/components/common/Rate.vue';
 	import StatTile from '@/components/common/StatTile.vue';
+	import LibraryHints from '@/components/library/LibraryHints.vue';
 	import JobRow from '@/components/sync/JobRow.vue';
 	import UnconfiguredPlacements from '@/components/transfer/UnconfiguredPlacements.vue';
 	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
@@ -54,6 +55,10 @@
 				librariesStore.load(),
 				librariesStore.loadCategories(),
 				librariesStore.loadChecks(),
+				// Failing to read the hints leaves the dashboard exactly as it was before
+				// they existed, which is better than a home page that will not draw
+				// because the line explaining it could not be fetched.
+				librariesStore.loadHints().catch(() => undefined),
 				peersStore.load(),
 				transfersStore.load({ page: 1, limit: 10 }),
 				transfersStore.loadStats(),
@@ -169,6 +174,19 @@
 	 */
 	const categories = computed(() => librariesStore.orderedCategories);
 
+	/**
+	 * Put one organisation hint away for good.
+	 *
+	 * Through the store, because it is a setting on the gateway rather than something
+	 * this browser remembers: dismissed on the laptop and back on the phone is a notice
+	 * nobody can be rid of.
+	 */
+	const dismissHint = tryCallback(
+		async (key: string) => {
+			await librariesStore.dismissHint(key);
+		},
+	);
+
 	/** Move this one file. Cheap while it is still downloading, a real move once it landed. */
 	const move = tryCallback(
 		async (transferId: string, libraryId: string) => {
@@ -222,6 +240,13 @@
 		<ErrorState v-if="failed" @retry="load" />
 
 		<template v-else>
+			<LibraryHints
+				class="mb-4"
+				:dismissable="$isGranted(Right.SETTINGS_MANAGE)"
+				:hints="librariesStore.hints"
+				@dismiss="dismissHint"
+			/>
+
 			<v-row density="compact">
 				<v-col cols="12" md="3" sm="6">
 					<StatTile

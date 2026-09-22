@@ -89,6 +89,9 @@
 		[LibraryKind.MOVIES]: 'mdi-movie-open-outline',
 		[LibraryKind.SHOWS]: 'mdi-television-classic',
 		[LibraryKind.MUSIC]: 'mdi-music-box-multiple-outline',
+		// Films and shows both, which is what the icon has to say — a folder would read
+		// as "we have no idea", and that is the other kind entirely.
+		[LibraryKind.MIXED]: 'mdi-multimedia',
 		[LibraryKind.OTHER]: 'mdi-folder-multiple-outline',
 	};
 

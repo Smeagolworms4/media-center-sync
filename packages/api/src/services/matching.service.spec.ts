@@ -45,6 +45,149 @@ function options(overrides: Partial<MatchOptions> = {}): MatchOptions {
 describe('MatchingService', () => {
 	const service = new MatchingService(new QualityService());
 
+	/**
+	 * The three ways an episode may be paired, in the order they are allowed to speak.
+	 *
+	 * An identifier that names the episode decides whatever the numbering says; the
+	 * numbers decide when no such identifier exists; and the conversion between two
+	 * numbering conventions is the last resort. Each of the three is pinned here from
+	 * both sides — that it fires where it should, and that it stays silent where the
+	 * evidence is a show's identifier or two sides that simply disagree.
+	 */
+	describe('episodes numbered two different ways', () => {
+		const run = candidate({
+			id: 'run-153',
+			serviceId: 'service-run',
+			parentId: 'run-season',
+			title: 'Episode 153',
+			normalizedTitle: 'episode 153',
+			seasonNumber: 1,
+			episodeNumber: 153,
+			externalIds: { tvdb: '81472' },
+			file: null,
+		});
+		const cut = candidate({
+			id: 'cut-s6e12',
+			serviceId: 'service-cut',
+			parentId: 'cut-season-6',
+			title: 'The Final Blow',
+			normalizedTitle: 'the final blow',
+			seasonNumber: 6,
+			episodeNumber: 12,
+			externalIds: { tvdb: '81472' },
+			file: null,
+		});
+
+		it('pairs on an identifier that names the episode, whatever the numbers say', () => {
+			const paired = service.score(
+				{ ...run, externalIds: { tvdb: '556677' } },
+				{ ...cut, externalIds: { tvdb: '556677' } },
+				options({
+					episodeIdentifiers: new Map([
+						['run-153', new Set(['tvdb:556677'])],
+						['cut-s6e12', new Set(['tvdb:556677'])],
+					]),
+				}),
+			);
+
+			expect(paired).toEqual({ strategy: MatchStrategy.EXTERNAL_ID, confidence: 0.98 });
+		});
+
+		it('refuses an identifier every episode of the show carries', () => {
+			// `81472` is the series number on both sides, so it is on neither map. Without
+			// the guard this pairs episode 153 with episode 12 and calls it proof.
+			expect(service.score(run, cut, options())).toBeNull();
+		});
+
+		it('refuses an identifier that names the episode on one side only', () => {
+			expect(
+				service.score(
+					run,
+					cut,
+					options({ episodeIdentifiers: new Map([['run-153', new Set(['tvdb:81472'])]]) }),
+				),
+			).toBeNull();
+		});
+
+		it('pairs on the conversion when the alignment related the two rows', () => {
+			const paired = service.score(
+				run,
+				cut,
+				options({ absolutePairs: new Map([['run-153', new Set(['cut-s6e12'])]]) }),
+			);
+
+			expect(paired).toEqual({ strategy: MatchStrategy.ABSOLUTE_EPISODE, confidence: 0.9 });
+		});
+
+		it('leaves the conversion out of a pair the alignment never made', () => {
+			expect(
+				service.score(
+					run,
+					cut,
+					options({ absolutePairs: new Map([['run-153', new Set(['cut-s6e13'])]]) }),
+				),
+			).toBeNull();
+		});
+
+		it('lets the numbers both servers declared answer before the conversion', () => {
+			// Rule two. Where the coordinates agree and the parents are matched, the pair
+			// is what two servers said rather than what arithmetic worked out.
+			const first = { ...run, seasonNumber: 1, episodeNumber: 1, externalIds: {} };
+			const second = { ...cut, seasonNumber: 1, episodeNumber: 1, externalIds: {} };
+			const paired = service.score(
+				first,
+				second,
+				options({
+					parentMatches: new Map([['run-season', new Set(['cut-season-6'])]]),
+					absolutePairs: new Map([['run-153', new Set(['cut-s6e12'])]]),
+				}),
+			);
+
+			expect(paired).toEqual({ strategy: MatchStrategy.SEASON_EPISODE, confidence: 0.95 });
+		});
+
+		it('refuses a converted pair the episodes\' own identifiers contradict', () => {
+			// The alignment works on numbers and cannot see this: two identifiers that
+			// each name their own episode, and name different ones.
+			expect(
+				service.score(
+					{ ...run, externalIds: { tvdb: '111' } },
+					{ ...cut, externalIds: { tvdb: '222' } },
+					options({
+						absolutePairs: new Map([['run-153', new Set(['cut-s6e12'])]]),
+						episodeIdentifiers: new Map([
+							['run-153', new Set(['tvdb:111'])],
+							['cut-s6e12', new Set(['tvdb:222'])],
+						]),
+					}),
+				),
+			).toBeNull();
+		});
+
+		it('keeps a converted pair when only the show identifiers differ', () => {
+			// Two servers that scraped from two providers carry two series numbers. That
+			// is not two episodes disagreeing, and treating it as one would switch the
+			// feature off on exactly the libraries it was written for.
+			const paired = service.score(
+				{ ...run, externalIds: { tvdb: '111' } },
+				{ ...cut, externalIds: { tvdb: '222' } },
+				options({ absolutePairs: new Map([['run-153', new Set(['cut-s6e12'])]]) }),
+			);
+
+			expect(paired).toEqual({ strategy: MatchStrategy.ABSOLUTE_EPISODE, confidence: 0.9 });
+		});
+
+		it('never converts anything that is not an episode', () => {
+			expect(
+				service.score(
+					{ ...run, kind: MediaKind.SEASON, externalIds: {} },
+					{ ...cut, kind: MediaKind.SEASON, externalIds: {} },
+					options({ absolutePairs: new Map([['run-153', new Set(['cut-s6e12'])]]) }),
+				),
+			).toBeNull();
+		});
+	});
+
 	describe('strategies', () => {
 		it('never matches two different kinds', () => {
 			const local = candidate({ kind: MediaKind.EPISODE });
@@ -650,6 +793,90 @@ describe('MatchingService', () => {
 					options(),
 				),
 			).toBeNull();
+		});
+	});
+
+	/**
+	 * Identifiers that contradict each other, which is the one thing a title cannot
+	 * argue with.
+	 *
+	 * The case is the owner's, now that a Plex item carries the numbers it always
+	 * published: two films that correlated on a title alone can turn out to be two
+	 * different works the moment both sides are asked who they are.
+	 */
+	describe('identifiers that disagree', () => {
+		const film = (overrides: Partial<MatchCandidate> = {}): MatchCandidate =>
+			candidate({
+				kind: MediaKind.MOVIE,
+				title: 'The Office',
+				normalizedTitle: 'office',
+				year: null,
+				seasonNumber: null,
+				episodeNumber: null,
+				parentId: null,
+				externalIds: {},
+				file: null,
+				...overrides,
+			});
+
+		it('refuses a perfect title match between two different works', () => {
+			const local = film({ externalIds: { imdb: 'tt0386676' } });
+			const remote = film({ id: 'r', serviceId: 's2', externalIds: { imdb: 'tt0290978' } });
+
+			expect(service.score(local, remote, options())).toBeNull();
+			expect(service.contradicted(local, remote)).toBe(true);
+		});
+
+		it('leaves a pair alone when only one side ever carried a number', () => {
+			// The ordinary house: one library scrapes, the other does not. Reading
+			// silence as disagreement would revoke every correct match somebody has.
+			const local = film({ externalIds: { imdb: 'tt0386676' } });
+			const remote = film({ id: 'r', serviceId: 's2', externalIds: {} });
+
+			expect(service.contradicted(local, remote)).toBe(false);
+			expect(service.score(local, remote, options())?.strategy).toBe(
+				MatchStrategy.NORMALIZED_TITLE,
+			);
+		});
+
+		it('ignores a placeholder, which is not a number anybody meant', () => {
+			const local = film({ externalIds: { tmdb: '0' } });
+			const remote = film({ id: 'r', serviceId: 's2', externalIds: { tmdb: '1234' } });
+
+			expect(service.contradicted(local, remote)).toBe(false);
+		});
+
+		it('lets one registry agreeing settle it when another disagrees', () => {
+			// Two libraries scraped different TMDB entries for one film. The IMDb number
+			// they share is the stronger statement, and throwing the pair away over the
+			// weaker one would ungroup a film from itself.
+			const local = film({ externalIds: { imdb: 'tt0417299', tmdb: '1' } });
+			const remote = film({
+				id: 'r',
+				serviceId: 's2',
+				externalIds: { imdb: 'tt0417299', tmdb: '2' },
+			});
+
+			expect(service.score(local, remote, options())?.strategy).toBe(MatchStrategy.EXTERNAL_ID);
+		});
+
+		it('upgrades a pair that used to be a title guess into proof', () => {
+			// The whole point of asking Plex for its identifiers: the same two rows, the
+			// same titles, and a match the gateway is now allowed to act on.
+			const withoutIds = service.score(
+				film(),
+				film({ id: 'r', serviceId: 's2' }),
+				options(),
+			);
+			const withIds = service.score(
+				film({ externalIds: { imdb: 'tt0417299' } }),
+				film({ id: 'r', serviceId: 's2', externalIds: { imdb: 'tt0417299' } }),
+				options(),
+			);
+
+			expect(withoutIds?.strategy).toBe(MatchStrategy.NORMALIZED_TITLE);
+			expect(withIds?.strategy).toBe(MatchStrategy.EXTERNAL_ID);
+			expect(withIds?.confidence).toBeGreaterThan(withoutIds?.confidence ?? 1);
 		});
 	});
 

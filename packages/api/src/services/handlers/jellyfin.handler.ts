@@ -63,6 +63,40 @@ const LIBRARY_KIND_BY_COLLECTION_TYPE: Record<string, LibraryKind> = {
 	movies: LibraryKind.MOVIES,
 	tvshows: LibraryKind.SHOWS,
 	music: LibraryKind.MUSIC,
+	// Emby and older Jellyfin builds wrote the word out; current ones say nothing at
+	// all, which `libraryKindFor` reads as the same statement.
+	mixed: LibraryKind.MIXED,
+};
+
+/**
+ * The collection types that mean "the server was never told what this holds".
+ *
+ * Jellyfin serialises an unset content type as the absent field, as `null`, or as the
+ * string `None` depending on the build and the route, and all three are the same
+ * answer: a library somebody created without picking a type. Matching only one of the
+ * three is why this is a set rather than a comparison — the gateway this was measured
+ * against reports `None`, and an installation one version older reports nothing.
+ */
+const UNDECLARED_COLLECTION_TYPES = new Set(['', 'none', 'null', 'undefined']);
+
+/**
+ * What a Jellyfin collection type says a library holds.
+ *
+ * Exported because the derivation is a rule, not an implementation detail: it decides
+ * where a pull lands and what chip a category carries, and it is pinned down by tests
+ * of its own rather than through a fetch stub.
+ */
+export const libraryKindFor = (collectionType: string | null | undefined): LibraryKind => {
+	const type = collectionType?.toLowerCase() ?? '';
+
+	if (UNDECLARED_COLLECTION_TYPES.has(type)) {
+		return LibraryKind.MIXED;
+	}
+
+	// A type Jellyfin named and this model has no media for — photos, books, home
+	// videos. That is a real answer and must not be softened into `MIXED`, which would
+	// offer a photo album as a destination for a film.
+	return LIBRARY_KIND_BY_COLLECTION_TYPE[type] ?? LibraryKind.OTHER;
 };
 
 /**
@@ -199,13 +233,11 @@ export class JellyfinHandler implements MediaServiceHandler {
 				return [];
 			}
 
-			const collectionType = asString(folder.CollectionType)?.toLowerCase() ?? '';
-
 			return [
 				{
 					externalId,
 					name: asString(folder.Name) ?? externalId,
-					kind: LIBRARY_KIND_BY_COLLECTION_TYPE[collectionType] ?? LibraryKind.OTHER,
+					kind: libraryKindFor(asString(folder.CollectionType)),
 					paths: this._locations(folder),
 				},
 			];
@@ -580,6 +612,9 @@ export class JellyfinHandler implements MediaServiceHandler {
 			return 'Series,Season,Episode';
 		}
 
+		// `MIXED` lands here on purpose and is the reason this branch is not a
+		// fallback: the server said the library may hold either, so asking for both is
+		// the accurate question rather than a guess made for want of a better one.
 		return 'Movie,Series,Season,Episode,BoxSet';
 	}
 

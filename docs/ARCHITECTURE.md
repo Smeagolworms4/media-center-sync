@@ -154,11 +154,28 @@ Strategies, in order of how much each can be trusted:
 | checksum | yes | almost never available before a transfer |
 | external id | nearly | absent on hand-filed libraries; wrong on mis-tagged ones |
 | season + episode | high, under a matched parent | useless without the parent |
+| absolute episode | high, and computed rather than declared | only exists where one side runs straight through and the other is cut into seasons |
 | normalised title + year | scored | remakes, translated titles, `Part 1` / `Pt. 1` |
 | path | weak | only meaningful between services sharing a mount |
 
 Below the configured threshold a match is proposed, not applied, and shows up as
 something to confirm rather than as a fact. `confirmedAt` records that a human agreed.
+
+An episode identifier decides before any of that, but only where it names *that*
+episode: media servers routinely stamp the series' number onto all four hundred rows,
+so an identifier shared by more than one episode of a show on one service proves
+nothing about which episode this is and is never compared. That count, taken per
+service and per series, is what separates the two — never the key name, since `tvdb`
+carries both.
+
+`absolute episode` is the last resort and the only coordinate no server declared. An
+absolute number is turned into a season and an episode with the season lengths of the
+side that *is* split into seasons, as already indexed — never a formula. It runs only
+where the two sides plainly use different conventions and account for the same show end
+to end; a hole anywhere on the split side suspends it for the whole series, because a
+missing episode shifts every season after it and the pairs past the shift are silently
+wrong. Two sides that both number by season and merely disagree are left disagreeing.
+See `services/episode-numbering.ts`, which holds every guard and the reasoning.
 
 Normalisation — lowercase, accents folded, article dropped, release noise stripped —
 is stored on the row rather than computed per query, because correlation joins on it

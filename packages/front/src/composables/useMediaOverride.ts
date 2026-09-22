@@ -122,6 +122,41 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		}
 	}
 
+	/**
+	 * Fill the form with what the service reports, and leave it there.
+	 *
+	 * Deliberately not a write. Somebody undoing a correction has to see the values
+	 * they are about to go back to before agreeing to them — a button that silently
+	 * saved would be indistinguishable from the "put it all back" one next to it, and
+	 * there would be no way to look at the service's answer and change your mind.
+	 *
+	 * Saving afterwards removes the correction rather than storing one that repeats the
+	 * service's answer, and the difference is the whole point: `payload()` leaves out
+	 * every field equal to what was reported, so the body is empty and the API reads an
+	 * empty correction as none at all. An item with no correction keeps following its
+	 * server — the day Jellyfin fixes that title, the next scan picks it up — while an
+	 * item frozen on today's values would never change again.
+	 */
+	function fillFromReported (): void {
+		const answer = reported.value;
+		draft.values = emptyValues();
+		draft.cleared = emptyCleared();
+		draft.externalIds = { tvdb: '', tmdb: '', imdb: '' };
+		draft.libraryId = answer?.libraryId ?? item.value?.libraryId ?? null;
+
+		if (!answer) {
+			return;
+		}
+
+		for (const field of [...OVERRIDE_TEXT_FIELDS, ...OVERRIDE_NUMBER_FIELDS]) {
+			draft.values[field] = text(answer[field]);
+		}
+
+		for (const key of OVERRIDE_ID_FIELDS) {
+			draft.externalIds[key] = text(answer.externalIds[key]);
+		}
+	}
+
 	watch(item, () => reset(), { immediate: true });
 
 	/** What the service reported for one field, for the "was X" line beside it. */
@@ -208,6 +243,7 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		correctedFields,
 		libraryChanged,
 		reset,
+		fillFromReported,
 		reportedValue,
 		isCorrected,
 		payload,

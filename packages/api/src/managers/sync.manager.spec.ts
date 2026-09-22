@@ -75,6 +75,7 @@ const SETTINGS: Settings = {
 	refreshIntervalMinutes: 15,
 	fullScanCron: null,
 	cacheTtlSeconds: 60,
+	dismissedLibraryHints: [],
 };
 
 const file = (overrides: Partial<MediaFileInfo> = {}): MediaFileInfo => ({

@@ -162,7 +162,16 @@ export function normalizeTitle(raw: string): string {
 	// Separators used as spaces in release names. Apostrophes close up instead, so
 	// `don't` becomes `dont` rather than `don t`.
 	value = value.replace(/['’`]/g, '');
-	value = value.replace(/[._\-:;,/\\+()\[\]{}!?"@#$%^*=|<>~]/g, ' ');
+
+	// Every punctuation mark and symbol Unicode knows, not a hand-written list of the
+	// ASCII ones. A typed-out list looks complete and is not: `Il était une fois… les
+	// Découvreurs` on one server and `Il était une fois les découvreurs` on the next
+	// reduced to `fois…` against `fois` and the two never met, because `…` is one
+	// character and only the three-dot spelling was covered. The same hole swallowed
+	// the typographic dashes, the guillemets and every full-width mark a Japanese or
+	// Chinese title carries. `\p{P}` covers the lot and `\p{S}` the symbols — `+`, `=`,
+	// `~`, `$` and the rest of what the old class listed by hand.
+	value = value.replace(/[\p{P}\p{S}]/gu, ' ');
 
 	const tokens = value.split(/\s+/).filter((token) => token !== '');
 	const kept: string[] = [];

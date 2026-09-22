@@ -1,6 +1,8 @@
-import type { MediaGroup, MediaGroupSource, Peer } from '@mcs/shared';
+import type { LibraryHint, MediaGroup, MediaGroupSource, Peer } from '@mcs/shared';
 import {
+	LibraryHintKind,
 	LibraryKind,
+	LibraryLayoutSignal,
 	MediaKind,
 	MediaServiceType,
 	PeerStatus,
@@ -9,6 +11,7 @@ import {
 } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
+import LibraryHints from '@/components/library/LibraryHints.vue';
 import CompanionMarks from '@/components/media/CompanionMarks.vue';
 import LibrarySection from '@/components/media/LibrarySection.vue';
 import MediaBreadcrumb from '@/components/media/MediaBreadcrumb.vue';
@@ -403,6 +406,28 @@ describe('components/media/LibrarySection', () => {
 			.toBe(LibraryKind.SHOWS);
 	});
 
+	/**
+	 * A library whose server never said what it holds is not a library of unknowns.
+	 *
+	 * It is the ordinary Jellyfin library — every one of the seven on the gateway this
+	 * was measured against — and the folder icon it used to get said the opposite of
+	 * what is true: not "we have no idea", but "films and shows, both".
+	 */
+	it('gives a band that may hold either its own icon rather than the unknown one', () => {
+		const mixed = mountWithApp(LibrarySection, {
+			props: { title: 'Video', libraryId: 'l1', libraryKind: LibraryKind.MIXED, groups: [group()], total: 3 },
+			global: { stubs: tooltipStub },
+		}).wrapper;
+		const other = mountWithApp(LibrarySection, {
+			props: { title: 'Photos', libraryId: 'l2', libraryKind: LibraryKind.OTHER, groups: [group()], total: 3 },
+			global: { stubs: tooltipStub },
+		}).wrapper;
+
+		expect(mixed.find('[data-test="library-section"]').attributes('data-kind'))
+			.toBe(LibraryKind.MIXED);
+		expect(mixed.html()).not.toBe(other.html());
+	});
+
 	it('counts what the band holds, not what fits on the screen', () => {
 		const { wrapper } = mountWithApp(LibrarySection, {
 			props: { title: 'Animes', libraryKind: LibraryKind.SHOWS, groups: [group()], total: 137 },
@@ -585,5 +610,112 @@ describe('components/media/CompanionMarks', () => {
 		});
 
 		expect(wrapper.text()).toContain('Nothing known to be missing');
+	});
+});
+/**
+ * The two lines that explain a screen nothing else explains.
+ *
+ * Both exist only to be seen, which is why they are pinned here as well as in a
+ * journey: a hint that renders nothing, or renders a verdict where a suspicion was
+ * meant, is the whole feature gone.
+ */
+describe('LibraryHints', () => {
+	const hint = (overrides: Partial<LibraryHint> = {}): LibraryHint => ({
+		key: 'misread-folder:series-1',
+		kind: LibraryHintKind.MISREAD_FOLDER,
+		itemId: 'series-1',
+		title: 'Scream',
+		libraryName: 'Series TV',
+		serviceName: 'Jellyfin',
+		signals: [LibraryLayoutSignal.NAMED_SEASONS],
+		examples: ['Agatha All Along', 'Agent Carter'],
+		seasonCount: 24,
+		...overrides,
+	});
+
+	const mounted = (hints: LibraryHint[], dismissable = true) =>
+		mountWithApp(LibraryHints, { props: { hints, dismissable }, global: { stubs: tooltipStub } });
+
+	it('draws nothing at all when there is nothing to say', () => {
+		expect(mounted([]).wrapper.find('[data-test="library-hints"]').exists()).toBe(false);
+	});
+
+	it('says in one line that no server has its folders declared', () => {
+		const { wrapper } = mounted([
+			hint({ kind: LibraryHintKind.NOTHING_MOUNTED, title: null, itemId: null, signals: [], examples: [], key: 'nothing-mounted' }),
+		]);
+
+		expect(wrapper.find('[data-test="library-hint-text"]').text())
+			.toContain('nothing counts as held here');
+	});
+
+	it('never offers to dismiss the mount line', () => {
+		// It goes on its own the moment one mapping exists, and a dismissal would
+		// silence the one sentence that explains thirty thousand rows.
+		const { wrapper } = mounted([
+			hint({ kind: LibraryHintKind.NOTHING_MOUNTED, key: 'nothing-mounted', signals: [], examples: [] }),
+		]);
+
+		expect(wrapper.find('[data-test="library-hint-dismiss"]').exists()).toBe(false);
+	});
+
+	it('names the series, quotes the seasons, and says what to change on the server', () => {
+		const { wrapper } = mounted([hint()]);
+
+		expect(wrapper.find('[data-test="library-hint-text"]').text()).toContain('Scream');
+		expect(wrapper.find('[data-test="library-hint-text"]').text()).toContain('24 seasons');
+		expect(wrapper.find('[data-test="library-hint-examples"]').text()).toContain('Agent Carter');
+		expect(wrapper.text()).toContain('Add the deeper folder as a library root');
+	});
+
+	it('words it as a suspicion rather than a verdict', () => {
+		// Some real shows do name their seasons. A line that said this was wrong would
+		// be wrong itself, on somebody's anthology, with no way to argue with it.
+		expect(mounted([hint()]).wrapper.text()).toContain('worth checking');
+	});
+
+	it('says which of the two things looks odd', () => {
+		const many = mounted([
+			hint({ signals: [LibraryLayoutSignal.TOO_MANY_SEASONS], examples: [], seasonCount: 62 }),
+		]);
+
+		expect(many.wrapper.find('[data-test="library-hint-text"]').text())
+			.toContain('more than a show usually runs for');
+		expect(mounted([hint()]).wrapper.find('[data-test="library-hint-text"]').text())
+			.toContain('named like separate shows');
+	});
+
+	it('hands back the key when the line is dismissed', async () => {
+		const { wrapper } = mounted([hint()]);
+
+		await wrapper.find('[data-test="library-hint-dismiss"]').trigger('click');
+
+		expect(wrapper.emitted('dismiss')).toEqual([['misread-folder:series-1']]);
+	});
+
+	it('offers no dismissal to somebody who cannot change a setting', () => {
+		expect(mounted([hint()], false).wrapper.find('[data-test="library-hint-dismiss"]').exists())
+			.toBe(false);
+	});
+
+	it('puts the gateway-wide line above the one about a single show', () => {
+		// Told that a show looks odd while nothing at all is mounted, somebody would go
+		// and investigate the show.
+		const { wrapper } = mounted([
+			hint(),
+			hint({ kind: LibraryHintKind.NOTHING_MOUNTED, key: 'nothing-mounted', signals: [], examples: [] }),
+		]);
+		const kinds = wrapper.findAll('[data-test="library-hint"]')
+			.map(one => one.attributes('data-kind'));
+
+		expect(kinds).toEqual([LibraryHintKind.NOTHING_MOUNTED, LibraryHintKind.MISREAD_FOLDER]);
+	});
+
+	it('draws nothing for a kind this version has no sentence for', () => {
+		// A gateway one version ahead answers a kind with no wording here, and a row
+		// rendered blank is a warning nobody can act on.
+		const { wrapper } = mounted([hint({ kind: 'something_new' as LibraryHintKind })]);
+
+		expect(wrapper.find('[data-test="library-hints"]').exists()).toBe(false);
 	});
 });

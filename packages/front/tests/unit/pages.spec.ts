@@ -22,6 +22,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 import App from '@/App.vue';
+import Pagination from '@/components/paginate/Pagination.vue';
 import Dashboard from '@/pages/Dashboard.vue';
 import Library from '@/pages/Library.vue';
 import NotFound from '@/pages/NotFound.vue';
@@ -33,7 +34,7 @@ import Sync from '@/pages/Sync.vue';
 import Transfers from '@/pages/Transfers.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useTokenStore } from '@/stores/token';
-import { mountWithApp, stubFetch, stubFetchRoutes, tooltipStub } from './helpers';
+import { mountWithApp, mountWithAppAt, stubFetch, stubFetchRoutes, tooltipStub } from './helpers';
 
 async function settle (times = 6): Promise<void> {
 	for (let index = 0; index < times; index += 1) {
@@ -641,6 +642,124 @@ describe('pages/Library', () => {
 		const asked = stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
 		expect(asked.at(-1)).toContain('serviceIds=s1&serviceIds=s2');
 		expect(asked.at(-1)).toContain('origins=friend&origins=friend_of_friend');
+	});
+
+	/**
+	 * One convention for a page number, all the way from the address bar to the API.
+	 *
+	 * It was two. The query parameter counted from zero, the API counts from one, and
+	 * the conversion was written into one of the two branches that build a request —
+	 * the other sent `page: 1` whatever the address said. So paging an opened category
+	 * asked for the first page over and over, and a `page=0` that did reach the API was
+	 * refused outright with `page must not be less than 1`: a 400 in place of a wall,
+	 * for pressing "next".
+	 */
+	describe('paging an opened category', () => {
+		const MANY = {
+			body: { items: [mediaGroup()], pagination: { page: 1, limit: 60, total: 420, pages: 7 } },
+		};
+
+		const groupCalls = (stub: ReturnType<typeof stubFetchRoutes>): string[] =>
+			stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
+
+		it('asks the API for the page the address names', async () => {
+			// A filtered wall is a link somebody sends, and a reload of one: opening it
+			// has to land on the page the link names rather than on the first one.
+			const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': MANY });
+			await mountWithAppAt(
+				Library,
+				{ name: 'library', query: { category: 'animes', page: '3' } },
+				{ global: { stubs: tooltipStub } },
+			);
+			await settle();
+
+			expect(groupCalls(stub).at(-1)).toContain('page=3');
+			expect(groupCalls(stub).at(-1)).toContain('categoryKey=animes');
+		});
+
+		it('writes the page it asked for into the address, and the same number', async () => {
+			const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': MANY });
+			const { wrapper, router } = await mountWithAppAt(
+				Library,
+				{ name: 'library', query: { category: 'animes' } },
+				{ global: { stubs: tooltipStub } },
+			);
+			await settle();
+
+			// The control counts from zero — it is shared with every table in the
+			// application — so its second page is `1`, and everything else says `2`.
+			wrapper.findComponent(Pagination).vm.$emit('update:page', 1);
+			await settle();
+
+			expect(router.currentRoute.value.query.page).toBe('2');
+			expect(groupCalls(stub).at(-1)).toContain('page=2');
+			// And the address survives the reload it is there for.
+			expect(groupCalls(stub).at(-1)).not.toContain('page=1&');
+		});
+
+		it('reads a page below one as the first page rather than forwarding it', async () => {
+			// A hand-edited or truncated link is the ordinary way `page=0` happens, and
+			// the API is right to refuse it — answering with the first page is better
+			// than answering with a validation error about a parameter nobody typed.
+			const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': MANY });
+			await mountWithAppAt(
+				Library,
+				{ name: 'library', query: { category: 'animes', page: '0' } },
+				{ global: { stubs: tooltipStub } },
+			);
+			await settle();
+
+			expect(groupCalls(stub).at(-1)).toContain('page=1');
+			expect(groupCalls(stub).at(-1)).not.toContain('page=0');
+		});
+
+		it('goes back to the first page when a filter changes, and calls it one', async () => {
+			const stub = stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': MANY });
+			const { wrapper, router } = await mountWithAppAt(
+				Library,
+				{ name: 'library', query: { category: 'animes', page: '4' } },
+				{ global: { stubs: tooltipStub } },
+			);
+			await settle();
+
+			wrapper.findComponent({ name: 'MediaFilters' }).vm.$emit('update:states', [SyncState.MISSING]);
+			await settle();
+
+			expect(router.currentRoute.value.query.page).toBe('1');
+			expect(groupCalls(stub).at(-1)).toContain('page=1');
+		});
+
+		it('hands the pager the category’s own total, so it knows there is a next page', async () => {
+			stubFetchRoutes({ ...LIBRARY_BASE, '/api/media/groups': MANY });
+			const { wrapper } = await mountWithAppAt(
+				Library,
+				{ name: 'library', query: { category: 'animes' } },
+				{ global: { stubs: tooltipStub } },
+			);
+			await settle();
+
+			// Without a total the control has no way to know whether a next page exists,
+			// and a "next" offered where there is nothing after it is the same defect as
+			// one that sends a page number the API refuses.
+			expect(wrapper.findComponent(Pagination).props('total')).toBe(420);
+		});
+
+		it('offers no next page at all when the wall holds nothing', async () => {
+			stubFetchRoutes({
+				...LIBRARY_BASE,
+				'/api/media/groups': {
+					body: { items: [mediaGroup()], pagination: { page: 1, limit: 60, total: 1, pages: 1 } },
+				},
+			});
+			const { wrapper } = await mountWithAppAt(
+				Library,
+				{ name: 'library', query: { category: 'animes' } },
+				{ global: { stubs: tooltipStub } },
+			);
+			await settle();
+
+			expect(wrapper.findComponent(Pagination).props('total')).toBe(1);
+		});
 	});
 
 	/**

@@ -96,6 +96,10 @@ export const DEFAULT_SETTINGS: Settings = {
 	refreshIntervalMinutes: 15,
 	fullScanCron: '0 4 * * *',
 	cacheTtlSeconds: 60,
+	// Nothing dismissed, because nothing has been shown yet. Kept as a list of keys
+	// rather than a flag per hint so that a hint added in a later version simply has no
+	// key here and appears, instead of arriving already silenced.
+	dismissedLibraryHints: [],
 };
 
 /** Bounds that keep a typo from taking the gateway, or the media server, down. */

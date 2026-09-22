@@ -28,6 +28,20 @@ describe('title-normalizer', () => {
 			['Movie_Title_2019_2160p_HDR_x265', 'movie title'],
 			['A Quiet Place', 'quiet place'],
 			['Mission: Impossible - Fallout', 'mission impossible fallout'],
+			// The pair that went unmatched on a real gateway: one server writes the
+			// ellipsis as a single character, the next writes nothing at all, and only
+			// the three-dot spelling used to be cleaned away.
+			['Il était une fois… les Découvreurs', 'etait une fois les decouvreurs'],
+			['Il était une fois... les Découvreurs', 'etait une fois les decouvreurs'],
+			['Il était une fois les découvreurs', 'etait une fois les decouvreurs'],
+			['Il était une fois… la Vie', 'etait une fois la vie'],
+			// Typographic marks nobody types but every scraper emits: an en dash where
+			// a hyphen was meant, guillemets, and the full-width punctuation that comes
+			// with a Japanese or Chinese title.
+			['Mission: Impossible – Fallout', 'mission impossible fallout'],
+			['«Solaris»', 'solaris'],
+			['“Stalker”', 'stalker'],
+			['Ghost in the Shell: 攻殻機動隊', 'ghost in the shell 攻殻機動隊'],
 		];
 
 		it.each(cases)('reduces %s to %s', (raw, expected) => {

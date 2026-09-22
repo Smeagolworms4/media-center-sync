@@ -1,5 +1,6 @@
 import { InitialSchema1758240000000 } from './1758240000000-InitialSchema';
 import { AddServiceDirectory1758326400000 } from './1758326400000-AddServiceDirectory';
+import { AddSyntheticMediaItems1758412800000 } from './1758412800000-AddSyntheticMediaItems';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -31,7 +32,12 @@ import { AddServiceDirectory1758326400000 } from './1758326400000-AddServiceDire
  * folded back into it before the first release; that file says what it cost and why it
  * is no longer an option. From there on the list only grows.
  */
-export const MIGRATIONS = [InitialSchema1758240000000, AddServiceDirectory1758326400000];
+export const MIGRATIONS = [
+	InitialSchema1758240000000,
+	AddServiceDirectory1758326400000,
+	AddSyntheticMediaItems1758412800000,
+];
 
 export * from './1758240000000-InitialSchema';
 export * from './1758326400000-AddServiceDirectory';
+export * from './1758412800000-AddSyntheticMediaItems';

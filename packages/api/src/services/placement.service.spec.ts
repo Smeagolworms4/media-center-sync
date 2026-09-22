@@ -594,6 +594,62 @@ describe('PlacementService', () => {
 	 * order around it matters more than the table does: a category entry outranks it,
 	 * and it outranks the fallback folder.
 	 */
+	/**
+	 * Where a library whose server declared no content type is tried.
+	 *
+	 * The case is the owner's whole gateway: every one of his seven Jellyfin libraries
+	 * reports no collection type, so every one of them used to read as "something
+	 * else" and sit behind the music library as somewhere to put a film — behind the
+	 * one kind of library a film certainly cannot go in.
+	 */
+	describe('a library that may hold either', () => {
+		it('is tried after the right kind and before a kind that is wrong', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.MOVIE,
+				settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+				libraries: [
+					library({ id: 'lib-music', kind: LibraryKind.MUSIC, localPath: shows, isDefaultTarget: true }),
+					library({ id: 'lib-mixed', kind: LibraryKind.MIXED, localPath: anime, isDefaultTarget: false }),
+					library({ id: 'lib-movies', kind: LibraryKind.MOVIES, localPath: movies, isDefaultTarget: false }),
+				],
+				relativeName: 'Arrival.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-movies');
+		});
+
+		it('beats a library of a kind this is not, even one marked as the default', async () => {
+			// The regression, stated as a rule: a mixed library is the only shelf a film
+			// can actually go on here, and a music library marked as the default target
+			// is still not a home for a film.
+			const target = await service.resolve({
+				kind: MediaKind.MOVIE,
+				settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+				libraries: [
+					library({ id: 'lib-music', kind: LibraryKind.MUSIC, localPath: shows, isDefaultTarget: true }),
+					library({ id: 'lib-mixed', kind: LibraryKind.MIXED, localPath: anime, isDefaultTarget: false }),
+				],
+				relativeName: 'Arrival.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-mixed');
+		});
+
+		it('takes the one somebody marked as the default among several', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.MOVIE,
+				settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+				libraries: [
+					library({ id: 'lib-mixed-a', kind: LibraryKind.MIXED, localPath: shows, isDefaultTarget: false }),
+					library({ id: 'lib-mixed-b', kind: LibraryKind.MIXED, localPath: anime, isDefaultTarget: true }),
+				],
+				relativeName: 'Arrival.mkv',
+			});
+
+			expect(target.libraryId).toBe('lib-mixed-b');
+		});
+	});
+
 	describe('the default target library', () => {
 		it('receives an item whose category names nothing', async () => {
 			const target = await service.resolve({

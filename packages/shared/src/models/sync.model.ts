@@ -94,6 +94,17 @@ export enum MatchStrategy {
 	CHECKSUM = 'checksum',
 	EXTERNAL_ID = 'external_id',
 	SEASON_EPISODE = 'season_episode',
+	/**
+	 * One side numbers the show straight through, the other cuts it into seasons.
+	 *
+	 * Its own value rather than `SEASON_EPISODE` because the two prove different
+	 * things and a wrong one is investigated differently. `SEASON_EPISODE` compares
+	 * coordinates both servers declared; this one compares a coordinate one server
+	 * declared against one the gateway *computed*, from the season lengths the other
+	 * side is indexed with. Somebody looking at a pairing that turned out wrong needs
+	 * to know at a glance whether a server said it or arithmetic did.
+	 */
+	ABSOLUTE_EPISODE = 'absolute_episode',
 	NORMALIZED_TITLE = 'normalized_title',
 	PATH = 'path',
 	MANUAL = 'manual',

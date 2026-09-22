@@ -45,10 +45,37 @@ export class MediaItem extends Timestampable {
 	@Column({ type: 'uuid' })
 	public libraryId!: string;
 
-	/** Identifier inside the reporting service. */
+	/**
+	 * Identifier inside the reporting service — or, on a synthetic row, one we minted.
+	 *
+	 * It is never null, because the unique index on `(serviceId, externalId)` is what
+	 * keeps a scan from writing the same item twice; a nullable half would let a
+	 * gateway accumulate duplicates of every row no service ever named. A synthetic
+	 * row therefore carries a value of ours, prefixed so that no media server's own
+	 * identifier can ever collide with it. `synthetic` is what says which it is —
+	 * never the shape of the string.
+	 */
 	@ApiProperty()
 	@Column()
 	public externalId!: string;
+
+	/**
+	 * A row the gateway invented, that no service ever reported.
+	 *
+	 * Exactly one thing creates these today: correcting an episode into a season that
+	 * does not exist. The season has to exist for the episode to hang from it — the
+	 * whole product navigates by parent — and the service will never report it,
+	 * because as far as that server is concerned the episode is still in season one.
+	 *
+	 * The flag has to be a column rather than a guess about the identifier because the
+	 * stale pass reads it: a scan compares what the walk saw against what we hold, and
+	 * a row the service could not have listed would be deleted on the very next scan
+	 * as a row the service dropped. That is the correction undoing itself on a timer,
+	 * with nothing anywhere reporting an error.
+	 */
+	@ApiProperty()
+	@Column({ type: 'boolean', default: false })
+	public synthetic!: boolean;
 
 	@ApiProperty({ nullable: true })
 	@Index()

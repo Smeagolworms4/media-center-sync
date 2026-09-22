@@ -208,6 +208,15 @@
 		"everything": "Tutte le categorie",
 		"categories": "Le tue librerie",
 		"categories_hint": "Le librerie con lo stesso nome, su tutti i server, viste come una sola.",
+		"hint": {
+			"nothing_mounted": "Nessun server di questo gateway ha dichiarato le proprie cartelle, quindi qui nulla risulta posseduto e tutto appare come mancante. Dichiara le cartelle di un server perché i suoi file contino.",
+			"misread_named": "«{title}» risulta come un’unica serie con {count} stagioni, e diverse di esse portano nomi di altre serie: da verificare.",
+			"misread_many": "«{title}» risulta come un’unica serie con {count} stagioni, più di quante ne abbia di solito una serie: da verificare.",
+			"misread_examples": "Stagioni con un nome: {names}",
+			"misread_remedy": "Se quella cartella contiene davvero più serie, il tuo server multimediale la legge come una sola. Aggiungi la cartella più interna come radice della libreria, oppure assegna un tipo di contenuto alla libreria, e riavvia la scansione.",
+			"open_services": "Apri i server",
+			"dismiss": "Non mostrare più"
+		},
 		"view": {
 			"grid": "Locandine",
 			"list": "Elenco"
@@ -236,6 +245,7 @@
 			"movies": "Film",
 			"shows": "Serie",
 			"music": "Musica",
+			"mixed": "Film e serie",
 			"other": "Altro"
 		},
 		"problem": {
@@ -367,6 +377,8 @@
 		"identifiers": "Identificatori",
 		"identifiers_hint": "Ciò che rende affidabile una correlazione: due server numerano lo stesso episodio in modo diverso e concordano comunque su un identificatore TVDB.",
 		"restore": "Ripristina ciò che ha segnalato il servizio",
+		"reset": "Riporta i campi a ciò che segnala il servizio",
+		"reset_done": "I campi contengono ciò che segnala il servizio. Salva per eliminare la correzione.",
 		"saved": "Correzione salvata.",
 		"restored": "La risposta del servizio è tornata.",
 		"failed": "Questa correzione è stata rifiutata.",

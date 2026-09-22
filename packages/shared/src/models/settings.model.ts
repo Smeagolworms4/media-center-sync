@@ -367,6 +367,23 @@ export interface Settings {
 	 * tabs cost one request instead of ten.
 	 */
 	cacheTtlSeconds: number;
+
+	/**
+	 * The organisation hints somebody has read and does not want again, by key.
+	 *
+	 * A setting rather than something kept in the browser, because a hint is about the
+	 * gateway and not about whoever happened to be looking at it: dismissed on the
+	 * laptop and back on the phone is a notice that cannot be got rid of, which is
+	 * worse than one that was never shown. Settings are key/value rows, so this costs a
+	 * write and not a migration.
+	 *
+	 * Keys nothing produces any more are kept rather than pruned. A series stops being
+	 * reported the moment a service is offline, and dropping its key would bring the
+	 * hint back the next time that server answered — undoing a decision to a temporary
+	 * outage, which is the one way a dismissal can fail that nobody would connect to
+	 * the outage.
+	 */
+	dismissedLibraryHints: string[];
 }
 
 export type UpdateSettingsRequest = Partial<Settings>;

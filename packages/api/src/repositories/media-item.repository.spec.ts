@@ -294,6 +294,21 @@ describe('MediaItemRepository', () => {
 		await expect(items.findStale(library.id, [])).resolves.toHaveLength(1);
 	});
 
+	/**
+	 * A row the gateway invented is missing from every walk by construction.
+	 *
+	 * The season created to hold an episode corrected into it was never reported by
+	 * anybody and never will be, so the plain rule deletes it at the end of the very
+	 * next scan — and the episode goes back under season one. That is the correction
+	 * undoing itself on a timer, with no error anywhere.
+	 */
+	it('never calls a row the gateway invented a row the service dropped', async () => {
+		await anItem({ externalId: 'mcs:synthetic:season-2', kind: MediaKind.SEASON, synthetic: true });
+
+		await expect(items.findStale(library.id, ['something-else'])).resolves.toHaveLength(0);
+		await expect(items.findStale(library.id, [])).resolves.toHaveLength(0);
+	});
+
 	it('lists the top of a library, which is what has no parent', async () => {
 		const series = await anItem({ kind: MediaKind.SERIES, title: 'B series' });
 

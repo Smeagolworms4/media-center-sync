@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataSource, In, IsNull, Not, Repository, type SelectQueryBuilder } from 'typeorm';
-import type { MediaGroupQuery, MediaKind, MediaSearchQuery } from '@mcs/shared';
-import { SyncState } from '@mcs/shared';
+import type { MediaGroupQuery, MediaSearchQuery } from '@mcs/shared';
+import { MediaKind, SyncState } from '@mcs/shared';
 import { MediaItem } from '@/entities';
 
 /** The columns a list may be ordered by, and the only ones. */
@@ -73,6 +73,13 @@ export interface MediaItemDigest {
 	syncState: SyncState;
 	/** Excluded from gap counts and from what a sync plans. See `MediaOverride.ignored`. */
 	ignored: boolean;
+}
+
+/** One season, reduced to the series it belongs to and the name it carries. */
+export interface SeasonName {
+	id: string;
+	parentId: string;
+	title: string;
 }
 
 /** A parent a child points at and the index does not hold, with somewhere to file it. */
@@ -266,6 +273,27 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		return builder.getMany();
 	}
 
+	/**
+	 * Every season's name and the series it hangs from, and nothing else.
+	 *
+	 * Three scalar columns for the whole index, because the question it answers — does
+	 * any series have seasons named like shows — is about names and has to look at all
+	 * of them. Reading entities instead would pull `file`, `quality`, `externalIds` and
+	 * `overview` for thousands of rows to compare a string.
+	 *
+	 * A season whose parent is unknown is left out: it cannot be attributed to a series,
+	 * and a hint that cannot name the series it is about is a hint nobody can act on.
+	 */
+	public findSeasonNames(): Promise<SeasonName[]> {
+		return this.createQueryBuilder('item')
+			.select('item.id', 'id')
+			.addSelect('item.parentId', 'parentId')
+			.addSelect('item.title', 'title')
+			.where('item.kind = :kind', { kind: MediaKind.SEASON })
+			.andWhere('item.parentId IS NOT NULL')
+			.getRawMany<SeasonName>();
+	}
+
 	public countByLibrary(libraryId: string): Promise<number> {
 		return this.count({ where: { libraryId } });
 	}
@@ -312,11 +340,20 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	 * A media service never tells anyone that a file is gone; it simply stops listing
 	 * it. Comparing what a full scan saw against what the index holds is the only way
 	 * to notice.
+	 *
+	 * Synthetic rows are excluded, and that exclusion is not an optimisation. A season
+	 * the gateway created to hold a corrected episode was never reported by anybody and
+	 * never will be, so it is missing from every walk by construction — the plain rule
+	 * would delete it at the end of the very next scan and file the episode back where
+	 * the service says it belongs. The correction would undo itself on a timer, which
+	 * is the failure mode this whole flag exists to prevent.
 	 */
 	public findStale(libraryId: string, seenExternalIds: string[]): Promise<MediaItem[]> {
 		return seenExternalIds.length === 0
-			? this.find({ where: { libraryId } })
-			: this.find({ where: { libraryId, externalId: Not(In(seenExternalIds)) } });
+			? this.find({ where: { libraryId, synthetic: false } })
+			: this.find({
+				where: { libraryId, synthetic: false, externalId: Not(In(seenExternalIds)) },
+			});
 	}
 
 	/**

@@ -58,8 +58,28 @@
 		correctedFields,
 		libraryChanged,
 		reportedValue,
+		fillFromReported,
 		payload,
 	} = useMediaOverride(item);
+
+	/**
+	 * Put the service's answer back into the boxes, without saving it.
+	 *
+	 * The two ways out of a correction are deliberately not the same thing, and they
+	 * deliberately do not sit together. "Put it all back" writes at once and closes, and
+	 * lives with the actions because it acts on the record. This one only fills the
+	 * form, so it lives with the form — the values can be read before anybody agrees to
+	 * them, and somebody who looks at them and changes their mind can simply cancel.
+	 *
+	 * Saving after it removes the correction rather than recording one identical to what
+	 * the service says. That distinction decides everything afterwards: an item with no
+	 * correction goes on following its server and picks up the day it fixes a title,
+	 * while an item corrected to today's values is frozen on them for ever.
+	 */
+	function resetToReported (): void {
+		fillFromReported();
+		void notify('override.reset_done');
+	}
 
 	async function load (): Promise<void> {
 		loading.value = true;
@@ -172,6 +192,28 @@
 				:text="$t('override.clear_help')"
 				variant="tonal"
 			/>
+
+			<!--
+				In the form and not beside "restore", because that is what it acts on. One
+				changes the record and closes; this one only fills the boxes, so it belongs
+				where the boxes are — and keeping them apart is also what stops a person
+				reaching for the wrong one when all they wanted was to look at what the
+				service says.
+
+				Only when there is something to reset: an action that cannot do anything
+				teaches people not to read the row it sits in.
+			-->
+			<div v-if="hasOverride" class="override_reset mb-2">
+				<v-btn
+					data-test="override-reset"
+					prepend-icon="mdi-undo-variant"
+					size="small"
+					variant="tonal"
+					@click="resetToReported"
+				>
+					{{ $t('override.reset') }}
+				</v-btn>
+			</div>
 
 			<v-select
 				v-model="draft.libraryId"
@@ -312,6 +354,11 @@
 		// the identifiers below the fold on a laptop.
 		.v-input {
 			margin-bottom: 4px;
+		}
+
+		// Left, under the note it belongs with, rather than stretched across the form.
+		&_reset {
+			display: flex;
 		}
 	}
 </style>

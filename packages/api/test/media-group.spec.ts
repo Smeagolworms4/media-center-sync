@@ -336,6 +336,38 @@ describe('Browsing the index by media rather than by row', () => {
 		await browse('/media/groups?limit=100000').expect(400);
 	});
 
+	/**
+	 * Pages are counted from one here, and the refusal is the contract.
+	 *
+	 * The interface used to hold the page zero-based and convert on the way out in one
+	 * of the two branches that build a request, so pressing "next" on the library wall
+	 * sent `page=0` and got this back — a 400 where the posters should be. Pinned here
+	 * because it is the half of that defect that is *correct*: a page below one has no
+	 * meaning, and quietly reading it as the first page would leave the two sides free
+	 * to go on disagreeing about what a page number is.
+	 */
+	it('refuses a page below one rather than reading it as the first page', async () => {
+		const response = await browse('/media/groups?rootsOnly=true&limit=50&page=0').expect(400);
+
+		expect(JSON.stringify(response.body)).toContain('page must not be less than 1');
+
+		await browse('/media/groups?rootsOnly=true&limit=50&page=1').expect(200);
+		await browse('/media/groups?rootsOnly=true&limit=50&page=2').expect(200);
+	});
+
+	it('always says how many there are, which is the only way a pager can draw itself', async () => {
+		// A pager with no total cannot tell whether a next page exists, and a "next"
+		// offered where there is nothing after it is the same class of defect as one
+		// that sends a page number the API refuses. Every page of the answer carries
+		// both numbers, including a page past the end.
+		for (const page of [1, 2, 3, 9]) {
+			const answer = await groups(`/media/groups?kind=episode&limit=3&page=${page}`);
+
+			expect(typeof answer.pagination.total).toBe('number');
+			expect(answer.pagination).toMatchObject({ page, limit: 3, total: 7, pages: 3 });
+		}
+	});
+
 	it('answers a key for a group nobody holds', async () => {
 		const response = await browse('/media/groups/11111111-2222-4333-8444-555555555555').expect(
 			404,

@@ -162,6 +162,7 @@ location / {
   - [Ajouter un serveur Plex sans connaître son adresse](#ajouter-un-serveur-plex-sans-connaître-son-adresse)
   - [Indexation, et pourquoi la passerelle met en cache](#indexation-et-pourquoi-la-passerelle-met-en-cache)
   - [Corrélation : qu'est-ce que le même contenu](#correlation-quest-ce-que-le-meme-contenu)
+  - [Quand la bibliothèque est organisée d'une façon que votre serveur lit de travers](#quand-la-bibliotheque-est-organisee-dune-facon-que-votre-serveur-lit-de-travers)
   - [La qualité en un coup d'œil](#la-qualite-en-un-coup-doeil)
   - [Synchronisation](#synchronisation)
   - [Transferts](#transferts)
@@ -287,8 +288,10 @@ signal :
 2. **identifiant externe** — l'identifiant TVDB, TMDB ou IMDb sur lequel les deux
    services s'accordent déjà ;
 3. **saison et épisode**, sous un parent déjà corrélé ;
-4. **titre normalisé** et année, notés par similarité ;
-5. **chemin**.
+4. **numérotation absolue**, pour une série publiée d'un seul tenant face à la même
+   série découpée en saisons ;
+5. **titre normalisé** et année, notés par similarité ;
+6. **chemin**.
 
 Chaque correspondance est stockée dans sa propre ligne avec la stratégie utilisée et
 un score de confiance entre 0 et 1, de sorte qu'une corrélation erronée puisse être
@@ -299,6 +302,66 @@ Les éléments ne sont jamais fusionnés. Le même épisode détenu par trois am
 représente trois lignes dans l'index — les fusionner obligerait à choisir quel titre,
 quelle jaquette et quelle taille de fichier conserver, et à perdre exactement les
 différences qu'une synchronisation existe pour montrer.
+
+#### Un seul tenant face à des saisons
+
+L'animation est couramment publiée d'une traite — épisode 1 à 291 — alors que la même
+série est classée ailleurs en neuf saisons. `E153` et `S06E12` ressemblent alors à deux
+choses différentes, et la passerelle déclare manquant ce que vous possédez déjà sous
+une autre numérotation.
+
+Un numéro absolu ne peut être converti en saison et épisode qu'avec les longueurs de
+saison **de cette série-là**, et il n'en existe aucune formule. Elles sont donc lues
+sur le côté qui *est* découpé en saisons, exactement tel que la passerelle l'a déjà
+indexé — jamais devinées. Avant qu'un seul épisode ne soit apparié, tout ceci doit être
+vrai :
+
+- les deux côtés emploient manifestement des conventions différentes : l'un n'a qu'un
+  seul numéro de saison, ou aucun, et son plus grand numéro d'épisode dépasse la plus
+  longue saison que l'autre côté possède réellement ;
+- le côté découpé est continu depuis la saison 1 et chaque saison est complète, car un
+  trou rend la longueur de cette saison inconnaissable et décale toutes les suivantes ;
+- les deux rendent compte de la même série de bout en bout — la somme des longueurs de
+  saison égale le plus grand numéro absolu.
+
+Deux côtés qui numérotent tous deux par saison et qui se contredisent restent en
+désaccord. Là, les numéros sont la preuve, ils disent qu'un des épisodes manque, et une
+conversion qui « corrigerait » cela classerait à jamais le mauvais épisode sous le bon
+nom. Les épisodes spéciaux et la saison 0 sont laissés hors du calcul des deux côtés,
+pour la même raison.
+
+L'appariement est enregistré sous sa propre stratégie, `absolute_episode`, afin que qui
+examine une corrélation erronée voie d'un coup d'œil si c'est un serveur qui l'a dite
+ou un calcul qui l'a produite. Un identifiant d'épisode qui nomme vraiment *cet*
+épisode tranche toujours en premier, quelle que soit la numérotation — et un
+identifiant porté par plus d'un épisode d'une série est celui de la série, pas de
+l'épisode, et ne prouve rien.
+
+### Quand la bibliothèque est organisée d'une façon que votre serveur lit de travers
+
+La passerelle reflète ce que déclarent vos serveurs multimédias ; elle ne peut pas en
+réparer un et n'essaie pas. Elle peut en revanche remarquer deux choses silencieuses,
+coûteuses à démêler seul, et signalées nulle part ailleurs :
+
+- **Une racine de bibliothèque d'un cran trop haut.** Des séries rangées sous
+  `/media/SeriesTV/Marvel Comics/Series TV/<série>/…` avec la racine à
+  `/media/SeriesTV` conduisent Jellyfin à prendre `Marvel Comics/Series TV` pour une
+  *série* et chaque série en dessous pour une de ses *saisons*. Sa liste de saisons
+  affiche alors « Saison 1 … Saison 20, Agatha All Along, Agent Carter, Agents of
+  SHIELD, Cloak and Dagger », et les séries du dessous sont invisibles. Une série dont
+  les saisons portent des noms de séries, ou qui en annonce plus qu'une série n'en
+  compte plausiblement, est signalée — série nommée, noms de saisons cités, et le
+  remède énoncé : ajouter le dossier du dessous comme racine de bibliothèque, ou donner
+  un type de contenu à la bibliothèque. C'est formulé comme un soupçon à vérifier,
+  jamais comme un verdict, car certaines séries nomment réellement leurs saisons, et
+  cela peut être masqué définitivement.
+- **Rien n'est monté.** `manquant` veut dire « connu ailleurs, pas détenu ici », ce qui
+  est vrai de chaque ligne quand aucun serveur n'a ses dossiers déclarés — trente et un
+  mille sur trente et un mille deux cent soixante-cinq sur une passerelle de
+  développement. La bibliothèque et le tableau de bord le disent en une ligne, avec le
+  moyen d'y remédier, et la ligne disparaît d'elle-même dès qu'une correspondance
+  existe. Elle n'a pas de bouton pour la masquer, justement : c'est la seule phrase qui
+  explique tout l'écran.
 
 ### La qualité en un coup d'œil
 

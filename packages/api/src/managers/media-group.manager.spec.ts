@@ -1101,6 +1101,153 @@ describe('MediaGroupManager', () => {
 		});
 	});
 
+	/**
+	 * Whose word the group takes, field by field.
+	 *
+	 * The order the household actually wants is three deep: **a correction, then what
+	 * our own servers report, then what a friend's does.** The middle and the last were
+	 * already right. The first was missing, and it mattered: a correction is written
+	 * onto the copy it was made on, and a wrong season number is usually noticed on the
+	 * shelf where it makes a mess — which is often a friend's. That copy ranks behind
+	 * every local one, so the local server's value went on winning and the person who
+	 * made the correction saw nothing change.
+	 */
+	describe('which copy decides a field', () => {
+		const pair = (
+			localOverrides: Partial<MediaItem>,
+			remoteOverrides: Partial<MediaItem>,
+		): MediaItem[] => [
+			item({ id: 'a', serviceId: 'local', ...localOverrides }),
+			item({ id: 'b', serviceId: 'remote', libraryId: 'library-remote', ...remoteOverrides }),
+		];
+
+		/** What a corrected copy looks like: the column changed, the snapshot kept. */
+		const corrected = (
+			changes: Partial<MediaItem>,
+			reported: Partial<MediaItem> = {},
+		): Partial<MediaItem> => {
+			const base = item({ ...reported });
+
+			return {
+				...changes,
+				reported: {
+					libraryId: base.libraryId,
+					title: base.title,
+					seriesTitle: null,
+					year: base.year,
+					seasonNumber: base.seasonNumber,
+					episodeNumber: base.episodeNumber,
+					overview: base.overview,
+					externalIds: base.externalIds,
+				},
+			} as Partial<MediaItem>;
+		};
+
+		it('lets a correction made on a friend’s copy win over our server’s answer', async () => {
+			const { manager } = build({
+				items: pair(
+					{ year: 2008, seasonNumber: 1 },
+					corrected({ year: 1999, seasonNumber: 4 }),
+				),
+				matches: [correlation({ confidence: 0.95 })],
+			});
+
+			const [group] = (await manager.groups(query())).items;
+
+			expect(group.year).toBe(1999);
+			expect(group.seasonNumber).toBe(4);
+			// The group is still represented by the copy we can actually ask for artwork
+			// and bytes: what moved is the value, not which server answers.
+			expect(group.id).toBe('a');
+		});
+
+		it('keeps our server’s answer ahead of a friend’s when neither is corrected', async () => {
+			const { manager } = build({
+				items: pair({ year: 2008 }, { year: 1999 }),
+				matches: [correlation({ confidence: 0.95 })],
+			});
+
+			const [group] = (await manager.groups(query())).items;
+
+			expect(group.year).toBe(2008);
+		});
+
+		it('still fills a gap from a friend’s copy, which is not the same as overruling', async () => {
+			const { manager } = build({
+				items: pair({ year: null, overview: null }, { year: 1999, overview: 'What it is about.' }),
+				matches: [correlation({ confidence: 0.95 })],
+			});
+
+			const [group] = (await manager.groups(query())).items;
+
+			expect(group.year).toBe(1999);
+			expect(group.overview).toBe('What it is about.');
+		});
+
+		it('takes only the field that was corrected, never the emptier ones beside it', async () => {
+			// Promoting the whole row would drag a friend’s missing overview along with
+			// their corrected year and blank out the description our own server has.
+			const { manager } = build({
+				items: pair(
+					{ year: 2008, overview: 'Ours, and complete.' },
+					corrected({ year: 1999, overview: null }, { year: 2008 }),
+				),
+				matches: [correlation({ confidence: 0.95 })],
+			});
+
+			const [group] = (await manager.groups(query())).items;
+
+			expect(group.year).toBe(1999);
+			expect(group.overview).toBe('Ours, and complete.');
+		});
+
+		it('puts our server back in front once the correction is withdrawn', async () => {
+			// Withdrawing a correction clears both halves, so there is nothing left to
+			// outrank anything: the order falls back to local before remote on its own.
+			const { manager } = build({
+				items: pair({ year: 2008 }, { year: 1999, overrides: null, reported: null }),
+				matches: [correlation({ confidence: 0.95 })],
+			});
+
+			const [group] = (await manager.groups(query())).items;
+
+			expect(group.year).toBe(2008);
+		});
+
+		it('carries the corrected title and the form the wall de-duplicates on together', async () => {
+			// Two rows disagreeing about which media this is would put the same poster on
+			// the screen twice.
+			const { manager } = build({
+				items: pair(
+					{ title: 'The Flight', normalizedTitle: 'big buck bunny the flight' },
+					corrected(
+						{ title: 'Le Vol', normalizedTitle: 'le vol' },
+						{ title: 'The Flight' },
+					),
+				),
+				matches: [correlation({ confidence: 0.95 })],
+			});
+
+			const [group] = (await manager.groups(query())).items;
+
+			expect(group.title).toBe('Le Vol');
+			expect(group.normalizedTitle).toBe('le vol');
+		});
+
+		it('does not let a field erased on one copy blank out a value another one has', async () => {
+			// "This value is wrong and there is no right one" is a statement about one
+			// server's answer, not a reason to take a year off the media.
+			const { manager } = build({
+				items: pair({ year: null }, corrected({ year: null }, { year: 1999 })),
+				matches: [correlation({ confidence: 0.95 })],
+			});
+
+			const [group] = (await manager.groups(query())).items;
+
+			expect(group.year).toBeNull();
+		});
+	});
+
 	describe('what it reads', () => {
 		it('loads the matches once for the page, not once per item', async () => {
 			const { manager, reads } = build({

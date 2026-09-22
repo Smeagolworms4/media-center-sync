@@ -171,4 +171,93 @@ describe('components/media/OverrideDialog', () => {
 
 		expect(wrapper.find('[data-test="override-restore"]').exists()).toBe(false);
 	});
+
+	/**
+	 * Resetting is not restoring, and the pair of buttons is deliberate.
+	 *
+	 * "Put it all back" writes at once and closes. This one only fills the boxes, so
+	 * the service's answer can be read before anybody agrees to it — and so somebody
+	 * who looks at it and changes their mind can simply cancel. What it must never do
+	 * is save a correction that repeats the service's own answer: an item with no
+	 * correction goes on following its server, an item corrected to today's values is
+	 * frozen on them for ever.
+	 */
+	describe('resetting the boxes to what the service reports', () => {
+		const withCorrection = () => mountDialog(item({
+			title: 'Cosmos',
+			year: 1999,
+			overrides: { title: 'Cosmos', year: 1999 },
+			reported: {
+				libraryId: 'l1',
+				title: 'cosmos.1980.1080p',
+				seriesTitle: null,
+				year: 1980,
+				seasonNumber: null,
+				episodeNumber: null,
+				overview: null,
+				externalIds: {},
+			},
+		}));
+
+		it('is not offered on an item nobody has corrected', async () => {
+			const { wrapper } = mountDialog();
+			await settle();
+
+			expect(wrapper.find('[data-test="override-reset"]').exists()).toBe(false);
+		});
+
+		it('fills the boxes with the service’s answer, and saves nothing on its own', async () => {
+			const { wrapper, stub } = withCorrection();
+			await settle();
+
+			expect((wrapper.find('[data-test="override-title"] input').element as HTMLInputElement).value)
+				.toBe('Cosmos');
+
+			await wrapper.find('[data-test="override-reset"]').trigger('click');
+			await settle();
+
+			// Visible before it is agreed to: the values change on screen and nothing
+			// has been written.
+			expect((wrapper.find('[data-test="override-title"] input').element as HTMLInputElement).value)
+				.toBe('cosmos.1980.1080p');
+			expect((wrapper.find('[data-test="override-year"] input').element as HTMLInputElement).value)
+				.toBe('1980');
+			expect(stub.mock.calls.some(call => String(call[1]?.method).toUpperCase() === 'PUT'))
+				.toBe(false);
+		});
+
+		it('saves an empty correction afterwards, which is what removes it', async () => {
+			// The body is what matters and it is invisible: a body repeating the
+			// reported values would store a correction identical to the service's own
+			// answer, and the item would never take a title that server later fixes.
+			const { wrapper, stub } = withCorrection();
+			await settle();
+
+			await wrapper.find('[data-test="override-reset"]').trigger('click');
+			await settle();
+			await wrapper.find('[data-test="override-save"]').trigger('click');
+			await settle();
+
+			const put = stub.mock.calls.find(call => String(call[1]?.method).toUpperCase() === 'PUT');
+
+			expect(put?.[0]).toBe('/api/media/m1/override');
+			expect(JSON.parse(put?.[1].body as string)).toEqual({});
+		});
+
+		it('leaves one field corrected when only that one is typed back', async () => {
+			// The same rule at a smaller scale: a field put back by hand stops being a
+			// correction, and the others are untouched.
+			const { wrapper, stub } = withCorrection();
+			await settle();
+
+			await wrapper.find('[data-test="override-title"] input').setValue('cosmos.1980.1080p');
+			await settle();
+			await wrapper.find('[data-test="override-save"]').trigger('click');
+			await settle();
+
+			const put = stub.mock.calls.find(call => String(call[1]?.method).toUpperCase() === 'PUT');
+
+			expect(JSON.parse(put?.[1].body as string)).toEqual({ year: 1999 });
+		});
+	});
 });

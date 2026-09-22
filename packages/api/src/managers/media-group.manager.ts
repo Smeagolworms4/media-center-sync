@@ -56,6 +56,20 @@ import { pageBounds, paginate } from './mappers';
  */
 const LANDED_STATES = new Set<SyncState>(LANDED_SYNC_STATES);
 
+/**
+ * The fields a group fills per copy and a person can correct by hand.
+ *
+ * Named as a type rather than left open because the rule only holds where the item
+ * column and the `reported` snapshot describe the same thing: both carry these five,
+ * and comparing them is what says a value was corrected. `externalIds` is left out on
+ * purpose — identifiers are merged key by key rather than chosen, so there is no single
+ * value for a correction to win, and a correction there enriches the merge instead of
+ * beating it. `libraryId` is left out too: it says which shelf this copy sits on, which
+ * is a fact about the copy and not about the media, and the listing already filters on
+ * each row's effective value.
+ */
+type OverriddenField = 'title' | 'year' | 'seasonNumber' | 'episodeNumber' | 'overview';
+
 const GROUP_STATE_ORDER = [
 	SyncState.SYNCING,
 	SyncState.CONFLICT,
@@ -677,19 +691,31 @@ export class MediaGroupManager {
 		const sources = ranked.map((item) => this._source(item, context));
 		const qualities = sources.map((source) => source.quality);
 		const childGroups = this._childGroups(ranked, children, context);
+		// Title and normalised title come from the same copy or the group contradicts
+		// itself: the first is what people read, the second is what the interface
+		// de-duplicates the wall on, and two rows disagreeing about which media this is
+		// would show the same poster twice.
+		const titled = this._preferring(ranked, 'title')[0];
 
 		return {
 			id: representative.id,
 			kind: representative.kind,
-			title: representative.title,
-			normalizedTitle: representative.normalizedTitle,
+			title: titled.title,
+			normalizedTitle: titled.normalizedTitle,
 			// Gaps filled from the other copies: a remote server often carries an
-			// overview or a year the local one never received.
-			year: this._first(ranked, (item) => item.year),
-			seasonNumber: this._first(ranked, (item) => item.seasonNumber),
-			episodeNumber: this._first(ranked, (item) => item.episodeNumber),
+			// overview or a year the local one never received. A correction outranks
+			// both — see `_preferring`.
+			year: this._first(this._preferring(ranked, 'year'), (item) => item.year),
+			seasonNumber: this._first(
+				this._preferring(ranked, 'seasonNumber'),
+				(item) => item.seasonNumber,
+			),
+			episodeNumber: this._first(
+				this._preferring(ranked, 'episodeNumber'),
+				(item) => item.episodeNumber,
+			),
 			externalIds: this._externalIds(ranked),
-			overview: this._first(ranked, (item) => item.overview),
+			overview: this._first(this._preferring(ranked, 'overview'), (item) => item.overview),
 			// The local copy's poster when there is one: artwork is fetched through the
 			// service that reported it, and a friend's server may be asleep while ours
 			// answers.
@@ -971,6 +997,61 @@ export class MediaGroupManager {
 		}
 
 		return merged;
+	}
+
+	/**
+	 * The same copies, with the ones somebody corrected this field on moved to the
+	 * front.
+	 *
+	 * The precedence a household actually wants is three deep and it is per field:
+	 * **a correction, then what our own servers report, then what a friend's does.**
+	 * The middle and the last are what `_rank` already gives; the first was missing,
+	 * and its absence had a consequence worth spelling out. A correction is written
+	 * onto the copy it was made on, and that copy may well be a friend's — the wrong
+	 * season number is usually noticed on the shelf it makes a mess of. That copy ranks
+	 * behind every local one, so the local server's value still won the group and the
+	 * person who made the correction saw nothing change. A correction that is recorded
+	 * and has no effect is the same defect as a correction that does not move the
+	 * episode.
+	 *
+	 * Per field rather than per item, and that is the whole reason this is a sort and
+	 * not a different representative. A friend's copy with a corrected year and no
+	 * overview at all must win the year and leave the overview alone; promoting the
+	 * whole row would drag its empty fields along and blank out an overview our own
+	 * server has.
+	 *
+	 * The sort is stable, so inside each half the ranked order — local first, then the
+	 * configured priority — survives untouched. Nothing else about the group moves:
+	 * `id`, the artwork and the sources still come from the preferred *copy*, because
+	 * those are about which server to ask rather than about what this media is.
+	 */
+	private _preferring(ranked: MediaItemEntity[], field: OverriddenField): MediaItemEntity[] {
+		return [...ranked].sort(
+			(left, right) => Number(this._corrected(right, field)) - Number(this._corrected(left, field)),
+		);
+	}
+
+	/**
+	 * Whether this copy carries a hand correction of this field, read from the snapshot
+	 * rather than guessed.
+	 *
+	 * `reported` is what the service last said, written beside the correction for
+	 * exactly this: the column holds the effective value and the snapshot holds the
+	 * service's, so the two differing *is* the correction. Reading the `overrides` blob
+	 * instead would count a key somebody sent that happens to match what the server
+	 * already says as a correction, which it is not — and that distinction is the same
+	 * one that decides whether an item keeps following its server.
+	 *
+	 * A field cleared on purpose therefore counts as corrected and still wins nothing:
+	 * its effective value is null, `_first` skips null, and the gap goes on being filled
+	 * from the other copies. That is deliberate. "This value is wrong and there is no
+	 * right one" is a statement about one server's answer; it is not a reason to blank
+	 * out a year another copy has.
+	 */
+	private _corrected(item: MediaItemEntity, field: OverriddenField): boolean {
+		const reported = item.reported;
+
+		return reported !== null && reported !== undefined && item[field] !== reported[field];
 	}
 
 	private _first<T>(

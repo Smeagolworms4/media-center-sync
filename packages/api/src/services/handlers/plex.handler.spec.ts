@@ -1,7 +1,7 @@
 import { LibraryKind, MediaKind, MediaServiceType } from '@mcs/shared';
 import { CacheService } from '../cache.service';
 import type { NormalisedLibrary, ServiceConnection } from './media-handler.interface';
-import { PlexHandler } from './plex.handler';
+import { PlexHandler, plexIdentifiers, sectionKindFor } from './plex.handler';
 
 const connection: ServiceConnection = {
 	id: 'service-plex',
@@ -222,6 +222,28 @@ describe('PlexHandler', () => {
 				},
 				addedAt: new Date(1_700_000_000_000).toISOString(),
 			});
+		});
+
+		it('asks Plex for the identifiers, on every route that returns items', async () => {
+			/*
+			 * Without `includeGuids=1` the `Guid` array is simply absent from the answer
+			 * — not empty, absent — and nothing anywhere reports a missing field. That
+			 * one parameter is the whole reason the owner's twenty Plex films carried
+			 * nothing but Plex's own row key and could never be matched by identifier
+			 * against the same films on his Jellyfin.
+			 */
+			const fetchMock = stubFetch(() => ({ MediaContainer: { Metadata: [], totalSize: 0 } }));
+
+			for await (const _item of handler.scanLibrary(connection, library, {})) {
+				// Draining is the point; the assertion is on what was asked for.
+			}
+
+			await handler.getItem(connection, '45231');
+
+			const urls = fetchMock.mock.calls.map(([input]: [string | URL]) => String(input));
+
+			expect(urls.length).toBeGreaterThan(0);
+			expect(urls.every((url: string) => url.includes('includeGuids=1'))).toBe(true);
 		});
 
 		it('takes the edition Plex names, because nothing else can tell two cuts apart', async () => {
@@ -541,6 +563,97 @@ describe('PlexHandler', () => {
 				{ kind: LibraryKind.OTHER, paths: [] },
 			]);
 		});
+
+		it('reads a section that named no type as one that may hold either', async () => {
+			stubFetch(() => ({
+				MediaContainer: { Directory: [{ key: '9', title: 'Everything' }] },
+			}));
+
+			await expect(handler.listLibraries(connection)).resolves.toMatchObject([
+				{ kind: LibraryKind.MIXED },
+			]);
+		});
+	});
+
+	/**
+	 * The kind derivation, asked directly rather than through a fetch stub.
+	 *
+	 * Every type either server can report goes through one table, and the distinction
+	 * that matters is between a type the server named and no type at all: the first is
+	 * an answer, the second is silence, and reading silence as `OTHER` is the bug.
+	 */
+	describe('sectionKindFor', () => {
+		it.each([
+			['movie', LibraryKind.MOVIES],
+			['show', LibraryKind.SHOWS],
+			['artist', LibraryKind.MUSIC],
+			['mixed', LibraryKind.MIXED],
+			['photo', LibraryKind.OTHER],
+			['Movie', LibraryKind.MOVIES],
+		])('reads %s as %s', (type, expected) => {
+			expect(sectionKindFor(type)).toBe(expected);
+		});
+
+		it('reads a section with no type at all as one that may hold either', () => {
+			expect(sectionKindFor('')).toBe(LibraryKind.MIXED);
+			expect(sectionKindFor(null)).toBe(LibraryKind.MIXED);
+			expect(sectionKindFor(undefined)).toBe(LibraryKind.MIXED);
+		});
+	});
+
+	/**
+	 * The identifiers, parsed off the two shapes Plex publishes them in.
+	 *
+	 * Measured against the owner's own server, which answers a film with a `plex://`
+	 * guid *and* a `Guid` list in the same payload — the reason this is a parser with
+	 * an allow list rather than "take the first thing that looks like a URI".
+	 */
+	describe('plexIdentifiers', () => {
+		it('reads the modern Guid list, all of it, not just the first entry', () => {
+			expect(
+				plexIdentifiers('plex://movie/5d776833103a2d001f5674a1', [
+					'imdb://tt0807840',
+					'tmdb://9761',
+					'tvdb://16180',
+				]),
+			).toEqual({ imdb: 'tt0807840', tmdb: '9761', tvdb: '16180' });
+		});
+
+		it('reads a legacy agent guid, which is all an older library ever carries', () => {
+			expect(plexIdentifiers('com.plexapp.agents.imdb://tt0417299?lang=en')).toEqual({
+				imdb: 'tt0417299',
+			});
+		});
+
+		it.each([
+			['com.plexapp.agents.thetvdb://121361/1/2?lang=en', { tvdb: '121361' }],
+			['com.plexapp.agents.themoviedb://1234?lang=en', { tmdb: '1234' }],
+		])('folds the legacy agent name onto the registry it means', (guid, expected) => {
+			// `thetvdb` and `themoviedb` are the agent identifiers, `tvdb` and `tmdb` the
+			// keys correlation joins on. A gateway that stored them under the agent's
+			// spelling would hold the number and never compare it with anything.
+			expect(plexIdentifiers(guid)).toEqual(expected);
+		});
+
+		it('refuses a plex guid, which names nothing outside that one server', () => {
+			// Row 5 on one Plex is a different film on the next, so storing this as an
+			// identity would correlate two unrelated films the moment two Plexes met.
+			expect(plexIdentifiers('plex://movie/5d776833103a2d001f5674a1')).toEqual({});
+			expect(plexIdentifiers(null, ['plex://movie/5d776833103a2d001f5674a1'])).toEqual({});
+		});
+
+		it('answers nothing when the item carries nothing', () => {
+			expect(plexIdentifiers(null)).toEqual({});
+			expect(plexIdentifiers(undefined, [null, undefined, ''])).toEqual({});
+		});
+
+		it('keeps the modern entry when the legacy field disagrees with it', () => {
+			// A server that publishes both has the `Guid` list right; the legacy field is
+			// left over from whichever agent used to match the item.
+			expect(
+				plexIdentifiers('com.plexapp.agents.imdb://tt0000001?lang=en', ['imdb://tt0417299']),
+			).toEqual({ imdb: 'tt0417299' });
+		});
 	});
 
 	describe('openStream', () => {
@@ -633,6 +746,20 @@ describe('PlexHandler', () => {
 			}
 
 			expect([...new Set(typesAskedFor(fetchMock))]).toEqual(['2', '3', '4']);
+		});
+
+		it('asks a section that may hold either for films and shows alike', async () => {
+			const fetchMock = stubFetch(() => ({ MediaContainer: { Metadata: [], totalSize: 0 } }));
+
+			for await (const _item of handler.scanLibrary(
+				connection,
+				{ ...library, kind: LibraryKind.MIXED },
+				{},
+			)) {
+				// As above.
+			}
+
+			expect([...new Set(typesAskedFor(fetchMock))]).toEqual(['1', '2', '3', '4']);
 		});
 
 		it('asks a library it cannot classify for everything it understands', async () => {

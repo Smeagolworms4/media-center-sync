@@ -42,6 +42,32 @@ export interface MatchOptions {
 	 * on its own and decisive once both sides agree which series they are inside.
 	 */
 	parentMatches?: ReadonlyMap<string, ReadonlySet<string>>;
+	/**
+	 * The identifiers that genuinely name *that* episode, per item.
+	 *
+	 * `provider:value` keys, and only the ones an item does not share with its
+	 * siblings. Media servers routinely stamp every episode of a show with the series'
+	 * identifier, so `tvdb` carries an episode's own number on one library and the
+	 * show's on the next, and the key name cannot tell them apart. This map is the
+	 * answer worked out from the data — see `episodeIdentifierKeys` — and it is what
+	 * lets an identifier overrule two numberings that disagree without ever merging
+	 * episode 3 with episode 47.
+	 *
+	 * Absent means "nobody worked it out", and then nothing changes: an episode's
+	 * identifiers are believed exactly as far as they were before, which is only where
+	 * the numbers agree too.
+	 */
+	episodeIdentifiers?: ReadonlyMap<string, ReadonlySet<string>>;
+	/**
+	 * Episodes the numbering alignment paired, as local identifier to the remote ones.
+	 *
+	 * Computed per series by `alignAbsoluteNumbering`, which holds every guard: this is
+	 * only the conclusion. Nothing is derived here from a number, deliberately — a
+	 * formula applied per pair cannot see the season lengths, the holes or the totals
+	 * that make the conversion safe, and correlation scoring one pair at a time is
+	 * exactly where such a formula would be written by mistake.
+	 */
+	absolutePairs?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 /** One correlation, before anything has decided to keep it. */
@@ -75,6 +101,13 @@ const CONFIDENCE = {
 	externalId: 0.98,
 	externalIdPartial: 0.9,
 	seasonEpisode: 0.95,
+	/**
+	 * Below `seasonEpisode`, and the gap is the point: there both servers declared the
+	 * coordinate, here one of them was computed from the other side's season lengths.
+	 * Still well above the default threshold, because the conversion is only allowed to
+	 * run once the two sides have been proved to account for the same show end to end.
+	 */
+	absoluteEpisode: 0.9,
 	pathExact: 0.85,
 	pathBasename: 0.8,
 } as const;
@@ -145,6 +178,13 @@ export const identifierValue = (
  *   library on earth has an `S01E02`. They are only usable below a series that has
  *   already been matched some other way, which is why they come after the
  *   identifiers rather than before.
+ * - An absolute number converted into season and episode is the last resort under a
+ *   series, and the only coordinate here that no server declared. It exists because
+ *   anime is routinely published as one continuous run — episode 1 to 291 — while the
+ *   same show elsewhere is cut into seasons, so `E153` and `S06E12` looked like two
+ *   different things and the gateway called missing what somebody already owned. Every
+ *   guard on it lives in `episode-numbering.ts`, where the season lengths of both
+ *   copies can be seen at once; this file only reads the conclusion.
  * - A normalised title is the only strategy that works on a library with no
  *   metadata at all, and the only one that can be confidently wrong: remakes, the
  *   two `The Office`s, and anything with a subtitle one library kept and the other
@@ -200,17 +240,23 @@ export class MatchingService {
 		 * counts it as holding the media nor pulls from it (`SyncManager`), and a group
 		 * does not call it held (`MediaGroupManager`).
 		 */
-		const work = this._externalIdMatch(local, remote, WORK_IDENTIFIERS);
+		const work = this._externalIdMatch(local, remote, WORK_IDENTIFIERS, options);
 
 		if (work) {
 			return work;
+		}
+
+		// Nothing above agreed, so if the two sides name different works they are
+		// different works — whatever the titles, the numbers or the paths go on to say.
+		if (this.contradicted(local, remote)) {
+			return null;
 		}
 
 		if (this._separateCuts(local, remote)) {
 			return null;
 		}
 
-		const catalogue = this._externalIdMatch(local, remote, CATALOGUE_IDENTIFIERS);
+		const catalogue = this._externalIdMatch(local, remote, CATALOGUE_IDENTIFIERS, options);
 
 		if (catalogue) {
 			return catalogue;
@@ -222,6 +268,22 @@ export class MatchingService {
 			return episode;
 		}
 
+		/*
+		 * Last, because it is the only strategy whose coordinate nobody declared.
+		 *
+		 * The order over the three episode rules is the owner's and is worth stating
+		 * plainly: an identifier that genuinely names the episode decides, whatever the
+		 * numbering says; failing that the season and episode numbers decide, which is
+		 * the ordinary case and must stay it; and only where neither can — a show
+		 * published as one continuous run against the same show cut into seasons — does
+		 * the conversion get a say.
+		 */
+		const absolute = this._absoluteEpisodeMatch(local, remote, options);
+
+		if (absolute) {
+			return absolute;
+		}
+
 		const title = this._titleMatch(local, remote);
 
 		if (title) {
@@ -229,6 +291,52 @@ export class MatchingService {
 		}
 
 		return this._pathMatch(local, remote);
+	}
+
+	/**
+	 * Whether the two sides name different works, which is the one thing a title
+	 * cannot argue with.
+	 *
+	 * Two films can share a title — remakes, namesakes, a documentary about the film —
+	 * and separating them is exactly what IMDb, TMDB and TVDB numbers are for. So a
+	 * pair whose identifiers point at two different works is not a match at any score,
+	 * and a title correlation already applied on such a pair is wrong and is revoked
+	 * rather than left standing.
+	 *
+	 * **Absence is not disagreement**, and that is the trap this exists to avoid. The
+	 * ordinary case in a real house is one library that scrapes and one that does not:
+	 * the Plex copy carries `tt0417299` and the Jellyfin copy carries nothing at all.
+	 * Reading that as a contradiction would revoke every correct match somebody has,
+	 * so a registry only speaks when **both** sides filled it in.
+	 *
+	 * Agreement anywhere silences it. A pair that agrees on IMDb and disagrees on TMDB
+	 * is one work whose two libraries scraped different TMDB entries — `score` has
+	 * already returned an `EXTERNAL_ID` match by the time this is asked, and asking it
+	 * first would throw the pair away over the weaker of the two registries.
+	 *
+	 * **Films and series only, and that restriction is not a simplification.** A season
+	 * and an episode routinely carry their *series'* identifier rather than their own,
+	 * and which of the two a given library writes is not something the field name says.
+	 * So one library stamping every episode of a show with `tvdb:121361` and another
+	 * carrying each episode's own number produces a disagreement on every episode of a
+	 * series the two servers hold identically — and reading that as "two different
+	 * works" would unpick a show that correlates perfectly today, episode by episode,
+	 * on the very numbering it is matched by. `MediaManager._workKeys` draws the same
+	 * line for the same reason, and the two have to agree: an index that introduces two
+	 * copies and a veto that then refuses them would be a pass that does nothing but
+	 * churn.
+	 */
+	public contradicted(local: MatchCandidate, remote: MatchCandidate): boolean {
+		if (local.kind !== MediaKind.MOVIE && local.kind !== MediaKind.SERIES) {
+			return false;
+		}
+
+		return WORK_IDENTIFIERS.some((provider) => {
+			const left = identifierValue(local.externalIds, provider);
+			const right = identifierValue(remote.externalIds, provider);
+
+			return left !== null && right !== null && left !== right;
+		});
 	}
 
 	/**
@@ -459,6 +567,7 @@ export class MatchingService {
 		local: MatchCandidate,
 		remote: MatchCandidate,
 		providers: readonly (keyof ExternalIds)[],
+		options: MatchOptions,
 	): { strategy: MatchStrategy; confidence: number } | null {
 		const agreed = providers.some((provider) => {
 			const left = identifierValue(local.externalIds, provider);
@@ -474,9 +583,28 @@ export class MatchingService {
 			return { strategy: MatchStrategy.EXTERNAL_ID, confidence: CONFIDENCE.externalId };
 		}
 
-		// Episodes routinely carry their series' identifier rather than their own,
-		// which would make every episode of a show match every other. When both sides
-		// number themselves, the numbers have to agree.
+		/*
+		 * An identifier that names *this* episode settles it, numbering and all.
+		 *
+		 * This is the one case where a number check would be wrong rather than merely
+		 * cautious: a show published as one continuous run says `E153` where the same
+		 * show cut into seasons says `S06E12`, and both copies carry the same episode
+		 * identifier. Refusing that pair because the numbers differ is what made the
+		 * gateway call missing what somebody already owned.
+		 *
+		 * It is allowed only for an identifier that was shown to be the episode's own —
+		 * one no sibling under the same series on the same service carries. The
+		 * alternative, trusting `tvdb` because it is called `tvdb`, merges episode 3 with
+		 * episode 47 on the very many libraries that stamp the show's number onto every
+		 * episode of it, at full confidence and with nothing on screen to unpick it.
+		 */
+		if (this._agreesOnAnEpisodeIdentifier(local, remote, providers, options)) {
+			return { strategy: MatchStrategy.EXTERNAL_ID, confidence: CONFIDENCE.externalId };
+		}
+
+		// Otherwise the identifier may well be the series', which would make every
+		// episode of a show match every other. When both sides number themselves, the
+		// numbers have to agree.
 		const known =
 			local.seasonNumber !== null &&
 			remote.seasonNumber !== null &&
@@ -498,6 +626,92 @@ export class MatchingService {
 		}
 
 		return { strategy: MatchStrategy.EXTERNAL_ID, confidence: CONFIDENCE.externalId };
+	}
+
+	/**
+	 * Whether an identifier both sides agree on is one that names the episode on both.
+	 *
+	 * Both, and not either. An identifier that is distinctive here and shared by four
+	 * hundred rows there is the show's number on that server, and believing it because
+	 * our side happened to be tidy would merge our episode 3 with whichever of their
+	 * four hundred rows the candidate lookup handed over first.
+	 */
+	private _agreesOnAnEpisodeIdentifier(
+		local: MatchCandidate,
+		remote: MatchCandidate,
+		providers: readonly (keyof ExternalIds)[],
+		options: MatchOptions,
+	): boolean {
+		const localKeys = options.episodeIdentifiers?.get(local.id);
+		const remoteKeys = options.episodeIdentifiers?.get(remote.id);
+
+		if (localKeys === undefined || remoteKeys === undefined) {
+			return false;
+		}
+
+		return providers.some((provider) => {
+			const value = identifierValue(local.externalIds, provider);
+
+			if (value === null || value !== identifierValue(remote.externalIds, provider)) {
+				return false;
+			}
+
+			const key = `${provider}:${value}`;
+
+			return localKeys.has(key) && remoteKeys.has(key);
+		});
+	}
+
+	/**
+	 * One side numbers the show straight through, the other cuts it into seasons.
+	 *
+	 * Everything that makes this safe happened before the call: `alignAbsoluteNumbering`
+	 * has the season lengths of both copies in hand, and only pairs episodes once the
+	 * two sides are shown to use different conventions and to account for the same show
+	 * end to end. All that is left here is to refuse the pair when the two copies carry
+	 * episode identifiers that contradict each other, which is the one piece of evidence
+	 * the alignment cannot see: it works on numbers, and a pair of numbers can line up
+	 * perfectly while two identifiers say these are different episodes.
+	 *
+	 * Only identifiers proved to be the episodes' own can veto. A series identifier
+	 * stamped on every row differs between two servers that scraped from two providers,
+	 * and letting that count as a contradiction would switch the whole feature off on
+	 * exactly the libraries that need it.
+	 */
+	private _absoluteEpisodeMatch(
+		local: MatchCandidate,
+		remote: MatchCandidate,
+		options: MatchOptions,
+	): { strategy: MatchStrategy; confidence: number } | null {
+		if (local.kind !== MediaKind.EPISODE) {
+			return null;
+		}
+
+		if (!options.absolutePairs?.get(local.id)?.has(remote.id)) {
+			return null;
+		}
+
+		const localKeys = options.episodeIdentifiers?.get(local.id);
+		const remoteKeys = options.episodeIdentifiers?.get(remote.id);
+		const contradicted =
+			localKeys !== undefined &&
+			remoteKeys !== undefined &&
+			WORK_IDENTIFIERS.some((provider) => {
+				const left = identifierValue(local.externalIds, provider);
+				const right = identifierValue(remote.externalIds, provider);
+
+				return (
+					left !== null &&
+					right !== null &&
+					left !== right &&
+					localKeys.has(`${provider}:${left}`) &&
+					remoteKeys.has(`${provider}:${right}`)
+				);
+			});
+
+		return contradicted
+			? null
+			: { strategy: MatchStrategy.ABSOLUTE_EPISODE, confidence: CONFIDENCE.absoluteEpisode };
 	}
 
 	private _seasonEpisodeMatch(

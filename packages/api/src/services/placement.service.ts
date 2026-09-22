@@ -540,22 +540,38 @@ export class PlacementService {
 	/**
 	 * Libraries in the order they deserve to be tried.
 	 *
-	 * The one marked as the default target for the right kind first, then any library
-	 * of the right kind, then anything writable at all. The last step matters on a
-	 * gateway where nobody has configured the kinds: landing a film in the shows
-	 * library is wrong, and losing the transfer is worse.
+	 * Three bands, not two, and the middle one is the whole point. First the libraries
+	 * of exactly the right kind, then the ones whose server said they may hold either,
+	 * then everything else writable. Inside each band the library somebody marked as
+	 * the default target comes first.
+	 *
+	 * The last band matters on a gateway where nobody has configured the kinds:
+	 * landing a film in the shows library is wrong, and losing the transfer is worse.
+	 *
+	 * The middle band is what a `MIXED` library gets, and it was worth adding a band
+	 * for. A library that declares no content type is the ordinary Jellyfin library —
+	 * every one of the seven on the gateway this was measured against — and reading it
+	 * as "unknown" put it in the last band, behind a music library and behind a photo
+	 * album, as somewhere to put a film it is in fact the only place for. A mixed
+	 * library is a worse destination than a film library and a far better one than a
+	 * library that named a kind this is not, so it belongs between the two.
 	 */
 	private _byPreference(libraries: PlacementLibrary[], kind: MediaKind): PlacementLibrary[] {
 		const wanted = this._libraryKindFor(kind);
-		const matching = libraries.filter((library) => library.kind === wanted);
-		const rest = libraries.filter((library) => library.kind !== wanted);
-
-		return [
-			...matching.filter((library) => library.isDefaultTarget),
-			...matching.filter((library) => !library.isDefaultTarget),
-			...rest.filter((library) => library.isDefaultTarget),
-			...rest.filter((library) => !library.isDefaultTarget),
+		const exact = libraries.filter((library) => library.kind === wanted);
+		const mixed = libraries.filter((library) => library.kind === LibraryKind.MIXED);
+		const rest = libraries.filter(
+			(library) => library.kind !== wanted && library.kind !== LibraryKind.MIXED,
+		);
+		// Preferred first inside each band, so a default target never jumps a band: a
+		// mixed library somebody marked as the default is still not a better home for a
+		// film than the film library next to it.
+		const preferredFirst = (band: PlacementLibrary[]): PlacementLibrary[] => [
+			...band.filter((library) => library.isDefaultTarget),
+			...band.filter((library) => !library.isDefaultTarget),
 		];
+
+		return [...preferredFirst(exact), ...preferredFirst(mixed), ...preferredFirst(rest)];
 	}
 
 	private _libraryKindFor(kind: MediaKind): LibraryKind {

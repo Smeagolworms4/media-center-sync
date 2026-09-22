@@ -1,5 +1,5 @@
 import { LibraryKind, MediaKind, MediaServiceType } from '@mcs/shared';
-import { JellyfinHandler } from './jellyfin.handler';
+import { JellyfinHandler, libraryKindFor } from './jellyfin.handler';
 import type { NormalisedLibrary, ServiceConnection } from './media-handler.interface';
 
 const connection: ServiceConnection = {
@@ -596,6 +596,46 @@ describe('JellyfinHandler', () => {
 			]);
 		});
 
+		it('reads a library that declared no content type as one that may hold either', async () => {
+			/*
+			 * The ordinary case, and the one this was measured on: every one of the
+			 * owner's seven Jellyfin libraries answers `CollectionType: None`, because
+			 * he never told Jellyfin what any of those folders were for. Reading that as
+			 * `OTHER` put an "other" chip on every category on his gateway and ranked
+			 * the only libraries that could hold a film behind the ones that could not.
+			 */
+			stubFetch((url) =>
+				url.includes('/Library/VirtualFolders')
+					? [
+						{ ItemId: 'folder-4', Name: 'Video', CollectionType: 'None', Locations: ['/media'] },
+						{ ItemId: 'folder-5', Name: 'Autres', Locations: ['/other'] },
+					]
+					: { Version: '10.9.6', ServerName: 'Home' },
+			);
+
+			await expect(handler.listLibraries(connection)).resolves.toMatchObject([
+				{ externalId: 'folder-4', kind: LibraryKind.MIXED },
+				{ externalId: 'folder-5', kind: LibraryKind.MIXED },
+			]);
+		});
+
+		it('asks a library that may hold either for films and shows alike', async () => {
+			// Not a fallback here, an accurate question: the server said the library is
+			// not narrowed to one, so both are what it may hold.
+			const fetchMock = stubFetch(() => ({ Items: [], TotalRecordCount: 0 }));
+
+			for await (const item of handler.scanLibrary(connection, {
+				...library,
+				kind: LibraryKind.MIXED,
+			})) {
+				void item;
+			}
+
+			expect(String(fetchMock.mock.calls[0][0])).toContain(
+				'IncludeItemTypes=Movie%2CSeries%2CSeason%2CEpisode%2CBoxSet',
+			);
+		});
+
 		it('asks a library it cannot classify for everything it understands', async () => {
 			const fetchMock = stubFetch(() => ({ Items: [], TotalRecordCount: 0 }));
 
@@ -794,5 +834,48 @@ describe('JellyfinHandler', () => {
 				entries: [],
 			});
 		});
+	});
+});
+
+/**
+ * Every collection type Jellyfin can report, asked directly.
+ *
+ * Through a fetch stub this would be one table-driven rule tested once; the rule is
+ * what decides where a pull lands and what chip a category carries, so each answer is
+ * pinned down on its own. The distinction being protected is between a type the
+ * server named and no type at all: the first is an answer, the second is silence, and
+ * silence is "films or shows, we were not told" rather than "something else".
+ */
+describe('libraryKindFor', () => {
+	it.each([
+		['movies', LibraryKind.MOVIES],
+		['tvshows', LibraryKind.SHOWS],
+		['music', LibraryKind.MUSIC],
+		['mixed', LibraryKind.MIXED],
+		// Types Jellyfin names and this model carries no media for. `boxsets` is the
+		// one worth noticing: it holds collections of films and is still not a place a
+		// film can be filed, because Jellyfin builds it from the film libraries.
+		['musicvideos', LibraryKind.OTHER],
+		['homevideos', LibraryKind.OTHER],
+		['boxsets', LibraryKind.OTHER],
+		['books', LibraryKind.OTHER],
+		['photos', LibraryKind.OTHER],
+		['livetv', LibraryKind.OTHER],
+		['playlists', LibraryKind.OTHER],
+		['folders', LibraryKind.OTHER],
+		// Casing changes between Jellyfin releases and neither spelling is wrong.
+		['TvShows', LibraryKind.SHOWS],
+		['Movies', LibraryKind.MOVIES],
+	])('reads %s as %s', (collectionType, expected) => {
+		expect(libraryKindFor(collectionType)).toBe(expected);
+	});
+
+	it('reads a library that declared nothing as one that may hold either', () => {
+		// Jellyfin serialises an unset content type three different ways depending on
+		// the build and the route, and all three are the same statement.
+		expect(libraryKindFor(null)).toBe(LibraryKind.MIXED);
+		expect(libraryKindFor(undefined)).toBe(LibraryKind.MIXED);
+		expect(libraryKindFor('')).toBe(LibraryKind.MIXED);
+		expect(libraryKindFor('None')).toBe(LibraryKind.MIXED);
 	});
 });

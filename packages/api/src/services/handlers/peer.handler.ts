@@ -174,7 +174,9 @@ export class PeerHandler implements MediaServiceHandler {
 			{
 				externalId: PEER_FALLBACK_LIBRARY,
 				name: 'Shared',
-				kind: LibraryKind.OTHER,
+				// One bag holding whatever that peer shares, which is films and shows
+				// both. `OTHER` claimed the peer had told us it was something else.
+				kind: LibraryKind.MIXED,
 				paths: [],
 			},
 		];

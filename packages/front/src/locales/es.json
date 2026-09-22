@@ -208,6 +208,15 @@
 		"everything": "Todas las categorías",
 		"categories": "Tus bibliotecas",
 		"categories_hint": "Las bibliotecas del mismo nombre, en todos los servidores, vistas como una sola.",
+		"hint": {
+			"nothing_mounted": "Ningún servidor de esta pasarela tiene sus carpetas declaradas, así que nada cuenta como disponible aquí y todo aparece como ausente. Declare las carpetas de un servidor para que sus archivos cuenten.",
+			"misread_named": "«{title}» figura como una sola serie con {count} temporadas, y varias llevan nombres de otras series: conviene comprobarlo.",
+			"misread_many": "«{title}» figura como una sola serie con {count} temporadas, más de las que suele tener una serie: conviene comprobarlo.",
+			"misread_examples": "Temporadas con nombre: {names}",
+			"misread_remedy": "Si esa carpeta contiene en realidad varias series, su servidor multimedia la está leyendo como una sola. Añada la carpeta interior como raíz de biblioteca, o asigne un tipo de contenido a la biblioteca, y vuelva a analizar.",
+			"open_services": "Abrir servidores",
+			"dismiss": "Descartar"
+		},
 		"view": {
 			"grid": "Carátulas",
 			"list": "Lista"
@@ -236,6 +245,7 @@
 			"movies": "Películas",
 			"shows": "Series",
 			"music": "Música",
+			"mixed": "Películas y series",
 			"other": "Otro"
 		},
 		"problem": {
@@ -367,6 +377,8 @@
 		"identifiers": "Identificadores",
 		"identifiers_hint": "Lo que hace fiable una correlación: dos servidores numeran el mismo episodio de forma distinta y aun así coinciden en un identificador de TVDB.",
 		"restore": "Restaurar lo que anunció el servicio",
+		"reset": "Devolver los campos a lo que anuncia el servicio",
+		"reset_done": "Los campos contienen lo que anuncia el servicio. Guarda para eliminar la corrección.",
 		"saved": "Corrección guardada.",
 		"restored": "La respuesta del propio servicio está de vuelta.",
 		"failed": "Esta corrección ha sido rechazada.",

@@ -1,7 +1,25 @@
+/**
+ * What a library holds, as its own server describes it.
+ *
+ * `MIXED` and `OTHER` are two different statements and conflating them was a bug with
+ * a visible cost. A Jellyfin library created without a content type reports no
+ * collection type at all, and that is the ordinary case for anybody who never told
+ * Jellyfin what a folder was for — seven libraries out of seven on the gateway this
+ * was measured against. Reading that as `OTHER` claimed the server had said something
+ * it never said: every category carried an "other" chip, and destination ranking put
+ * those libraries behind every named one, so a film pulled into a house whose shelves
+ * are all untyped landed last in the only libraries that could hold it.
+ *
+ * `MIXED` says "films or shows, the server did not narrow it" and is ranked as such.
+ * `OTHER` stays what it always was — photos, home videos, books: a kind the server
+ * named and that this model does not carry media for.
+ */
 export enum LibraryKind {
 	MOVIES = 'movies',
 	SHOWS = 'shows',
 	MUSIC = 'music',
+	/** Declared mixed, or declared nothing at all: may hold films and shows both. */
+	MIXED = 'mixed',
 	OTHER = 'other',
 }
 
@@ -201,4 +219,72 @@ export interface AddCategoryKeywordRequest {
 export interface MoveCategoryKeywordRequest {
 	/** The category it should file into from now on. */
 	categoryKey: string;
+}
+
+/**
+ * Something about how this gateway is set up that makes the library read wrongly.
+ *
+ * Not an error and not a state: the gateway mirrors what the media servers declare,
+ * and neither of these is something it could repair on its own. They exist because
+ * both failures are silent and expensive — the person who hits one spends an evening
+ * on it and has no reason to suspect the shape of a folder or a missing mapping.
+ */
+export enum LibraryHintKind {
+	/**
+	 * No server on this gateway has its folders declared, so nothing counts as held.
+	 *
+	 * `MISSING` means "known elsewhere, not held here", which is true of every single
+	 * row when the gateway cannot reach any file — thirty-one thousand of them on the
+	 * owner's development gateway. The definition is right and the screen is
+	 * unreadable, so the one line that explains it has to be there.
+	 */
+	NOTHING_MOUNTED = 'nothing_mounted',
+	/**
+	 * A series that looks like a folder of shows the media server read as one show.
+	 *
+	 * A library root one level too high does this: `/media/SeriesTV` with the shows
+	 * under `Marvel Comics/Series TV/<show>` makes Jellyfin call `Marvel Comics/Series
+	 * TV` a series and every show beneath it one of its seasons. A suspicion and never
+	 * a verdict — some real shows genuinely name their seasons — so it is worded as
+	 * something to check and can be dismissed.
+	 */
+	MISREAD_FOLDER = 'misread_folder',
+}
+
+/** What looks wrong about a series, so the interface can put it in words. */
+export enum LibraryLayoutSignal {
+	/** Seasons named like show titles rather than like a season of anything. */
+	NAMED_SEASONS = 'named_seasons',
+	/** More seasons than any show plausibly runs for. */
+	TOO_MANY_SEASONS = 'too_many_seasons',
+}
+
+/**
+ * One thing worth saying about how the library is organised.
+ *
+ * Every field but `kind` and `key` is nullable because the two kinds carry different
+ * evidence: one is about the whole gateway, the other about one series. Two endpoints
+ * and two components would have cost more than the nulls, and both belong in the same
+ * line of the same screen.
+ */
+export interface LibraryHint {
+	/**
+	 * Stable across scans and restarts, because it is what a dismissal is stored under.
+	 *
+	 * Derived from the item, never from its position in a list or its title: a key
+	 * built from a name would come back the moment somebody renamed the folder, which
+	 * is the one action most likely to follow reading the hint.
+	 */
+	key: string;
+	kind: LibraryHintKind;
+	/** The series this is about, so the interface can link straight to it. */
+	itemId: string | null;
+	/** The series as the media server named it. */
+	title: string | null;
+	libraryName: string | null;
+	serviceName: string | null;
+	signals: LibraryLayoutSignal[];
+	/** The season names that read like show titles, quoted as evidence. */
+	examples: string[];
+	seasonCount: number;
 }

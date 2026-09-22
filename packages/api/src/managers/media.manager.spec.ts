@@ -101,19 +101,25 @@ interface Fakes {
 	items: {
 		find: jest.Mock;
 		findOne: jest.Mock;
+		findByExternalId: jest.Mock;
 		findChildren: jest.Mock;
 		findCandidatesForMatch: jest.Mock;
 		search: jest.Mock;
 		setSyncState: jest.Mock;
+		create: jest.Mock;
 		save: jest.Mock;
+		update: jest.Mock;
+		remove: jest.Mock;
 	};
 	matches: {
+		find: jest.Mock;
 		findOne: jest.Mock;
 		findForLocalItem: jest.Mock;
 		findForRemoteItem: jest.Mock;
 		upsertPair: jest.Mock;
 		save: jest.Mock;
 		delete: jest.Mock;
+		deleteForItems: jest.Mock;
 	};
 	services: { find: jest.Mock; findOne: jest.Mock; findWithSecrets: jest.Mock };
 	landings: { findOpen: jest.Mock };
@@ -121,27 +127,86 @@ interface Fakes {
 	openArtwork: jest.Mock;
 }
 
-const build = (world: { items?: MediaItem[] } = {}): { manager: MediaManager; fakes: Fakes } => {
+const build = (
+	world: { items?: MediaItem[]; matches?: MediaMatch[] } = {},
+): { manager: MediaManager; fakes: Fakes } => {
 	const items = world.items ?? [];
+	// The match table, seeded by the tests that are about what a pass does to rows it
+	// finds already there rather than about the rows it writes.
+	const pairs = world.matches ?? [];
 	const fakes: Fakes = {
+		/*
+		 * The index, small enough to hold in an array.
+		 *
+		 * Reads and writes go through the same list rather than through canned answers,
+		 * because re-filing is a rule about the shape of a tree: an episode moved under a
+		 * season that did not exist a moment ago is only provable if the fake remembers
+		 * the season it was just asked to create. A `mockResolvedValue` per call would
+		 * pin the calls and prove nothing about the tree they leave behind.
+		 */
 		items: {
 			find: jest.fn().mockResolvedValue(items),
 			findOne: jest.fn((options: { where: { id: string } }) =>
 				Promise.resolve(items.find((candidate) => candidate.id === options.where.id) ?? null),
 			),
-			findChildren: jest.fn().mockResolvedValue([]),
+			findByExternalId: jest.fn((serviceId: string, externalId: string) =>
+				Promise.resolve(
+					items.find(
+						(candidate) =>
+							candidate.serviceId === serviceId && candidate.externalId === externalId,
+					) ?? null,
+				),
+			),
+			findChildren: jest.fn((parentId: string) =>
+				Promise.resolve(items.filter((candidate) => candidate.parentId === parentId)),
+			),
 			findCandidatesForMatch: jest.fn().mockResolvedValue([]),
 			search: jest.fn().mockResolvedValue([[], 0]),
 			setSyncState: jest.fn().mockResolvedValue(undefined),
-			save: jest.fn((value: MediaItem) => Promise.resolve(value)),
+			create: jest.fn((values: Partial<MediaItem>) => ({ id: `made-${items.length}`, ...values })),
+			save: jest.fn((value: MediaItem) => {
+				if (!items.includes(value)) {
+					items.push(value);
+				}
+
+				return Promise.resolve(value);
+			}),
+			update: jest.fn((where: { id: string }, values: Partial<MediaItem>) => {
+				const row = items.find((candidate) => candidate.id === where.id);
+
+				if (row !== undefined) {
+					Object.assign(row, values);
+				}
+
+				return Promise.resolve(undefined);
+			}),
+			remove: jest.fn((value: MediaItem) => {
+				const at = items.indexOf(value);
+
+				if (at >= 0) {
+					items.splice(at, 1);
+				}
+
+				return Promise.resolve(value);
+			}),
 		},
 		matches: {
+			find: jest.fn().mockResolvedValue(pairs),
 			findOne: jest.fn().mockResolvedValue(null),
 			findForLocalItem: jest.fn().mockResolvedValue([]),
 			findForRemoteItem: jest.fn().mockResolvedValue([]),
 			upsertPair: jest.fn((claim: unknown) => Promise.resolve(claim as MediaMatch)),
 			save: jest.fn((value: MediaMatch) => Promise.resolve(value)),
-			delete: jest.fn().mockResolvedValue(undefined),
+			delete: jest.fn((where: { id: string }) => {
+				const at = pairs.findIndex((pair) => pair.id === where.id);
+
+				if (at >= 0) {
+					pairs.splice(at, 1);
+				}
+
+				return Promise.resolve(undefined);
+			}),
+			deleteForItems: jest.fn().mockResolvedValue(0),
 		},
 		services: {
 			find: jest.fn().mockResolvedValue([]),
@@ -376,6 +441,185 @@ describe('MediaManager', () => {
 			expect(fakes.items.setSyncState).toHaveBeenCalledWith(['item-a'], SyncState.CONFLICT);
 		});
 
+		/**
+		 * What a second pass makes of the pairs the first one left behind.
+		 *
+		 * Reading Plex's identifiers only ever helps the pairs correlated after the
+		 * reading. Everything already on the owner's gateway was decided when a Plex item
+		 * carried nothing but its own row key, which made every Plex-to-Jellyfin pair a
+		 * title guess — so the feature has to re-open the decisions it made blind, or it
+		 * changes nothing on the only catalogue that matters.
+		 *
+		 * The film in these tests is deliberately the hard one: two works that share a
+		 * title exactly, which is precisely what identifiers exist to separate.
+		 */
+		describe('re-correlating pairs decided before the identifiers arrived', () => {
+			const film = (overrides: Partial<MediaItem> = {}): MediaItem =>
+				item({
+					kind: MediaKind.MOVIE,
+					title: 'The Office',
+					normalizedTitle: 'office',
+					seasonNumber: null,
+					episodeNumber: null,
+					year: null,
+					file: null,
+					...overrides,
+				});
+
+			const here = (externalIds: Record<string, string> = {}): MediaItem =>
+				film({ id: 'item-a', serviceId: 'service-a', externalIds } as Partial<MediaItem>);
+
+			const there = (externalIds: Record<string, string> = {}): MediaItem =>
+				film({
+					id: 'item-b',
+					serviceId: 'service-b',
+					libraryId: 'library-b',
+					externalId: 'b-1',
+					externalIds,
+				} as Partial<MediaItem>);
+
+			const titleMatch = (overrides: Partial<MediaMatch> = {}): MediaMatch =>
+				match({
+					id: 'match-title',
+					localItemId: 'item-a',
+					remoteItemId: 'item-b',
+					strategy: MatchStrategy.NORMALIZED_TITLE,
+					confidence: 0.75,
+					...overrides,
+				});
+
+			it('revokes a title match the two identifiers now contradict', async () => {
+				const pairs = [titleMatch()];
+				const { manager, fakes } = build({
+					items: [here({ imdb: 'tt0386676' }), there({ imdb: 'tt0290978' })],
+					matches: pairs,
+				});
+
+				await manager.correlateService('service-a');
+
+				expect(fakes.matches.delete).toHaveBeenCalledWith({ id: 'match-title' });
+				expect(pairs).toHaveLength(0);
+				// And nothing was written back in its place: a pair nothing vouches for is
+				// not a weaker match, it is not a match.
+				expect(fakes.matches.upsertPair).not.toHaveBeenCalled();
+			});
+
+			it('upgrades a title guess into proof when the numbers agree', async () => {
+				const { manager, fakes } = build({
+					items: [here({ imdb: 'tt0417299' }), there({ imdb: 'tt0417299' })],
+					matches: [titleMatch()],
+				});
+
+				await manager.correlateService('service-a');
+
+				expect(fakes.matches.delete).not.toHaveBeenCalled();
+				expect(fakes.matches.upsertPair).toHaveBeenCalledWith(
+					expect.objectContaining({
+						localItemId: 'item-a',
+						remoteItemId: 'item-b',
+						strategy: MatchStrategy.EXTERNAL_ID,
+						// Above the 0.8 threshold the fake settings answer, which is what
+						// moves the pair from proposed to applied.
+						applied: true,
+					}),
+				);
+			});
+
+			it('leaves a pair alone when only one side ever carried a number', async () => {
+				// One library scrapes and the other does not, which is the ordinary house.
+				// Absence is not disagreement, and treating it as one would revoke every
+				// correct match somebody has.
+				const pairs = [titleMatch()];
+				const remote = there();
+				const { manager, fakes } = build({
+					items: [here({ imdb: 'tt0417299' }), remote],
+					matches: pairs,
+				});
+
+				// The work index cannot introduce these two — only one of them carries a
+				// number — so the title lookup is what brings them together, exactly as it
+				// did when the pair was first written.
+				fakes.items.findCandidatesForMatch.mockResolvedValue([remote]);
+
+				await manager.correlateService('service-a');
+
+				expect(fakes.matches.delete).not.toHaveBeenCalled();
+				expect(pairs).toHaveLength(1);
+				expect(fakes.matches.upsertPair).toHaveBeenCalledWith(
+					expect.objectContaining({ strategy: MatchStrategy.NORMALIZED_TITLE }),
+				);
+			});
+
+			it('never overrules a pair somebody decided by hand', async () => {
+				const pairs = [
+					titleMatch({
+						id: 'match-manual',
+						strategy: MatchStrategy.MANUAL,
+						confidence: 1,
+						confirmedAt: new Date('2026-02-01T00:00:00.000Z'),
+					}),
+				];
+				const { manager, fakes } = build({
+					// The identifiers say two different works, and a person said otherwise.
+					items: [here({ imdb: 'tt0386676' }), there({ imdb: 'tt0290978' })],
+					matches: pairs,
+				});
+
+				await manager.correlateService('service-a');
+
+				expect(fakes.matches.delete).not.toHaveBeenCalled();
+				expect(pairs).toHaveLength(1);
+			});
+
+			it('keeps a confirmation while still refreshing what the two copies are', async () => {
+				/*
+				 * The two halves of a row answer two different questions. Whether these are
+				 * the same media is the person's answer and is restored; what state the two
+				 * copies are in is measured and is not, or a confirmed pair would report a
+				 * quality comparison from the day it was confirmed for ever.
+				 */
+				const { manager, fakes } = build({
+					items: [here({ imdb: 'tt0417299' }), there({ imdb: 'tt0417299' })],
+					matches: [
+						titleMatch({
+							strategy: MatchStrategy.MANUAL,
+							confidence: 1,
+							confirmedAt: new Date('2026-02-01T00:00:00.000Z'),
+						}),
+					],
+				});
+
+				await manager.correlateService('service-a');
+
+				expect(fakes.matches.upsertPair).toHaveBeenCalledWith(
+					expect.objectContaining({
+						strategy: MatchStrategy.MANUAL,
+						confidence: 1,
+						applied: true,
+						// Measured, not remembered: two copies with nothing to tell them
+						// apart are in sync, and that half of the row keeps moving.
+						state: SyncState.IN_SYNC,
+					}),
+				);
+			});
+
+			it('runs twice without doing anything the second time', async () => {
+				// A revocation has to be safe to repeat: whoever re-scans a service twice
+				// in a row must not get a different answer the second time.
+				const pairs = [titleMatch()];
+				const { manager, fakes } = build({
+					items: [here({ imdb: 'tt0386676' }), there({ imdb: 'tt0290978' })],
+					matches: pairs,
+				});
+
+				await manager.correlateService('service-a');
+				await manager.correlateService('service-a');
+
+				expect(fakes.matches.delete).toHaveBeenCalledTimes(1);
+				expect(pairs).toHaveLength(0);
+			});
+		});
+
 		it('never correlates an item with another row of its own service', async () => {
 			const here = item();
 			const twin = item({ id: 'item-a2', externalId: 'a-5-again' });
@@ -384,6 +628,228 @@ describe('MediaManager', () => {
 			await manager.correlateService('service-a');
 
 			expect(fakes.matches.upsertPair).not.toHaveBeenCalled();
+		});
+	});
+
+	/**
+	 * A show published straight through against the same show cut into seasons.
+	 *
+	 * Tested through the manager rather than only through the alignment, because the
+	 * half that is easy to get wrong lives here: nothing in the candidate lookup would
+	 * ever put `E153` and `S06E12` side by side — it joins on the title and on the
+	 * episode coordinates, and neither agrees — so a correct conversion with no
+	 * candidate to apply it to would pass every unit test and change nothing.
+	 */
+	describe('a series numbered straight through', () => {
+		/** A show as one continuous run of `count` episodes under its own series row. */
+		const runningShow = (count: number): MediaItem[] => [
+			item({
+				id: 'run-series',
+				serviceId: 'service-a',
+				libraryId: 'library-a',
+				externalId: 'a-series',
+				kind: MediaKind.SERIES,
+				parentId: null,
+				title: 'Dragon Ball',
+				normalizedTitle: 'dragon ball',
+				year: 1986,
+				seasonNumber: null,
+				episodeNumber: null,
+				file: null,
+			}),
+			...Array.from({ length: count }, (_, index) =>
+				item({
+					id: `run-e${index + 1}`,
+					serviceId: 'service-a',
+					libraryId: 'library-a',
+					externalId: `a-e${index + 1}`,
+					parentId: 'run-series',
+					title: `Episode ${index + 1}`,
+					normalizedTitle: `episode ${index + 1}`,
+					year: null,
+					seasonNumber: 1,
+					episodeNumber: index + 1,
+					file: null,
+				}),
+			),
+		];
+
+		/** The same show as seasons of the given lengths, with a season row each. */
+		const seasonedShow = (lengths: number[]): MediaItem[] => [
+			item({
+				id: 'cut-series',
+				serviceId: 'service-b',
+				libraryId: 'library-b',
+				externalId: 'b-series',
+				kind: MediaKind.SERIES,
+				parentId: null,
+				title: 'Dragon Ball',
+				normalizedTitle: 'dragon ball',
+				year: 1986,
+				seasonNumber: null,
+				episodeNumber: null,
+				file: null,
+			}),
+			...lengths.flatMap((length, index) => [
+				item({
+					id: `cut-s${index + 1}`,
+					serviceId: 'service-b',
+					libraryId: 'library-b',
+					externalId: `b-s${index + 1}`,
+					kind: MediaKind.SEASON,
+					parentId: 'cut-series',
+					title: `Season ${index + 1}`,
+					normalizedTitle: `season ${index + 1}`,
+					year: null,
+					seasonNumber: index + 1,
+					episodeNumber: null,
+					file: null,
+				}),
+				...Array.from({ length }, (_, position) =>
+					item({
+						id: `cut-s${index + 1}e${position + 1}`,
+						serviceId: 'service-b',
+						libraryId: 'library-b',
+						externalId: `b-s${index + 1}e${position + 1}`,
+						parentId: `cut-s${index + 1}`,
+						title: `Chapter ${position + 1}`,
+						normalizedTitle: `chapter ${position + 1}`,
+						year: null,
+						seasonNumber: index + 1,
+						episodeNumber: position + 1,
+						file: null,
+					}),
+				),
+			]),
+		];
+
+		const pairedWith = (fakes: Fakes, localItemId: string): unknown[] =>
+			fakes.matches.upsertPair.mock.calls
+				.map(([claim]) => claim as { localItemId: string })
+				.filter((claim) => claim.localItemId === localItemId);
+
+		it('relates an absolute number to the season and episode it falls in', async () => {
+			const { manager, fakes } = build({
+				items: [...runningShow(25), ...seasonedShow([13, 12])],
+			});
+
+			await manager.correlateService('service-a');
+
+			expect(pairedWith(fakes, 'run-e14')).toEqual([
+				expect.objectContaining({
+					remoteItemId: 'cut-s2e1',
+					strategy: MatchStrategy.ABSOLUTE_EPISODE,
+					applied: true,
+				}),
+			]);
+			expect(pairedWith(fakes, 'run-e25')).toEqual([
+				expect.objectContaining({ remoteItemId: 'cut-s2e12' }),
+			]);
+		});
+
+		it('relates them the same way from the side that has the seasons', async () => {
+			const { manager, fakes } = build({
+				items: [...runningShow(25), ...seasonedShow([13, 12])],
+			});
+
+			await manager.correlateService('service-b');
+
+			expect(pairedWith(fakes, 'cut-s2e1')).toEqual([
+				expect.objectContaining({
+					remoteItemId: 'run-e14',
+					strategy: MatchStrategy.ABSOLUTE_EPISODE,
+				}),
+			]);
+		});
+
+		it('pairs nothing when the two sides do not account for the same show', async () => {
+			// Forty episodes against twenty-five. The season lengths in hand may belong
+			// to a neighbouring cut, and a near miss is exactly what that looks like.
+			const { manager, fakes } = build({
+				items: [...runningShow(40), ...seasonedShow([13, 12])],
+			});
+
+			await manager.correlateService('service-a');
+
+			expect(pairedWith(fakes, 'run-e14')).toEqual([]);
+		});
+
+		it('pairs nothing when both sides number by season and disagree', async () => {
+			// Neither side is a continuous run, so there is no convention to convert
+			// between: the numbers are the evidence and they say these differ.
+			const left = seasonedShow([13, 12]).map((one) => ({ ...one, serviceId: 'service-a' }));
+			const right = seasonedShow([12, 13]).map((one) => ({
+				...one,
+				id: `alt-${one.id}`,
+				parentId: one.parentId === null ? null : `alt-${one.parentId}`,
+				externalId: `alt-${one.externalId}`,
+			})) as MediaItem[];
+			const { manager, fakes } = build({ items: [...(left as MediaItem[]), ...right] });
+
+			await manager.correlateService('service-a');
+
+			expect(pairedWith(fakes, 'cut-s1e13')).toEqual([]);
+		});
+
+		it('leaves a series nothing has matched alone', async () => {
+			const unrelated = seasonedShow([13, 12]).map((one) =>
+				one.kind === MediaKind.SERIES
+					? ({ ...one, title: 'Cowboy Bebop', normalizedTitle: 'cowboy bebop' } as MediaItem)
+					: one,
+			);
+			const { manager, fakes } = build({ items: [...runningShow(25), ...unrelated] });
+
+			await manager.correlateService('service-a');
+
+			expect(pairedWith(fakes, 'run-e14')).toEqual([]);
+		});
+
+		it('lets an episode identifier pair the two numberings on its own', async () => {
+			// Rule one, end to end: each episode carries its own number, so no arithmetic
+			// is needed and the pair is recorded as the identifier it came from.
+			const running = runningShow(25).map((one, index) =>
+				one.kind === MediaKind.SERIES ? one : ({ ...one, externalIds: { tvdb: `e${index}` } } as MediaItem),
+			);
+			const seasoned = seasonedShow([13, 12]).map((one) =>
+				one.kind !== MediaKind.EPISODE
+					? one
+					: ({
+						...one,
+						externalIds: {
+							tvdb: `e${((one.seasonNumber as number) === 1 ? 0 : 13) + (one.episodeNumber as number)}`,
+						},
+					} as MediaItem),
+			);
+			const { manager, fakes } = build({ items: [...running, ...seasoned] });
+
+			await manager.correlateService('service-a');
+
+			expect(pairedWith(fakes, 'run-e14')).toEqual([
+				expect.objectContaining({
+					remoteItemId: 'cut-s2e1',
+					strategy: MatchStrategy.EXTERNAL_ID,
+				}),
+			]);
+		});
+
+		it('refuses to pair on the show identifier every episode was stamped with', async () => {
+			// The trap. Both sides carry `81472` on all twenty-five rows, which says which
+			// show they are and nothing about which episode. Without the numbering
+			// conversion underneath, `E14` would have to stay unrelated rather than be
+			// paired with whichever row the lookup handed over first.
+			const stamped = (rows: MediaItem[]): MediaItem[] =>
+				rows.map((one) =>
+					one.kind === MediaKind.EPISODE
+						? ({ ...one, externalIds: { tvdb: '81472' } } as MediaItem)
+						: one,
+				);
+			const { manager, fakes } = build({
+				items: [...stamped(runningShow(40)), ...stamped(seasonedShow([13, 12]))],
+			});
+
+			await manager.correlateService('service-a');
+
+			expect(pairedWith(fakes, 'run-e14')).toEqual([]);
 		});
 	});
 
@@ -550,6 +1016,233 @@ describe('MediaManager', () => {
 			expect(saved.seasonNumber).toBe(1);
 			expect(saved.overrides).toBeNull();
 			expect(saved.reported).toBeNull();
+		});
+	});
+
+	/**
+	 * A corrected number that does not move the item corrects nothing.
+	 *
+	 * The whole product navigates by `parentId` — the tree walks it, the missing counts
+	 * group by it, the gap detection lists a season's children — so an episode reading
+	 * `S2E1` from inside season one shows up under the wrong season and, because
+	 * children are ordered by season and then episode, sorts after every episode of
+	 * season one. "It doesn't show up under season 2" and "it disappeared" are the same
+	 * missing write, described from two ends.
+	 */
+	describe('re-filing a corrected episode', () => {
+		const show = (): { series: MediaItem; seasonOne: MediaItem; episode: MediaItem } => {
+			const series = item({
+				id: 'series-1',
+				externalId: 'jf-series',
+				kind: MediaKind.SERIES,
+				title: 'Beyblade',
+				normalizedTitle: 'beyblade',
+				seasonNumber: null,
+				episodeNumber: null,
+				file: null,
+				childCount: 1,
+			});
+			const seasonOne = item({
+				id: 'season-1',
+				externalId: 'jf-season-1',
+				kind: MediaKind.SEASON,
+				title: 'Saison 1',
+				normalizedTitle: 'beyblade',
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				seasonNumber: 1,
+				episodeNumber: null,
+				file: null,
+				childCount: 1,
+			});
+			const episode = item({
+				id: 'episode-14',
+				externalId: 'jf-episode-14',
+				title: 'L’Apparition d’un rival',
+				normalizedTitle: 'beyblade',
+				parentId: 'season-1',
+				parentExternalId: 'jf-season-1',
+				seasonNumber: 1,
+				episodeNumber: 14,
+			});
+
+			return { series, seasonOne, episode };
+		};
+
+
+		it('hangs the episode under the season the correction names', async () => {
+			const { series, seasonOne, episode } = show();
+			const seasonTwo = item({
+				id: 'season-2',
+				externalId: 'jf-season-2',
+				kind: MediaKind.SEASON,
+				title: 'Saison 2',
+				normalizedTitle: 'beyblade',
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				seasonNumber: 2,
+				episodeNumber: null,
+				file: null,
+				childCount: 0,
+			});
+			const world = [series, seasonOne, seasonTwo, episode];
+			const { manager } = build({ items: world });
+
+			await manager.setOverride('episode-14', { seasonNumber: 2, episodeNumber: 1 });
+
+			expect(episode.parentId).toBe('season-2');
+			// And both ends of the move say what they now hold, because the tree draws the
+			// count at once — a season that has just gained an episode and still reads
+			// "no episodes" is the correction looking as though it had not worked.
+			expect(seasonOne.childCount).toBe(0);
+			expect(seasonTwo.childCount).toBe(1);
+		});
+
+		/**
+		 * The owner's own case: there is no season two, and there never will be. The
+		 * service files the episode in season one and no amount of asking it will
+		 * produce a season it does not believe in, so the gateway makes the node or the
+		 * correction has nowhere to land.
+		 */
+		it('creates the season when the service does not report one', async () => {
+			const { series, seasonOne, episode } = show();
+			const world = [series, seasonOne, episode];
+			const { manager } = build({ items: world });
+
+			await manager.setOverride('episode-14', { seasonNumber: 2, episodeNumber: 1 });
+
+			const created = world.find(
+				(one) => one.kind === MediaKind.SEASON && one.seasonNumber === 2,
+			);
+
+			// The season is the whole point: without it the episode has nowhere to hang.
+			expect(created).toBeDefined();
+			expect(episode.parentId).toBe(created?.id);
+			// Under the series, on the same service and the same shelf: a season that
+			// landed in another library would simply be missing from its series' summary,
+			// which is computed one library at a time.
+			expect(created).toMatchObject({
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				serviceId: series.serviceId,
+				libraryId: series.libraryId,
+				normalizedTitle: 'beyblade',
+			});
+			// Named beside its siblings rather than in our words: a household running
+			// Jellyfin in French reads `Saison 1`, and `Season 2` next to it announces
+			// that something other than their server made this row.
+			expect(created?.title).toBe('Saison 2');
+			// And marked, or the stale pass at the end of the next scan deletes it as a
+			// row the service dropped.
+			expect(created?.synthetic).toBe(true);
+			expect(created?.externalId).toMatch(/^mcs:synthetic:/);
+		});
+
+		it('falls back to its own words when no sibling is numbered', async () => {
+			const { series, episode } = show();
+			const world = [series, { ...episode, parentId: 'series-1', parentExternalId: 'jf-series' }];
+			const { manager } = build({ items: world as MediaItem[] });
+
+			await manager.setOverride('episode-14', { seasonNumber: 3 });
+
+			expect(world.find((one) => one.kind === MediaKind.SEASON)?.title).toBe('Season 3');
+		});
+
+		/**
+		 * The other half of an undo. Clearing a correction has to put the episode back
+		 * where the *service* files it, not back under whatever we had derived while the
+		 * correction stood — which is why the parent is read from the identifier the
+		 * service stated rather than from the link a correction moved.
+		 */
+		it('files it back where the service says when the correction is withdrawn', async () => {
+			const { series, seasonOne, episode } = show();
+			const corrected = item({
+				...episode,
+				parentId: 'invented-2',
+				seasonNumber: 2,
+				episodeNumber: 1,
+				overrides: { seasonNumber: 2, episodeNumber: 1 },
+				reported: {
+					libraryId: episode.libraryId,
+					title: episode.title,
+					seriesTitle: null,
+					year: episode.year,
+					seasonNumber: 1,
+					episodeNumber: 14,
+					overview: null,
+					externalIds: {},
+				},
+			} as Partial<MediaItem>);
+			const invented = item({
+				id: 'invented-2',
+				externalId: 'mcs:synthetic:abc',
+				synthetic: true,
+				kind: MediaKind.SEASON,
+				title: 'Saison 2',
+				normalizedTitle: 'beyblade',
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				seasonNumber: 2,
+				episodeNumber: null,
+				file: null,
+				childCount: 1,
+			});
+			const world = [series, seasonOne, invented, corrected];
+			const { manager } = build({ items: world });
+
+			await manager.setOverride('episode-14', null);
+
+			expect(corrected.parentId).toBe('season-1');
+			expect(corrected.seasonNumber).toBe(1);
+			// The season nobody is under any more goes with it. Nothing else could ever
+			// remove it: no service will stop reporting a row no service ever reported.
+			expect(world.some((one) => one.id === 'invented-2')).toBe(false);
+		});
+
+		it('leaves the filing alone when only the episode number changed', async () => {
+			// The place an episode lives is decided by its season and nothing else, and
+			// the ordering inside a season already follows the number. Writing the same
+			// parent back would move `updatedAt` on a row nothing happened to.
+			const { series, seasonOne, episode } = show();
+			const { manager, fakes } = build({ items: [series, seasonOne, episode] });
+
+			fakes.items.save.mockClear();
+
+			await manager.setOverride('episode-14', { episodeNumber: 2 });
+
+			expect(episode.parentId).toBe('season-1');
+			expect(fakes.items.save).toHaveBeenCalledTimes(1);
+		});
+
+		it('leaves a season where it is: no correction changes which show it belongs to', async () => {
+			const { series, seasonOne, episode } = show();
+			const { manager } = build({ items: [series, seasonOne, episode] });
+
+			await manager.setOverride('season-1', { seasonNumber: 4 });
+
+			expect(seasonOne.parentId).toBe('series-1');
+		});
+
+		it('files an episode whose season number was erased under the show itself', async () => {
+			const { series, seasonOne, episode } = show();
+			const world = [series, seasonOne, episode];
+			const { manager } = build({ items: world });
+
+			await manager.setOverride('episode-14', { seasonNumber: null });
+
+			expect(episode.parentId).toBe('series-1');
+			expect(world.filter((one) => one.kind === MediaKind.SEASON)).toHaveLength(1);
+		});
+
+		it('leaves an episode that hangs from nothing alone rather than inventing a show', async () => {
+			const orphan = item({ id: 'orphan', parentId: null, parentExternalId: null });
+			const world = [orphan];
+			const { manager } = build({ items: world });
+
+			await manager.setOverride('orphan', { seasonNumber: 2 });
+
+			expect(orphan.parentId).toBeNull();
+			expect(world).toHaveLength(1);
 		});
 	});
 

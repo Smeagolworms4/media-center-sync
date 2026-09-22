@@ -1,7 +1,8 @@
-import type { Library, LibraryCheck, MediaCategory } from '@mcs/shared';
-import { LibraryKind, PathMatch } from '@mcs/shared';
+import type { Library, LibraryCheck, LibraryHint, MediaCategory } from '@mcs/shared';
+import { LibraryHintKind, LibraryKind, LibraryLayoutSignal, PathMatch } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useLibrariesStore } from '@/stores/libraries';
+import { useSettingsStore } from '@/stores/settings';
 import { createStoreContext, stubFetch } from './helpers';
 
 function library (overrides: Partial<Library> = {}): Library {
@@ -161,5 +162,111 @@ describe('stores/libraries', () => {
 		expect(stub).toHaveBeenCalledTimes(2);
 		expect(String(stub.mock.calls[1][0])).toContain('/api/libraries/check');
 		expect(store.checkById.l1.writable).toBe(false);
+	});
+	/**
+	 * The lines that explain a screen nothing else explains.
+	 *
+	 * Read as their own call, and a dismissal is a setting on the gateway rather than
+	 * something this browser remembers — dismissed on the laptop and back on the phone
+	 * is a notice nobody can be rid of.
+	 */
+	describe('the organisation hints', () => {
+		const hint = (overrides: Partial<LibraryHint> = {}): LibraryHint => ({
+			key: 'misread-folder:series-1',
+			kind: LibraryHintKind.MISREAD_FOLDER,
+			itemId: 'series-1',
+			title: 'Scream',
+			libraryName: 'Series TV',
+			serviceName: 'Jellyfin',
+			signals: [LibraryLayoutSignal.NAMED_SEASONS],
+			examples: ['Agent Carter'],
+			seasonCount: 24,
+			...overrides,
+		});
+
+		it('reads them from their own route', async () => {
+			const stub = stubFetch([{ body: [hint()] }]);
+			const store = useLibrariesStore();
+
+			await store.loadHints();
+
+			expect(String(stub.mock.calls[0][0])).toContain('/api/libraries/hints');
+			expect(store.hints).toEqual([hint()]);
+			expect(store.hintsLoaded).toBe(true);
+		});
+
+		/** An empty body parses to null, and both screens read this as a list. */
+		it('answers a list even when the gateway answers nothing', async () => {
+			stubFetch([{ body: null }]);
+			const store = useLibrariesStore();
+
+			await store.loadHints();
+
+			expect(store.hints).toEqual([]);
+		});
+
+		it('stores a dismissal on the gateway rather than in this browser', async () => {
+			const stub = stubFetch([
+				{ body: [hint()] },
+				// The settings, which a screen like the wall never had a reason to read.
+				{ body: { dismissedLibraryHints: [], pinned: [] } },
+				{ body: { dismissedLibraryHints: ['misread-folder:series-1'] } },
+			]);
+			const store = useLibrariesStore();
+
+			await store.loadHints();
+			await store.dismissHint('misread-folder:series-1');
+
+			expect(String(stub.mock.calls[2][0])).toContain('/api/settings');
+			expect(JSON.parse(String(stub.mock.calls[2][1].body))).toEqual({
+				dismissedLibraryHints: ['misread-folder:series-1'],
+			});
+		});
+
+		it('reads the stored list first rather than sending its one key over it', async () => {
+			// On a screen that never needed the settings the store is still empty, and a
+			// list sent from nothing wakes every hint somebody had already put away.
+			const stub = stubFetch([
+				{ body: [hint()] },
+				{ body: { dismissedLibraryHints: ['misread-folder:older'], pinned: [] } },
+				{ body: {} },
+			]);
+			const store = useLibrariesStore();
+
+			await store.loadHints();
+			await store.dismissHint('misread-folder:series-1');
+
+			expect(JSON.parse(String(stub.mock.calls[2][1].body))).toEqual({
+				dismissedLibraryHints: ['misread-folder:older', 'misread-folder:series-1'],
+			});
+		});
+
+		it('keeps the dismissals already stored rather than replacing them', async () => {
+			// The whole list is sent, so forgetting what was there wakes every hint
+			// somebody had already put away.
+			const stub = stubFetch([{ body: [hint()] }, { body: {} }]);
+			const settings = useSettingsStore();
+			const store = useLibrariesStore();
+
+			settings.settings = { dismissedLibraryHints: ['misread-folder:older'] } as never;
+			settings.loaded = true;
+
+			await store.loadHints();
+			await store.dismissHint('misread-folder:series-1');
+
+			expect(JSON.parse(String(stub.mock.calls[1][1].body))).toEqual({
+				dismissedLibraryHints: ['misread-folder:older', 'misread-folder:series-1'],
+			});
+		});
+
+		it('takes the line off the screen at once rather than after a round trip', async () => {
+			stubFetch([{ body: [hint()] }, { body: {} }]);
+			const store = useLibrariesStore();
+
+			await store.loadHints();
+			await store.dismissHint('misread-folder:series-1');
+
+			expect(store.hints).toEqual([]);
+		});
 	});
 });

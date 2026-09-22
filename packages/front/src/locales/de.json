@@ -208,6 +208,15 @@
 		"everything": "Über alle Kategorien",
 		"categories": "Ihre Bibliotheken",
 		"categories_hint": "Bibliotheken gleichen Namens, auf allen Servern, als eine gesehen.",
+		"hint": {
+			"nothing_mounted": "Kein Server dieses Gateways hat seine Ordner angegeben, deshalb gilt hier nichts als vorhanden und alles erscheint als fehlend. Geben Sie die Ordner eines Servers an, damit seine Dateien zählen.",
+			"misread_named": "„{title}“ ist als eine einzige Serie mit {count} Staffeln eingetragen, von denen mehrere wie eigenständige Serien heißen – einen Blick wert.",
+			"misread_many": "„{title}“ ist als eine einzige Serie mit {count} Staffeln eingetragen, mehr als eine Serie üblicherweise hat – einen Blick wert.",
+			"misread_examples": "Benannte Staffeln: {names}",
+			"misread_remedy": "Wenn dieser Ordner tatsächlich mehrere Serien enthält, liest ihn Ihr Medienserver als eine. Fügen Sie den tieferen Ordner als Bibliotheks­wurzel hinzu oder geben Sie der Bibliothek einen Inhaltstyp, und scannen Sie erneut.",
+			"open_services": "Server öffnen",
+			"dismiss": "Nicht mehr anzeigen"
+		},
 		"view": {
 			"grid": "Poster",
 			"list": "Liste"
@@ -236,6 +245,7 @@
 			"movies": "Filme",
 			"shows": "Serien",
 			"music": "Musik",
+			"mixed": "Filme und Serien",
 			"other": "Sonstiges"
 		},
 		"problem": {
@@ -367,6 +377,8 @@
 		"identifiers": "Kennungen",
 		"identifiers_hint": "Was eine Korrelation verlässlich macht: Zwei Server nummerieren dieselbe Episode unterschiedlich und sind sich über eine TVDB-Kennung trotzdem einig.",
 		"restore": "Wiederherstellen, was der Dienst gemeldet hat",
+		"reset": "Die Felder auf die Meldung des Dienstes zurücksetzen",
+		"reset_done": "Die Felder enthalten jetzt, was der Dienst meldet. Speichern entfernt die Korrektur.",
 		"saved": "Korrektur gespeichert.",
 		"restored": "Die Antwort des Dienstes gilt wieder.",
 		"failed": "Diese Korrektur wurde abgelehnt.",

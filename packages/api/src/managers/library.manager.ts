@@ -4,11 +4,14 @@ import { isAbsolute } from 'node:path';
 import {
 	categoryKeyOf,
 	ErrorKey,
+	LibraryHintKind,
+	MediaKind,
 	MediaServiceMode,
 	PathMatch,
 	type CategoryKeyword,
 	type Library,
 	type LibraryCheck,
+	type LibraryHint,
 	type MediaCategory,
 	type UpdateLibraryRequest,
 } from '@mcs/shared';
@@ -27,13 +30,17 @@ import type {
 import {
 	CategoryKeywordRepository,
 	LibraryRepository,
+	MediaItemRepository,
 	MediaServiceRepository,
 } from '@/repositories';
 import {
 	derivedLocalPath,
+	layoutExamples,
+	layoutSignals,
 	PathMatchService,
 	reachesFiles,
 	serviceMode,
+	SettingsService,
 	type ServiceRootMappings,
 } from '@/services';
 import { toLibrary } from './mappers';
@@ -51,6 +58,16 @@ export type PathProbe = Omit<
 	LibraryCheck,
 	'libraryId' | 'name' | 'localPath' | 'derived' | 'serverPaths' | 'match'
 >;
+
+/**
+ * The key a dismissal is stored under, for one series.
+ *
+ * Built from the item's identifier and never from its name, because renaming the
+ * folder is the most likely thing somebody does straight after reading the hint — and
+ * a key derived from the name would bring the hint back at exactly that moment, as if
+ * the dismissal had never been saved.
+ */
+const hintKeyOf = (itemId: string): string => `misread-folder:${itemId}`;
 
 /**
  * The libraries of the registered services, and where the gateway can write them.
@@ -79,6 +96,16 @@ export class LibraryManager {
 		 * worth asking about, and what a refusal means — stays here.
 		 */
 		private readonly _pathMatch: PathMatchService,
+		/**
+		 * Read only to notice how a library is shaped, never to browse it.
+		 *
+		 * A misread folder is a fact about the tree a media server reported, and the tree
+		 * lives in the item rows. `MediaManager` owns browsing them; what is asked here is
+		 * one projection of season names, because the question is about this manager's
+		 * subject — whether a library is organised in a way its server reads wrongly.
+		 */
+		private readonly _items: MediaItemRepository,
+		private readonly _settings: SettingsService,
 	) {}
 
 	public async list(serviceId?: string): Promise<Library[]> {
@@ -526,6 +553,121 @@ export class LibraryManager {
 	 * A library on a friend's Jellyfin or Plex is excluded for the same reason: we
 	 * have an account on their server, not a path on their disk.
 	 */
+	/**
+	 * What is worth saying about the way this gateway is organised.
+	 *
+	 * Two things, both silent and both expensive to work out alone:
+	 *
+	 * - **Nothing is mounted.** `MISSING` means "known elsewhere, not held here", so on
+	 *   a gateway where no server has its folders declared every single row reads
+	 *   missing — thirty-one thousand of the owner's thirty-one thousand two hundred
+	 *   and sixty-five. The definition is right and the screen is unreadable, and the
+	 *   one line that explains it is the difference between a bug and a setting.
+	 * - **A library root one level too high.** The media server then takes a folder of
+	 *   shows for a series and every show under it for a season. The gateway cannot fix
+	 *   that and must not try — it mirrors what the server declares — but it can name
+	 *   the series and say what to change on the server.
+	 *
+	 * Both are suspicions rather than verdicts, and both can be dismissed for good; the
+	 * mount one disappears on its own the moment a mapping exists, so it is never
+	 * offered for dismissal. See `library-layout.ts` for what counts as evidence and
+	 * why the bar is where it is.
+	 */
+	public async hints(): Promise<LibraryHint[]> {
+		const services = await this._services.find();
+		const dismissed = new Set(await this._settings.getValue('dismissedLibraryHints'));
+		const hints: LibraryHint[] = [];
+
+		/*
+		 * Only once a service exists, because a gateway nobody has registered anything on
+		 * is not misconfigured — it is new, and the setup screen is already saying so. A
+		 * peer's service counts as registered and never as mounted: their disks are not
+		 * ours, so a gateway whose only services are friends' is one where nothing is held
+		 * here, which is exactly what this says.
+		 */
+		if (
+			services.length > 0 &&
+			services.every((service) => serviceMode(service) !== MediaServiceMode.LOCAL)
+		) {
+			hints.push({
+				key: 'nothing-mounted',
+				kind: LibraryHintKind.NOTHING_MOUNTED,
+				itemId: null,
+				title: null,
+				libraryName: null,
+				serviceName: null,
+				signals: [],
+				examples: [],
+				seasonCount: 0,
+			});
+		}
+
+		hints.push(...(await this._misreadFolders(services, dismissed)));
+
+		return hints;
+	}
+
+	/**
+	 * The series whose seasons do not look like seasons.
+	 *
+	 * The season names are read for the whole index in one narrow query and grouped in
+	 * memory, because the question is about all of them and a query per series would be
+	 * thousands. Only the series that trip a signal are then read in full — a handful,
+	 * usually none — so the cost of asking is one projection whatever the answer is.
+	 */
+	private async _misreadFolders(
+		services: MediaServiceEntity[],
+		dismissed: ReadonlySet<string>,
+	): Promise<LibraryHint[]> {
+		const byParent = new Map<string, string[]>();
+
+		for (const season of await this._items.findSeasonNames()) {
+			byParent.set(season.parentId, [...(byParent.get(season.parentId) ?? []), season.title]);
+		}
+
+		const suspect = new Map<string, string[]>();
+
+		for (const [parentId, titles] of byParent) {
+			if (layoutSignals(titles).length > 0 && !dismissed.has(hintKeyOf(parentId))) {
+				suspect.set(parentId, titles);
+			}
+		}
+
+		if (suspect.size === 0) {
+			return [];
+		}
+
+		const libraries = new Map((await this._libraries.find()).map((one) => [one.id, one]));
+		const named = new Map(services.map((service) => [service.id, service.name]));
+		const seriesById = new Map(
+			(await this._items.findByIds([...suspect.keys()])).map((one) => [one.id, one]),
+		);
+
+		return [...suspect.entries()].flatMap(([parentId, titles]) => {
+			const series = seriesById.get(parentId);
+
+			// A parent the index no longer holds, or one that is not a series at all —
+			// a season under a season, which a mis-scraped library does report. Dropped
+			// rather than shown with a blank name: a hint whose subject nobody can find
+			// on a screen is a hint nobody can act on.
+			if (series === undefined || series.kind !== MediaKind.SERIES) {
+				return [];
+			}
+
+			return [{
+				key: hintKeyOf(parentId),
+				kind: LibraryHintKind.MISREAD_FOLDER,
+				itemId: series.id,
+				title: series.title,
+				libraryName: libraries.get(series.libraryId)?.name ?? null,
+				serviceName: named.get(series.serviceId) ?? null,
+				signals: layoutSignals(titles),
+				examples: layoutExamples(titles),
+				seasonCount: titles.length,
+			}];
+		});
+	}
+
 	public async check(): Promise<LibraryCheck[]> {
 		const services = new Map(
 			(await this._services.find()).map((service) => [service.id, service]),

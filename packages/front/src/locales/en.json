@@ -208,6 +208,15 @@
 		"everything": "Across every category",
 		"categories": "Your libraries",
 		"categories_hint": "Libraries of the same name, on every server, seen as one.",
+		"hint": {
+			"nothing_mounted": "No server on this gateway has its folders declared, so nothing counts as held here and everything reads as missing. Map a server’s folders to make its files count.",
+			"misread_named": "“{title}” is listed as one show with {count} seasons, and several of them are named like separate shows — worth checking.",
+			"misread_many": "“{title}” is listed as one show with {count} seasons, which is more than a show usually runs for — worth checking.",
+			"misread_examples": "Seasons named: {names}",
+			"misread_remedy": "If that folder really holds several shows, your media server is reading it as one. Add the deeper folder as a library root, or give the library a content type, then rescan.",
+			"open_services": "Open servers",
+			"dismiss": "Dismiss"
+		},
 		"view": {
 			"grid": "Posters",
 			"list": "List"
@@ -236,6 +245,7 @@
 			"movies": "Films",
 			"shows": "Series",
 			"music": "Music",
+			"mixed": "Films and series",
 			"other": "Other"
 		},
 		"problem": {
@@ -367,6 +377,8 @@
 		"identifiers": "Identifiers",
 		"identifiers_hint": "What makes a correlation reliable: two servers number the same episode differently and still agree on a TVDB identifier.",
 		"restore": "Restore what the service reported",
+		"reset": "Reset the boxes to what the service reports",
+		"reset_done": "The boxes now hold what the service reports. Save to drop the correction.",
 		"saved": "Correction saved.",
 		"restored": "The service's own answer is back.",
 		"failed": "This correction was refused.",

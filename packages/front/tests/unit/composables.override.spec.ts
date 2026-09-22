@@ -171,4 +171,62 @@ describe('composables/useMediaOverride', () => {
 
 		expect(correctedFields.value).toEqual(['title', 'year']);
 	});
+
+	it('fills the form from what the service reports, and leaves nothing to send', () => {
+		// The reset button, from the inside. What comes out has to be an *empty* body:
+		// a body repeating the reported values would be stored as a correction, and the
+		// item would never again take a value the service fixes.
+		const corrected = item({
+			title: 'Cosmos',
+			year: 1999,
+			overrides: { title: 'Cosmos', year: 1999 },
+			reported: {
+				libraryId: 'l1',
+				title: 'cosmos.1980.1080p',
+				seriesTitle: null,
+				year: 1980,
+				seasonNumber: 1,
+				episodeNumber: 2,
+				overview: 'An overview.',
+				externalIds: { tvdb: '1234' },
+			},
+		});
+		const { draft, fillFromReported, payload, correctedFields } = useMediaOverride(ref(corrected));
+
+		expect(correctedFields.value).toEqual(['title', 'year']);
+
+		fillFromReported();
+
+		expect(draft.values.title).toBe('cosmos.1980.1080p');
+		expect(draft.values.year).toBe('1980');
+		expect(draft.cleared.year).toBe(false);
+		expect(correctedFields.value).toEqual([]);
+		expect(payload()).toEqual({});
+	});
+
+	it('un-erases a field the reset put back, rather than leaving it cleared', () => {
+		const corrected = item({
+			year: null,
+			overrides: { year: null },
+			reported: {
+				libraryId: 'l1',
+				title: 'Pilot',
+				seriesTitle: null,
+				year: 2001,
+				seasonNumber: 1,
+				episodeNumber: 2,
+				overview: 'An overview.',
+				externalIds: { tvdb: '1234' },
+			},
+		});
+		const { draft, fillFromReported, payload } = useMediaOverride(ref(corrected));
+
+		expect(draft.cleared.year).toBe(true);
+
+		fillFromReported();
+
+		expect(draft.cleared.year).toBe(false);
+		expect(draft.values.year).toBe('2001');
+		expect(payload()).toEqual({});
+	});
 });

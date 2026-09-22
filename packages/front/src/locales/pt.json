@@ -208,6 +208,15 @@
 		"everything": "Em todas as categorias",
 		"categories": "As suas bibliotecas",
 		"categories_hint": "As bibliotecas com o mesmo nome, em todos os servidores, vistas como uma só.",
+		"hint": {
+			"nothing_mounted": "Nenhum servidor deste gateway tem as suas pastas declaradas, por isso nada conta como disponível aqui e tudo aparece como em falta. Declare as pastas de um servidor para que os seus ficheiros contem.",
+			"misread_named": "«{title}» aparece como uma única série com {count} temporadas, várias delas com nomes de outras séries — vale a pena verificar.",
+			"misread_many": "«{title}» aparece como uma única série com {count} temporadas, mais do que uma série costuma ter — vale a pena verificar.",
+			"misread_examples": "Temporadas com nome: {names}",
+			"misread_remedy": "Se essa pasta contém na verdade várias séries, o seu servidor de media está a lê-la como uma só. Adicione a pasta de baixo como raiz da biblioteca, ou atribua um tipo de conteúdo à biblioteca, e volte a analisar.",
+			"open_services": "Abrir servidores",
+			"dismiss": "Dispensar"
+		},
 		"view": {
 			"grid": "Cartazes",
 			"list": "Lista"
@@ -236,6 +245,7 @@
 			"movies": "Filmes",
 			"shows": "Séries",
 			"music": "Música",
+			"mixed": "Filmes e séries",
 			"other": "Outro"
 		},
 		"problem": {
@@ -367,6 +377,8 @@
 		"identifiers": "Identificadores",
 		"identifiers_hint": "O que torna uma correlação fiável: dois servidores numeram o mesmo episódio de maneira diferente e mesmo assim concordam num identificador TVDB.",
 		"restore": "Repor o que o serviço indicou",
+		"reset": "Repor os campos com o que o serviço indica",
+		"reset_done": "Os campos contêm o que o serviço indica. Guarde para eliminar a correção.",
 		"saved": "Correção guardada.",
 		"restored": "A resposta do próprio serviço está de volta.",
 		"failed": "Esta correção foi recusada.",

@@ -208,6 +208,15 @@
 		"everything": "Toutes catégories confondues",
 		"categories": "Vos bibliothèques",
 		"categories_hint": "Les bibliothèques du même nom, sur tous les serveurs, vues comme une seule.",
+		"hint": {
+			"nothing_mounted": "Aucun serveur de cette passerelle n’a ses dossiers déclarés : rien n’est donc considéré comme détenu ici et tout s’affiche comme manquant. Déclarez les dossiers d’un serveur pour que ses fichiers comptent.",
+			"misread_named": "« {title} » apparaît comme une seule série de {count} saisons, dont plusieurs portent des noms de séries — à vérifier.",
+			"misread_many": "« {title} » apparaît comme une seule série de {count} saisons, ce qui dépasse ce qu’une série compte d’ordinaire — à vérifier.",
+			"misread_examples": "Saisons nommées : {names}",
+			"misread_remedy": "Si ce dossier contient en réalité plusieurs séries, votre serveur média le lit comme une seule. Ajoutez le dossier du dessous comme racine de bibliothèque, ou donnez un type de contenu à la bibliothèque, puis relancez une analyse.",
+			"open_services": "Ouvrir les serveurs",
+			"dismiss": "Ne plus afficher"
+		},
 		"view": {
 			"grid": "Affiches",
 			"list": "Liste"
@@ -236,6 +245,7 @@
 			"movies": "Films",
 			"shows": "Séries",
 			"music": "Musique",
+			"mixed": "Films et séries",
 			"other": "Autre"
 		},
 		"problem": {
@@ -367,6 +377,8 @@
 		"identifiers": "Identifiants",
 		"identifiers_hint": "Ce qui rend une corrélation fiable : deux serveurs numérotent le même épisode différemment et s'accordent pourtant sur un identifiant TVDB.",
 		"restore": "Rétablir ce que le service a annoncé",
+		"reset": "Remettre les champs à ce que le service annonce",
+		"reset_done": "Les champs contiennent ce que le service annonce. Enregistrez pour supprimer la correction.",
 		"saved": "Correction enregistrée.",
 		"restored": "La réponse du service est rétablie.",
 		"failed": "Cette correction a été refusée.",

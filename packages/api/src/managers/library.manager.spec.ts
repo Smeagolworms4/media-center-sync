@@ -1,15 +1,26 @@
 import { mkdtemp, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { categoryKeyOf, ErrorKey, LibraryKind, MediaServiceType, PathMatch, type RootMapping } from '@mcs/shared';
+import {
+	categoryKeyOf,
+	ErrorKey,
+	LibraryHintKind,
+	LibraryKind,
+	LibraryLayoutSignal,
+	MediaKind,
+	MediaServiceType,
+	PathMatch,
+	type RootMapping,
+} from '@mcs/shared';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { CategoryKeyword, Library, MediaService } from '@/entities';
 import type {
 	CategoryKeywordRepository,
 	LibraryRepository,
+	MediaItemRepository,
 	MediaServiceRepository,
 } from '@/repositories';
-import type { PathMatchService } from '@/services';
+import type { PathMatchService, SettingsService } from '@/services';
 import { LibraryManager } from './library.manager';
 
 const library = (overrides: Partial<Library> = {}): Library =>
@@ -49,6 +60,8 @@ interface Fakes {
 		update: jest.Mock;
 	};
 	pathMatch: { verify: jest.Mock };
+	items: { findSeasonNames: jest.Mock; findByIds: jest.Mock };
+	settings: { getValue: jest.Mock };
 	keywords: {
 		rows: CategoryKeyword[];
 		findAllOrdered: jest.Mock;
@@ -105,6 +118,13 @@ const build = (
 		// Nobody is asked by default: the tests about the filesystem probe must not
 		// depend on what a media server would have answered.
 		pathMatch: { verify: jest.fn().mockResolvedValue(PathMatch.UNKNOWN) },
+		// An index with nothing in it by default: the hint tests declare the rows they
+		// are about, and every other test must not grow a season list it never mentions.
+		items: {
+			findSeasonNames: jest.fn().mockResolvedValue([]),
+			findByIds: jest.fn().mockResolvedValue([]),
+		},
+		settings: { getValue: jest.fn().mockResolvedValue([]) },
 		// A tiny in-memory table rather than a mock per call: the manager reads the rows
 		// back after writing them — a keyword is always answered through `keywords()` —
 		// so a `save` that returned a value nobody stored would test nothing.
@@ -150,6 +170,8 @@ const build = (
 			fakes.services as unknown as MediaServiceRepository,
 			fakes.keywords as unknown as CategoryKeywordRepository,
 			fakes.pathMatch as unknown as PathMatchService,
+			fakes.items as unknown as MediaItemRepository,
+			fakes.settings as unknown as SettingsService,
 		),
 		fakes,
 	};
@@ -579,6 +601,178 @@ describe('LibraryManager', () => {
 		fakes.libraries.findOne.mockResolvedValue(null);
 
 		await expect(manager.read('ghost')).rejects.toThrow(ErrorKey.LIBRARY_NOT_FOUND);
+	});
+
+	/**
+	 * The two things about this gateway's setup that nothing else reports.
+	 *
+	 * Both are read at a glance and both cost an evening when nobody says them: every
+	 * row reading missing because no server has its folders declared, and a folder of
+	 * shows the media server took for one show.
+	 */
+	describe('hints', () => {
+		const season = (id: string, parentId: string, title: string): { id: string; parentId: string; title: string } =>
+			({ id, parentId, title });
+
+		const marvelFolder = [
+			...Array.from({ length: 20 }, (_, index) =>
+				season(`s${index}`, 'series-marvel', `Saison ${index + 1}`)),
+			season('s20', 'series-marvel', 'Agatha All Along'),
+			season('s21', 'series-marvel', 'Agent Carter'),
+			season('s22', 'series-marvel', 'Agents of SHIELD'),
+			season('s23', 'series-marvel', 'Cloak and Dagger'),
+		];
+
+		const marvelSeries = {
+			id: 'series-marvel',
+			kind: MediaKind.SERIES,
+			title: 'Scream',
+			libraryId: 'library-1',
+			serviceId: 'service-1',
+		};
+
+		it('says so when no server has its folders declared', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Jellyfin', filesMounted: false, peerId: null },
+			]);
+
+			const hints = await manager.hints();
+
+			expect(hints).toEqual([expect.objectContaining({ kind: LibraryHintKind.NOTHING_MOUNTED })]);
+		});
+
+		it('stops saying it the moment one server is mounted', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Jellyfin', filesMounted: false, peerId: null },
+				{ id: 'service-2', name: 'Plex', filesMounted: true, peerId: null },
+			]);
+
+			expect(await manager.hints()).toEqual([]);
+		});
+
+		it('says nothing on a gateway nobody has registered a service on', async () => {
+			// New rather than misconfigured, and the setup screen is already saying so.
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([]);
+
+			expect(await manager.hints()).toEqual([]);
+		});
+
+		it('counts a friend\'s server as registered and never as mounted', async () => {
+			// Their disks are not ours, so nothing is held here — which is exactly what
+			// this hint says, and exactly what makes every row read missing.
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: "Damien's gateway", filesMounted: true, peerId: 'peer-1' },
+			]);
+
+			expect(await manager.hints()).toEqual([
+				expect.objectContaining({ kind: LibraryHintKind.NOTHING_MOUNTED }),
+			]);
+		});
+
+		it('names the series whose seasons are named like shows, and quotes them', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Jellyfin', filesMounted: true, peerId: null },
+			]);
+			fakes.libraries.find.mockResolvedValue([library({ id: 'library-1', name: 'Series TV' })]);
+			fakes.items.findSeasonNames.mockResolvedValue(marvelFolder);
+			fakes.items.findByIds.mockResolvedValue([marvelSeries]);
+
+			const hints = await manager.hints();
+
+			expect(hints).toEqual([
+				{
+					key: 'misread-folder:series-marvel',
+					kind: LibraryHintKind.MISREAD_FOLDER,
+					itemId: 'series-marvel',
+					title: 'Scream',
+					libraryName: 'Series TV',
+					serviceName: 'Jellyfin',
+					signals: [LibraryLayoutSignal.NAMED_SEASONS],
+					examples: ['Agatha All Along', 'Agent Carter', 'Agents of SHIELD', 'Cloak and Dagger'],
+					seasonCount: 24,
+				},
+			]);
+		});
+
+		it('leaves an ordinary show alone', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Jellyfin', filesMounted: true, peerId: null },
+			]);
+			fakes.items.findSeasonNames.mockResolvedValue([
+				season('s1', 'series-expanse', 'Season 1'),
+				season('s2', 'series-expanse', 'Season 2'),
+				season('s3', 'series-expanse', 'Specials'),
+			]);
+
+			expect(await manager.hints()).toEqual([]);
+			// Nothing is suspect, so the full rows are never read at all.
+			expect(fakes.items.findByIds).not.toHaveBeenCalled();
+		});
+
+		it('never shows a hint somebody has dismissed', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Jellyfin', filesMounted: true, peerId: null },
+			]);
+			fakes.items.findSeasonNames.mockResolvedValue(marvelFolder);
+			fakes.items.findByIds.mockResolvedValue([marvelSeries]);
+			fakes.settings.getValue.mockResolvedValue(['misread-folder:series-marvel']);
+
+			expect(await manager.hints()).toEqual([]);
+		});
+
+		it('drops a suspicion whose series the index no longer holds', async () => {
+			// A hint whose subject nobody can open is a hint nobody can act on.
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Jellyfin', filesMounted: true, peerId: null },
+			]);
+			fakes.items.findSeasonNames.mockResolvedValue(marvelFolder);
+			fakes.items.findByIds.mockResolvedValue([]);
+
+			expect(await manager.hints()).toEqual([]);
+		});
+
+		it('drops a parent that is not a series at all', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-1', name: 'Jellyfin', filesMounted: true, peerId: null },
+			]);
+			fakes.items.findSeasonNames.mockResolvedValue(marvelFolder);
+			fakes.items.findByIds.mockResolvedValue([{ ...marvelSeries, kind: MediaKind.SEASON }]);
+
+			expect(await manager.hints()).toEqual([]);
+		});
+
+		it('answers nothing for a library and a service it cannot name', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([
+				{ id: 'service-other', name: 'Plex', filesMounted: true, peerId: null },
+			]);
+			fakes.libraries.find.mockResolvedValue([]);
+			fakes.items.findSeasonNames.mockResolvedValue(marvelFolder);
+			fakes.items.findByIds.mockResolvedValue([marvelSeries]);
+
+			expect(await manager.hints()).toEqual([
+				expect.objectContaining({ libraryName: null, serviceName: null }),
+			]);
+		});
 	});
 
 	describe('categories', () => {

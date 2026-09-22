@@ -382,7 +382,7 @@ interface Fakes {
 	};
 	fingerprints: { fingerprint: jest.Mock; contentId: jest.Mock };
 	quality: { summarise: jest.Mock };
-	media: { correlateService: jest.Mock };
+	media: { correlateService: jest.Mock; refile: jest.Mock };
 	probe: jest.Mock;
 	events: { emit: jest.Mock };
 	libraryManager: { applyRootMapping: jest.Mock };
@@ -437,7 +437,16 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 			contentId: jest.fn((quickHash: string) => `q1-${quickHash}`),
 		},
 		quality: { summarise: jest.fn((files: unknown[]) => summary(files.length)) },
-		media: { correlateService: jest.fn().mockResolvedValue(0) },
+		/*
+		 * `refile` answers false by default: the scan asks it to re-derive the parent of
+		 * every corrected row, and a manager that stopped asking would otherwise pass —
+		 * and a rescan would file every hand-corrected episode back where the service
+		 * puts it. The test that cares about the filing gives it an implementation.
+		 */
+		media: {
+			correlateService: jest.fn().mockResolvedValue(0),
+			refile: jest.fn().mockResolvedValue(false),
+		},
 		probe: probeFake,
 		events: { emit: jest.fn() },
 		libraryManager: { applyRootMapping: jest.fn().mockResolvedValue(undefined) },
@@ -1501,6 +1510,27 @@ describe('ServiceManager', () => {
 			// And the service's own answer is what the correction is measured against,
 			// taken fresh from this scan rather than from the snapshot of the last one.
 			expect(saved.reported?.seasonNumber).toBe(1);
+			// The values are only half of it: everything above has just rewritten
+			// `parentId` from the parent the service names, which is precisely the link a
+			// corrected season number replaced. Re-deriving it is what stops the
+			// correction being half-undone on every scan, in the half nobody checks.
+			expect(fakes.media.refile).toHaveBeenCalledWith(saved);
+		});
+
+		it('leaves the filing of everything nobody corrected alone', async () => {
+			// One lookup per episode to be told nothing changed would be a second walk of
+			// a forty-thousand-row library, every scan, for a handful of rows.
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([reported({ externalId: 'episode', kind: MediaKind.EPISODE })]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.media.refile).not.toHaveBeenCalled();
 		});
 
 		it('keeps the date a service reported, and tolerates one it did not', async () => {
