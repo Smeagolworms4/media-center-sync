@@ -1443,7 +1443,10 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			// are only read when a name has to be found, never to decide anything.
 			const marks = {
 				edition: editionOf(entry.item.file),
-				quality: this._quality.resolutionLabel(entry.item.file?.height ?? null),
+				quality: this._quality.resolutionLabel(
+					entry.item.file?.height ?? null,
+					entry.item.file?.width ?? null,
+				),
 			};
 
 			const target = await this._placement.resolve({
@@ -2041,6 +2044,13 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	private async _placementLibraries(): Promise<PlacementLibrary[]> {
 		const local = await this._services.findLocal();
 		const libraries = await this._libraries.findByServices(local.map((service) => service.id));
+		/*
+		 * The shelf each library sits on, so a media can land on the one it came from
+		 * without anybody having configured a thing. Read through the library manager
+		 * rather than folded from the name here, or `Animés` would have two keys the day
+		 * somebody aliased one of them.
+		 */
+		const categoryKeys = await this._libraryManager.categoryKeysByLibrary();
 
 		return libraries.map((library: LibraryEntity) => ({
 			id: library.id,
@@ -2049,6 +2059,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			localPath: library.localPath,
 			writable: library.writable,
 			isDefaultTarget: library.isDefaultTarget,
+			categoryKey: categoryKeys.get(library.id) ?? null,
 		}));
 	}
 

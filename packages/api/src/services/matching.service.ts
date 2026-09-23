@@ -340,12 +340,24 @@ export class MatchingService {
 	}
 
 	/**
-	 * The best remote candidate for one local item, per remote service.
+	 * Every other row that is the same media as this one, one proposal each.
 	 *
-	 * Per service rather than overall, because holding the same film on three
-	 * friends' gateways is the normal case and each of them is a usable source. The
-	 * transfer layer picks between them later, on measured rate; correlation only has
-	 * to say that they are the same film.
+	 * Per candidate rather than per service, and that changed for a reason the owner's
+	 * library made unavoidable. It used to keep the best row per remote *service*, on
+	 * the reasoning that holding the same film on three friends' gateways is the normal
+	 * case and each is a usable source — true, and it also meant two rows of one server
+	 * could never be related. A household with two cuts of a show on one Jellyfin —
+	 * `HD - VOST` and `SD` side by side — had them indexed as two unrelated things, and
+	 * filing episodes by their numbers then stacked both cuts into the same seasons:
+	 * forty-eight episodes in a season of twenty-four, every one of them twice.
+	 *
+	 * A row on our own service is compared by exactly the same rules as one on a
+	 * friend's. There is no argument for a looser or a stricter test: "are these the
+	 * same media" does not become a different question because one machine answered
+	 * both times, and the rules that can tell two cuts apart across two servers can tell
+	 * them apart on one.
+	 *
+	 * Only a row compared with itself is skipped.
 	 */
 	public correlate(
 		local: MatchCandidate,
@@ -355,7 +367,7 @@ export class MatchingService {
 		const best = new Map<string, MatchProposal>();
 
 		for (const remote of candidates) {
-			if (remote.id === local.id || remote.serviceId === local.serviceId) {
+			if (remote.id === local.id) {
 				continue;
 			}
 
@@ -366,10 +378,10 @@ export class MatchingService {
 			}
 
 			const proposal = this._toProposal(local, remote, scored, options);
-			const incumbent = best.get(remote.serviceId);
+			const incumbent = best.get(remote.id);
 
 			if (!incumbent || proposal.confidence > incumbent.confidence) {
-				best.set(remote.serviceId, proposal);
+				best.set(remote.id, proposal);
 			}
 		}
 

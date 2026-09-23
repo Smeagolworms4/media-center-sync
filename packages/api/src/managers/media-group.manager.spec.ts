@@ -691,6 +691,31 @@ describe('MediaGroupManager', () => {
 			expect(group.versions[0].heldLocally).toBe(true);
 		});
 
+		it('shows two copies of one server as two sources of one media', async () => {
+			/*
+			 * The owner's Scrubs: two cuts on one Jellyfin, `HD - VOST` beside `SD`.
+			 * Correlation refused to relate two rows of one service, so they were two
+			 * unrelated shows — and filing episodes by their numbers then stacked both
+			 * cuts into the same seasons, forty-eight episodes in a season of twenty-four.
+			 *
+			 * One media, two sources, two versions is what it always was; only the
+			 * refusal stood in the way.
+			 */
+			const { manager } = build({
+				items: [
+					item({ id: 'hd', file: file({ contentId: 'q1-hd', size: 4096 }) }),
+					item({ id: 'sd', file: file({ contentId: 'q1-sd', size: 1024 }) }),
+				],
+				matches: [correlation({ localItemId: 'hd', remoteItemId: 'sd' })],
+			});
+
+			const groups = (await manager.groups(query())).items;
+
+			expect(groups).toHaveLength(1);
+			expect(groups[0].sources.map((one) => one.itemId).sort()).toEqual(['hd', 'sd']);
+			expect(groups[0].versions).toHaveLength(2);
+		});
+
 		it('folds a copy with no identity onto the version its bytes say it is', async () => {
 			/*
 			 * The owner's Jellyfin and Plex over one NAS: the same file, only one of them

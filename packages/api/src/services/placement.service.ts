@@ -22,6 +22,15 @@ export interface PlacementLibrary {
 	localPath: string | null;
 	writable: boolean;
 	isDefaultTarget: boolean;
+	/**
+	 * The merged category this library belongs to, which is the shelf people think in.
+	 *
+	 * Carried so that a media can land on the shelf it came from without anybody having
+	 * configured anything. Derived by the library manager rather than folded again here,
+	 * for the reason `PlacementRequest.categoryKey` gives: two foldings of `Animés` give
+	 * two keys the day one of them changes.
+	 */
+	categoryKey?: string | null;
 }
 
 export interface PlacementRequest {
@@ -451,7 +460,7 @@ export class PlacementService {
 			});
 		}
 
-		for (const library of this._byPreference(usable, request.kind)) {
+		for (const library of this._byPreference(usable, request.kind, request.categoryKey ?? null)) {
 			attempts.push({
 				library,
 				root: library.localPath as string,
@@ -556,19 +565,55 @@ export class PlacementService {
 	 * library is a worse destination than a film library and a far better one than a
 	 * library that named a kind this is not, so it belongs between the two.
 	 */
-	private _byPreference(libraries: PlacementLibrary[], kind: MediaKind): PlacementLibrary[] {
+	private _byPreference(
+		libraries: PlacementLibrary[],
+		kind: MediaKind,
+		categoryKey: string | null = null,
+	): PlacementLibrary[] {
 		const wanted = this._libraryKindFor(kind);
 		const exact = libraries.filter((library) => library.kind === wanted);
 		const mixed = libraries.filter((library) => library.kind === LibraryKind.MIXED);
 		const rest = libraries.filter(
 			(library) => library.kind !== wanted && library.kind !== LibraryKind.MIXED,
 		);
-		// Preferred first inside each band, so a default target never jumps a band: a
-		// mixed library somebody marked as the default is still not a better home for a
-		// film than the film library next to it.
+
+		/*
+		 * The shelf the media came from, first, and this is what makes the default
+		 * bearable without anybody configuring anything.
+		 *
+		 * Three bands of kind alone put `Films` and `Animes - Films` on exactly the same
+		 * footing, so a film fell through to whichever happened to come first — the
+		 * owner pulled *Casper* from his `Films` shelf and found it under
+		 * `Animes/Films`, filed by the last rule in the chain, the one that means
+		 * "anything that could take it".
+		 *
+		 * A category is the shelf people actually think in, and a media pulled from one
+		 * belongs on the same one here. It is a preference and never a requirement: a
+		 * category with no writable library of its own still falls through the bands
+		 * below rather than failing at the end of a completed download.
+		 */
+		const ownFirst = (band: PlacementLibrary[]): PlacementLibrary[] =>
+			categoryKey === null
+				? band
+				: [
+					...band.filter((library) => library.categoryKey === categoryKey),
+					...band.filter((library) => library.categoryKey !== categoryKey),
+				];
+
+		/*
+		 * Preferred first inside each band, so a default target never jumps a band: a
+		 * mixed library somebody marked as the default is still not a better home for a
+		 * film than the film library next to it.
+		 *
+		 * And above the category, because the two are not the same kind of statement.
+		 * Marking a library as the default target is somebody saying where things go;
+		 * the category is this code guessing well in the absence of that. An
+		 * inference that overruled a choice would be the screen ignoring the person
+		 * again — which is the whole family of defect this release exists to close.
+		 */
 		const preferredFirst = (band: PlacementLibrary[]): PlacementLibrary[] => [
-			...band.filter((library) => library.isDefaultTarget),
-			...band.filter((library) => !library.isDefaultTarget),
+			...ownFirst(band.filter((library) => library.isDefaultTarget)),
+			...ownFirst(band.filter((library) => !library.isDefaultTarget)),
 		];
 
 		return [...preferredFirst(exact), ...preferredFirst(mixed), ...preferredFirst(rest)];

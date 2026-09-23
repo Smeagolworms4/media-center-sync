@@ -108,6 +108,72 @@ describe('PlacementService', () => {
 		expect(target.libraryId).toBe('lib-movies');
 	});
 
+	it('lands a media on the shelf it came from, with nothing configured', async () => {
+		/*
+		 * The owner pulled *Casper* from his `Films` shelf and found it under
+		 * `Animes/Films`. Both are movie libraries, so banding by kind alone put them on
+		 * exactly the same footing and the chain fell through to its last rule — the one
+		 * that means "anything that could take it".
+		 *
+		 * A category is the shelf people think in, and a media pulled from one belongs on
+		 * the same one. Nothing here is configured: this is the default doing the obvious
+		 * thing rather than a setting being read.
+		 */
+		const target = await service.resolve({
+			kind: MediaKind.MOVIE,
+			categoryKey: 'films',
+			settings: settings({ placement: PlacementStrategy.DEFAULT_LIBRARY }),
+			libraries: [
+				library({
+					id: 'lib-animes',
+					name: 'Animes - Films',
+					kind: LibraryKind.MOVIES,
+					localPath: shows,
+					categoryKey: 'animes-films',
+				}),
+				library({
+					id: 'lib-movies',
+					name: 'Films',
+					kind: LibraryKind.MOVIES,
+					localPath: movies,
+					categoryKey: 'films',
+				}),
+			],
+			relativeName: 'Casper (1995)/Casper (1995).mkv',
+		});
+
+		expect(target.libraryId).toBe('lib-movies');
+	});
+
+	it('takes a shelf of the right kind over the media’s own of the wrong one', async () => {
+		// A preference and never a requirement: the bands still decide first, or a
+		// documentary filed under a music shelf would drag every pull onto it.
+		const target = await service.resolve({
+			kind: MediaKind.MOVIE,
+			categoryKey: 'musique',
+			settings: settings({ placement: PlacementStrategy.DEFAULT_LIBRARY }),
+			libraries: [
+				library({
+					id: 'lib-music',
+					name: 'Musique',
+					kind: LibraryKind.MUSIC,
+					localPath: shows,
+					categoryKey: 'musique',
+				}),
+				library({
+					id: 'lib-movies',
+					name: 'Films',
+					kind: LibraryKind.MOVIES,
+					localPath: movies,
+					categoryKey: 'films',
+				}),
+			],
+			relativeName: 'Casper (1995)/Casper (1995).mkv',
+		});
+
+		expect(target.libraryId).toBe('lib-movies');
+	});
+
 	it('uses a library of the wrong kind rather than losing the transfer', async () => {
 		const target = await service.resolve({
 			kind: MediaKind.MOVIE,

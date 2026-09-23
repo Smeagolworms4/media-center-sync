@@ -913,7 +913,13 @@ describe('MatchingService', () => {
 	});
 
 	describe('correlate', () => {
-		it('keeps the best candidate per remote service', () => {
+		it('answers the strongest first when one service holds two matching rows', () => {
+			/*
+			 * Both are kept, and that is the change. Each is a row somebody can hold, and
+			 * each cleared the threshold on its own — dropping the second only ever hid a
+			 * match the rules had already accepted. The order still says which is the
+			 * better evidence.
+			 */
 			const local = candidate();
 			const good = candidate({ id: 'good', serviceId: 's2' });
 			const weaker = candidate({
@@ -925,15 +931,34 @@ describe('MatchingService', () => {
 
 			const proposals = service.correlate(local, [weaker, good], options());
 
-			expect(proposals).toHaveLength(1);
-			expect(proposals[0].remoteItemId).toBe('good');
+			expect(proposals.map((one) => one.remoteItemId)).toEqual(['good', 'weak']);
+			expect(proposals[0].confidence).toBeGreaterThan(proposals[1].confidence);
 		});
 
-		it('ignores candidates on our own service', () => {
+		it('relates two rows of our own service, by the same rules as anybody else’s', () => {
+			/*
+			 * This used to be refused outright, and the refusal is what let a household
+			 * with two cuts of one show on one server — `HD - VOST` beside `SD` — carry
+			 * them as two unrelated things. Filing episodes by their numbers then stacked
+			 * both cuts into the same seasons: forty-eight episodes in a season of
+			 * twenty-four, each of them twice, with nothing saying they were versions.
+			 *
+			 * "Are these the same media" does not become a different question because one
+			 * machine answered both times.
+			 */
 			const local = candidate();
 			const sibling = candidate({ id: 'other', serviceId: 'service-local' });
 
-			expect(service.correlate(local, [sibling], options())).toHaveLength(0);
+			const proposals = service.correlate(local, [sibling], options());
+
+			expect(proposals).toHaveLength(1);
+			expect(proposals[0].remoteItemId).toBe('other');
+		});
+
+		it('never relates a row with itself', () => {
+			const local = candidate();
+
+			expect(service.correlate(local, [local], options())).toHaveLength(0);
 		});
 
 		it('carries the peer through so the interface can say where it came from', () => {
