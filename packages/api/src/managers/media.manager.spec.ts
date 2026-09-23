@@ -31,6 +31,7 @@ import type {
 import {
 	MatchingService,
 	QualityService,
+	type RemoteFingerprintService,
 	type CacheService,
 	type HandlerRegistry,
 	type SettingsService,
@@ -138,6 +139,7 @@ interface Fakes {
 	services: { find: jest.Mock; findOne: jest.Mock; findWithSecrets: jest.Mock };
 	landings: { findOpen: jest.Mock };
 	libraries: { findOne: jest.Mock };
+	remoteFingerprint: jest.Mock;
 	cache: { get: jest.Mock; set: jest.Mock };
 	openArtwork: jest.Mock;
 }
@@ -254,6 +256,7 @@ const build = (
 		 * path the gateway can name. Erasing is the only thing here that needs it, and
 		 * the tests that refuse an erasure replace it.
 		 */
+		remoteFingerprint: jest.fn().mockResolvedValue(null),
 		libraries: {
 			findOne: jest.fn().mockResolvedValue({
 				id: 'library-a',
@@ -280,6 +283,10 @@ const build = (
 		fakes.cache as unknown as CacheService,
 		{ get: jest.fn(() => ({ openArtwork: fakes.openArtwork })) } as unknown as HandlerRegistry,
 		fakes.libraries as unknown as LibraryRepository,
+		// Nothing is identified remotely unless a test asks: fetching windows from a
+		// server is the one thing here that leaves the machine, and a fake that answered
+		// by default would hide a pass that started doing it for every copy.
+		{ fingerprint: fakes.remoteFingerprint } as unknown as RemoteFingerprintService,
 	);
 
 	return { manager, fakes };
@@ -1321,6 +1328,101 @@ describe('MediaManager', () => {
 
 			expect(orphan.parentId).toBeNull();
 			expect(world).toHaveLength(1);
+		});
+	});
+
+	describe('identifying a copy nothing here can read', () => {
+		const remote = (values: Partial<MediaItem> = {}): MediaItem =>
+			item({
+				id: 'remote-1',
+				serviceId: 'service-b',
+				externalId: 'plex-1',
+				kind: MediaKind.MOVIE,
+				file: file({ quickHash: '', contentId: '', size: 20_292_365_537 }),
+				...values,
+			} as Partial<MediaItem>);
+
+		const ours = (values: Partial<MediaItem> = {}): MediaItem =>
+			item({
+				id: 'ours-1',
+				serviceId: 'service-a',
+				externalId: 'jf-1',
+				kind: MediaKind.MOVIE,
+				file: file({ quickHash: 'v1:abc', contentId: 'q1:abc', size: 20_292_365_537 }),
+				...values,
+			} as Partial<MediaItem>);
+
+		const unmounted = () => mediaService({ id: 'service-b', filesMounted: false });
+
+		it('fetches three windows for a copy whose byte count matches one we hold', async () => {
+			// The owner's case: Jellyfin and Plex over the same disk, only one mounted.
+			const twin = remote();
+			const { manager, fakes } = build({ items: [ours(), twin] });
+
+			fakes.services.find.mockResolvedValue([mediaService(), unmounted()]);
+			fakes.services.findWithSecrets.mockResolvedValue(unmounted());
+			fakes.remoteFingerprint.mockResolvedValue({
+				size: 20_292_365_537,
+				quickHash: 'v1:abc',
+				contentId: 'q1:abc',
+			});
+
+			expect(await manager.identifyTwins('service-b')).toBe(1);
+			expect(twin.file?.contentId).toBe('q1:abc');
+			// And the two are now the same version, which is the whole point.
+			expect(twin.file?.quickHash).toBe(ours().file?.quickHash);
+		});
+
+		it('reads nothing at all when no byte count matches', async () => {
+			// Three windows is nothing per file and gigabytes across a catalogue. A copy
+			// nothing here resembles is a copy worth leaving alone.
+			const { manager, fakes } = build({
+				items: [ours(), remote({ file: file({ quickHash: '', contentId: '', size: 999 }) })],
+			});
+
+			fakes.services.find.mockResolvedValue([mediaService(), unmounted()]);
+
+			expect(await manager.identifyTwins('service-b')).toBe(0);
+			expect(fakes.remoteFingerprint).not.toHaveBeenCalled();
+		});
+
+		it('reads nothing for a service whose files it can reach on a disk', async () => {
+			// The scan fingerprints those for free; asking the server for bytes it has
+			// already read would be paying twice for the same answer.
+			const { manager, fakes } = build({ items: [ours(), remote()] });
+
+			fakes.services.find.mockResolvedValue([
+				mediaService(),
+				mediaService({ id: 'service-b', filesMounted: true }),
+			]);
+
+			expect(await manager.identifyTwins('service-b')).toBe(0);
+			expect(fakes.remoteFingerprint).not.toHaveBeenCalled();
+		});
+
+		it('leaves a copy that already knows what it is alone', async () => {
+			const known = remote({ file: file({ quickHash: 'v1:zzz', contentId: 'q1:zzz', size: 20_292_365_537 }) });
+			const { manager, fakes } = build({ items: [ours(), known] });
+
+			fakes.services.find.mockResolvedValue([mediaService(), unmounted()]);
+
+			expect(await manager.identifyTwins('service-b')).toBe(0);
+			expect(fakes.remoteFingerprint).not.toHaveBeenCalled();
+		});
+
+		it('leaves the copy as it was when the server would not answer', async () => {
+			// A refusal, a timeout, a server that will not serve ranges. The caller knew
+			// nothing about this copy a moment ago and knows nothing now, which is not a
+			// failure of anything.
+			const twin = remote();
+			const { manager, fakes } = build({ items: [ours(), twin] });
+
+			fakes.services.find.mockResolvedValue([mediaService(), unmounted()]);
+			fakes.services.findWithSecrets.mockResolvedValue(unmounted());
+			fakes.remoteFingerprint.mockResolvedValue(null);
+
+			expect(await manager.identifyTwins('service-b')).toBe(0);
+			expect(twin.file?.contentId).toBe('');
 		});
 	});
 

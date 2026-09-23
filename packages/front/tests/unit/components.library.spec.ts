@@ -642,6 +642,27 @@ describe('LibraryHints', () => {
 		expect(mounted([]).wrapper.find('[data-test="library-hints"]').exists()).toBe(false);
 	});
 
+	it('sends somebody to the media the line is about, not to a list of servers', () => {
+		// The first thing anybody wants after reading "this looks like several series in
+		// one folder" is to see the thing and judge for themselves. The services screen
+		// left them to find their own way back down to the show just named.
+		const { wrapper } = mounted([hint()]);
+		const button = wrapper.find('[data-test="library-hint-fix"]');
+
+		expect(button.attributes('href')).toContain('/library/series-1');
+		expect(button.text()).toBe('Show the media');
+	});
+
+	it('falls back to the servers when the line is about no media in particular', () => {
+		// Nothing mounted is about the gateway rather than about a show, and a series
+		// that vanished between the hint and the render leaves no item to open.
+		const { wrapper } = mounted([hint({ kind: LibraryHintKind.NOTHING_MOUNTED, itemId: null })]);
+		const button = wrapper.find('[data-test="library-hint-fix"]');
+
+		expect(button.attributes('href')).toContain('/services');
+		expect(button.text()).toBe('Open servers');
+	});
+
 	it('says in one line that no server has its folders declared', () => {
 		const { wrapper } = mounted([
 			hint({ kind: LibraryHintKind.NOTHING_MOUNTED, title: null, itemId: null, signals: [], examples: [], key: 'nothing-mounted' }),

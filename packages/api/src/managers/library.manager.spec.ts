@@ -611,12 +611,24 @@ describe('LibraryManager', () => {
 	 * shows the media server took for one show.
 	 */
 	describe('hints', () => {
-		const season = (id: string, parentId: string, title: string): { id: string; parentId: string; title: string } =>
-			({ id, parentId, title });
+		/**
+		 * One row as the projection answers it.
+		 *
+		 * `seasonNumber` and `childCount` are not decoration: a season the server
+		 * numbered is a season whatever it is called, and a season holding nothing is not
+		 * drawn — so a row with neither is a row this can say nothing about.
+		 */
+		const season = (
+			id: string,
+			parentId: string,
+			title: string,
+			seasonNumber: number | null = null,
+		): { id: string; parentId: string; title: string; seasonNumber: number | null; childCount: number } =>
+			({ id, parentId, title, seasonNumber, childCount: 10 });
 
 		const marvelFolder = [
 			...Array.from({ length: 20 }, (_, index) =>
-				season(`s${index}`, 'series-marvel', `Saison ${index + 1}`)),
+				season(`s${index}`, 'series-marvel', `Saison ${index + 1}`, index + 1)),
 			season('s20', 'series-marvel', 'Agatha All Along'),
 			season('s21', 'series-marvel', 'Agent Carter'),
 			season('s22', 'series-marvel', 'Agents of SHIELD'),
@@ -711,9 +723,9 @@ describe('LibraryManager', () => {
 				{ id: 'service-1', name: 'Jellyfin', filesMounted: true, peerId: null },
 			]);
 			fakes.items.findSeasonNames.mockResolvedValue([
-				season('s1', 'series-expanse', 'Season 1'),
-				season('s2', 'series-expanse', 'Season 2'),
-				season('s3', 'series-expanse', 'Specials'),
+				season('s1', 'series-expanse', 'Season 1', 1),
+				season('s2', 'series-expanse', 'Season 2', 2),
+				season('s3', 'series-expanse', 'Specials', 0),
 			]);
 
 			expect(await manager.hints()).toEqual([]);

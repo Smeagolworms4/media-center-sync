@@ -215,7 +215,8 @@
 			"misread_examples": "Temporadas com nome: {names}",
 			"misread_remedy": "Se essa pasta contém na verdade várias séries, o seu servidor de media está a lê-la como uma só. Adicione a pasta de baixo como raiz da biblioteca, ou atribua um tipo de conteúdo à biblioteca, e volte a analisar.",
 			"open_services": "Abrir servidores",
-			"dismiss": "Dispensar"
+			"dismiss": "Dispensar",
+			"open_media": "Mostrar o conteúdo"
 		},
 		"view": {
 			"grid": "Cartazes",
@@ -282,7 +283,6 @@
 		"season_episode": "S{season}E{episode}",
 		"held_by": "presente em {services}",
 		"missing_count": "nada em falta | {count} em falta | {count} em falta",
-		"sync_this": "Sincronizar",
 		"sync_missing": "Transferir {count} em falta",
 		"column": {
 			"title": "Título",
@@ -1238,7 +1238,9 @@
 				"requeue": "perguntar de novo mais tarde",
 				"abandon": "desistir deste"
 			}
-		}
+		},
+		"going_to": "Destino: {library}",
+		"going_to_folder": "Destino: {path}"
 	},
 	"pages": {
 		"dashboard": "Painel",

@@ -35,6 +35,7 @@ import {
 	MatchingService,
 	applyOverride,
 	normalizeTitle,
+	RemoteFingerprintService,
 	sameContent,
 	serviceMode,
 	SettingsService,
@@ -240,6 +241,8 @@ export class MediaManager {
 		private readonly _handlers: HandlerRegistry,
 		/** Read to turn a path a service reported into one this gateway can unlink. */
 		private readonly _libraries: LibraryRepository,
+		/** Identifies a copy on a server whose files this gateway has no mount for. */
+		private readonly _remote: RemoteFingerprintService,
 	) {}
 
 	/**
@@ -254,6 +257,106 @@ export class MediaManager {
 	 * with whatever shares its fingerprint whether or not the titles could ever have
 	 * met.
 	 */
+	/**
+	 * Identify the copies whose size says they are a file we already hold.
+	 *
+	 * The household case, and it cost the owner a twenty-gigabyte transfer: Jellyfin and
+	 * Plex indexing the same file on the same disk, with only one of them mounted. The
+	 * mounted copy is fingerprinted at every scan and the other never can be, so two
+	 * records of one file never meet — and the gateway offers to fetch, over the
+	 * network, a file that is already on the disk it would write it to.
+	 *
+	 * **On demand and never in bulk.** Three windows of a quarter of a megabyte is
+	 * nothing per file and four gigabytes across a catalogue, so nothing is read unless
+	 * it would settle a real question: a copy with no identity of its own, whose byte
+	 * count matches a copy that has one, exactly. That pair is a handful of rows on a
+	 * real gateway and thousands of rows on none.
+	 *
+	 * **Exact equality and nothing looser.** Not a tolerance, not a duration, not a
+	 * title: two files of the same byte count are either the same file or a coincidence
+	 * worth one cheap read to rule out. A near-match is a different cut, and calling two
+	 * cuts one copy is how somebody ends up without the version they wanted.
+	 *
+	 * Answers how many copies it identified, which is what the scan logs.
+	 */
+	public async identifyTwins(serviceId: string): Promise<number> {
+		const services = await this._services.find();
+		const service = services.find((one) => one.id === serviceId);
+
+		// Only a service we cannot read from a disk. A mounted one is fingerprinted by
+		// the scan itself, for free, and asking its own server for bytes it has already
+		// read would be paying twice for the same answer.
+		if (service === undefined || serviceMode(service) === MediaServiceMode.LOCAL) {
+			return 0;
+		}
+
+		const everything = await this._items.find();
+		const identified = new Set<number>();
+
+		for (const item of everything) {
+			const size = item.file?.size;
+
+			if (item.serviceId !== serviceId && size !== undefined && item.file?.contentId) {
+				identified.add(size);
+			}
+		}
+
+		const wanted = everything.filter(
+			(item) =>
+				item.serviceId === serviceId
+				&& item.file !== null
+				&& item.file !== undefined
+				&& !item.file.contentId
+				&& identified.has(item.file.size),
+		);
+
+		if (wanted.length === 0) {
+			return 0;
+		}
+
+		const withSecrets = await this._services.findWithSecrets(serviceId);
+
+		if (withSecrets === null) {
+			return 0;
+		}
+
+		const connection = toConnection(withSecrets);
+		let counted = 0;
+
+		for (const item of wanted) {
+			const file = item.file;
+
+			if (!file) {
+				continue;
+			}
+
+			const fingerprint = await this._remote.fingerprint(
+				connection,
+				{ externalId: item.externalId, file },
+				file.size,
+			);
+
+			if (fingerprint === null) {
+				continue;
+			}
+
+			item.file = {
+				...file,
+				quickHash: fingerprint.quickHash,
+				contentId: fingerprint.contentId,
+			};
+
+			await this._items.save(item);
+			counted += 1;
+		}
+
+		if (counted > 0) {
+			this._logger.log(`Identified ${counted} copies of ${service.name} by fetching three windows`);
+		}
+
+		return counted;
+	}
+
 	public async correlateService(serviceId: string): Promise<number> {
 		const threshold = await this._settings.getValue('matchThreshold');
 		const services = await this._services.find();

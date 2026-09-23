@@ -215,7 +215,8 @@
 			"misread_examples": "Benannte Staffeln: {names}",
 			"misread_remedy": "Wenn dieser Ordner tatsächlich mehrere Serien enthält, liest ihn Ihr Medienserver als eine. Fügen Sie den tieferen Ordner als Bibliotheks­wurzel hinzu oder geben Sie der Bibliothek einen Inhaltstyp, und scannen Sie erneut.",
 			"open_services": "Server öffnen",
-			"dismiss": "Nicht mehr anzeigen"
+			"dismiss": "Nicht mehr anzeigen",
+			"open_media": "Medium anzeigen"
 		},
 		"view": {
 			"grid": "Poster",
@@ -282,7 +283,6 @@
 		"season_episode": "S{season}E{episode}",
 		"held_by": "vorhanden auf {services}",
 		"missing_count": "nichts fehlt | {count} fehlt | {count} fehlen",
-		"sync_this": "Synchronisieren",
 		"sync_missing": "{count} fehlende holen",
 		"column": {
 			"title": "Titel",
@@ -1238,7 +1238,9 @@
 				"requeue": "später erneut fragen",
 				"abandon": "diese aufgeben"
 			}
-		}
+		},
+		"going_to": "Ziel: {library}",
+		"going_to_folder": "Ziel: {path}"
 	},
 	"pages": {
 		"dashboard": "Übersicht",

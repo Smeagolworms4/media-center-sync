@@ -215,7 +215,8 @@
 			"misread_examples": "Saisons nommées : {names}",
 			"misread_remedy": "Si ce dossier contient en réalité plusieurs séries, votre serveur média le lit comme une seule. Ajoutez le dossier du dessous comme racine de bibliothèque, ou donnez un type de contenu à la bibliothèque, puis relancez une analyse.",
 			"open_services": "Ouvrir les serveurs",
-			"dismiss": "Ne plus afficher"
+			"dismiss": "Ne plus afficher",
+			"open_media": "Afficher le média"
 		},
 		"view": {
 			"grid": "Affiches",
@@ -282,7 +283,6 @@
 		"season_episode": "S{season}E{episode}",
 		"held_by": "détenu par {services}",
 		"missing_count": "rien ne manque | {count} manquant | {count} manquants",
-		"sync_this": "Synchroniser",
 		"sync_missing": "Récupérer {count} manquant(s)",
 		"column": {
 			"title": "Titre",
@@ -1238,7 +1238,9 @@
 				"requeue": "redemander plus tard",
 				"abandon": "abandonner celui-ci"
 			}
-		}
+		},
+		"going_to": "Destination : {library}",
+		"going_to_folder": "Destination : {path}"
 	},
 	"pages": {
 		"dashboard": "Tableau de bord",

@@ -954,7 +954,65 @@ export class MediaGroupManager {
 			known.edition = known.edition ?? source.edition;
 		}
 
+		this._foldUnidentified(sources, byVersion);
+
 		return [...byVersion.values()];
+	}
+
+	/**
+	 * Attach a copy with no identity of its own to the version its bytes say it is.
+	 *
+	 * A copy on a server this gateway has no mount for cannot be fingerprinted from a
+	 * disk, so it arrives with no `versionId` and becomes a version of its own — and the
+	 * media page then offers to fetch, over the network, twenty gigabytes already
+	 * sitting on the disk it would write them to. That is the owner's Jellyfin and Plex
+	 * indexing one file on one NAS, and it cost him the transfer to find out.
+	 *
+	 * `identifyTwins` fixes this properly, by fetching three windows and computing the
+	 * real value. This is what stands in until a scan has run, and what covers the
+	 * servers that will not serve ranges at all.
+	 *
+	 * **The test is exact bytes and the same encoding**, and both halves matter. Byte
+	 * equality alone is conclusive on a film and a coincidence on a two-minute clip;
+	 * requiring the quality label as well — the codec and the resolution the services
+	 * themselves report — makes an accident essentially impossible without asking
+	 * anybody for a threshold nobody could justify.
+	 *
+	 * **Only onto a version we already hold.** The whole consequence of being wrong here
+	 * is not offering a fetch for a copy that was in fact different, which is visible,
+	 * recoverable and far cheaper than the reverse. Folding two remote copies together
+	 * would instead make a version disappear from the list with nothing to show for it.
+	 */
+	private _foldUnidentified(
+		sources: MediaGroupSource[],
+		byVersion: Map<string, MediaVersion>,
+	): void {
+		const held = [...byVersion.values()].filter((version) => version.heldLocally);
+
+		if (held.length === 0) {
+			return;
+		}
+
+		const labelOf = (version: MediaVersion): string | null => version.quality?.label ?? null;
+
+		for (const source of sources) {
+			if (source.versionId !== null || source.bytes === null || source.local) {
+				continue;
+			}
+
+			const twin = held.find(
+				(version) =>
+					version.bytes === source.bytes
+					&& labelOf(version) !== null
+					&& labelOf(version) === (source.quality?.label ?? null),
+			);
+
+			if (twin === undefined) {
+				continue;
+			}
+
+			twin.sourceItemIds.push(source.itemId);
+		}
 	}
 
 	private _addedAt(ranked: MediaItemEntity[]): string | null {

@@ -94,8 +94,11 @@ test.describe.serial('keeping a media in sync', () => {
 
 		await page.goto(`/library/${fixture.film.id}`);
 		await expect(page.locator(test0('page-title'))).toHaveText(fixture.film.title);
-		await expect(page.locator(test0('item-sync'))).toBeVisible();
+		// A film is not something to watch for new parts of, so no schedule is offered —
+		// and nothing above the list offers a fetch either, since a copy is what a
+		// transfer is about.
 		await expect(page.locator(test0('item-keep'))).toHaveCount(0);
+		await expect(page.locator(test0('item-sync'))).toHaveCount(0);
 
 		await page.waitForLoadState('networkidle');
 		expect(failures, failures.join('\n')).toHaveLength(0);

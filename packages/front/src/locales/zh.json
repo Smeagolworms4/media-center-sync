@@ -215,7 +215,8 @@
 			"misread_examples": "带名字的季：{names}",
 			"misread_remedy": "如果该文件夹实际上装着多部剧集，则是您的媒体服务器把它当成了一部。请把更深一层的文件夹添加为媒体库根目录，或者给媒体库指定内容类型，然后重新扫描。",
 			"open_services": "打开服务器",
-			"dismiss": "不再提示"
+			"dismiss": "不再提示",
+			"open_media": "查看该媒体"
 		},
 		"view": {
 			"grid": "海报",
@@ -282,7 +283,6 @@
 		"season_episode": "S{season}E{episode}",
 		"held_by": "拥有者：{services}",
 		"missing_count": "缺失 {count} 项",
-		"sync_this": "同步此项",
 		"sync_missing": "同步缺失的 {count} 项",
 		"column": {
 			"title": "标题",
@@ -1238,7 +1238,9 @@
 				"requeue": "稍后再问",
 				"abandon": "放弃这一个"
 			}
-		}
+		},
+		"going_to": "目标：{library}",
+		"going_to_folder": "目标：{path}"
 	},
 	"pages": {
 		"dashboard": "概览",

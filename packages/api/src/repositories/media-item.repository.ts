@@ -75,11 +75,22 @@ export interface MediaItemDigest {
 	ignored: boolean;
 }
 
-/** One season, reduced to the series it belongs to and the name it carries. */
+/**
+ * One season, reduced to the series it belongs to and what decides whether it is odd.
+ *
+ * The number and the child count travel with the name because both change the verdict
+ * and neither can be recovered from it: a season the server numbered is a season
+ * whatever it is called, and a season holding nothing is not drawn, so neither can be
+ * evidence that a folder was misread. Filtering them out of the query instead would
+ * also take them out of the *count*, which is what the other signal — a series
+ * claiming more seasons than a show runs for — is measured on.
+ */
 export interface SeasonName {
 	id: string;
 	parentId: string;
 	title: string;
+	seasonNumber: number | null;
+	childCount: number;
 }
 
 /**
@@ -305,6 +316,8 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			.select('item.id', 'id')
 			.addSelect('item.parentId', 'parentId')
 			.addSelect('item.title', 'title')
+			.addSelect('item.seasonNumber', 'seasonNumber')
+			.addSelect('item.childCount', 'childCount')
 			.where('item.kind = :kind', { kind: MediaKind.SEASON })
 			.andWhere('item.parentId IS NOT NULL')
 			.getRawMany<SeasonName>();

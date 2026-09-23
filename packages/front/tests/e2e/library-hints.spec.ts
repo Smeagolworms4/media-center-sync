@@ -28,9 +28,24 @@ import { API_URL, signIn, test0 } from './helpers';
 function misreadFolder (tag: string): FakeCatalogue {
 	const shelf = `hints-${tag}`;
 	const folder = `Marvel Comics ${tag}`;
-	// Two numbered seasons and four named ones, which is the shape of the owner's own
-	// library: Jellyfin numbered what it could and used the folder names for the rest.
-	const seasons = ['Season 1', 'Season 2', 'Agatha All Along', 'Agent Carter', 'Agents of SHIELD', 'Cloak and Dagger'];
+	/*
+	 * Two numbered seasons and four named ones, which is the shape of the owner's own
+	 * library: Jellyfin numbered what it could and used the folder names for the rest.
+	 *
+	 * The numbers are load-bearing and the first version of this got them wrong, giving
+	 * every season an index including the four named ones. A season the server numbered
+	 * is a season whatever it is called — that is what stops a suspicion landing on a
+	 * show whose specials are correctly filed — so a decor that numbers a folder the
+	 * server plainly could not name was describing a server that does not exist.
+	 */
+	const seasons: { name: string; index: number | null }[] = [
+		{ name: 'Season 1', index: 1 },
+		{ name: 'Season 2', index: 2 },
+		{ name: 'Agatha All Along', index: null },
+		{ name: 'Agent Carter', index: null },
+		{ name: 'Agents of SHIELD', index: null },
+		{ name: 'Cloak and Dagger', index: null },
+	];
 
 	const items: FakeItem[] = [
 		{
@@ -45,19 +60,19 @@ function misreadFolder (tag: string): FakeCatalogue {
 		},
 	];
 
-	for (const [index, name] of seasons.entries()) {
+	for (const [index, season] of seasons.entries()) {
 		items.push(
 			{
 				Id: `${tag}-season-${index}`,
 				Type: 'Season',
-				Name: name,
+				Name: season.name,
 				library: shelf,
 				ParentId: `${tag}-folder`,
 				SeriesId: `${tag}-folder`,
 				SeriesName: folder,
-				IndexNumber: index + 1,
+				...(season.index === null ? {} : { IndexNumber: season.index }),
 				IsFolder: true,
-				Path: `/data/hints/${folder}/${name}`,
+				Path: `/data/hints/${folder}/${season.name}`,
 				DateCreated: '2024-01-01T09:00:00.0000000Z',
 			},
 			{
@@ -70,8 +85,15 @@ function misreadFolder (tag: string): FakeCatalogue {
 				SeriesId: `${tag}-folder`,
 				SeriesName: folder,
 				IndexNumber: 1,
-				ParentIndexNumber: index + 1,
-				Path: `/data/hints/${folder}/${name}/E01.mkv`,
+				/*
+				 * Numbered for the real seasons and left off the named ones, because the
+				 * episode's own number is what files it. An episode inside `Agent Carter`
+				 * stamped with season three would be moved into season three by the scan,
+				 * emptying the folder — and an emptied folder is not drawn, so the very
+				 * shape this journey is about would disappear before it could be seen.
+				 */
+				...(season.index === null ? {} : { ParentIndexNumber: season.index }),
+				Path: `/data/hints/${folder}/${season.name}/E01.mkv`,
 				DateCreated: '2024-01-01T09:00:00.0000000Z',
 			},
 		);

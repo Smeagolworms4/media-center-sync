@@ -215,7 +215,8 @@
 			"misread_examples": "Seasons named: {names}",
 			"misread_remedy": "If that folder really holds several shows, your media server is reading it as one. Add the deeper folder as a library root, or give the library a content type, then rescan.",
 			"open_services": "Open servers",
-			"dismiss": "Dismiss"
+			"dismiss": "Dismiss",
+			"open_media": "Show the media"
 		},
 		"view": {
 			"grid": "Posters",
@@ -282,7 +283,6 @@
 		"season_episode": "S{season}E{episode}",
 		"held_by": "held by {services}",
 		"missing_count": "nothing missing | {count} missing | {count} missing",
-		"sync_this": "Sync this",
 		"sync_missing": "Sync {count} missing",
 		"column": {
 			"title": "Title",
@@ -1238,7 +1238,9 @@
 				"requeue": "ask again later",
 				"abandon": "give up on this one"
 			}
-		}
+		},
+		"going_to": "Going to {library}",
+		"going_to_folder": "Going to {path}"
 	},
 	"pages": {
 		"dashboard": "Dashboard",

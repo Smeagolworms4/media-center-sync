@@ -294,15 +294,59 @@ describe('pages/LibraryItem', () => {
 			scope: { itemIds: ['copy-extended'] },
 		});
 
-		// And the button above the list is about this media, not about a copy: choosing
-		// a copy is what the rows are for, and saying it twice is how the two answers
-		// end up disagreeing.
-		stub.mockClear();
-		await wrapper.find('[data-test="item-sync"]').trigger('click');
+		// And nothing above the list offers a second way to say it: a transfer is about a
+		// copy, the header never knew which one, and two controls answering the same
+		// question is how the two answers end up disagreeing.
+		expect(wrapper.find('[data-test="item-sync"]').exists()).toBe(false);
+	});
+
+	it('offers no fetch above the list at all, whatever the media', async () => {
+		// The header button planned a run with no work in it on a media only we hold and
+		// answered with "a sync has started", which teaches people that a button can
+		// report success for having done nothing. Fetching now lives on the row that
+		// knows which copy it is about.
+		const ours = mediaGroup({
+			sources: [
+				{
+					itemId: 'copy-ours',
+					serviceId: 's1',
+					serviceName: 'MisaMisa',
+					serviceType: MediaServiceType.JELLYFIN,
+					shared: false,
+					filesMounted: true,
+					peerId: null,
+					peerName: null,
+					quality: null,
+					companions: null,
+					bytes: 4096,
+					versionId: 'q1-ours',
+					edition: null,
+					local: true,
+					path: '/media/animes/Pompoko.mkv',
+					sync: SyncState.LOCAL_ONLY,
+				},
+			],
+			versions: [
+				{
+					versionId: 'q1-ours',
+					edition: null,
+					quality: null,
+					bytes: 4096,
+					heldLocally: true,
+					sourceItemIds: ['copy-ours'],
+				},
+			],
+		});
+
+		stubFetchRoutes({ ...routes, '/api/media/groups/m1': { body: ours } });
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
 		await settle();
 
-		const whole = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
-		expect(JSON.parse(String(whole?.[1]?.body))).toMatchObject({ scope: { itemIds: ['m1'] } });
+		expect(wrapper.find('[data-test="item-sync"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="group-source-download"]').exists()).toBe(false);
 	});
 
 	it('names the file before erasing it, and only erases once somebody agrees', async () => {

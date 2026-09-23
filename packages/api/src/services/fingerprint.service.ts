@@ -55,33 +55,63 @@ export class FingerprintService {
 		const handle = await open(path, 'r');
 
 		try {
-			const digest = createHash('sha256');
-
-			// The size goes in first and in a fixed textual form: a decimal string is
-			// the one encoding two independent implementations cannot disagree about,
-			// where a 64-bit integer would invite an endianness argument.
-			digest.update(`${FINGERPRINT_VERSION}:${size}:`);
-
-			for (const { offset, length } of this._sampleWindows(size)) {
-				if (length <= 0) {
-					continue;
-				}
-
+			return await this.fingerprintOf(size, async (offset, length) => {
 				const buffer = Buffer.alloc(length);
 				const { bytesRead } = await handle.read(buffer, 0, length, offset);
 
-				// A short read at the end of a file being written into is normal. Hashing
-				// what actually arrived keeps the value a function of the bytes rather
-				// than of the buffer we happened to allocate.
-				digest.update(buffer.subarray(0, bytesRead));
-			}
-
-			const quickHash = digest.digest('hex');
-
-			return { size, quickHash, contentId: this.contentId(quickHash, size) };
+				// A short read at the end of a file being written into is normal.
+				// Returning what actually arrived keeps the value a function of the bytes
+				// rather than of the buffer we happened to allocate.
+				return buffer.subarray(0, bytesRead);
+			});
 		} finally {
 			await handle.close();
 		}
+	}
+
+	/**
+	 * The same identity, computed from wherever the bytes can be read.
+	 *
+	 * Split out from `fingerprint` because a disk is not the only place a file can be
+	 * reached, and treating it as one left a whole class of copies unidentifiable. A
+	 * media server the gateway has no mount for still serves its files over HTTP with
+	 * byte ranges, so the three windows can be fetched instead of read — and the value
+	 * that comes out is the same value, because the rule is a protocol rather than an
+	 * implementation: the version marker, the exact size, then the bytes.
+	 *
+	 * That matters on a household running Jellyfin and Plex over the same disk. Both
+	 * index the same file, only one is mounted, and without this the gateway sees two
+	 * copies it cannot compare — so it offers to fetch, over the network, a file that
+	 * is already on the disk it would fetch it to.
+	 *
+	 * `read` is given an offset and a length and answers with what it got. Returning
+	 * fewer bytes is allowed and is hashed as-is; returning more would change the
+	 * value, so it is truncated rather than trusted.
+	 */
+	public async fingerprintOf(
+		size: number,
+		read: (offset: number, length: number) => Promise<Buffer>,
+	): Promise<FileFingerprint> {
+		const digest = createHash('sha256');
+
+		// The size goes in first and in a fixed textual form: a decimal string is
+		// the one encoding two independent implementations cannot disagree about,
+		// where a 64-bit integer would invite an endianness argument.
+		digest.update(`${FINGERPRINT_VERSION}:${size}:`);
+
+		for (const { offset, length } of this._sampleWindows(size)) {
+			if (length <= 0) {
+				continue;
+			}
+
+			const chunk = await read(offset, length);
+
+			digest.update(chunk.subarray(0, length));
+		}
+
+		const quickHash = digest.digest('hex');
+
+		return { size, quickHash, contentId: this.contentId(quickHash, size) };
 	}
 
 	/**

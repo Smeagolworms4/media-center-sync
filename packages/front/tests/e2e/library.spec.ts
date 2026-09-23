@@ -171,7 +171,8 @@ test.describe('library', () => {
 
 		await expect(page.locator(test0('source-picker'))).toBeVisible();
 		await expect(page.locator(test0('group-source')).first()).toBeVisible();
-		await expect(page.locator(test0('item-sync'))).toBeEnabled();
+		// Fetching is offered per copy, on the rows below, and nowhere else.
+		await expect(page.locator(test0('item-sync'))).toHaveCount(0);
 	});
 
 	/**

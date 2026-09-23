@@ -37,6 +37,7 @@ import {
 	derivedLocalPath,
 	layoutExamples,
 	layoutSignals,
+	type SeasonRow,
 	PathMatchService,
 	reachesFiles,
 	serviceMode,
@@ -619,17 +620,17 @@ export class LibraryManager {
 		services: MediaServiceEntity[],
 		dismissed: ReadonlySet<string>,
 	): Promise<LibraryHint[]> {
-		const byParent = new Map<string, string[]>();
+		const byParent = new Map<string, SeasonRow[]>();
 
 		for (const season of await this._items.findSeasonNames()) {
-			byParent.set(season.parentId, [...(byParent.get(season.parentId) ?? []), season.title]);
+			byParent.set(season.parentId, [...(byParent.get(season.parentId) ?? []), season]);
 		}
 
-		const suspect = new Map<string, string[]>();
+		const suspect = new Map<string, SeasonRow[]>();
 
-		for (const [parentId, titles] of byParent) {
-			if (layoutSignals(titles).length > 0 && !dismissed.has(hintKeyOf(parentId))) {
-				suspect.set(parentId, titles);
+		for (const [parentId, rows] of byParent) {
+			if (layoutSignals(rows).length > 0 && !dismissed.has(hintKeyOf(parentId))) {
+				suspect.set(parentId, rows);
 			}
 		}
 
@@ -643,7 +644,7 @@ export class LibraryManager {
 			(await this._items.findByIds([...suspect.keys()])).map((one) => [one.id, one]),
 		);
 
-		return [...suspect.entries()].flatMap(([parentId, titles]) => {
+		return [...suspect.entries()].flatMap(([parentId, rows]) => {
 			const series = seriesById.get(parentId);
 
 			// A parent the index no longer holds, or one that is not a series at all —
@@ -661,9 +662,12 @@ export class LibraryManager {
 				title: series.title,
 				libraryName: libraries.get(series.libraryId)?.name ?? null,
 				serviceName: named.get(series.serviceId) ?? null,
-				signals: layoutSignals(titles),
-				examples: layoutExamples(titles),
-				seasonCount: titles.length,
+				signals: layoutSignals(rows),
+				examples: layoutExamples(rows),
+				// Every season it has, not only the odd ones: the other signal is about
+				// how many a series claims, and a count that had already dropped the
+				// numbered ones would measure the wrong thing.
+				seasonCount: rows.length,
 			}];
 		});
 	}

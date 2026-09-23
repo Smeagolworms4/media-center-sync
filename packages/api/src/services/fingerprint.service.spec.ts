@@ -53,6 +53,63 @@ describe('FingerprintService', () => {
 		expect(first.size).toBe(SAMPLE_SIZE * 4);
 	});
 
+	it('gives the same identifier whether the bytes are read or fetched', async () => {
+		/*
+		 * The property the whole remote path rests on: a copy on a server this gateway
+		 * has no mount for still answers byte ranges over HTTP, and the value that comes
+		 * out has to be the value a mounted copy would have produced — otherwise two
+		 * records of one file never meet and the gateway offers to fetch, over the
+		 * network, a file already on the disk it would fetch it to.
+		 */
+		const content = pattern(SAMPLE_SIZE * 4);
+		const path = await write('mounted.bin', content);
+
+		const fromDisk = await service.fingerprint(path);
+		const fromRanges = await service.fingerprintOf(
+			content.length,
+			(offset, length) => Promise.resolve(content.subarray(offset, offset + length)),
+		);
+
+		expect(fromRanges.quickHash).toBe(fromDisk.quickHash);
+		expect(fromRanges.contentId).toBe(fromDisk.contentId);
+		expect(fromRanges.size).toBe(fromDisk.size);
+	});
+
+	it('hashes what a reader actually returned rather than what was asked for', async () => {
+		// A server may answer a range with fewer bytes — the tail of a file being
+		// written, a proxy trimming a response. Hashing the buffer we allocated instead
+		// would make the value a function of our request rather than of the file.
+		const content = pattern(SAMPLE_SIZE * 4);
+		const short = await service.fingerprintOf(
+			content.length,
+			(offset, length) => Promise.resolve(content.subarray(offset, offset + length - 1)),
+		);
+		const whole = await service.fingerprintOf(
+			content.length,
+			(offset, length) => Promise.resolve(content.subarray(offset, offset + length)),
+		);
+
+		expect(short.quickHash).not.toBe(whole.quickHash);
+	});
+
+	it('refuses to let a reader lengthen the value by answering with more', async () => {
+		// The mirror of the case above, and the dangerous direction: a server padding a
+		// response would otherwise produce an identifier no other gateway can reproduce.
+		const content = pattern(SAMPLE_SIZE * 4);
+		const padded = await service.fingerprintOf(
+			content.length,
+			(offset, length) => Promise.resolve(
+				Buffer.concat([content.subarray(offset, offset + length), Buffer.alloc(32, 9)]),
+			),
+		);
+		const whole = await service.fingerprintOf(
+			content.length,
+			(offset, length) => Promise.resolve(content.subarray(offset, offset + length)),
+		);
+
+		expect(padded.quickHash).toBe(whole.quickHash);
+	});
+
 	it('gives a different identifier when the size differs', async () => {
 		const base = pattern(SAMPLE_SIZE * 4);
 		const shorter = await write('short.bin', base.subarray(0, base.length - 1));

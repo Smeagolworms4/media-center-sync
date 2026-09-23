@@ -11,6 +11,7 @@
 	import TransferProgress from '@/components/transfer/TransferProgress.vue';
 	import TransferSources from '@/components/transfer/TransferSources.vue';
 	import { describeTransferError, type TransferAction } from '@/composables/useTransferError';
+	import { useLibrariesStore } from '@/stores/libraries';
 	import { useTransfersStore } from '@/stores/transfers';
 
 	/**
@@ -33,6 +34,31 @@
 	const emit = defineEmits<{ action: [action: TransferAction, transfer: Transfer] }>();
 
 	const transfersStore = useTransfersStore();
+	const librariesStore = useLibrariesStore();
+
+	/**
+	 * Where this file is going, named rather than left to be guessed.
+	 *
+	 * The row offered "choose another library" beside a line that never said which one
+	 * it was going to, so the only way to find out was to open the row and read a path.
+	 * A control that offers to change something without showing it is asking somebody to
+	 * decide blind.
+	 *
+	 * The library's name and not the path, for the same reason the whole placement area
+	 * uses libraries: the name is what somebody recognises from their media server, and
+	 * the path is already a line below for whoever wants it. A transfer landing in a
+	 * folder no library covers has no name to give, and says so with the folder instead
+	 * of with nothing.
+	 */
+	const destination = computed(() => {
+		const id = props.transfer.targetLibraryId;
+
+		if (id === null) {
+			return null;
+		}
+
+		return librariesStore.libraries.find(one => one.id === id)?.name ?? null;
+	});
 
 	const expanded = ref(false);
 	const details = ref(false);
@@ -160,6 +186,12 @@
 			</div>
 
 			<TransferProgress class="mt-2" :progress="progress" />
+
+			<p class="text-caption text-medium-emphasis mt-1 mb-0" data-test="transfer-destination-name">
+				{{ destination
+					? $t('transfer.going_to', { library: destination })
+					: $t('transfer.going_to_folder', { path: transfer.targetPath }) }}
+			</p>
 
 			<p
 				v-if="paused"

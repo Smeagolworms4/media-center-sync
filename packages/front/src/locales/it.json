@@ -215,7 +215,8 @@
 			"misread_examples": "Stagioni con un nome: {names}",
 			"misread_remedy": "Se quella cartella contiene davvero più serie, il tuo server multimediale la legge come una sola. Aggiungi la cartella più interna come radice della libreria, oppure assegna un tipo di contenuto alla libreria, e riavvia la scansione.",
 			"open_services": "Apri i server",
-			"dismiss": "Non mostrare più"
+			"dismiss": "Non mostrare più",
+			"open_media": "Mostra il contenuto"
 		},
 		"view": {
 			"grid": "Locandine",
@@ -282,7 +283,6 @@
 		"season_episode": "S{season}E{episode}",
 		"held_by": "detenuto da {services}",
 		"missing_count": "non manca nulla | {count} mancante | {count} mancanti",
-		"sync_this": "Sincronizza questo",
 		"sync_missing": "Sincronizza {count} mancanti",
 		"column": {
 			"title": "Titolo",
@@ -1238,7 +1238,9 @@
 				"requeue": "richiedere più tardi",
 				"abandon": "rinunciare a questo"
 			}
-		}
+		},
+		"going_to": "Destinazione: {library}",
+		"going_to_folder": "Destinazione: {path}"
 	},
 	"pages": {
 		"dashboard": "Dashboard",

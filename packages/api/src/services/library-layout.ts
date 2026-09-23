@@ -25,6 +25,40 @@ import { LibraryLayoutSignal } from '@mcs/shared';
  * the folder that made two series invisible.
  */
 
+/**
+ * What deciding whether a season looks odd needs to know about it.
+ *
+ * A name alone is not enough and the owner's library is where that showed: the same
+ * three words can be a show somebody filed in the wrong place or a special the server
+ * numbered and filed correctly, and only the number tells the two apart. Declared here
+ * rather than imported from the repository so this stays a pure module with no opinion
+ * about where the rows come from.
+ */
+export interface SeasonRow {
+	title: string;
+	/** What the server said this season is. Null when it could not say. */
+	seasonNumber: number | null;
+	/** How many episodes are under it, which is whether it is drawn at all. */
+	childCount: number;
+}
+
+/**
+ * A name whose last word is a Roman numeral, which is a season number spelled out.
+ *
+ * `Livre I`, `Livre II`, `Season IV`, `Parte III`: a numbering convention rather than
+ * a title, and the digit test alone cannot see it. Kaamelott is where it showed — its
+ * six seasons are `Livre I` to `Livre VI`, and every one of them was read as the name
+ * of a different show.
+ *
+ * Anchored at the end and required to be a whole word, so a show whose title merely
+ * contains those letters is untouched: `Vikings` ends in `s`, `Mixi` is not matched
+ * because the numeral has to stand alone, and `Rome` is a word rather than a numeral.
+ * `I` alone counts — `Livre I` is the first book — and that is the one case worth
+ * stating, because it also matches an English pronoun. A season called `I` is not a
+ * sentence.
+ */
+const ROMAN_NUMERAL = /(?:^|\s)[ivxlcdm]+$/;
+
 /** What a season is called when it is a season and not a show. */
 const SPECIAL_SEASON_WORDS = [
 	'special',
@@ -97,7 +131,11 @@ export const looksLikeASeasonName = (title: string): boolean => {
 		return true;
 	}
 
-	return /\d/.test(folded) || SPECIAL_SEASON_WORDS.some((word) => folded.includes(word));
+	return (
+		/\d/.test(folded)
+		|| ROMAN_NUMERAL.test(folded)
+		|| SPECIAL_SEASON_WORDS.some((word) => folded.includes(word))
+	);
 };
 
 /**
@@ -108,7 +146,7 @@ export const looksLikeASeasonName = (title: string): boolean => {
  * are checked differently by whoever reads them, and folding both into one sentence
  * would make the hint vaguer than the evidence.
  */
-export const layoutSignals = (seasons: readonly string[]): LibraryLayoutSignal[] => {
+export const layoutSignals = (seasons: readonly SeasonRow[]): LibraryLayoutSignal[] => {
 	const signals: LibraryLayoutSignal[] = [];
 
 	if (namedSeasons(seasons).length >= NAMED_SEASON_FLOOR) {
@@ -139,10 +177,30 @@ export const layoutSignals = (seasons: readonly string[]): LibraryLayoutSignal[]
  * Insertion order is kept, so the evidence quoted is still the order the server
  * reports its seasons in.
  */
-export const namedSeasons = (seasons: readonly string[]): string[] => [
-	...new Set(seasons.filter((season) => !looksLikeASeasonName(season))),
+export const namedSeasons = (seasons: readonly SeasonRow[]): string[] => [
+	...new Set(
+		seasons
+			/*
+			 * A season the server gave a number to is a season, whatever it is called.
+			 * `Tokyo Revelation` and `The Plan` are specials carrying `seasonNumber` 0 on
+			 * the owner's Jellyfin — correctly filed, correctly shown — and reading their
+			 * names as show titles put a suspicion on two series that had nothing wrong
+			 * with them. The number is the server stating what the row is; the name is
+			 * only what it happens to be called.
+			 */
+			.filter((season) => season.seasonNumber === null)
+			/*
+			 * And a season holding nothing is not drawn — see `drawable` — so it cannot be
+			 * evidence of anything. Those rows are kept on purpose once their episodes
+			 * have been filed by their numbers, and counting them would report a shape the
+			 * screen no longer has.
+			 */
+			.filter((season) => season.childCount > 0)
+			.filter((season) => !looksLikeASeasonName(season.title))
+			.map((season) => season.title),
+	),
 ];
 
 /** The few names a hint shows, so a person recognises the folder without scrolling. */
-export const layoutExamples = (seasons: readonly string[]): string[] =>
+export const layoutExamples = (seasons: readonly SeasonRow[]): string[] =>
 	namedSeasons(seasons).slice(0, EXAMPLE_LIMIT);

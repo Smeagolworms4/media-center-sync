@@ -52,14 +52,29 @@
 	});
 
 	/**
-	 * Where a person goes to act on either line: the services screen.
-	 *
-	 * The same destination for both, and not by accident. Declaring a server's folders
-	 * and correcting a library root that sits one level too high are the same screen and
-	 * the same two fields — the difference is which of them to change, and that is what
-	 * the sentence above the button is for.
+	 * Where nothing being mounted is acted on: the services screen, where the folders
+	 * are declared.
 	 */
 	const SERVICES = { name: 'services' };
+
+	/**
+	 * Where a suspicious folder is acted on: the media it is about.
+	 *
+	 * The services screen was the wrong destination and said so by being useless — it
+	 * opens a list of servers and leaves somebody to find their way back down to the
+	 * show the sentence just named. The first thing anybody wants after reading "this
+	 * looks like several series in one folder" is to see the thing and judge for
+	 * themselves, and the hint has carried the identifier for exactly that all along.
+	 *
+	 * A hint with no item falls back to the services screen rather than to nothing: the
+	 * series may have gone between the hint being computed and the page being drawn, and
+	 * a button that does nothing is worse than one that goes somewhere useful.
+	 */
+	function destinationOf (hint: LibraryHint): Record<string, unknown> {
+		return hint.itemId === null
+			? SERVICES
+			: { name: 'library-item', params: { itemId: hint.itemId } };
+	}
 
 	/**
 	 * Which sentence a suspicion gets, from the signal that produced it.
@@ -115,10 +130,10 @@
 				<v-btn
 					data-test="library-hint-fix"
 					size="small"
-					:to="SERVICES"
+					:to="destinationOf(hint)"
 					variant="text"
 				>
-					{{ $t('library.hint.open_services') }}
+					{{ hint.itemId ? $t('library.hint.open_media') : $t('library.hint.open_services') }}
 				</v-btn>
 
 				<v-btn

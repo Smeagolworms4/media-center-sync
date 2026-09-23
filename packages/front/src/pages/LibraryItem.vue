@@ -250,19 +250,6 @@
 		await load();
 	}
 
-	const syncThis = tryCallback(async () => {
-		running.value = true;
-		try {
-			// This media, and the configured priority decides which copy it comes from.
-			// Choosing a copy is what the rows below are for, one button each; saying it
-			// twice in two places is how the two answers end up disagreeing.
-			await syncStore.run({ scope: { itemIds: [props.itemId] } });
-			void notify('library.sync_started');
-		} finally {
-			running.value = false;
-		}
-	});
-
 	/**
 	 * Fetch this exact copy, now.
 	 *
@@ -382,16 +369,6 @@
 						@click="keepOpen = true"
 					>
 						{{ $t('sync.keep.action') }}
-					</v-btn>
-
-					<v-btn
-						color="primary"
-						data-test="item-sync"
-						:loading="running"
-						prepend-icon="mdi-sync"
-						@click="syncThis"
-					>
-						{{ $t('media.sync_this') }}
 					</v-btn>
 
 					<v-btn

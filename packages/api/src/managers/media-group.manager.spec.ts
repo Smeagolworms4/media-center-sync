@@ -685,6 +685,71 @@ describe('MediaGroupManager', () => {
 			expect(group.versions[0].heldLocally).toBe(true);
 		});
 
+		it('folds a copy with no identity onto the version its bytes say it is', async () => {
+			/*
+			 * The owner's Jellyfin and Plex over one NAS: the same file, only one of them
+			 * mounted, so only one can be fingerprinted. Left apart, the page offers to
+			 * fetch twenty gigabytes already on the disk it would write them to.
+			 */
+			const { manager } = build({
+				items: [
+					item({ id: 'a', file: file({ contentId: 'q1-same', size: 20_292_365_537 }) }),
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						file: file({ contentId: '', quickHash: '', size: 20_292_365_537 }),
+					}),
+				],
+				matches: [correlation()],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions).toHaveLength(1);
+			expect(group.versions[0].sourceItemIds.sort()).toEqual(['a', 'b']);
+		});
+
+		it('leaves a copy of a different size where it is, however close', async () => {
+			// A near miss is a different cut, and calling two cuts one copy is how
+			// somebody ends up without the version they wanted.
+			const { manager } = build({
+				items: [
+					item({ id: 'a', file: file({ contentId: 'q1-same', size: 20_292_365_537 }) }),
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						file: file({ contentId: '', quickHash: '', size: 20_292_365_536 }),
+					}),
+				],
+				matches: [correlation()],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions[0].sourceItemIds).toEqual(['a']);
+		});
+
+		it('leaves a copy of the same size but a different encoding alone', async () => {
+			// Byte equality is conclusive on a film and a coincidence on a clip. The
+			// encoding is what makes an accident implausible without inventing a
+			// threshold nobody could justify.
+			const { manager } = build({
+				items: [
+					item({ id: 'a', file: file({ contentId: 'q1-same', size: 4096, height: 1080 }) }),
+					item({
+						id: 'b',
+						serviceId: 'remote',
+						file: file({ contentId: '', quickHash: '', size: 4096, height: 2160 }),
+					}),
+				],
+				matches: [correlation()],
+			});
+
+			const group = (await manager.groups(query())).items[0];
+
+			expect(group.versions[0].sourceItemIds).toEqual(['a']);
+		});
+
 		it('keeps two encodes of one cut as two things to choose between', async () => {
 			// They correlate — same cut, same running time — and they are still two
 			// files. Holding one of them is an ordinary state and not a failed sync.

@@ -624,6 +624,15 @@ export class ServiceManager implements OnApplicationBootstrap {
 		 */
 		await this._landings.reconcile();
 
+		/*
+		 * Before correlation, because it exists to give correlation something to work
+		 * with: a copy on a server this gateway has no mount for carries no identity of
+		 * its own, and correlation is left comparing titles where two byte-identical
+		 * files were sitting in front of it. Nothing is read unless a byte count matches
+		 * one we have already identified — see `identifyTwins`.
+		 */
+		await this._media.identifyTwins(service.id);
+
 		// Correlation belongs to the media manager: it owns the index and the match
 		// rows, and the decision about what two rows are the same media is the same
 		// decision whether a scan or a person triggered it.

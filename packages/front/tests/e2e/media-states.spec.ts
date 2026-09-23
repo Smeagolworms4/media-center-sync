@@ -97,7 +97,9 @@ test.describe.serial('a media that has landed and is waiting to be indexed', () 
 		const badge = page.locator(`.library-item_chips ${test0('sync-state')}`);
 		await expect(badge).toHaveAttribute('data-state', 'missing');
 
-		await page.locator(test0('item-sync')).click();
+		// Fetched from the row that holds it rather than from a button above the list:
+		// a copy is what a transfer is about, and the header never knew which one.
+		await page.locator(test0('group-source-download')).first().click();
 		await expect(page.locator(test0('notify')).first()).toHaveAttribute('data-type', 'success');
 
 		// The transfer runs behind a 202; what proves it landed is the state the gateway

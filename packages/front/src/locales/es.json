@@ -215,7 +215,8 @@
 			"misread_examples": "Temporadas con nombre: {names}",
 			"misread_remedy": "Si esa carpeta contiene en realidad varias series, su servidor multimedia la está leyendo como una sola. Añada la carpeta interior como raíz de biblioteca, o asigne un tipo de contenido a la biblioteca, y vuelva a analizar.",
 			"open_services": "Abrir servidores",
-			"dismiss": "Descartar"
+			"dismiss": "Descartar",
+			"open_media": "Ver el contenido"
 		},
 		"view": {
 			"grid": "Carátulas",
@@ -282,7 +283,6 @@
 		"season_episode": "T{season}E{episode}",
 		"held_by": "disponible en {services}",
 		"missing_count": "no falta nada | falta {count} | faltan {count}",
-		"sync_this": "Sincronizar",
 		"sync_missing": "Sincronizar {count} que faltan",
 		"column": {
 			"title": "Título",
@@ -1238,7 +1238,9 @@
 				"requeue": "volver a preguntar más tarde",
 				"abandon": "renunciar a este"
 			}
-		}
+		},
+		"going_to": "Destino: {library}",
+		"going_to_folder": "Destino: {path}"
 	},
 	"pages": {
 		"dashboard": "Panel",

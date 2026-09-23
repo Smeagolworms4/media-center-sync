@@ -70,6 +70,7 @@ describe('Library hints', () => {
 			kind: MediaKind,
 			title: string,
 			parentId: string | null,
+			values: { seasonNumber?: number | null; childCount?: number } = {},
 		): Promise<string> => {
 			const saved = await items.save(
 				items.create({
@@ -83,17 +84,32 @@ describe('Library hints', () => {
 					externalIds: {},
 					syncState: SyncState.UNKNOWN,
 					file: null,
+					seasonNumber: values.seasonNumber ?? null,
+					// A season holding nothing is not drawn, so it is not evidence either.
+					// The rows that have to carry the suspicion have to hold something.
+					childCount: values.childCount ?? 1,
 				}),
 			);
 
 			return saved.id;
 		};
 
-		// The owner's Marvel folder, as Jellyfin reported it: numbered seasons for what it
-		// could number, and the show folders' own names for the rest.
+		/*
+		 * The owner's Marvel folder, as Jellyfin reported it: numbered seasons for what
+		 * it could number, and the show folders' own names — which it could not number —
+		 * for the rest.
+		 *
+		 * The numbers are load-bearing and were missing from the first version of this
+		 * fixture. A season the server numbered is a season whatever it is called, so a
+		 * decor that left every `seasonNumber` null was asking this to judge four rows it
+		 * would never be shown in the field.
+		 */
 		seriesId = await put('folder', MediaKind.SERIES, 'Marvel Comics', null);
 
-		for (const name of ['Saison 1', 'Saison 2', 'Agent Carter', 'Agents of SHIELD']) {
+		await put('season-Saison 1', MediaKind.SEASON, 'Saison 1', seriesId, { seasonNumber: 1 });
+		await put('season-Saison 2', MediaKind.SEASON, 'Saison 2', seriesId, { seasonNumber: 2 });
+
+		for (const name of ['Agent Carter', 'Agents of SHIELD']) {
 			await put(`season-${name}`, MediaKind.SEASON, name, seriesId);
 		}
 	});

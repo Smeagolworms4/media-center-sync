@@ -8,6 +8,7 @@ export * from './event-gateway.service';
 export * from './file-move.service';
 export * from './filesystem.service';
 export * from './fingerprint.service';
+export * from './remote-fingerprint.service';
 export * from './handlers';
 export * from './landing-state';
 export * from './library-layout';

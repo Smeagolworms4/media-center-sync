@@ -382,7 +382,12 @@ interface Fakes {
 	};
 	fingerprints: { fingerprint: jest.Mock; contentId: jest.Mock };
 	quality: { summarise: jest.Mock };
-	media: { correlateService: jest.Mock; refile: jest.Mock; refileService: jest.Mock };
+	media: {
+		correlateService: jest.Mock;
+		refile: jest.Mock;
+		refileService: jest.Mock;
+		identifyTwins: jest.Mock;
+	};
 	probe: jest.Mock;
 	events: { emit: jest.Mock };
 	libraryManager: { applyRootMapping: jest.Mock };
@@ -448,6 +453,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 			correlateService: jest.fn().mockResolvedValue(0),
 			refile: jest.fn().mockResolvedValue(false),
 			refileService: jest.fn().mockResolvedValue(0),
+			identifyTwins: jest.fn().mockResolvedValue(0),
 		},
 		probe: probeFake,
 		events: { emit: jest.fn() },
