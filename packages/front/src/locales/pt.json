@@ -338,7 +338,14 @@
 			"ours": "nosso",
 			"held_here": "Um dos seus próprios serviços tem este elemento.",
 			"not_held_here": "Só outro servidor o tem.",
-			"none": "Nenhum serviço tem este elemento."
+			"none": "Nenhum serviço tem este elemento.",
+			"download": "Transferir",
+			"delete": "Apagar esta cópia",
+			"delete_title": "Apagar esta cópia?",
+			"delete_text": "Este ficheiro será removido do disco que o {service} lê. Não é reversível.",
+			"delete_note": "O servidor de média continuará a listá-lo até à próxima análise.",
+			"delete_accept": "Apagar",
+			"deleted": "O ficheiro foi apagado."
 		},
 		"version": {
 			"title": "Versões",
@@ -1327,7 +1334,9 @@
 			"keyword_taken": "Outra categoria já arruma esse nome. Mova-o de lá em vez de o adicionar duas vezes."
 		},
 		"media": {
-			"not_found": "Este elemento já não existe."
+			"not_found": "Este elemento já não existe.",
+			"not_on_our_disk": "Esta cópia não está num disco onde esta gateway possa escrever, por isso nada foi apagado.",
+			"has_no_file": "Esta entrada não tem qualquer ficheiro para apagar."
 		},
 		"peer": {
 			"not_found": "Este par já não existe.",

@@ -899,6 +899,7 @@ export class MediaGroupManager {
 			versionId: versionIdOf(item.file),
 			edition: editionOf(item.file),
 			local: context.local.has(item.serviceId),
+			path: item.file?.path ?? null,
 			sync: item.syncState,
 		};
 	}

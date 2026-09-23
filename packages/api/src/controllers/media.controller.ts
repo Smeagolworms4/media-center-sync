@@ -193,6 +193,21 @@ export class MediaController {
 		return this._media.setOverride(id, null);
 	}
 
+	@Delete(':id/file')
+	@Granted(Right.MEDIA_DELETE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Erase this copy from the disk',
+		description:
+			'Only a copy sitting on a disk this gateway can write to, and only the one file. ' +
+			'The row is left alone: the media server still lists what it no longer has, and the ' +
+			'next scan is what puts that right.',
+	})
+	@ApiOkResponse({ description: 'The path that was erased' })
+	public deleteFile(@Param('id', ParseUUIDPipe) id: string): Promise<{ path: string }> {
+		return this._media.deleteFile(id);
+	}
+
 	@Post(':id/matches/:matchId/confirm')
 	@Granted(Right.SYNC_MANAGE)
 	@HttpCode(HttpStatus.OK)

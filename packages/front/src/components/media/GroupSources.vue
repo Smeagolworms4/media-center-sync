@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-	import type { MediaGroupSource, MediaService, MediaVersion } from '@mcs/shared';
-	import { SyncState } from '@mcs/shared';
+	import type { MediaGroupSource, MediaService, MediaVersion, TransferProgress } from '@mcs/shared';
+	import { FINISHED_TRANSFER_STATES, SyncState } from '@mcs/shared';
 	import { computed } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import CompanionMarks from '@/components/media/CompanionMarks.vue';
@@ -29,10 +29,16 @@
 	 * obviously the one to pull. And each says how far away it is: a copy on a friend's
 	 * server and a copy on somebody their friend introduced are not the same offer.
 	 *
-	 * Left alone, nothing is chosen and the pull follows the priority configured once in
-	 * the administration screen. The list says so rather than showing an empty selection:
-	 * pinning a source into every run would mean revisiting them all the day a friend's
-	 * server moves.
+	 * Each row carries the one action that makes sense for it, and that is what this
+	 * screen is for. A checkbox said nothing: neither what ticking it would do, nor when
+	 * it would happen, and it sat beside copies with nothing to fetch — "we alone have
+	 * this one" with a box to tick next to it. So a copy only somebody else has offers
+	 * to be fetched, a copy being fetched shows how far along it is, and a copy on our
+	 * own disk offers to be erased, behind a confirmation that names the file.
+	 *
+	 * Scheduling stays where it was, on the button above this list: "fetch this now" and
+	 * "fetch this whenever it appears" are two different intentions and were never the
+	 * same control.
 	 */
 	const props = withDefaults(defineProps<{
 		sources?: MediaGroupSource[];
@@ -48,23 +54,28 @@
 		services?: MediaService[];
 		/** Peer names by identifier, for the sources reached through a friend. */
 		peerNames?: Record<string, string>;
+		/**
+		 * What is being fetched right now, by the item being fetched.
+		 *
+		 * Keyed by item rather than by transfer because that is the question a row asks:
+		 * a row knows which copy it is, and has no reason to know what the transfer that
+		 * carries it is called.
+		 */
+		transfers?: Record<string, TransferProgress>;
 		disabled?: boolean;
 	}>(), {
 		sources: () => [],
 		versions: () => [],
 		services: () => [],
 		peerNames: () => ({}),
+		transfers: () => ({}),
 		disabled: false,
 	});
 
-	/**
-	 * The copies to pull, named by item and never by service.
-	 *
-	 * A service can hold two versions of one film, so a set of service identifiers
-	 * cannot say which of them was asked for — and that ambiguity is exactly the bug
-	 * this screen exists to fix.
-	 */
-	const selected = defineModel<string[]>({ default: () => [] });
+	const emit = defineEmits<{
+		download: [itemId: string];
+		remove: [source: MediaGroupSource];
+	}>();
 
 	const priorities = computed(() => {
 		const map: Record<string, number> = {};
@@ -172,6 +183,37 @@
 	function peerNameOf (source: MediaGroupSource): string | null {
 		return source.peerId ? props.peerNames[source.peerId] ?? null : null;
 	}
+
+	/**
+	 * The transfer carrying one of this row's copies, or none.
+	 *
+	 * Any copy of the version, because a row is a version and fetching any of its copies
+	 * is fetching the row. A finished transfer is not one: the row it left behind lives
+	 * on the transfers screen, and a progress bar stuck at a hundred per cent under a
+	 * media that now simply exists says nothing.
+	 */
+	function transferOf (offer: SourceOffer): TransferProgress | null {
+		for (const copy of offer.copies) {
+			const found = props.transfers[copy.itemId];
+
+			if (found && !FINISHED_TRANSFER_STATES.includes(found.state)) {
+				return found;
+			}
+		}
+
+		return null;
+	}
+
+	function percentOf (transfer: TransferProgress): number {
+		return transfer.bytesTotal > 0
+			? Math.min(100, Math.round((transfer.bytesDone / transfer.bytesTotal) * 100))
+			: 0;
+	}
+
+	/** The copy of this row that sits on a disk we can write to, if there is one. */
+	function ourCopy (offer: SourceOffer): MediaGroupSource | null {
+		return offer.copies.find(one => one.local && one.path !== null) ?? null;
+	}
 </script>
 
 <template>
@@ -179,9 +221,9 @@
 		<p class="text-caption text-medium-emphasis mb-1">{{ $t('media.source.title') }}</p>
 
 		<!--
-			The default is stated rather than offered as a row to tick. With several
-			versions selectable, an empty selection is already a decision — follow the
-			priority — and a checkbox saying so would be a third state nobody wants.
+			Which copy a scheduled run would take, stated rather than offered as a choice.
+			The button above this list builds a schedule and follows the configured
+			priority; the rows below are for acting on one copy now.
 		-->
 		<p v-if="offers.length > 0" class="text-caption text-medium-emphasis mb-2" data-test="source-default">
 			{{ $t('media.source.follow_priority') }}
@@ -200,95 +242,142 @@
 				:data-state="offer.copies[0].sync"
 				data-test="group-source"
 			>
-				<v-checkbox
-					v-model="selected"
-					density="compact"
-					:disabled="disabled || offer.from === null"
-					hide-details
-					:value="offer.from?.itemId ?? offer.copies[0].itemId"
-				>
-					<template #label>
-						<span class="group-sources_label">
-							<!--
-								Only when the copy actually carries a state. A row of question
-								marks beside a state the header already gives says nothing, and
-								an older gateway simply does not send this field.
-							-->
-							<SyncStateIcon
-								v-if="offer.copies[0].sync && offer.copies[0].sync !== SyncState.UNKNOWN"
-								:size="16"
-								:state="offer.copies[0].sync"
+				<div class="group-sources_row">
+					<span class="group-sources_label">
+						<!--
+							Only when the copy actually carries a state. A row of question
+							marks beside a state the header already gives says nothing, and
+							an older gateway simply does not send this field.
+						-->
+						<SyncStateIcon
+							v-if="offer.copies[0].sync && offer.copies[0].sync !== SyncState.UNKNOWN"
+							:size="16"
+							:state="offer.copies[0].sync"
+						/>
+
+						<span class="group-sources_name">{{ labelOf(offer) }}</span>
+
+						<v-chip
+							v-if="offer.edition"
+							data-test="group-source-edition"
+							label
+							size="x-small"
+							variant="tonal"
+						>
+							{{ offer.edition }}
+						</v-chip>
+
+						<QualityChip :quality="offer.copies[0].quality" size="x-small" />
+
+						<span v-if="offer.copies[0].bytes !== null" class="text-caption text-medium-emphasis">
+							<ByteSize :bytes="offer.copies[0].bytes" />
+						</span>
+
+						<!--
+							Holding a version is a fact worth stating and never a failure:
+							a media whose three cuts we hold two of is finished business,
+							not a half-broken sync, so this is a mark and not a warning.
+						-->
+						<v-chip
+							v-if="offer.heldLocally"
+							color="state-in-sync"
+							data-test="group-source-ours"
+							label
+							size="x-small"
+							variant="tonal"
+						>
+							{{ $t('media.version.held') }}
+						</v-chip>
+
+						<!--
+							Only where the copy is not ours: the chip beside it already says
+							so, and two chips saying the same word is noise on every row of
+							a gateway with one server.
+						-->
+						<template v-for="copy of offer.copies" :key="copy.itemId">
+							<v-chip
+								v-if="!copy.local && originOfItem(copy)"
+								:data-origin="originOfItem(copy)!.origin"
+								data-test="group-source-origin"
+								label
+								:prepend-icon="originOfItem(copy)!.icon"
+								size="x-small"
+								variant="outlined"
+							>
+								{{ $t(originOfItem(copy)!.labelKey) }}
+							</v-chip>
+
+							<span v-if="peerNameOf(copy)" class="text-caption text-medium-emphasis">
+								{{ $t('media.source.via_peer', { peer: peerNameOf(copy) }) }}
+							</span>
+						</template>
+
+						<CompanionMarks :companions="offer.copies[0].companions" />
+					</span>
+
+					<!--
+						One action per row, and the state of the copy decides which. A
+						transfer in flight outranks both buttons: offering to fetch
+						something already being fetched is how somebody ends up with two
+						of it.
+					-->
+					<div class="group-sources_action">
+						<div
+							v-if="transferOf(offer)"
+							class="group-sources_progress"
+							data-test="group-source-progress"
+							:title="$t(`transfer.state.${transferOf(offer)!.state}`)"
+						>
+							<v-progress-linear
+								:aria-label="$t(`transfer.state.${transferOf(offer)!.state}`)"
+								height="6"
+								:model-value="percentOf(transferOf(offer)!)"
+								rounded
 							/>
 
-							<span class="group-sources_name">{{ labelOf(offer) }}</span>
-
-							<v-chip
-								v-if="offer.edition"
-								data-test="group-source-edition"
-								label
-								size="x-small"
-								variant="tonal"
-							>
-								{{ offer.edition }}
-							</v-chip>
-
-							<QualityChip :quality="offer.copies[0].quality" size="x-small" />
-
-							<span v-if="offer.copies[0].bytes !== null" class="text-caption text-medium-emphasis">
-								<ByteSize :bytes="offer.copies[0].bytes" />
+							<span class="text-caption text-medium-emphasis">
+								{{ percentOf(transferOf(offer)!) }}%
 							</span>
+						</div>
 
-							<!--
-								Holding a version is a fact worth stating and never a failure:
-								a media whose three cuts we hold two of is finished business,
-								not a half-broken sync, so this is a mark and not a warning.
-							-->
-							<v-chip
-								v-if="offer.heldLocally"
-								color="state-in-sync"
-								data-test="group-source-ours"
-								label
-								size="x-small"
-								variant="tonal"
-							>
-								{{ $t('media.version.held') }}
-							</v-chip>
+						<v-btn
+							v-else-if="offer.from"
+							data-test="group-source-download"
+							:disabled="disabled"
+							prepend-icon="mdi-download"
+							size="small"
+							variant="tonal"
+							@click="emit('download', offer.from.itemId)"
+						>
+							{{ $t('media.source.download') }}
+						</v-btn>
 
-							<span
-								v-if="offer.from === null"
-								class="text-caption text-medium-emphasis"
-								data-test="group-source-nothing"
-							>
-								{{ $t('media.version.nothing_to_pull') }}
-							</span>
-
-							<!--
-								Only where the copy is not ours: the chip beside it already says
-								so, and two chips saying the same word is noise on every row of
-								a gateway with one server.
-							-->
-							<template v-for="copy of offer.copies" :key="copy.itemId">
-								<v-chip
-									v-if="!copy.local && originOfItem(copy)"
-									:data-origin="originOfItem(copy)!.origin"
-									data-test="group-source-origin"
-									label
-									:prepend-icon="originOfItem(copy)!.icon"
-									size="x-small"
-									variant="outlined"
-								>
-									{{ $t(originOfItem(copy)!.labelKey) }}
-								</v-chip>
-
-								<span v-if="peerNameOf(copy)" class="text-caption text-medium-emphasis">
-									{{ $t('media.source.via_peer', { peer: peerNameOf(copy) }) }}
-								</span>
-							</template>
-
-							<CompanionMarks :companions="offer.copies[0].companions" />
+						<!--
+                            Stated rather than left blank: "you already have this one" is
+                            an answer, and an empty cell reads like something failed to
+                            load.
+                        -->
+						<span
+							v-else-if="!ourCopy(offer)"
+							class="text-caption text-medium-emphasis"
+							data-test="group-source-nothing"
+						>
+							{{ $t('media.version.nothing_to_pull') }}
 						</span>
-					</template>
-				</v-checkbox>
+
+						<v-btn
+							v-if="ourCopy(offer) && !transferOf(offer)"
+							color="error"
+							data-test="group-source-delete"
+							:disabled="disabled"
+							icon="mdi-trash-can-outline"
+							size="small"
+							:title="$t('media.source.delete')"
+							variant="text"
+							@click="emit('remove', ourCopy(offer)!)"
+						/>
+					</div>
+				</div>
 			</div>
 		</div>
 
@@ -298,8 +387,6 @@
 			data-test="source-selection"
 		>
 			{{ $t('media.version.here_count', { count: heldCount, total: offers.length }) }}
-			·
-			{{ $t('media.version.transfer_count', { count: selected.length }, selected.length) }}
 		</p>
 
 		<p v-if="offers.length === 0" class="text-caption text-medium-emphasis">
@@ -314,6 +401,15 @@
 			margin-top: 0;
 		}
 
+		&_row {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			gap: 8px;
+			padding: 4px 0;
+		}
+
 		&_label {
 			display: inline-flex;
 			align-items: center;
@@ -323,6 +419,23 @@
 
 		&_name {
 			font-weight: 500;
+		}
+
+		&_action {
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			// Enough for a progress bar to read as one rather than as a dash, and
+			// little enough that a row of one server does not look padded out.
+			min-width: 120px;
+			justify-content: flex-end;
+		}
+
+		&_progress {
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			width: 100%;
 		}
 	}
 </style>

@@ -216,7 +216,7 @@ describe('pages/LibraryItem', () => {
 	 * cut *and* the theatrical one had to run two syncs and hope the second did not land
 	 * on the first.
 	 */
-	it('pulls every version somebody ticked, in one call and as one transfer each', async () => {
+	it('fetches the exact copy a row names, and leaves the button above it alone', async () => {
 		const twoVersions = mediaGroup({
 			sources: [
 				{
@@ -281,25 +281,146 @@ describe('pages/LibraryItem', () => {
 		});
 		await settle();
 
-		const boxes = wrapper.findAll('[data-test="group-source"] input');
-		expect(boxes).toHaveLength(2);
-
-		await boxes[0].setValue(true);
-		await boxes[1].setValue(true);
-		await settle();
+		const buttons = wrapper.findAll('[data-test="group-source-download"]');
+		expect(buttons).toHaveLength(2);
 
 		// Both cuts are on the same server, so the choice cannot be said in service
-		// identifiers — it is said in the rows themselves, which is what the planner
-		// then turns into one transfer each.
-		expect(wrapper.find('[data-test="source-selection"]').text()).toContain('2 transfers');
-
-		await wrapper.find('[data-test="item-sync"]').trigger('click');
+		// identifiers — it is said by which row was pressed.
+		await buttons[1].trigger('click');
 		await settle();
 
 		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
 		expect(JSON.parse(String(run?.[1]?.body))).toMatchObject({
-			scope: { itemIds: ['copy-theatrical', 'copy-extended'] },
+			scope: { itemIds: ['copy-extended'] },
 		});
+
+		// And the button above the list is about this media, not about a copy: choosing
+		// a copy is what the rows are for, and saying it twice is how the two answers
+		// end up disagreeing.
+		stub.mockClear();
+		await wrapper.find('[data-test="item-sync"]').trigger('click');
+		await settle();
+
+		const whole = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
+		expect(JSON.parse(String(whole?.[1]?.body))).toMatchObject({ scope: { itemIds: ['m1'] } });
+	});
+
+	it('names the file before erasing it, and only erases once somebody agrees', async () => {
+		/*
+		 * The one action in this product that destroys something no scan can bring back,
+		 * so the test is about the asking as much as the erasing: the path has to be on
+		 * screen, and nothing may be called until the second button is pressed.
+		 */
+		const ours = mediaGroup({
+			sources: [
+				{
+					itemId: 'copy-ours',
+					serviceId: 's1',
+					serviceName: 'MisaMisa',
+					serviceType: MediaServiceType.JELLYFIN,
+					shared: false,
+					filesMounted: true,
+					peerId: null,
+					peerName: null,
+					quality: null,
+					companions: null,
+					bytes: 4096,
+					versionId: 'q1-ours',
+					edition: null,
+					local: true,
+					path: '/media/animes/Death Note/Saison 1/S01E01.mkv',
+					sync: SyncState.IN_SYNC,
+				},
+			],
+			versions: [
+				{
+					versionId: 'q1-ours',
+					edition: null,
+					quality: null,
+					bytes: 4096,
+					heldLocally: true,
+					sourceItemIds: ['copy-ours'],
+				},
+			],
+		});
+
+		const stub = stubFetchRoutes({
+			...routes,
+			'/api/media/groups/m1': { body: ours },
+			'/api/media/copy-ours/file': { body: { path: '/mnt/media/animes/Death Note/Saison 1/S01E01.mkv' } },
+		});
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="group-source-delete"]').trigger('click');
+		await settle();
+
+		// The server's own spelling, because that is the one somebody recognises from
+		// their Jellyfin.
+		expect(wrapper.find('[data-test="delete-path"]').text())
+			.toBe('/media/animes/Death Note/Saison 1/S01E01.mkv');
+		expect(stub.mock.calls.some(call => String(call[0]).includes('/file'))).toBe(false);
+
+		await wrapper.find('[data-test="delete-accept"]').trigger('click');
+		await settle();
+
+		const erased = stub.mock.calls.find(call => String(call[0]).includes('/api/media/copy-ours/file'));
+
+		expect(erased).toBeDefined();
+		expect(erased?.[1]?.method).toBe('DELETE');
+	});
+
+	it('erases nothing when somebody backs out of the confirmation', async () => {
+		const ours = mediaGroup({
+			sources: [
+				{
+					itemId: 'copy-ours',
+					serviceId: 's1',
+					serviceName: 'MisaMisa',
+					serviceType: MediaServiceType.JELLYFIN,
+					shared: false,
+					filesMounted: true,
+					peerId: null,
+					peerName: null,
+					quality: null,
+					companions: null,
+					bytes: 4096,
+					versionId: 'q1-ours',
+					edition: null,
+					local: true,
+					path: '/media/animes/Death Note/Saison 1/S01E01.mkv',
+					sync: SyncState.IN_SYNC,
+				},
+			],
+			versions: [
+				{
+					versionId: 'q1-ours',
+					edition: null,
+					quality: null,
+					bytes: 4096,
+					heldLocally: true,
+					sourceItemIds: ['copy-ours'],
+				},
+			],
+		});
+
+		const stub = stubFetchRoutes({ ...routes, '/api/media/groups/m1': { body: ours } });
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="group-source-delete"]').trigger('click');
+		await settle();
+		await wrapper.find('[data-test="delete-cancel"]').trigger('click');
+		await settle();
+
+		expect(wrapper.find('[data-test="delete-confirm"]').exists()).toBe(false);
+		expect(stub.mock.calls.some(call => String(call[0]).includes('/file'))).toBe(false);
 	});
 
 	it('shows the seasons of a series as cards, each with what is missing under it', async () => {

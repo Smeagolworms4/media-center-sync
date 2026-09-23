@@ -237,6 +237,18 @@ export const useMediaStore = defineStore('media', () => {
 		return item;
 	}
 
+	/**
+	 * Erases one copy from a disk this gateway can write to, and answers the path.
+	 *
+	 * The row is deliberately not replaced afterwards. The media server still lists the
+	 * file it no longer has, so the index is wrong for as long as it takes the next scan
+	 * to notice — and writing a state of our own here would be the interface inventing
+	 * an answer the API refused to invent.
+	 */
+	function deleteFile (id: string): Promise<{ path: string }> {
+		return caller('api').delete<{ path: string }>(`/media/${id}/file`);
+	}
+
 	function matches (id: string): Promise<MediaMatch[]> {
 		return caller('api').get<MediaMatch[]>(`/media/${id}/matches`);
 	}
@@ -333,6 +345,7 @@ export const useMediaStore = defineStore('media', () => {
 		node,
 		children,
 		matches,
+		deleteFile,
 		setOverride,
 		clearOverride,
 		confirmMatch,

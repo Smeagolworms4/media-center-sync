@@ -168,6 +168,18 @@ export const ErrorKey = {
 	MEDIA_NOT_FOUND: 'error.media.not_found',
 
 	/**
+	 * Asked to erase a copy this gateway cannot reach on a disk of its own.
+	 *
+	 * A refusal rather than a silent success. The copy exists — on a friend's server,
+	 * or on one of ours whose folders nobody has mapped — and telling somebody it is
+	 * gone when nothing was touched is the worst answer available. Deleting is only
+	 * ever offered for a copy the gateway can name a real path for.
+	 */
+	MEDIA_NOT_ON_OUR_DISK: 'error.media.not_on_our_disk',
+	/** There is nothing to erase: the row carries no file, which is a folder or a show. */
+	MEDIA_HAS_NO_FILE: 'error.media.has_no_file',
+
+	/**
 	 * The path asked for is outside every root this gateway allows browsing.
 	 *
 	 * A refusal, not an absence: the directory may very well exist, and saying so

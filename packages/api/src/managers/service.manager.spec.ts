@@ -382,7 +382,7 @@ interface Fakes {
 	};
 	fingerprints: { fingerprint: jest.Mock; contentId: jest.Mock };
 	quality: { summarise: jest.Mock };
-	media: { correlateService: jest.Mock; refile: jest.Mock };
+	media: { correlateService: jest.Mock; refile: jest.Mock; refileService: jest.Mock };
 	probe: jest.Mock;
 	events: { emit: jest.Mock };
 	libraryManager: { applyRootMapping: jest.Mock };
@@ -438,14 +438,16 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		},
 		quality: { summarise: jest.fn((files: unknown[]) => summary(files.length)) },
 		/*
-		 * `refile` answers false by default: the scan asks it to re-derive the parent of
-		 * every corrected row, and a manager that stopped asking would otherwise pass —
-		 * and a rescan would file every hand-corrected episode back where the service
-		 * puts it. The test that cares about the filing gives it an implementation.
+		 * `refileService` answers zero by default: the scan asks it to file every episode
+		 * under the season its numbers name, once for the whole service, and a manager
+		 * that stopped asking would otherwise pass — leaving every episode filed by the
+		 * folder its server happens to keep it in. The test that cares gives it an
+		 * implementation.
 		 */
 		media: {
 			correlateService: jest.fn().mockResolvedValue(0),
 			refile: jest.fn().mockResolvedValue(false),
+			refileService: jest.fn().mockResolvedValue(0),
 		},
 		probe: probeFake,
 		events: { emit: jest.fn() },
@@ -1512,14 +1514,16 @@ describe('ServiceManager', () => {
 			expect(saved.reported?.seasonNumber).toBe(1);
 			// The values are only half of it: everything above has just rewritten
 			// `parentId` from the parent the service names, which is precisely the link a
-			// corrected season number replaced. Re-deriving it is what stops the
-			// correction being half-undone on every scan, in the half nobody checks.
-			expect(fakes.media.refile).toHaveBeenCalledWith(saved);
+			// corrected season number replaced. The filing is put right for the whole
+			// service afterwards, which is what stops the correction being half-undone on
+			// every scan, in the half nobody checks.
+			expect(fakes.media.refileService).toHaveBeenCalledWith('service-1');
 		});
 
-		it('leaves the filing of everything nobody corrected alone', async () => {
-			// One lookup per episode to be told nothing changed would be a second walk of
-			// a forty-thousand-row library, every scan, for a handful of rows.
+		it('files the whole service once rather than one row at a time', async () => {
+			// Per row it would be a `findChildren` of the series and two climbs each,
+			// which on a forty-thousand-episode library is six figures of queries every
+			// scan for a decision that can be made in one pass.
 			const { manager, fakes } = build();
 
 			fakes.libraries.findByService.mockResolvedValue([library()]);
@@ -1531,6 +1535,7 @@ describe('ServiceManager', () => {
 			await settle(manager);
 
 			expect(fakes.media.refile).not.toHaveBeenCalled();
+			expect(fakes.media.refileService).toHaveBeenCalledTimes(1);
 		});
 
 		it('keeps the date a service reported, and tolerates one it did not', async () => {

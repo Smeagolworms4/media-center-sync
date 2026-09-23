@@ -338,7 +338,14 @@
 			"ours": "bei uns",
 			"held_here": "Einer Ihrer eigenen Dienste hat das.",
 			"not_held_here": "Nur ein anderer Server hat das.",
-			"none": "Kein Dienst hat dieses Element."
+			"none": "Kein Dienst hat dieses Element.",
+			"download": "Herunterladen",
+			"delete": "Diese Kopie löschen",
+			"delete_title": "Diese Kopie löschen?",
+			"delete_text": "Diese Datei wird von der Festplatte entfernt, die {service} liest. Das lässt sich nicht rückgängig machen.",
+			"delete_note": "Der Medienserver zeigt sie bis zu seinem nächsten Durchlauf weiterhin an.",
+			"delete_accept": "Löschen",
+			"deleted": "Die Datei wurde gelöscht."
 		},
 		"version": {
 			"title": "Versionen",
@@ -1327,7 +1334,9 @@
 			"keyword_taken": "Eine andere Kategorie sortiert diesen Namen bereits ein. Verschieben Sie ihn von dort, statt ihn zweimal anzulegen."
 		},
 		"media": {
-			"not_found": "Dieses Medienelement gibt es nicht mehr."
+			"not_found": "Dieses Medienelement gibt es nicht mehr.",
+			"not_on_our_disk": "Diese Kopie liegt nicht auf einer Festplatte, auf die dieses Gateway schreiben kann; es wurde nichts gelöscht.",
+			"has_no_file": "Dieser Eintrag enthält keine Datei zum Löschen."
 		},
 		"peer": {
 			"not_found": "Diesen Peer gibt es nicht mehr.",

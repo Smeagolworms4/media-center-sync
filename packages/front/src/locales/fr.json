@@ -338,7 +338,14 @@
 			"ours": "à nous",
 			"held_here": "Un de vos propres services le détient.",
 			"not_held_here": "Seul un autre serveur le détient.",
-			"none": "Aucun service ne détient cet élément."
+			"none": "Aucun service ne détient cet élément.",
+			"download": "Télécharger",
+			"delete": "Effacer cette copie",
+			"delete_title": "Effacer cette copie ?",
+			"delete_text": "Ce fichier sera supprimé du disque que lit {service}. C’est irréversible.",
+			"delete_note": "Le serveur média continuera de l’afficher jusqu’à sa prochaine analyse.",
+			"delete_accept": "Effacer",
+			"deleted": "Le fichier a été effacé."
 		},
 		"version": {
 			"title": "Versions",
@@ -1327,7 +1334,9 @@
 			"keyword_taken": "Une autre catégorie range déjà ce nom. Déplacez-le depuis celle-ci plutôt que de l’ajouter deux fois."
 		},
 		"media": {
-			"not_found": "Ce média n'existe plus."
+			"not_found": "Ce média n'existe plus.",
+			"not_on_our_disk": "Cette copie n’est pas sur un disque accessible en écriture par la passerelle : rien n’a été effacé.",
+			"has_no_file": "Cet élément ne porte aucun fichier à effacer."
 		},
 		"peer": {
 			"not_found": "Ce pair n'existe plus.",

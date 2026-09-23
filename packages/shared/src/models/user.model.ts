@@ -27,6 +27,18 @@ export enum Right {
 	 * write as a transfer is, and browsing is not a reason to be trusted with it.
 	 */
 	MEDIA_WRITE = 'media.write',
+	/**
+	 * Erase a copy from a disk this gateway can write to.
+	 *
+	 * Its own right, granted to nobody but an administrator, because it is the only
+	 * thing in this product that destroys something no scan can bring back. Everything
+	 * else a person can do here is a statement about the index — a correction, a
+	 * correlation, a transfer — and the worst of them costs a rescan. Reusing
+	 * `MEDIA_WRITE` would have handed it to every account allowed to fix a title, and
+	 * reusing `TRANSFER_MANAGE` would have handed it to everyone allowed to cancel a
+	 * download.
+	 */
+	MEDIA_DELETE = 'media.delete',
 	PEER_READ = 'peer.read',
 	PEER_MANAGE = 'peer.manage',
 	SHARE_MANAGE = 'share.manage',

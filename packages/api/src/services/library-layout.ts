@@ -122,9 +122,26 @@ export const layoutSignals = (seasons: readonly string[]): LibraryLayoutSignal[]
 	return signals;
 };
 
-/** The season names that read like show titles, which is the evidence to quote. */
-export const namedSeasons = (seasons: readonly string[]): string[] =>
-	seasons.filter((season) => !looksLikeASeasonName(season));
+/**
+ * The season names that read like show titles, which is the evidence to quote.
+ *
+ * Counted once per *distinct* name, and that is the rule that keeps this honest. A
+ * folder misread as a series shows the names of the shows it holds, and two shows do
+ * not share a name; a name appearing twice is therefore not evidence of anything, it
+ * is a placeholder. Jellyfin is the case that proved it: a season whose episodes carry
+ * no season number is published as `Saison inconnue`, localised into the server's
+ * language, so a perfectly ordinary Death Note — one series, correctly identified,
+ * with its bonuses in two unnumbered seasons — arrived here as two title-looking names
+ * and tripped the floor. Matching the placeholder by its words would need the same
+ * eight-language vocabulary `looksLikeASeasonName` refuses to depend on; counting
+ * distinct names needs none and covers every server's spelling of it.
+ *
+ * Insertion order is kept, so the evidence quoted is still the order the server
+ * reports its seasons in.
+ */
+export const namedSeasons = (seasons: readonly string[]): string[] => [
+	...new Set(seasons.filter((season) => !looksLikeASeasonName(season))),
+];
 
 /** The few names a hint shows, so a person recognises the folder without scrolling. */
 export const layoutExamples = (seasons: readonly string[]): string[] =>

@@ -338,7 +338,14 @@
 			"ours": "nostro",
 			"held_here": "Uno dei tuoi servizi lo detiene.",
 			"not_held_here": "Solo un altro server lo detiene.",
-			"none": "Nessun servizio detiene questo elemento."
+			"none": "Nessun servizio detiene questo elemento.",
+			"download": "Scarica",
+			"delete": "Elimina questa copia",
+			"delete_title": "Eliminare questa copia?",
+			"delete_text": "Questo file verrà rimosso dal disco che {service} legge. Non è reversibile.",
+			"delete_note": "Il server multimediale continuerà a mostrarlo fino alla prossima scansione.",
+			"delete_accept": "Elimina",
+			"deleted": "Il file è stato eliminato."
 		},
 		"version": {
 			"title": "Versioni",
@@ -1327,7 +1334,9 @@
 			"keyword_taken": "Un’altra categoria archivia già questo nome. Spostalo da lì invece di aggiungerlo due volte."
 		},
 		"media": {
-			"not_found": "Questo elemento multimediale non esiste più."
+			"not_found": "Questo elemento multimediale non esiste più.",
+			"not_on_our_disk": "Questa copia non si trova su un disco su cui questo gateway possa scrivere: non è stato eliminato nulla.",
+			"has_no_file": "Questa voce non contiene alcun file da eliminare."
 		},
 		"peer": {
 			"not_found": "Questo peer non esiste più.",

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { ItemSyncPlans, MediaGroup } from '@mcs/shared';
+	import type { ItemSyncPlans, MediaGroup, MediaGroupSource, TransferProgress } from '@mcs/shared';
 	import { MediaKind, SyncState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -25,6 +25,7 @@
 	import { usePeersStore } from '@/stores/peers';
 	import { useServicesStore } from '@/stores/services';
 	import { useSyncStore } from '@/stores/sync';
+	import { useTransfersStore } from '@/stores/transfers';
 
 	defineOptions({ name: 'LibraryItemPage' });
 
@@ -52,6 +53,7 @@
 	const servicesStore = useServicesStore();
 	const peersStore = usePeersStore();
 	const syncStore = useSyncStore();
+	const transfersStore = useTransfersStore();
 	const { notify, tryCallback } = useNotifier();
 	const { t } = useI18n();
 
@@ -61,14 +63,14 @@
 	const failed = ref(false);
 	const running = ref(false);
 	/**
-	 * The versions somebody ticked, named by the copy each would be pulled from.
+	 * The copy somebody has asked to erase, held only while they are being asked twice.
 	 *
-	 * A set rather than one choice, because holding two of the three cuts is an
-	 * ordinary thing to want — and named by item rather than by service, because one
-	 * server can hold two versions of one film and a service identifier cannot say
-	 * which of them was asked for.
+	 * The whole source rather than its identifier, because the confirmation names the
+	 * file — that is the point of asking — and a dialog that had to look the path back
+	 * up would show nothing for the one second the list is reloading.
 	 */
-	const chosenSources = ref<string[]>([]);
+	const removing = ref<MediaGroupSource | null>(null);
+	const erasing = ref(false);
 	const matchesOpen = ref(false);
 	const overrideOpen = ref(false);
 	const keepOpen = ref(false);
@@ -120,13 +122,41 @@
 			librariesStore.categoriesLoaded
 				? Promise.resolve()
 				: librariesStore.loadCategories().catch(() => undefined),
+			// The transfers in flight, so a copy being fetched shows how far along it is
+			// rather than offering to be fetched again. Failing is ordinary — somebody
+			// allowed to read media may not be allowed to read transfers — and leaves
+			// the rows with their buttons, which is what they had before.
+			transfersStore.loaded
+				? Promise.resolve()
+				: transfersStore.load({ page: 1, limit: 100 }).catch(() => undefined),
 		]);
 		await load();
 	});
 
 	watch(() => props.itemId, () => {
-		chosenSources.value = [];
+		removing.value = null;
 		void load();
+	});
+
+	/**
+	 * What is being fetched right now, by the copy being fetched.
+	 *
+	 * Keyed by item because that is what a source row knows about itself. The live
+	 * frames are read from `progress` rather than from the rows, so a bar moves without
+	 * the list around it re-rendering — see the store.
+	 */
+	const transfersByItem = computed(() => {
+		const map: Record<string, TransferProgress> = {};
+
+		for (const transfer of transfersStore.transfers) {
+			const live = transfersStore.progress[transfer.id];
+
+			if (live) {
+				map[transfer.itemId] = live;
+			}
+		}
+
+		return map;
 	});
 
 	const artwork = computed(() => mediaStore.artworkUrl(group.value?.artworkItemId ?? null));
@@ -220,29 +250,55 @@
 		await load();
 	}
 
-	/** The services behind the ticked copies, for the calls that take services. */
-	const chosenServices = computed(() => [...new Set(
-		(group.value?.sources ?? [])
-			.filter(source => chosenSources.value.includes(source.itemId))
-			.map(source => source.serviceId),
-	)]);
-
 	const syncThis = tryCallback(async () => {
 		running.value = true;
 		try {
-			await syncStore.run({
-				// The ticked copies name the rows to fetch, one transfer each. Naming the
-				// services instead would be ambiguous the moment one server holds two
-				// versions of the same film, which is exactly what is being chosen here.
-				scope: {
-					itemIds: chosenSources.value.length > 0
-						? [...chosenSources.value]
-						: [props.itemId],
-				},
-			});
+			// This media, and the configured priority decides which copy it comes from.
+			// Choosing a copy is what the rows below are for, one button each; saying it
+			// twice in two places is how the two answers end up disagreeing.
+			await syncStore.run({ scope: { itemIds: [props.itemId] } });
 			void notify('library.sync_started');
 		} finally {
 			running.value = false;
+		}
+	});
+
+	/**
+	 * Fetch this exact copy, now.
+	 *
+	 * Named by item and never by service: one server can hold two versions of a film,
+	 * so a service identifier cannot say which of them was asked for — and that
+	 * ambiguity is the whole reason this button sits on a row rather than above the
+	 * list.
+	 */
+	const downloadOne = tryCallback(async (itemId: string) => {
+		await syncStore.run({ scope: { itemIds: [itemId] } });
+		void notify('library.sync_started');
+	});
+
+	/**
+	 * Erase the copy somebody confirmed, then re-read the page.
+	 *
+	 * Reloading rather than striking the row out: the media server still lists a file
+	 * it no longer has, so the honest thing to show is whatever the gateway now knows,
+	 * which is what it knew a second ago. The row goes when the next scan notices, and
+	 * the notification says so.
+	 */
+	const confirmRemoval = tryCallback(async () => {
+		const source = removing.value;
+
+		if (source === null) {
+			return;
+		}
+
+		erasing.value = true;
+		try {
+			await mediaStore.deleteFile(source.itemId);
+			removing.value = null;
+			void notify('media.source.deleted');
+			await load();
+		} finally {
+			erasing.value = false;
 		}
 	});
 
@@ -254,11 +310,6 @@
 				// sync covers — see `SyncScope`.
 				scope: { rootItemIds: [props.itemId] },
 				filter: { missingOnly: true },
-				// Here the choice can only be a preference: the items are whatever is
-				// missing below this node, and the ticked copies are of this node itself.
-				...(chosenServices.value.length > 0
-					? { sourceServiceIds: chosenServices.value }
-					: {}),
 			});
 			void notify('library.sync_started');
 		} finally {
@@ -442,12 +493,14 @@
 						</div>
 
 						<GroupSources
-							v-model="chosenSources"
 							class="mt-4"
 							:peer-names="peerNames"
 							:services="servicesStore.services"
 							:sources="group.sources"
+							:transfers="transfersByItem"
 							:versions="group.versions"
+							@download="downloadOne"
+							@remove="removing = $event"
 						/>
 					</div>
 				</v-card-text>
@@ -502,6 +555,51 @@
 			<OverrideDialog v-model="overrideOpen" :item-id="itemId" @saved="onCorrected" />
 
 			<KeepInSyncDialog v-model="keepOpen" :group="group" @created="onKept" />
+
+			<!--
+				Erasing is the one thing here that destroys something no scan can bring
+				back, so it is asked twice and the second asking names the file. The path
+				is the server's own spelling, because that is the one somebody recognises
+				from their Jellyfin — a mount point a container happens to see would prove
+				nothing to the person agreeing to it.
+			-->
+			<v-dialog max-width="560" :model-value="removing !== null" @update:model-value="removing = null">
+				<v-card v-if="removing" data-test="delete-confirm">
+					<v-card-title class="text-subtitle-1">{{ $t('media.source.delete_title') }}</v-card-title>
+
+					<v-card-text>
+						<p class="mb-3">{{ $t('media.source.delete_text', { service: removing.serviceName }) }}</p>
+
+						<p class="library-item_path" data-test="delete-path">{{ removing.path }}</p>
+
+						<p v-if="removing.bytes !== null" class="text-caption text-medium-emphasis mt-2">
+							<ByteSize :bytes="removing.bytes" />
+						</p>
+
+						<p class="text-caption text-medium-emphasis mt-3">
+							{{ $t('media.source.delete_note') }}
+						</p>
+					</v-card-text>
+
+					<v-card-actions>
+						<v-spacer />
+
+						<v-btn data-test="delete-cancel" variant="text" @click="removing = null">
+							{{ $t('actions.cancel') }}
+						</v-btn>
+
+						<v-btn
+							color="error"
+							data-test="delete-accept"
+							:loading="erasing"
+							variant="flat"
+							@click="confirmRemoval"
+						>
+							{{ $t('media.source.delete_accept') }}
+						</v-btn>
+					</v-card-actions>
+				</v-card>
+			</v-dialog>
 		</template>
 
 		<div v-else class="text-center py-10">
@@ -544,6 +642,17 @@
 			align-items: center;
 			flex-wrap: wrap;
 			gap: 8px;
+		}
+
+		&_path {
+			font-family: monospace;
+			font-size: 0.85rem;
+			word-break: break-all;
+			// A path is quoted evidence, not prose: the tint separates it from the
+			// sentence above it without turning it into a code block nobody reads.
+			background: rgba(127, 127, 127, 0.12);
+			padding: 8px 10px;
+			border-radius: 4px;
 		}
 
 		&_facts {

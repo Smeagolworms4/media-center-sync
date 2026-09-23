@@ -82,6 +82,22 @@ export interface SeasonName {
 	title: string;
 }
 
+/**
+ * One row of a service's series tree, reduced to what deciding a place needs.
+ *
+ * A projection rather than entities because the pass that uses it walks every series,
+ * season and episode a service holds — forty thousand rows on the owner's Jellyfin —
+ * and reading entities would pull `file`, `quality`, `overview` and `externalIds` for
+ * all of them to compare two numbers and follow one link.
+ */
+export interface Placement {
+	id: string;
+	parentId: string | null;
+	kind: MediaKind;
+	seasonNumber: number | null;
+	synthetic: boolean;
+}
+
 /** A parent a child points at and the index does not hold, with somewhere to file it. */
 export interface UnresolvedParent {
 	parentExternalId: string;
@@ -292,6 +308,31 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			.where('item.kind = :kind', { kind: MediaKind.SEASON })
 			.andWhere('item.parentId IS NOT NULL')
 			.getRawMany<SeasonName>();
+	}
+
+	/**
+	 * Every series, season and episode one service holds, as places rather than media.
+	 *
+	 * Films are left out because nothing about them is filed: a film has no season to
+	 * belong to and no children to lose, so carrying them would double the rows read
+	 * for a pass that could do nothing with them.
+	 *
+	 * `synthetic` comes back because the pass has to tell a season the gateway invented
+	 * from one a server reports, and the two are treated differently when they end up
+	 * empty — ours is deleted, the server's is kept and simply stops being drawn.
+	 */
+	public findPlacements(serviceId: string): Promise<Placement[]> {
+		return this.createQueryBuilder('item')
+			.select('item.id', 'id')
+			.addSelect('item.parentId', 'parentId')
+			.addSelect('item.kind', 'kind')
+			.addSelect('item.seasonNumber', 'seasonNumber')
+			.addSelect('item.synthetic', 'synthetic')
+			.where('item.serviceId = :serviceId', { serviceId })
+			.andWhere('item.kind IN (:...kinds)', {
+				kinds: [MediaKind.SERIES, MediaKind.SEASON, MediaKind.EPISODE],
+			})
+			.getRawMany<Placement>();
 	}
 
 	public countByLibrary(libraryId: string): Promise<number> {

@@ -1,4 +1,16 @@
 import { Readable } from 'node:stream';
+
+/*
+ * The one call in this manager that touches the disk, replaced rather than sandboxed.
+ * A test that really unlinked would need a real file to destroy, and the rule being
+ * pinned here is which path is computed and when the call is refused — not whether
+ * `fs` works.
+ */
+const mockUnlink = jest.fn<Promise<void>, [string]>();
+
+jest.mock('node:fs/promises', () => ({
+	unlink: (path: string) => mockUnlink(path),
+}));
 import {
 	ErrorKey,
 	MatchStrategy,
@@ -10,6 +22,7 @@ import {
 } from '@mcs/shared';
 import type { MediaItem, MediaMatch, MediaService as MediaServiceEntity } from '@/entities';
 import type {
+	LibraryRepository,
 	MediaItemRepository,
 	MediaLandingRepository,
 	MediaMatchRepository,
@@ -104,6 +117,7 @@ interface Fakes {
 		findByExternalId: jest.Mock;
 		findChildren: jest.Mock;
 		findCandidatesForMatch: jest.Mock;
+		findPlacements: jest.Mock;
 		search: jest.Mock;
 		setSyncState: jest.Mock;
 		create: jest.Mock;
@@ -123,6 +137,7 @@ interface Fakes {
 	};
 	services: { find: jest.Mock; findOne: jest.Mock; findWithSecrets: jest.Mock };
 	landings: { findOpen: jest.Mock };
+	libraries: { findOne: jest.Mock };
 	cache: { get: jest.Mock; set: jest.Mock };
 	openArtwork: jest.Mock;
 }
@@ -161,6 +176,22 @@ const build = (
 				Promise.resolve(items.filter((candidate) => candidate.parentId === parentId)),
 			),
 			findCandidatesForMatch: jest.fn().mockResolvedValue([]),
+			findPlacements: jest.fn((serviceId: string) =>
+				Promise.resolve(
+					items
+						.filter(
+							(candidate) =>
+								candidate.serviceId === serviceId && candidate.kind !== MediaKind.MOVIE,
+						)
+						.map((candidate) => ({
+							id: candidate.id,
+							parentId: candidate.parentId,
+							kind: candidate.kind,
+							seasonNumber: candidate.seasonNumber,
+							synthetic: candidate.synthetic,
+						})),
+				),
+			),
 			search: jest.fn().mockResolvedValue([[], 0]),
 			setSyncState: jest.fn().mockResolvedValue(undefined),
 			create: jest.fn((values: Partial<MediaItem>) => ({ id: `made-${items.length}`, ...values })),
@@ -218,6 +249,18 @@ const build = (
 		// a gateway that is not mid-download, and every correlation rule here is about
 		// what the services said rather than about what we downloaded.
 		landings: { findOpen: jest.fn().mockResolvedValue([]) },
+		/*
+		 * One library whose mapping is the identity, so a path a service reports is a
+		 * path the gateway can name. Erasing is the only thing here that needs it, and
+		 * the tests that refuse an erasure replace it.
+		 */
+		libraries: {
+			findOne: jest.fn().mockResolvedValue({
+				id: 'library-a',
+				localPath: '/mnt/media',
+				paths: ['/media'],
+			}),
+		},
 		openArtwork: jest.fn(async () => ({
 			stream: Readable.from([Buffer.from('poster bytes')]),
 			contentType: 'image/jpeg',
@@ -236,6 +279,7 @@ const build = (
 		{ getValue: jest.fn().mockResolvedValue(0.8) } as unknown as SettingsService,
 		fakes.cache as unknown as CacheService,
 		{ get: jest.fn(() => ({ openArtwork: fakes.openArtwork })) } as unknown as HandlerRegistry,
+		fakes.libraries as unknown as LibraryRepository,
 	);
 
 	return { manager, fakes };
@@ -1154,7 +1198,7 @@ describe('MediaManager', () => {
 		 * correction stood — which is why the parent is read from the identifier the
 		 * service stated rather than from the link a correction moved.
 		 */
-		it('files it back where the service says when the correction is withdrawn', async () => {
+		it('files it back where the service\'s own numbers say when the correction is withdrawn', async () => {
 			const { series, seasonOne, episode } = show();
 			const corrected = item({
 				...episode,
@@ -1197,6 +1241,40 @@ describe('MediaManager', () => {
 			// The season nobody is under any more goes with it. Nothing else could ever
 			// remove it: no service will stop reporting a row no service ever reported.
 			expect(world.some((one) => one.id === 'invented-2')).toBe(false);
+		});
+
+		it('files a numbered episode out of a folder that is not a season', async () => {
+			/*
+			 * The owner's Jellyfin publishes `Bonus`, `Saison inconnue` and `HD - VOST`
+			 * as seasons of a show while stamping each episode inside them with the
+			 * season it really belongs to. An earlier version withdrew a correction by
+			 * putting the episode back under the parent the service *named*, which is
+			 * this folder — the same defect reached from the other side.
+			 */
+			const { series, seasonOne, episode } = show();
+			const bonus = item({
+				id: 'bonus',
+				externalId: 'jf-bonus',
+				kind: MediaKind.SEASON,
+				title: 'Bonus',
+				normalizedTitle: 'beyblade',
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				seasonNumber: null,
+				episodeNumber: null,
+				file: null,
+				childCount: 1,
+			});
+			const stray = item({
+				...episode,
+				parentId: 'bonus',
+				parentExternalId: 'jf-bonus',
+				seasonNumber: 1,
+			} as Partial<MediaItem>);
+			const { manager } = build({ items: [series, seasonOne, bonus, stray] });
+
+			expect(await manager.refile(stray)).toBe(true);
+			expect(stray.parentId).toBe('season-1');
 		});
 
 		it('leaves the filing alone when only the episode number changed', async () => {
@@ -1243,6 +1321,306 @@ describe('MediaManager', () => {
 
 			expect(orphan.parentId).toBeNull();
 			expect(world).toHaveLength(1);
+		});
+	});
+
+	describe('filing a whole service by what its numbers say', () => {
+		const tree = (): MediaItem[] => {
+			const series = item({
+				id: 'series-1',
+				externalId: 'jf-series',
+				kind: MediaKind.SERIES,
+				title: 'Beyblade',
+				normalizedTitle: 'beyblade',
+				seasonNumber: null,
+				episodeNumber: null,
+				file: null,
+				childCount: 2,
+			});
+			const seasonOne = item({
+				id: 'season-1',
+				externalId: 'jf-season-1',
+				kind: MediaKind.SEASON,
+				title: 'Saison 1',
+				normalizedTitle: 'beyblade',
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				seasonNumber: 1,
+				episodeNumber: null,
+				file: null,
+				childCount: 0,
+			});
+			// What the owner's Jellyfin publishes beside the real season: a folder it
+			// calls a season, carrying no number, holding episodes that carry theirs.
+			const bonus = item({
+				id: 'bonus',
+				externalId: 'jf-bonus',
+				kind: MediaKind.SEASON,
+				title: 'Saison inconnue',
+				normalizedTitle: 'beyblade',
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				seasonNumber: null,
+				episodeNumber: null,
+				file: null,
+				childCount: 2,
+			});
+
+			return [series, seasonOne, bonus];
+		};
+
+		const episodeIn = (parentId: string, values: Partial<MediaItem>): MediaItem =>
+			item({
+				kind: MediaKind.EPISODE,
+				normalizedTitle: 'beyblade',
+				parentId,
+				parentExternalId: 'jf-bonus',
+				file: null,
+				childCount: 0,
+				...values,
+			} as Partial<MediaItem>);
+
+		it('moves every numbered episode under the season its number names', async () => {
+			const world = tree();
+			const first = episodeIn('bonus', {
+				id: 'episode-1',
+				externalId: 'jf-1',
+				title: 'Premier',
+				seasonNumber: 1,
+				episodeNumber: 1,
+			});
+			const second = episodeIn('bonus', {
+				id: 'episode-2',
+				externalId: 'jf-2',
+				title: 'Second',
+				seasonNumber: 1,
+				episodeNumber: 2,
+			});
+			const { manager } = build({ items: [...world, first, second] });
+
+			expect(await manager.refileService('service-a')).toBe(2);
+			expect(first.parentId).toBe('season-1');
+			expect(second.parentId).toBe('season-1');
+		});
+
+		it('leaves an episode with no season number exactly where it is', async () => {
+			// A real extra — a making-of, an interview — has nothing to file it by, and
+			// sweeping it into season one would be inventing a fact rather than reading
+			// one. It is also what keeps a folder of genuine bonuses on screen.
+			const world = tree();
+			const extra = episodeIn('bonus', {
+				id: 'making-of',
+				externalId: 'jf-making-of',
+				title: 'Making-of',
+				seasonNumber: null,
+				episodeNumber: null,
+			});
+			const { manager } = build({ items: [...world, extra] });
+
+			expect(await manager.refileService('service-a')).toBe(0);
+			expect(extra.parentId).toBe('bonus');
+		});
+
+		it('writes the child counts of both ends, so the emptied folder stops being drawn', async () => {
+			const world = tree();
+			const moved = episodeIn('bonus', {
+				id: 'episode-1',
+				externalId: 'jf-1',
+				title: 'Premier',
+				seasonNumber: 1,
+				episodeNumber: 1,
+			});
+			const { manager } = build({ items: [...world, moved] });
+
+			await manager.refileService('service-a');
+
+			const bonus = world.find((one) => one.id === 'bonus');
+			const seasonOne = world.find((one) => one.id === 'season-1');
+
+			expect(bonus?.childCount).toBe(0);
+			expect(seasonOne?.childCount).toBe(1);
+			// Kept rather than deleted: the service reports it, so a scan would write it
+			// again on the next pass and the one after, taking its correlations with it
+			// each time.
+			expect(world.some((one) => one.id === 'bonus')).toBe(true);
+		});
+
+		it('leaves an episode alone when its series reports no season of that number', async () => {
+			// Inventing a season here would be the gateway contradicting every server it
+			// has, on nothing more than a number in a field. A correction says somebody
+			// decided; a scan says nobody did.
+			const world = tree();
+			const stray = episodeIn('bonus', {
+				id: 'episode-9',
+				externalId: 'jf-9',
+				title: 'Neuf',
+				seasonNumber: 9,
+				episodeNumber: 1,
+			});
+			const { manager } = build({ items: [...world, stray] });
+
+			expect(await manager.refileService('service-a')).toBe(0);
+			expect(stray.parentId).toBe('bonus');
+		});
+
+		it('writes nothing when every episode is already where its numbers say', async () => {
+			const world = tree();
+			const settled = episodeIn('season-1', {
+				id: 'episode-1',
+				externalId: 'jf-1',
+				title: 'Premier',
+				parentExternalId: 'jf-season-1',
+				seasonNumber: 1,
+				episodeNumber: 1,
+			});
+			const { manager, fakes } = build({ items: [...world, settled] });
+
+			expect(await manager.refileService('service-a')).toBe(0);
+			expect(fakes.items.update).not.toHaveBeenCalled();
+		});
+
+		it('files an episode hanging straight from its series, on a service with no season level', async () => {
+			const world = tree();
+			const flat = episodeIn('series-1', {
+				id: 'episode-1',
+				externalId: 'jf-1',
+				title: 'Premier',
+				parentExternalId: 'jf-series',
+				seasonNumber: 1,
+				episodeNumber: 1,
+			});
+			const { manager } = build({ items: [...world, flat] });
+
+			expect(await manager.refileService('service-a')).toBe(1);
+			expect(flat.parentId).toBe('season-1');
+		});
+
+		it('leaves an episode that hangs from nothing alone', async () => {
+			const world = tree();
+			const orphan = episodeIn('nowhere', {
+				id: 'episode-1',
+				externalId: 'jf-1',
+				title: 'Premier',
+				seasonNumber: 1,
+				episodeNumber: 1,
+			});
+			const { manager } = build({ items: [...world, orphan] });
+
+			expect(await manager.refileService('service-a')).toBe(0);
+			expect(orphan.parentId).toBe('nowhere');
+		});
+	});
+
+	describe('erasing a copy from the disk', () => {
+		const unlinked: string[] = [];
+
+		beforeEach(() => {
+			unlinked.length = 0;
+			mockUnlink.mockImplementation((path: string) => {
+				unlinked.push(path);
+
+				return Promise.resolve();
+			});
+		});
+
+		const onDisk = (): MediaItem =>
+			item({
+				id: 'item-a',
+				libraryId: 'library-a',
+				file: file({ path: '/media/shows/Beyblade/S01E05.mkv' }),
+			});
+
+		it('erases the path the library mapping names, not the one the service reported', async () => {
+			// Jellyfin says `/media/…` where this gateway sees `/mnt/media/…`. Unlinking
+			// the reported path would erase nothing here and something else elsewhere.
+			const { manager } = build({ items: [onDisk()] });
+
+			expect(await manager.deleteFile('item-a')).toEqual({
+				path: '/mnt/media/shows/Beyblade/S01E05.mkv',
+			});
+			expect(unlinked).toEqual(['/mnt/media/shows/Beyblade/S01E05.mkv']);
+		});
+
+		it('leaves the row exactly as it is, for the next scan to put right', async () => {
+			// The media server still lists the file it no longer has. Writing `missing`
+			// here would be the gateway asserting something about a server it has not
+			// asked.
+			const row = onDisk();
+			const { manager, fakes } = build({ items: [row] });
+
+			await manager.deleteFile('item-a');
+
+			expect(row.file).not.toBeNull();
+			expect(fakes.items.save).not.toHaveBeenCalled();
+			expect(fakes.items.update).not.toHaveBeenCalled();
+		});
+
+		it('treats a file somebody had already removed as the state that was asked for', async () => {
+			const { manager } = build({ items: [onDisk()] });
+
+			mockUnlink.mockRejectedValue(Object.assign(new Error('gone'), { code: 'ENOENT' }));
+
+			await expect(manager.deleteFile('item-a')).resolves.toEqual({
+				path: '/mnt/media/shows/Beyblade/S01E05.mkv',
+			});
+		});
+
+		it('passes on a failure that is not the file being absent', async () => {
+			const { manager } = build({ items: [onDisk()] });
+
+			mockUnlink.mockRejectedValue(Object.assign(new Error('denied'), { code: 'EACCES' }));
+
+			await expect(manager.deleteFile('item-a')).rejects.toThrow('denied');
+		});
+
+		it('refuses a row that carries no file at all', async () => {
+			// A show, a season or a folder. Walking its subtree to erase what is under it
+			// is a different feature, with a confirmation that says how many files.
+			const { manager } = build({
+				items: [item({ id: 'item-a', kind: MediaKind.SERIES, file: null })],
+			});
+
+			await expect(manager.deleteFile('item-a')).rejects.toThrow(ErrorKey.MEDIA_HAS_NO_FILE);
+			expect(unlinked).toEqual([]);
+		});
+
+		it('refuses a copy on a server whose files are not mounted here', async () => {
+			const { manager, fakes } = build({ items: [onDisk()] });
+
+			fakes.services.findOne.mockResolvedValue(mediaService({ filesMounted: false }));
+
+			await expect(manager.deleteFile('item-a')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_ON_OUR_DISK,
+			);
+			expect(unlinked).toEqual([]);
+		});
+
+		it('refuses a copy reached through a friend', async () => {
+			const { manager, fakes } = build({ items: [onDisk()] });
+
+			fakes.services.findOne.mockResolvedValue(mediaService({ peerId: 'peer-1' }));
+
+			await expect(manager.deleteFile('item-a')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_ON_OUR_DISK,
+			);
+			expect(unlinked).toEqual([]);
+		});
+
+		it('refuses a path no mapping resolves rather than guessing at one', async () => {
+			// The row and the mounts disagree, and erasing the wrong file is worse than
+			// erasing none.
+			const { manager, fakes } = build({ items: [onDisk()] });
+
+			fakes.libraries.findOne.mockResolvedValue({
+				id: 'library-a',
+				localPath: '/mnt/media',
+				paths: ['/somewhere-else'],
+			});
+
+			await expect(manager.deleteFile('item-a')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_ON_OUR_DISK,
+			);
+			expect(unlinked).toEqual([]);
 		});
 	});
 

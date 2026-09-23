@@ -173,4 +173,51 @@ test.describe('library', () => {
 		await expect(page.locator(test0('group-source')).first()).toBeVisible();
 		await expect(page.locator(test0('item-sync'))).toBeEnabled();
 	});
+
+	/**
+	 * The actions on a source row, which a browser is the only place to check.
+	 *
+	 * Each row offers exactly one thing, decided by the state of the copy, and the
+	 * checkbox that used to sit here offered nothing at all — it said neither what
+	 * ticking it would do nor when. The assertions below are about which control a row
+	 * carries, not about what the control then does: fetching is covered by the sync
+	 * journeys, and erasing by the tests that can afford to destroy a file.
+	 */
+	test('offers one action per copy, and names the file before erasing one', async ({ page }) => {
+		await page.locator(`${test0('media-card')} .media-card_title`).first().click();
+		await expect(page.locator(test0('source-picker'))).toBeVisible();
+
+		const rows = page.locator(test0('group-source'));
+		await expect(rows.first()).toBeVisible();
+
+		// A copy on a disk this gateway writes to offers to be erased, and asking is
+		// half of it: the confirmation has to name the file, in the spelling the media
+		// server uses, or nobody can tell what they are agreeing to.
+		const erase = page.locator(test0('group-source-delete')).first();
+
+		if (await erase.count() > 0) {
+			await erase.click();
+
+			const dialog = page.locator(test0('delete-confirm'));
+			await expect(dialog).toBeVisible();
+			await expect(dialog.locator(test0('delete-path'))).toHaveText(/\/.+/);
+
+			// Backing out erases nothing, which is the behaviour worth pinning: the
+			// lab's files outlive this test.
+			await dialog.locator(test0('delete-cancel')).click();
+			await expect(page.locator(test0('delete-confirm'))).toHaveCount(0);
+		}
+
+		// And a row is never both: a copy only somebody else has offers to be fetched,
+		// a copy we hold offers to be erased.
+		const count = await rows.count();
+
+		for (let index = 0; index < count; index += 1) {
+			const row = rows.nth(index);
+			const download = await row.locator(test0('group-source-download')).count();
+			const remove = await row.locator(test0('group-source-delete')).count();
+
+			expect(download + remove).toBeLessThanOrEqual(1);
+		}
+	});
 });

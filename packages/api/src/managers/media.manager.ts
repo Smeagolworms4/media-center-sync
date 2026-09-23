@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { unlink } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import {
 	ErrorKey,
@@ -13,13 +14,15 @@ import {
 	type MediaSearchQuery,
 	type ResultList,
 } from '@mcs/shared';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { MediaItem as MediaItemEntity, MediaMatch as MediaMatchEntity } from '@/entities';
 import {
+	LibraryRepository,
 	MediaItemRepository,
 	MediaLandingRepository,
 	MediaMatchRepository,
 	MediaServiceRepository,
+	type Placement,
 } from '@/repositories';
 import {
 	CacheService,
@@ -35,6 +38,7 @@ import {
 	sameContent,
 	serviceMode,
 	SettingsService,
+	toLocalPath,
 	WORK_IDENTIFIERS,
 	type MatchCandidate,
 	type MatchProposal,
@@ -147,6 +151,28 @@ const SYNTHETIC_PREFIX = 'mcs:synthetic:';
 const TRAILING_NUMBER = /(\d+)\s*$/;
 
 /**
+ * Whether a row under a series is worth drawing.
+ *
+ * A season with nothing in it is not, and that is not a cosmetic rule — it is the
+ * visible half of filing episodes by their numbers. A server publishes `Bonus`,
+ * `Saison inconnue`, `HD - VOST` as seasons of a show and stamps the episodes inside
+ * them with the season they really belong to; once those episodes are filed where
+ * their numbers say, the folder is left holding nothing and has no business claiming a
+ * line on the show's page.
+ *
+ * The row itself is kept rather than deleted. The server reports it, so a scan would
+ * write it again on the next pass and the one after — deleting it would mean creating
+ * and destroying the same row on a loop, taking its correlations with it each time. A
+ * row nobody can see costs nothing; a row that keeps being rebuilt costs its matches.
+ *
+ * A season that is genuinely empty on a server — announced but with no episode yet —
+ * disappears by the same rule, which is the right answer for it too: there is nothing
+ * under it to show and nothing to fetch.
+ */
+const drawable = (child: MediaItemEntity): boolean =>
+	child.kind !== MediaKind.SEASON || child.childCount > 0;
+
+/**
  * Name an invented season the way its siblings are named.
  *
  * The gateway has no idea what words the server would have used, and it matters: a
@@ -212,6 +238,8 @@ export class MediaManager {
 		private readonly _settings: SettingsService,
 		private readonly _cache: CacheService,
 		private readonly _handlers: HandlerRegistry,
+		/** Read to turn a path a service reported into one this gateway can unlink. */
+		private readonly _libraries: LibraryRepository,
 	) {}
 
 	/**
@@ -414,7 +442,7 @@ export class MediaManager {
 		const item = await this._require(id);
 		const children = await this._items.findChildren(item.id);
 
-		return toMediaNode(item, children);
+		return toMediaNode(item, children.filter(drawable));
 	}
 
 	public async children(id: string, query: MediaSearchQuery): Promise<ResultList<MediaItem>> {
@@ -552,18 +580,26 @@ export class MediaManager {
 		}
 
 		/*
-		 * Two different questions, and collapsing them would break the undo.
+		 * One question, whether or not a correction is in force: which season does this
+		 * episode's effective number name?
 		 *
-		 * With a correction in force the season number in the column is the effective
-		 * one and decides the parent. With none, the only right answer is the one the
-		 * service gave — the parent it named — because "clear the correction" has to put
-		 * the episode back exactly where that server files it, whatever we had derived
-		 * while the correction stood.
+		 * An earlier version asked a second question — with no correction it filed the
+		 * episode under the parent the service *named*, read from `parentExternalId`, so
+		 * that withdrawing a correction put it back in the server's own folder. That was
+		 * wrong, and the owner's libraries are where it showed: his servers file
+		 * episodes in folders called `Bonus`, `Saison inconnue` or `HD - VOST` while
+		 * stamping each one with the season it really belongs to. Following the folder
+		 * meant a numbered episode sitting under a folder that is not a season, which is
+		 * the same defect this method exists to fix, arrived at from the other side.
+		 *
+		 * So the metadata decides, always. Withdrawing a correction is still an undo:
+		 * with no override the effective number *is* the reported one, so the episode
+		 * goes back to the season the server's own metadata names. What it no longer
+		 * does is go back to the server's folder when that folder contradicts the
+		 * server's own numbers — because between those two the numbers are what the
+		 * server knows and the folder is how somebody happened to store it.
 		 */
-		const parentId =
-			item.overrides === null || item.overrides === undefined
-				? await this._reportedParent(item)
-				: await this._seasonFor(item);
+		const parentId = await this._seasonFor(item);
 
 		if (parentId === null || parentId === item.parentId) {
 			return false;
@@ -578,6 +614,194 @@ export class MediaManager {
 		await this._settle(parentId);
 
 		return true;
+	}
+
+	/**
+	 * File every episode one service holds under the season its own numbers name.
+	 *
+	 * The same rule as `refile`, applied to a whole service at the end of a scan rather
+	 * than to one row after a correction — because the folders a server puts episodes in
+	 * are not the seasons its metadata says they belong to, and that is the ordinary
+	 * case rather than the exception. The owner's Jellyfin publishes `Bonus`,
+	 * `Saison inconnue`, `HD - VOST` and `SD` as seasons of a show while stamping every
+	 * episode inside them with the season it really belongs to. Reading the folder gives
+	 * a show whose episodes are scattered across levels that mean nothing; reading the
+	 * numbers gives the show.
+	 *
+	 * Written as one pass over a projection rather than a call to `refile` per row. The
+	 * per-row path costs a `findChildren` of the series and up to two `findOne` climbs
+	 * *each*, which on a forty-thousand-episode library is six figures of queries every
+	 * scan. Here the tree is read once, the whole decision is made in memory, and only
+	 * the rows that actually move are written.
+	 *
+	 * **An episode with no season number is left exactly where it is.** It has nothing
+	 * to file it by, and a real extra — a making-of, an interview — belongs under the
+	 * folder somebody put it in rather than swept into season one. That is also what
+	 * keeps a folder of genuine bonuses on screen: it still has children, so it is still
+	 * drawn.
+	 *
+	 * Answers how many episodes moved, which is what the scan logs.
+	 */
+	public async refileService(serviceId: string): Promise<number> {
+		const rows = await this._items.findPlacements(serviceId);
+		const byId = new Map(rows.map((row) => [row.id, row]));
+		const seasonsBySeries = new Map<string, Map<number, string>>();
+
+		for (const row of rows) {
+			if (row.kind !== MediaKind.SEASON || row.parentId === null || row.seasonNumber === null) {
+				continue;
+			}
+
+			const seasons = seasonsBySeries.get(row.parentId) ?? new Map<number, string>();
+
+			/*
+			 * First one wins when a series carries the same season number twice, which
+			 * happens on a library holding two cuts of one show. Choosing arbitrarily is
+			 * still better than splitting the episodes between them: they end up
+			 * together, and together is what lets anybody see there are two.
+			 */
+			if (!seasons.has(row.seasonNumber)) {
+				seasons.set(row.seasonNumber, row.id);
+			}
+
+			seasonsBySeries.set(row.parentId, seasons);
+		}
+
+		const moved: { id: string; from: string | null; to: string }[] = [];
+
+		for (const row of rows) {
+			if (row.kind !== MediaKind.EPISODE || row.seasonNumber === null) {
+				continue;
+			}
+
+			const seriesId = this._seriesIdOf(row, byId);
+
+			if (seriesId === null) {
+				continue;
+			}
+
+			const target = seasonsBySeries.get(seriesId)?.get(row.seasonNumber) ?? null;
+
+			if (target === null || target === row.parentId) {
+				continue;
+			}
+
+			moved.push({ id: row.id, from: row.parentId, to: target });
+		}
+
+		for (const move of moved) {
+			await this._items.update({ id: move.id }, { parentId: move.to });
+		}
+
+		/*
+		 * Both ends of every move, and only those. A season that gained or lost an
+		 * episode has a child count that is now a lie, and one the gateway invented and
+		 * emptied has to go — `_settle` decides which of the two it is looking at.
+		 */
+		const touched = new Set<string>();
+
+		for (const move of moved) {
+			if (move.from !== null) {
+				touched.add(move.from);
+			}
+
+			touched.add(move.to);
+		}
+
+		for (const id of touched) {
+			await this._settle(id);
+		}
+
+		if (moved.length > 0) {
+			this._logger.log(`Refiled ${moved.length} episodes onto the season their numbers name`);
+		}
+
+		return moved.length;
+	}
+
+	/**
+	 * The series an episode hangs from, climbing at most one level, in memory.
+	 *
+	 * The same shape as `_seriesOf` reads from the database: an episode hangs from a
+	 * season, or straight from its series on the services that report no season level at
+	 * all. An episode under neither has no series to file it in and is left alone.
+	 */
+	private _seriesIdOf(episode: Placement, byId: Map<string, Placement>): string | null {
+		const parent = episode.parentId === null ? undefined : byId.get(episode.parentId);
+
+		if (parent === undefined) {
+			return null;
+		}
+
+		if (parent.kind === MediaKind.SERIES) {
+			return parent.id;
+		}
+
+		const grandparent = parent.parentId === null ? undefined : byId.get(parent.parentId);
+
+		return grandparent?.kind === MediaKind.SERIES ? grandparent.id : null;
+	}
+
+	/**
+	 * Erase one copy from a disk this gateway can write to, and say what it erased.
+	 *
+	 * The only operation in this product that destroys something no scan can bring
+	 * back, which is why every one of its refusals is a refusal rather than a quiet
+	 * success:
+	 *
+	 * - **a row with no file** is a show, a season or a folder. Nothing on it to erase,
+	 *   and walking its subtree to erase what is under it is a different feature with a
+	 *   different confirmation — one that says how many files and how many bytes.
+	 * - **a copy on somebody else's server**, or on one of ours whose folders nobody has
+	 *   mapped, cannot be reached. The gateway is not going to ask a media server to
+	 *   delete it either: a token that can browse is not a token anybody handed over to
+	 *   destroy things with.
+	 * - **a path that does not resolve** through the library's mappings means the row
+	 *   and the mounts disagree, and erasing the wrong file is worse than erasing none.
+	 *
+	 * The row is left exactly as it is. The media server still lists the file it no
+	 * longer has, and the truth is restored by the thing that establishes truth here —
+	 * the next scan. Writing `missing` onto the row now would be the gateway asserting
+	 * something about a server it has not asked.
+	 *
+	 * `ENOENT` is success, not an error. The file being already gone is the state the
+	 * caller asked for, and failing then would leave somebody unable to tidy an index
+	 * whose file somebody else had removed by hand.
+	 */
+	public async deleteFile(id: string): Promise<{ path: string }> {
+		const item = await this._require(id);
+		const reported = item.file?.path ?? null;
+
+		if (reported === null) {
+			throw new ConflictException(ErrorKey.MEDIA_HAS_NO_FILE);
+		}
+
+		const service = await this._services.findOne({ where: { id: item.serviceId } });
+
+		if (service === null || serviceMode(service) !== MediaServiceMode.LOCAL) {
+			throw new ConflictException(ErrorKey.MEDIA_NOT_ON_OUR_DISK);
+		}
+
+		const library = await this._libraries.findOne({ where: { id: item.libraryId } });
+		const path = library === null ? null : toLocalPath(library, reported);
+
+		if (path === null) {
+			throw new ConflictException(ErrorKey.MEDIA_NOT_ON_OUR_DISK);
+		}
+
+		try {
+			await unlink(path);
+		} catch (error: unknown) {
+			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+				throw error;
+			}
+
+			this._logger.warn(`Asked to erase ${path}, which was already gone`);
+		}
+
+		this._logger.log(`Erased ${path} on request`);
+
+		return { path };
 	}
 
 	/**
@@ -659,25 +883,6 @@ export class MediaManager {
 		}
 
 		return Buffer.concat(chunks);
-	}
-
-	/**
-	 * Where the service itself files this episode, for a correction being withdrawn.
-	 *
-	 * Read from `parentExternalId` rather than from the link, because the link is
-	 * exactly what a correction moved: the identifier is the fact the server stated and
-	 * it survives every reparenting we do. An episode whose service named no parent —
-	 * or whose parent has no row of ours — keeps the parent it has, which is the only
-	 * answer that does not turn a withdrawn correction into an orphaned episode.
-	 */
-	private async _reportedParent(item: MediaItemEntity): Promise<string | null> {
-		if (item.parentExternalId === null) {
-			return null;
-		}
-
-		const parent = await this._items.findByExternalId(item.serviceId, item.parentExternalId);
-
-		return parent?.id ?? null;
 	}
 
 	/**

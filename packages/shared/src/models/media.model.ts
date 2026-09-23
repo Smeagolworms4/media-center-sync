@@ -341,6 +341,18 @@ export interface MediaGroupSource {
 	/** Whether the gateway reaches this copy's files on disk, rather than over HTTP. */
 	local: boolean;
 	/**
+	 * The file, as the media server that holds it spells the path.
+	 *
+	 * The server's spelling and not the gateway's, because this is what somebody is
+	 * shown before agreeing to erase a copy, and it has to be a path they recognise —
+	 * the one their Jellyfin displays, not the mount point a container happens to see.
+	 * The gateway translates it through the library's mappings when the moment comes to
+	 * unlink it, which is the one place the two have to agree.
+	 *
+	 * Null for a row that carries no file at all: a show, a season, a folder.
+	 */
+	path: string | null;
+	/**
 	 * This copy's own state.
 	 *
 	 * The group says the media is outdated; only this says which copy is the old one.

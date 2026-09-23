@@ -593,6 +593,18 @@ export class ServiceManager implements OnApplicationBootstrap {
 		 */
 		await this._reconcileParents(service, handler, connection, libraries);
 
+		/*
+		 * After the links are repaired and before the counts are derived, because it
+		 * moves episodes between seasons and `_recompute` is what writes the numbers
+		 * those seasons then show. Run the other way round, a season would report the
+		 * children it had before the move until somebody scanned again.
+		 *
+		 * It has to be the whole service at once rather than per library: a season and
+		 * its episodes can sit in different libraries of one service, and a pass scoped
+		 * to one of them would decide a place from half a tree.
+		 */
+		await this._media.refileService(service.id);
+
 		for (const { library, itemsSeen } of walked) {
 			await this._fingerprint(library);
 			await this._recompute(library);
@@ -768,22 +780,16 @@ export class ServiceManager implements OnApplicationBootstrap {
 		const saved = await this._items.save(row);
 
 		/*
-		 * And so does the place the correction put it.
+		 * The place is not settled here, and deliberately not.
 		 *
-		 * `row.parentId` was just rewritten from the parent the service names, a few
-		 * lines above — which is precisely the link a corrected season number replaced.
-		 * Re-applying the values without re-deriving the parent would leave the episode
-		 * reading `S2E1` among season one's children again after every scan: the
-		 * correction half-undone, on a timer, in the half nobody thinks to check.
-		 *
-		 * Only for rows that carry a correction. The filing of everything else is
-		 * already right by construction, and a lookup per episode would be a second walk
-		 * of a forty-thousand-row library to be told nothing changed.
+		 * `row.parentId` was just rewritten from the parent the service names — which is
+		 * both the link a corrected season number replaced and, on the owner's servers,
+		 * a folder called `Bonus` or `Saison inconnue` that is not a season at all.
+		 * Either way the row is now filed by its folder rather than by its numbers, and
+		 * either way `refileService` puts it back at the end of the scan, in one pass
+		 * over the whole tree. Doing it here as well would be the same work per row,
+		 * with a `findChildren` and two climbs each.
 		 */
-		if (corrected) {
-			await this._media.refile(saved);
-		}
-
 		return saved;
 	}
 

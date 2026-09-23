@@ -338,7 +338,14 @@
 			"ours": "ours",
 			"held_here": "One of your own services holds this.",
 			"not_held_here": "Only another server holds this.",
-			"none": "No service holds this item."
+			"none": "No service holds this item.",
+			"download": "Download",
+			"delete": "Erase this copy",
+			"delete_title": "Erase this copy?",
+			"delete_text": "This file will be removed from the disk {service} reads. It cannot be undone.",
+			"delete_note": "The media server still lists it until its next scan.",
+			"delete_accept": "Erase",
+			"deleted": "The file was erased."
 		},
 		"version": {
 			"title": "Versions",
@@ -1327,7 +1334,9 @@
 			"keyword_taken": "Another category already files that name. Move it from there rather than adding it twice."
 		},
 		"media": {
-			"not_found": "This media item no longer exists."
+			"not_found": "This media item no longer exists.",
+			"not_on_our_disk": "This copy is not on a disk this gateway can write to, so nothing was erased.",
+			"has_no_file": "There is no file on this entry to erase."
 		},
 		"peer": {
 			"not_found": "This peer no longer exists.",

@@ -80,11 +80,46 @@ describe('layoutSignals', () => {
 	it('says nothing about a series with no season at all', () => {
 		expect(layoutSignals([])).toEqual([]);
 	});
+
+	it('says nothing about a season placeholder the server repeated', () => {
+		// The owner's Death Note, as Jellyfin reported it: one series, correctly
+		// identified, whose bonuses sit in two seasons with no number. Jellyfin
+		// publishes those as `Saison inconnue`, localised into the server's language,
+		// and the first version of this counted the same placeholder twice and called
+		// the folder misread. Two shows do not share a name, so a name that appears
+		// twice is evidence of nothing.
+		expect(layoutSignals(['Saison inconnue', 'Saison inconnue', 'Specials', 'Saison 1'])).toEqual(
+			[],
+		);
+		expect(layoutSignals(['Unknown Season', 'Unknown Season', 'Unbekannte Staffel'])).toEqual([]);
+	});
+
+	it('still reports a folder holding several shows', () => {
+		// The counterpart of the case above, on the owner's Albator folder: four
+		// distinct titles, so the floor is cleared on distinct names alone.
+		expect(
+			layoutSignals([
+				'Albator - Endless Odyssey',
+				"Albator Corsaire de l'Espace",
+				'Gun Frontier',
+				'Harlock Saga',
+				'Specials',
+				'Saison 1',
+			]),
+		).toEqual([LibraryLayoutSignal.NAMED_SEASONS]);
+	});
 });
 
 describe('namedSeasons', () => {
 	it('quotes the names that read like show titles, and only those', () => {
 		expect(namedSeasons([...seasons(2), 'Agent Carter', 'Specials'])).toEqual(['Agent Carter']);
+	});
+
+	it('quotes a repeated name once, in the order the server reported it', () => {
+		expect(namedSeasons(['Gun Frontier', 'Harlock Saga', 'Gun Frontier'])).toEqual([
+			'Gun Frontier',
+			'Harlock Saga',
+		]);
 	});
 });
 

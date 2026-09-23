@@ -57,6 +57,8 @@ component somebody actually wrote — so journeys use `field0(name)` rather than
 | `media-origins`, `media-origin-<origin>`, `media-sort-fixed` | `MediaFilters.vue` | the four origins — ours, direct, friends, friends of friends — and the note that stands in for the sort control on the overview |
 | `item-sync`, `item-sync-missing`, `item-matches`, `item-override`, `item-missing-count` | `LibraryItem.vue` | the actions on one media — pulling it, pulling what is missing below it, explaining why two copies were correlated, correcting what the service got wrong — and what is missing below it |
 | `source-picker`, `source-default`, `group-source`, `group-source-ours`, `group-source-origin` | `LibraryItem.vue` | every server that holds it, ours marked, how far away each one is, and which a pull should use |
+| `group-source-download`, `group-source-progress`, `group-source-delete`, `group-source-nothing` | `GroupSources.vue` | the one action a row carries: fetch this copy, how far along it is, erase it, or nothing to fetch |
+| `delete-confirm`, `delete-path`, `delete-cancel`, `delete-accept` | `LibraryItem.vue` | erasing is asked twice, and the second asking names the file |
 | `bandwidth-control`, `bandwidth-panel`, `bandwidth-caps` | app bar | the global caps, the live rate, and the caps in force |
 | `bandwidth-download`, `bandwidth-upload`, `bandwidth-download-unit`, `bandwidth-upload-unit`, `bandwidth-download-preset`, `bandwidth-upload-preset`, `bandwidth-apply` | bandwidth panel | the presets, the free fields and their units |
 | `transfer-list`, `transfer-row`, `transfer-progress` | transfers page | the queue |

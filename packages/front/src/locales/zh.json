@@ -338,7 +338,14 @@
 			"ours": "我们的",
 			"held_here": "你自己的某个服务拥有它。",
 			"not_held_here": "只有别的服务器拥有它。",
-			"none": "没有服务拥有此项目。"
+			"none": "没有服务拥有此项目。",
+			"download": "下载",
+			"delete": "删除此副本",
+			"delete_title": "删除此副本？",
+			"delete_text": "此文件将从 {service} 读取的磁盘中移除，无法撤销。",
+			"delete_note": "媒体服务器在下次扫描前仍会列出它。",
+			"delete_accept": "删除",
+			"deleted": "文件已删除。"
 		},
 		"version": {
 			"title": "版本",
@@ -1327,7 +1334,9 @@
 			"keyword_taken": "另一个分类已经收录了这个名称。请从那里把它移过来，而不是重复添加。"
 		},
 		"media": {
-			"not_found": "此媒体项目已不存在。"
+			"not_found": "此媒体项目已不存在。",
+			"not_on_our_disk": "此副本不在本网关可写入的磁盘上，因此没有删除任何内容。",
+			"has_no_file": "此条目没有可删除的文件。"
 		},
 		"peer": {
 			"not_found": "此对等网关已不存在。",

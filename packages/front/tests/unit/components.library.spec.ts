@@ -64,6 +64,7 @@ function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 		versionId: null,
 		edition: null,
 		local: true,
+		path: null,
 		sync: SyncState.IN_SYNC,
 		...overrides,
 	};
@@ -519,6 +520,7 @@ describe('components/media/LibrarySection', () => {
 				total: 400,
 				latest: true,
 				local: true,
+				path: null,
 			},
 			global: { stubs: tooltipStub },
 		});

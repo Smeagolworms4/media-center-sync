@@ -77,6 +77,7 @@ function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 		versionId: null,
 		edition: null,
 		local: true,
+		path: null,
 		sync: SyncState.IN_SYNC,
 		...overrides,
 	};
@@ -301,6 +302,7 @@ describe('components/media/GroupSources', () => {
 					serviceName: 'Living room',
 					versionId: 'q1-theatrical',
 					local: true,
+					path: null,
 				}),
 				source({
 					itemId: 'i-theirs',
@@ -308,6 +310,7 @@ describe('components/media/GroupSources', () => {
 					serviceName: 'Cabin',
 					versionId: 'q1-theatrical',
 					local: false,
+					path: null,
 				}),
 				source({
 					itemId: 'i-extended',
@@ -316,6 +319,7 @@ describe('components/media/GroupSources', () => {
 					versionId: 'q1-extended',
 					edition: 'Extended Cut',
 					local: false,
+					path: null,
 				}),
 			],
 			versions: [
@@ -353,32 +357,110 @@ describe('components/media/GroupSources', () => {
 			expect(wrapper.find('[data-test="group-source-edition"]').text()).toBe('Extended Cut');
 		});
 
-		it('lets several be chosen at once, named by the copy each would come from', async () => {
+		it('asks for the copy the row names, never for its service', async () => {
+			// One server holds both cuts here, so a service identifier could not say
+			// which of them was asked for — which is why the button sits on a row.
 			const { wrapper } = mountWithApp(GroupSources, {
-				props: { ...versioned(), modelValue: [] },
+				props: versioned(),
 				global: { stubs: tooltipStub },
 			});
 
-			const boxes = wrapper.findAll('[data-test="group-source"] input');
+			const buttons = wrapper.findAll('[data-test="group-source-download"]');
 
-			await boxes[0].setValue(true);
-			await boxes[1].setValue(true);
+			expect(buttons).toHaveLength(2);
 
-			// The copy, never the service: one server holds both cuts here, so a set of
-			// service identifiers could not say which of them was asked for.
-			expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['i-theirs', 'i-extended']]);
+			await buttons[1].trigger('click');
+
+			expect(wrapper.emitted('download')?.at(-1)).toEqual(['i-extended']);
 		});
 
-		it('says what the selection will cost before anything starts', async () => {
+		it('says how much of it is already here', async () => {
 			const { wrapper } = mountWithApp(GroupSources, {
-				props: { ...versioned(), modelValue: ['i-theirs', 'i-extended'] },
+				props: versioned(),
 				global: { stubs: tooltipStub },
 			});
 
-			expect(wrapper.find('[data-test="source-selection"]').text()).toContain('2 transfers');
 			// Holding one of the two is an ordinary state, said as a count and not as a
 			// warning: this is not a half-failed sync.
 			expect(wrapper.find('[data-test="source-selection"]').text()).toContain('1 of 2 versions here');
+		});
+
+		it('shows how far along a copy being fetched is, instead of offering it again', () => {
+			// Offering to fetch something already being fetched is how somebody ends up
+			// with two of it.
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: {
+					...versioned(),
+					transfers: {
+						'i-extended': {
+							id: 't-1',
+							state: 'downloading',
+							bytesDone: 512,
+							bytesTotal: 1024,
+							rate: 0,
+							etaSeconds: null,
+							chunksDone: 1,
+							chunksTotal: 2,
+							sourceCount: 1,
+						},
+					},
+				},
+				global: { stubs: tooltipStub },
+			});
+
+			expect(wrapper.findAll('[data-test="group-source-progress"]')).toHaveLength(1);
+			expect(wrapper.find('[data-test="group-source-progress"]').text()).toContain('50%');
+			expect(wrapper.findAll('[data-test="group-source-download"]')).toHaveLength(1);
+		});
+
+		it('offers to erase a copy of ours, naming the copy and not the row', async () => {
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: {
+					sources: [source({
+						itemId: 'i-ours',
+						versionId: 'q1-ours',
+						local: true,
+						path: '/media/shows/S01E01.mkv',
+					})],
+					versions: [{
+						versionId: 'q1-ours',
+						edition: null,
+						quality: null,
+						bytes: 1024,
+						heldLocally: true,
+						sourceItemIds: ['i-ours'],
+					}],
+				},
+				global: { stubs: tooltipStub },
+			});
+
+			await wrapper.find('[data-test="group-source-delete"]').trigger('click');
+
+			expect(wrapper.emitted('remove')?.at(-1)?.[0]).toMatchObject({
+				itemId: 'i-ours',
+				path: '/media/shows/S01E01.mkv',
+			});
+		});
+
+		it('offers nothing to erase for a copy whose path nobody knows', () => {
+			// Without a path there is nothing to name in the confirmation, and a
+			// confirmation that cannot say what it is about is worse than no button.
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: {
+					sources: [source({ itemId: 'i-ours', versionId: 'q1-ours', local: true, path: null })],
+					versions: [{
+						versionId: 'q1-ours',
+						edition: null,
+						quality: null,
+						bytes: 1024,
+						heldLocally: true,
+						sourceItemIds: ['i-ours'],
+					}],
+				},
+				global: { stubs: tooltipStub },
+			});
+
+			expect(wrapper.find('[data-test="group-source-delete"]').exists()).toBe(false);
 		});
 
 		it('offers nothing to pull for a version only we hold', () => {
@@ -401,7 +483,7 @@ describe('components/media/GroupSources', () => {
 			// answer, and an empty list is not.
 			expect(wrapper.findAll('[data-test="group-source"]')).toHaveLength(1);
 			expect(wrapper.find('[data-test="group-source-nothing"]').exists()).toBe(true);
-			expect(wrapper.find('[data-test="group-source"] input').attributes('disabled')).toBeDefined();
+			expect(wrapper.find('[data-test="group-source-download"]').exists()).toBe(false);
 		});
 
 		it('falls back to one row per copy while nothing has been fingerprinted', () => {

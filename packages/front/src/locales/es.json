@@ -338,7 +338,14 @@
 			"ours": "nuestro",
 			"held_here": "Uno de tus propios servicios lo tiene.",
 			"not_held_here": "Solo lo tiene otro servidor.",
-			"none": "Ningún servicio tiene este elemento."
+			"none": "Ningún servicio tiene este elemento.",
+			"download": "Descargar",
+			"delete": "Borrar esta copia",
+			"delete_title": "¿Borrar esta copia?",
+			"delete_text": "Este archivo se eliminará del disco que lee {service}. No se puede deshacer.",
+			"delete_note": "El servidor multimedia seguirá mostrándolo hasta su próximo análisis.",
+			"delete_accept": "Borrar",
+			"deleted": "El archivo se ha borrado."
 		},
 		"version": {
 			"title": "Versiones",
@@ -1327,7 +1334,9 @@
 			"keyword_taken": "Otra categoría ya archiva ese nombre. Muévelo desde allí en lugar de añadirlo dos veces."
 		},
 		"media": {
-			"not_found": "Este elemento ya no existe."
+			"not_found": "Este elemento ya no existe.",
+			"not_on_our_disk": "Esta copia no está en un disco en el que esta pasarela pueda escribir, así que no se ha borrado nada.",
+			"has_no_file": "Esta entrada no tiene ningún archivo que borrar."
 		},
 		"peer": {
 			"not_found": "Este par ya no existe.",
