@@ -38,8 +38,6 @@ export interface SeasonRow {
 	title: string;
 	/** What the server said this season is. Null when it could not say. */
 	seasonNumber: number | null;
-	/** How many episodes are under it, which is whether it is drawn at all. */
-	childCount: number;
 }
 
 /**
@@ -190,12 +188,17 @@ export const namedSeasons = (seasons: readonly SeasonRow[]): string[] => [
 			 */
 			.filter((season) => season.seasonNumber === null)
 			/*
-			 * And a season holding nothing is not drawn — see `drawable` — so it cannot be
-			 * evidence of anything. Those rows are kept on purpose once their episodes
-			 * have been filed by their numbers, and counting them would report a shape the
-			 * screen no longer has.
+			 * A season holding nothing still counts, and an earlier version of this had it
+			 * the other way round — on the reasoning that a row nobody can see cannot be
+			 * evidence. That was wrong, and the owner's Marvel folder is what proved it.
+			 *
+			 * Filing episodes by their numbers moves them out of the folders their server
+			 * invented, which is the fix working — and it leaves those folders empty, so
+			 * excluding them made the suspicion vanish on the very library that still has
+			 * every bit of the problem. The names are quoted in the hint itself, so the
+			 * evidence is on screen whether or not the row is drawn; what somebody acts on
+			 * is their server's layout, not our tree.
 			 */
-			.filter((season) => season.childCount > 0)
 			.filter((season) => !looksLikeASeasonName(season.title))
 			.map((season) => season.title),
 	),

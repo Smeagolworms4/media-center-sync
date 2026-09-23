@@ -614,17 +614,17 @@ describe('LibraryManager', () => {
 		/**
 		 * One row as the projection answers it.
 		 *
-		 * `seasonNumber` and `childCount` are not decoration: a season the server
-		 * numbered is a season whatever it is called, and a season holding nothing is not
-		 * drawn — so a row with neither is a row this can say nothing about.
+		 * `seasonNumber` is not decoration: a season the server numbered is a season
+		 * whatever it is called, so a decor that leaves every number null asks this to
+		 * judge rows it would never be shown in the field.
 		 */
 		const season = (
 			id: string,
 			parentId: string,
 			title: string,
 			seasonNumber: number | null = null,
-		): { id: string; parentId: string; title: string; seasonNumber: number | null; childCount: number } =>
-			({ id, parentId, title, seasonNumber, childCount: 10 });
+		): { id: string; parentId: string; title: string; seasonNumber: number | null } =>
+			({ id, parentId, title, seasonNumber });
 
 		const marvelFolder = [
 			...Array.from({ length: 20 }, (_, index) =>

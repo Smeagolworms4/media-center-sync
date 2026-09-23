@@ -12,17 +12,11 @@ const numbered = (count: number): SeasonRow[] =>
 	Array.from({ length: count }, (_, index) => ({
 		title: `Season ${index + 1}`,
 		seasonNumber: index + 1,
-		childCount: 10,
 	}));
 
-/**
- * A season the server could not number, which is the only kind judged on its name.
- *
- * Holding something, because a season holding nothing is not drawn and so cannot be
- * evidence of anything.
- */
+/** A season the server could not number, which is the only kind judged on its name. */
 const unnumbered = (...titles: string[]): SeasonRow[] =>
-	titles.map((title) => ({ title, seasonNumber: null, childCount: 10 }));
+	titles.map((title) => ({ title, seasonNumber: null }));
 
 describe('looksLikeASeasonName', () => {
 	it.each([
@@ -132,6 +126,23 @@ describe('layoutSignals', () => {
 		expect(layoutSignals(unnumbered('Echo', 'Helstrom'))).toEqual([
 			LibraryLayoutSignal.NAMED_SEASONS,
 		]);
+	});
+
+	it('still reports a folder whose shows have been emptied by the filing', () => {
+		/*
+		 * The owner's Marvel folder after a scan, and the trap an earlier version fell
+		 * into. Filing episodes under the season their numbers name moves them out of the
+		 * folders the server invented — which is the fix working — and leaves those
+		 * folders empty. Excluding an empty season made the suspicion vanish on the one
+		 * library that still had every bit of the problem: `Scream` with thirty-five
+		 * seasons and Daredevil nowhere to be found.
+		 *
+		 * The names are quoted in the hint itself, so the evidence is on screen whether
+		 * or not the row is drawn.
+		 */
+		expect(
+			layoutSignals(unnumbered('Agatha All Along', 'Echo', 'The Falcon and the Winter Soldier')),
+		).toEqual([LibraryLayoutSignal.NAMED_SEASONS]);
 	});
 
 	it('still reports a folder holding several shows', () => {
