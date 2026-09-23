@@ -623,8 +623,8 @@ describe('LibraryManager', () => {
 			parentId: string,
 			title: string,
 			seasonNumber: number | null = null,
-		): { id: string; parentId: string; title: string; seasonNumber: number | null } =>
-			({ id, parentId, title, seasonNumber });
+		): { id: string; parentId: string; title: string; seasonNumber: number | null; childCount: number } =>
+			({ id, parentId, title, seasonNumber, childCount: 10 });
 
 		const marvelFolder = [
 			...Array.from({ length: 20 }, (_, index) =>

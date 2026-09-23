@@ -259,7 +259,15 @@
 	 * list.
 	 */
 	const downloadOne = tryCallback(async (itemId: string) => {
-		await syncStore.run({ scope: { itemIds: [itemId] } });
+		await syncStore.run({
+			scope: { itemIds: [itemId] },
+			// Pressing fetch on one row of the source list is the decision, already
+			// made. Without this the planner drops it for being a media we already hold
+			// in another version, and answers with a run that plans nothing, finishes in
+			// no time and says nothing. The copy lands beside the one we have, not over
+			// it — see `SyncFilter.includeHeld`.
+			filter: { includeHeld: true },
+		});
 		void notify('library.sync_started');
 	});
 

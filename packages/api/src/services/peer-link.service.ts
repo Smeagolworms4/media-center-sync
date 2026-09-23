@@ -476,13 +476,28 @@ export class PeerLinkService implements OnModuleDestroy {
 		return nodeId;
 	}
 
-	public identity(name: string): PeerIdentity {
+	/**
+	 * What this gateway is, and where a friend can reach it.
+	 *
+	 * The address is given rather than read here, and that is the fix for a screen that
+	 * contradicted its own setting. This used to consult `PEER_PUBLIC_ADDRESS` and
+	 * nothing else, so a household that had filled in "public address" on the settings
+	 * screen — which invitations and notifications both use — was still told, on the
+	 * peers screen, that nobody could reach them. A setting somebody fills in and one
+	 * screen ignores is worse than no setting: it teaches them not to trust the form.
+	 *
+	 * The caller resolves it, because the setting lives behind the settings service and
+	 * this is a transport. See `PeerManager.identity`.
+	 */
+	public identity(name: string, directAddress: string | null = null): PeerIdentity {
+		const address = directAddress ?? process.env.PEER_PUBLIC_ADDRESS ?? null;
+
 		return {
 			nodeId: this._nodeId,
 			fingerprint: this._fingerprint,
 			name,
-			directAddress: process.env.PEER_PUBLIC_ADDRESS ?? null,
-			directReachable: !!process.env.PEER_PUBLIC_ADDRESS,
+			directAddress: address,
+			directReachable: address !== null && address !== '',
 		};
 	}
 

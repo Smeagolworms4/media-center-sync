@@ -34,6 +34,15 @@ export class SyncFilterDto {
 	@IsBoolean()
 	public replaceOutdated?: boolean;
 
+	@ApiPropertyOptional({
+		description:
+			'Fetch a copy although another copy of the same media is already here. It lands '
+			+ 'beside the one we hold rather than over it.',
+	})
+	@IsOptional()
+	@IsBoolean()
+	public includeHeld?: boolean;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsInt()

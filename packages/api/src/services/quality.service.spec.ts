@@ -40,6 +40,46 @@ describe('QualityService', () => {
 			expect(service.resolutionLabel(null)).toBeNull();
 			expect(service.resolutionLabel(0)).toBeNull();
 		});
+
+		it.each([
+			// The owner's own files, and the case that proved reading the height alone
+			// wrong: a scope master is cropped vertically and is still what it says it is.
+			[804, 1920, '1080p'],
+			[1608, 3840, '2160p'],
+			[816, 1920, '1080p'],
+			[1080, 1920, '1080p'],
+			[2160, 3840, '2160p'],
+			[720, 1280, '720p'],
+			// And the distinction that lives entirely in the height, which is why the
+			// width cannot decide alone: two DVD masters, one width.
+			[576, 720, '576p'],
+			[480, 720, '480p'],
+		])('reads %i tall by %i wide as %s', (height, width, label) => {
+			expect(service.resolutionLabel(height, width)).toBe(label);
+		});
+
+		it('falls back to the height for a file whose width nobody reported', () => {
+			// Wrong by one band for a scope master, and the best available answer: the
+			// alternative is no label at all on a file that plainly has a resolution.
+			expect(service.resolutionLabel(1080, null)).toBe('1080p');
+			expect(service.resolutionLabel(804, null)).toBe('720p');
+		});
+
+		it('says nothing when neither dimension is known', () => {
+			expect(service.resolutionLabel(null, null)).toBeNull();
+			expect(service.resolutionLabel(0, 0)).toBeNull();
+		});
+
+		it('never ranks a scope master below the encode that fits inside it', () => {
+			// The consequence the labels are read for: a 1280x720 encode was the equal of
+			// a 1920x804 Blu-ray, and a 4K master its inferior.
+			const bands = ['480p', '576p', '720p', '1080p', '2160p'];
+			const rank = (height: number, width: number): number =>
+				bands.indexOf(service.resolutionLabel(height, width) as string);
+
+			expect(rank(804, 1920)).toBeGreaterThan(rank(720, 1280));
+			expect(rank(1608, 3840)).toBeGreaterThan(rank(1080, 1920));
+		});
 	});
 
 	describe('codec normalisation', () => {

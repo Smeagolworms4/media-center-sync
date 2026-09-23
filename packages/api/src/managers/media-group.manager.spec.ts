@@ -641,7 +641,13 @@ describe('MediaGroupManager', () => {
 						serviceId: 'remote',
 						kind: MediaKind.SEASON,
 						file: null,
-						quality: quality.summarise([file({ height: 720 }), file({ height: 720 })]),
+						// The width with the height, because a resolution is read off both:
+						// leaving the default 1920 would describe a 1080p scope master
+						// rather than the 720p encode this case is about.
+						quality: quality.summarise([
+							file({ height: 720, width: 1280 }),
+							file({ height: 720, width: 1280 }),
+						]),
 					}),
 				],
 				matches: [correlation()],

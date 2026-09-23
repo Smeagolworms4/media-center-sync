@@ -38,6 +38,8 @@ export interface SeasonRow {
 	title: string;
 	/** What the server said this season is. Null when it could not say. */
 	seasonNumber: number | null;
+	/** How many episodes are under it, which is whether anybody can see it at all. */
+	childCount: number;
 }
 
 /**
@@ -188,17 +190,22 @@ export const namedSeasons = (seasons: readonly SeasonRow[]): string[] => [
 			 */
 			.filter((season) => season.seasonNumber === null)
 			/*
-			 * A season holding nothing still counts, and an earlier version of this had it
-			 * the other way round — on the reasoning that a row nobody can see cannot be
-			 * evidence. That was wrong, and the owner's Marvel folder is what proved it.
+			 * A season holding nothing is not evidence, because nothing is what anybody
+			 * can see of it.
 			 *
-			 * Filing episodes by their numbers moves them out of the folders their server
-			 * invented, which is the fix working — and it leaves those folders empty, so
-			 * excluding them made the suspicion vanish on the very library that still has
-			 * every bit of the problem. The names are quoted in the hint itself, so the
-			 * evidence is on screen whether or not the row is drawn; what somebody acts on
-			 * is their server's layout, not our tree.
+			 * This went back and forth twice and the owner settled it: warning about a
+			 * folder the interface does not draw is asking somebody to check the
+			 * invisible. Filing episodes under the season their numbers name empties the
+			 * folders a server invented — that is the fix working — and once a folder is
+			 * empty the shape it described is gone from every screen.
+			 *
+			 * The cost is stated rather than hidden: it also silences a folder that is
+			 * genuinely several shows, because those folders are empty for the same
+			 * reason. Catching that case needs a different signal — a series claiming
+			 * thirty-five seasons while its own identifier names a show that ran for
+			 * three — and that one needs a metadata service this gateway does not call.
 			 */
+			.filter((season) => season.childCount > 0)
 			.filter((season) => !looksLikeASeasonName(season.title))
 			.map((season) => season.title),
 	),

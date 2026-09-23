@@ -315,6 +315,22 @@ export interface SyncFilter {
 	missingOnly?: boolean;
 	/** Also replace a local file when the remote one is better. */
 	replaceOutdated?: boolean;
+	/**
+	 * Fetch a copy even though another copy of the same media is already here.
+	 *
+	 * The rule it lifts exists for the automatic paths, where "we already hold this"
+	 * means "leave it alone" — a nightly plan that re-fetched every film beside a copy
+	 * of it would fill a disk. It is wrong for a copy somebody named: pressing fetch on
+	 * one row of a source list is the decision, already made, and answering it with a
+	 * run that plans nothing and finishes in no time says nothing at all.
+	 *
+	 * Distinct from `replaceOutdated`, which is the other answer to the same situation
+	 * and the destructive one. This keeps both: the new copy lands beside the old one,
+	 * renamed by `disambiguate` so the two can live in one folder, which is what a
+	 * person asking for a second version of a film wants and what every media server
+	 * knows how to present.
+	 */
+	includeHeld?: boolean;
 	minYear?: number;
 	maxBytes?: number;
 	titleMatches?: string;

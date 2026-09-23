@@ -12,11 +12,16 @@ const numbered = (count: number): SeasonRow[] =>
 	Array.from({ length: count }, (_, index) => ({
 		title: `Season ${index + 1}`,
 		seasonNumber: index + 1,
+		childCount: 10,
 	}));
 
 /** A season the server could not number, which is the only kind judged on its name. */
 const unnumbered = (...titles: string[]): SeasonRow[] =>
-	titles.map((title) => ({ title, seasonNumber: null }));
+	titles.map((title) => ({ title, seasonNumber: null, childCount: 10 }));
+
+/** The same, emptied — which is what filing episodes by their numbers leaves behind. */
+const emptied = (...titles: string[]): SeasonRow[] =>
+	titles.map((title) => ({ title, seasonNumber: null, childCount: 0 }));
 
 describe('looksLikeASeasonName', () => {
 	it.each([
@@ -128,7 +133,7 @@ describe('layoutSignals', () => {
 		]);
 	});
 
-	it('still reports a folder whose shows have been emptied by the filing', () => {
+	it('says nothing about a folder whose shows have been emptied by the filing', () => {
 		/*
 		 * The owner's Marvel folder after a scan, and the trap an earlier version fell
 		 * into. Filing episodes under the season their numbers name moves them out of the
@@ -141,8 +146,8 @@ describe('layoutSignals', () => {
 		 * or not the row is drawn.
 		 */
 		expect(
-			layoutSignals(unnumbered('Agatha All Along', 'Echo', 'The Falcon and the Winter Soldier')),
-		).toEqual([LibraryLayoutSignal.NAMED_SEASONS]);
+			layoutSignals(emptied('Agatha All Along', 'Echo', 'The Falcon and the Winter Soldier')),
+		).toEqual([]);
 	});
 
 	it('still reports a folder holding several shows', () => {

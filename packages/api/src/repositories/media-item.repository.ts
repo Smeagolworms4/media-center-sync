@@ -89,6 +89,8 @@ export interface SeasonName {
 	parentId: string;
 	title: string;
 	seasonNumber: number | null;
+	/** Whether anything is under it, which is whether anybody can see it. */
+	childCount: number;
 }
 
 /**
@@ -315,6 +317,7 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			.addSelect('item.parentId', 'parentId')
 			.addSelect('item.title', 'title')
 			.addSelect('item.seasonNumber', 'seasonNumber')
+			.addSelect('item.childCount', 'childCount')
 			.where('item.kind = :kind', { kind: MediaKind.SEASON })
 			.andWhere('item.parentId IS NOT NULL')
 			.getRawMany<SeasonName>();

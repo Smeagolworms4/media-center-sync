@@ -455,13 +455,35 @@ describe('components/settings/CategoryMapping', () => {
 			expect(row.find('[data-test="category-target-fallback"]').text()).toContain('Movies');
 		});
 
-		it('offers the libraries it was given, with the service each one is on', () => {
+		it('offers this category’s own folders and nothing else', () => {
+			/*
+			 * The menu used to be every writable library on the gateway, in whatever
+			 * order they arrived, for every row — so the line for `Shows` offered
+			 * `Movies`. A menu that ignores the line it sits on reads as meaningless,
+			 * and nobody wants a category filed into a different category: a shelf named
+			 * `Animes` exists precisely so that what belongs there goes there.
+			 */
 			const { wrapper } = mapping();
 			const items = destinationSelect(wrapper, 'shows').props('items') as
 				{ value: string; subtitle: string }[];
 
-			expect(items.map(one => one.value)).toEqual(['l1', 'l2']);
+			expect(items.map(one => one.value)).toEqual(['l1']);
+			// The path with it, because that is what the answer means: two libraries of
+			// one service can carry the same name.
 			expect(items[0].subtitle).toContain('Jellyfin (mine)');
+		});
+
+		it('keeps an answer already given, even one pointing outside this category', () => {
+			// Narrowing the list without this would hide a setting that is still in
+			// force: the select would render blank and the screen would say "nothing
+			// chosen" about a category that does have a destination.
+			const { wrapper } = mapping({ modelValue: { shows: 'l2' } });
+			const items = destinationSelect(wrapper, 'shows').props('items') as
+				{ value: string }[];
+
+			// The order is the menu's own — the category's folders, then whatever else was
+			// already chosen — so it is asserted rather than sorted away.
+			expect(items.map(one => one.value)).toEqual(['l1', 'l2']);
 		});
 
 		it('keeps a library it cannot offer in the menu, unselectable, with the reason', () => {
@@ -470,6 +492,13 @@ describe('components/settings/CategoryMapping', () => {
 			// is the one moment they are looking for it — and not under every row, which
 			// is what made the old table unreadable.
 			const { wrapper } = mapping({
+				// Of this category, since the menu is now the category's own folders: a
+				// library of some other shelf has no business on this line whether it is
+				// writable or not.
+				categories: [
+					category({ libraryIds: ['l1', 'l3'] }),
+					category({ key: 'movies', name: 'Movies', kind: LibraryKind.MOVIES, libraryIds: ['l2'] }),
+				],
 				rejected: [{ id: 'l3', name: 'Séries', serviceName: 'Lab (a friend)', reason: 'not_ours' }],
 			});
 			const items = destinationSelect(wrapper, 'shows').props('items') as

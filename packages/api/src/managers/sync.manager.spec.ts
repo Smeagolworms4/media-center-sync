@@ -735,6 +735,51 @@ describe('SyncManager', () => {
 			expect(planning.items[0].state).toBe(SyncState.OUTDATED);
 		});
 
+		it('fetches a copy somebody named although another is already here', async () => {
+			/*
+			 * The owner pressed fetch on a 4K copy of a film he held in 1080p and got a
+			 * run that planned nothing, finished in no time and said nothing. The rule is
+			 * right for a plan — one that re-fetched every film beside a copy of it would
+			 * fill a disk every night — and wrong for a row somebody pointed at, where
+			 * naming the copy is the decision.
+			 *
+			 * The state is left alone on purpose: this keeps both copies rather than
+			 * replacing one, and the new file lands beside the old under a name
+			 * `disambiguate` makes distinct.
+			 */
+			const world = {
+				items: [
+					item({ syncState: SyncState.IN_SYNC }),
+					item({ id: 'item-local', serviceId: 'service-local', externalId: 'ours' }),
+				],
+				services: [service('service-fast', 1), service('service-local', 3)],
+				localServices: [service('service-local', 3)],
+				matches: [{ localItemId: 'item-local', remoteItemId: 'item-fast' }],
+			};
+
+			const planning = await build(world).manager.plan({ filter: { includeHeld: true } });
+
+			expect(planning.itemsPlanned).toBe(1);
+			expect(planning.items[0].localItemId).toBe('item-local');
+		});
+
+		it('still leaves it alone when nobody said so', async () => {
+			// The counterpart, and the reason the flag exists rather than the rule simply
+			// going: an automatic run must go on treating "we already hold this" as
+			// "leave it alone".
+			const world = {
+				items: [
+					item({ syncState: SyncState.IN_SYNC }),
+					item({ id: 'item-local', serviceId: 'service-local', externalId: 'ours' }),
+				],
+				services: [service('service-fast', 1), service('service-local', 3)],
+				localServices: [service('service-local', 3)],
+				matches: [{ localItemId: 'item-local', remoteItemId: 'item-fast' }],
+			};
+
+			await expect(build(world).manager.plan({})).resolves.toMatchObject({ itemsPlanned: 0 });
+		});
+
 		it('keeps only what is missing when the filter says so', async () => {
 			const world = {
 				items: [

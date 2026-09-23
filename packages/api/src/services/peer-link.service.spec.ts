@@ -103,6 +103,21 @@ describe('PeerLinkService', () => {
 				directReachable: true,
 			});
 		});
+
+		it('takes the address it is given over the one in the environment', () => {
+			// The setting is what somebody filled in; the variable is what a gateway was
+			// started with, years ago, before the setting existed.
+			process.env.PEER_PUBLIC_ADDRESS = '203.0.113.7:7443';
+
+			expect(service.identity('Home', 'home.example.org:443')).toMatchObject({
+				directAddress: 'home.example.org:443',
+				directReachable: true,
+			});
+		});
+
+		it('reads an empty address as no address rather than as one', () => {
+			expect(service.identity('Home', '')).toMatchObject({ directReachable: false });
+		});
 	});
 
 	describe('without a link', () => {

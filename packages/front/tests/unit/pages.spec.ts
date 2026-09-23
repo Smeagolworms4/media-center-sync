@@ -1506,7 +1506,7 @@ const PLACEMENT_ROUTES = {
 				name: 'Movies',
 				kind: LibraryKind.MOVIES,
 				position: 0,
-				libraryIds: ['l1'],
+				libraryIds: ['l1', 'l3'],
 				serviceIds: ['s1'],
 				itemCount: 2,
 				local: true,
@@ -1538,6 +1538,31 @@ const PLACEMENT_ROUTES = {
 				writable: true,
 				isDefaultTarget: false,
 				itemCount: 2,
+				lastScanAt: null,
+				lastRefreshAt: null,
+				createdAt: '2026-01-01T00:00:00.000Z',
+				updatedAt: '2026-01-01T00:00:00.000Z',
+			},
+			{
+				/*
+				 * One of ours, in our own category, that the gateway cannot write into:
+				 * its local path is not set. That is the case the refusal is for now that
+				 * a category only offers its own folders — a library on a friend's shelf
+				 * never reaches a destination menu at all, because a friend's category is
+				 * not offered one.
+				 */
+				id: 'l3',
+				serviceId: 's1',
+				externalId: 'x3',
+				name: 'Movies on the other disk',
+				alias: null,
+				position: 2,
+				kind: LibraryKind.MOVIES,
+				paths: ['/data/movies2'],
+				localPath: null,
+				writable: false,
+				isDefaultTarget: false,
+				itemCount: 1,
 				lastScanAt: null,
 				lastRefreshAt: null,
 				createdAt: '2026-01-01T00:00:00.000Z',
@@ -1740,11 +1765,12 @@ describe('pages/Settings', () => {
 		expect(row.find('[data-test="category-target-fallback"]').text()).toContain('Movies');
 	});
 
-	it('never offers a library on a friend’s gateway, and says why where it is chosen', async () => {
+	it('never offers a library it cannot write into, and says why where it is chosen', async () => {
 		// Choosing one would queue transfers onto a disk this gateway cannot write to,
 		// and nothing anywhere would report it. It stays in the menu, unselectable, with
 		// the reason: a name that simply vanishes sends somebody hunting for a fault in
-		// the wrong place.
+		// the wrong place — and this reason, unlike a friend's server, is a mistake
+		// somebody can go and correct.
 		const { wrapper } = await openSettings();
 		const select = wrapper
 			.findComponent({ name: 'DestinationLibraryField' })
@@ -1759,10 +1785,10 @@ describe('pages/Settings', () => {
 			title: string;
 			subtitle: string;
 			props?: { disabled?: boolean };
-		}[]).find(one => one.title === 'Séries');
+		}[]).find(one => one.title === 'Movies on the other disk');
 
 		expect(refused?.props?.disabled).toBe(true);
-		expect(refused?.subtitle).toContain('does not reach');
+		expect(refused?.subtitle).toContain('cannot write into its folder');
 	});
 
 	it('offers the browser’s own origin when no public address has been set', async () => {

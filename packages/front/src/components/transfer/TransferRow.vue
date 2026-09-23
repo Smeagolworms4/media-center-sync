@@ -187,10 +187,17 @@
 
 			<TransferProgress class="mt-2" :progress="progress" />
 
-			<p class="text-caption text-medium-emphasis mt-1 mb-0" data-test="transfer-destination-name">
+			<!--
+				The library and the folder both, because they answer two questions and
+				only one of them was on screen. The library is what somebody recognises
+				from their media server; the folder is where the bytes actually land, and
+				it is the thing worth checking before a twenty-gigabyte file arrives.
+			-->
+			<p class="text-caption text-medium-emphasis mt-1 mb-0 text-break-anywhere" data-test="transfer-destination-name">
 				{{ destination
 					? $t('transfer.going_to', { library: destination })
 					: $t('transfer.going_to_folder', { path: transfer.targetPath }) }}
+				<span v-if="destination" class="transfer-row_path">{{ transfer.targetPath }}</span>
 			</p>
 
 			<p
@@ -266,6 +273,14 @@
 	.transfer-row {
 		&--paused {
 			opacity: 0.88;
+		}
+
+		&_path {
+			// Set apart from the sentence before it: a path is quoted evidence rather
+			// than prose, and running the two together makes both harder to read.
+			font-family: monospace;
+			opacity: 0.85;
+			margin-left: 6px;
 		}
 
 		&_head {

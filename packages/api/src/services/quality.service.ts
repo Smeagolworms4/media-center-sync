@@ -2,14 +2,42 @@ import type { MediaFileInfo, QualitySummary, QualityVariant } from '@mcs/shared'
 import { Injectable } from '@nestjs/common';
 
 /**
- * Height thresholds for a resolution label.
+ * Width thresholds for a resolution label, which is how a master is actually sold.
  *
- * Derived from the height rather than the width, because a 2.35:1 film is 1920 wide
- * at 800 tall and calling that 1080p would be a lie the comparator then acts on.
- * The bands are generous on purpose: cropped masters land a few dozen lines short
- * of the nominal height and are still, to anybody looking at them, 1080p.
+ * The first version of this read the height alone, on the reasoning that a 2.35:1
+ * film is 1920 wide at 800 tall and calling *that* 1080p would be a lie. It had the
+ * argument backwards, and the owner's library is where it showed: a scope master is
+ * exactly 1920 × 804, which is a 1080p Blu-ray by every definition anybody uses — and
+ * 804 sat below the 900 band, so it was published as `720p`. His 4K scope master,
+ * 3840 × 1608, was published as `1080p` for the same reason.
+ *
+ * That is not cosmetic. The comparator acts on these labels: a real 1280 × 720 encode
+ * read as the equal of a 1920 × 804 Blu-ray, and a 4K master read as its inferior.
+ *
+ * A frame is cropped vertically and never horizontally — that is what a wider aspect
+ * ratio *is* — so the width is the dimension that survives the format and the one
+ * worth banding. The bands sit a little under each nominal width, because a master
+ * cropped or padded by a few columns is still the thing it says it is.
  */
-const RESOLUTION_BANDS: { minHeight: number; label: string }[] = [
+const RESOLUTION_BANDS: { minWidth: number; label: string }[] = [
+	{ minWidth: 3000, label: '2160p' },
+	{ minWidth: 1600, label: '1080p' },
+	{ minWidth: 1100, label: '720p' },
+	{ minWidth: 800, label: '576p' },
+	{ minWidth: 1, label: '480p' },
+];
+
+/**
+ * The same bands read off the height.
+ *
+ * Consulted *alongside* the width rather than instead of it, because neither dimension
+ * answers on its own. The width misses the one distinction that lives entirely in the
+ * height: a PAL DVD is 720 × 576 and an NTSC one is 720 × 480, the same width for two
+ * different masters. The height misses every wider aspect ratio. The better of the two
+ * readings is right in both directions, and it is the honest one — cropping a frame
+ * only ever takes a dimension away, so neither reading can overstate what the file is.
+ */
+const HEIGHT_BANDS: { minHeight: number; label: string }[] = [
 	{ minHeight: 1700, label: '2160p' },
 	{ minHeight: 900, label: '1080p' },
 	{ minHeight: 650, label: '720p' },
@@ -138,13 +166,30 @@ export interface QualityComparison {
  */
 @Injectable()
 export class QualityService {
-	/** `2160p`, `1080p`… or null when the height is unknown or nonsense. */
-	public resolutionLabel(height: number | null): string | null {
-		if (height === null || !Number.isFinite(height) || height <= 0) {
+	/**
+	 * `2160p`, `1080p`… or null when neither dimension is known or either is nonsense.
+	 *
+	 * The width decides, and the height is only consulted for a file whose width nobody
+	 * reported — see the two tables above and what reading the height alone cost.
+	 */
+	public resolutionLabel(height: number | null, width: number | null = null): string | null {
+		const usable = (value: number | null): value is number =>
+			value !== null && Number.isFinite(value) && value > 0;
+
+		const byWidth = usable(width)
+			? RESOLUTION_BANDS.findIndex((band) => width >= band.minWidth)
+			: -1;
+		const byHeight = usable(height)
+			? HEIGHT_BANDS.findIndex((band) => height >= band.minHeight)
+			: -1;
+		const found = [byWidth, byHeight].filter((index) => index >= 0);
+
+		if (found.length === 0) {
 			return null;
 		}
 
-		return RESOLUTION_BANDS.find((band) => height >= band.minHeight)?.label ?? null;
+		// Both tables are ordered best first, so the lower index is the better reading.
+		return RESOLUTION_BANDS[Math.min(...found)].label;
 	}
 
 	public normalizeVideoCodec(codec: string | null): string | null {
@@ -253,7 +298,7 @@ export class QualityService {
 	/** One file as a variant of one, which is what the grouping is built from. */
 	public describe(file: MediaFileInfo): QualityVariant {
 		const videoCodec = this.normalizeVideoCodec(file.videoCodec);
-		const resolution = this.resolutionLabel(file.height);
+		const resolution = this.resolutionLabel(file.height, file.width);
 		const hdr = this._detectHdr(file);
 		const audioCodec = this.normalizeAudioCodec(file.audioCodec);
 		const audioChannels = this._detectChannels(file);
@@ -295,8 +340,8 @@ export class QualityService {
 
 		const candidateHeight = candidate.height ?? 0;
 		const currentHeight = current.height ?? 0;
-		const candidateResolution = this.resolutionLabel(candidate.height);
-		const currentResolution = this.resolutionLabel(current.height);
+		const candidateResolution = this.resolutionLabel(candidate.height, candidate.width);
+		const currentResolution = this.resolutionLabel(current.height, current.width);
 
 		if (candidateResolution !== currentResolution && (candidateHeight || currentHeight)) {
 			const order = candidateHeight - currentHeight;

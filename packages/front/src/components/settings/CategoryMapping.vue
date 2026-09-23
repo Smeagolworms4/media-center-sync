@@ -144,19 +144,62 @@
 	 * list somebody consults reads as a fault in the gateway rather than as a fact
 	 * about the server it sits on.
 	 */
-	const destinationItems = computed(() => [
-		...props.destinations.map(one => ({
+	function entryFor (one: DestinationLibrary) {
+		return {
 			value: one.id,
 			title: one.name,
+			// The path, always, because that is what the answer actually means: two
+			// libraries of one service can carry the same name, and the folder is the
+			// thing somebody recognises from their own disk.
 			subtitle: one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
-		})),
-		...props.rejected.map(one => ({
-			value: one.id,
-			title: one.name,
-			subtitle: `${one.serviceName} · ${t(`settings.destination.rejected.${one.reason}`)}`,
-			props: { disabled: true },
-		})),
-	]);
+		};
+	}
+
+	/**
+	 * The folders this category can be sent to, and only those.
+	 *
+	 * The list used to be every writable library on the gateway, in whatever order they
+	 * arrived, for every row — so the line for `Animes - Films` offered `Musique` and
+	 * `Series TV`. A menu that ignores the line it sits on reads as meaningless because
+	 * it is, and nobody wants a category filed into a different category: a shelf named
+	 * `Animes` exists precisely so that what belongs there goes there.
+	 *
+	 * So the choice is narrowed to the libraries this category is made of, which is
+	 * where the question actually is — a category built from two libraries on two disks
+	 * has to say which of the two receives what arrives, and nothing else on this screen
+	 * asks that.
+	 *
+	 * A library of this category the gateway cannot write into stays in the menu,
+	 * disabled, with the reason. Choosing one would queue transfers onto a disk nothing
+	 * can write to and nothing anywhere would report it — but dropping the name sends
+	 * somebody hunting for a fault in the gateway rather than finding a fact about their
+	 * server.
+	 */
+	function destinationItemsFor (category: MediaCategory): unknown[] {
+		/*
+		 * Whatever this category already points at stays in the menu, even when it is a
+		 * library of some other shelf.
+		 *
+		 * Narrowing the list without this would hide an answer somebody had already
+		 * given: the select would render blank over a setting that is still in force, so
+		 * the screen would say "nothing chosen" about a category that does have a
+		 * destination — and the only way to find out would be to read the database.
+		 * Offering it is also what lets them change their mind rather than only clear it.
+		 */
+		const chosen = targets.value[category.key] ?? null;
+		const own = new Set(category.libraryIds);
+		const keeps = (id: string): boolean => own.has(id) || id === chosen;
+
+		return [
+			...props.destinations.filter(one => keeps(one.id)).map(one => entryFor(one)),
+			...props.rejected.filter(one => keeps(one.id)).map(one => ({
+				value: one.id,
+				title: one.name,
+				subtitle: `${one.serviceName} · ${t(`settings.destination.rejected.${one.reason}`)}`,
+				props: { disabled: true },
+			})),
+		];
+	}
 
 	/**
 	 * Replaced rather than mutated in place.
@@ -545,7 +588,7 @@
 							item-props
 							item-title="title"
 							item-value="value"
-							:items="destinationItems"
+							:items="destinationItemsFor(category)"
 							:label="$t('settings.destination.target_header')"
 							:model-value="targets[category.key] ?? null"
 							@update:model-value="choose(category.key, $event)"

@@ -1068,6 +1068,67 @@ describe('PeerManager', () => {
 		});
 	});
 
+	describe('where a friend reaches us', () => {
+		/*
+		 * The peers screen told the owner nobody could reach him while the settings
+		 * screen held his address, because the two read different things: the banner
+		 * consulted an environment variable and the setting was only ever used by
+		 * invitations and notifications. A setting somebody fills in and one screen
+		 * ignores is worse than no setting.
+		 */
+		it('takes the address from the setting somebody filled in', async () => {
+			const { manager, fakes } = build();
+
+			fakes.settings.getValue.mockResolvedValue('https://paire.example.org');
+
+			await manager.identity();
+
+			expect(fakes.links.identity).toHaveBeenCalledWith(
+				expect.any(String),
+				'paire.example.org:443',
+			);
+		});
+
+		it('implies the port from the scheme, and keeps one that was written', async () => {
+			const { manager, fakes } = build();
+
+			fakes.settings.getValue.mockResolvedValue('http://box.example.org');
+			await manager.identity();
+			expect(fakes.links.identity).toHaveBeenCalledWith(expect.any(String), 'box.example.org:80');
+
+			fakes.settings.getValue.mockResolvedValue('https://box.example.org:8443');
+			await manager.identity();
+			expect(fakes.links.identity).toHaveBeenCalledWith(
+				expect.any(String),
+				'box.example.org:8443',
+			);
+		});
+
+		it('passes through a host and port somebody typed as such', async () => {
+			// Refusing it would be correcting a person who was right.
+			const { manager, fakes } = build();
+
+			fakes.settings.getValue.mockResolvedValue('home.example.org:7443');
+
+			await manager.identity();
+
+			expect(fakes.links.identity).toHaveBeenCalledWith(
+				expect.any(String),
+				'home.example.org:7443',
+			);
+		});
+
+		it('says nothing when the setting is empty, leaving the environment to answer', async () => {
+			const { manager, fakes } = build();
+
+			fakes.settings.getValue.mockResolvedValue(null);
+
+			await manager.identity();
+
+			expect(fakes.links.identity).toHaveBeenCalledWith(expect.any(String), null);
+		});
+	});
+
 	describe('invitations', () => {
 		it('stores the hash of the secret and never the secret', async () => {
 			const { manager, fakes } = build();

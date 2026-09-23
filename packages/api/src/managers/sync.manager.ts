@@ -1964,7 +1964,25 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			return false;
 		}
 
-		if (local !== null && !(filter.replaceOutdated === true && state === SyncState.OUTDATED)) {
+		/*
+		 * Already here, so an automatic run leaves it alone — and a person who named this
+		 * copy does not.
+		 *
+		 * The rule is right for a plan: one that re-fetched every film beside a copy of
+		 * it would fill a disk every night. It was wrong for the fetch button on a source
+		 * row, where naming the copy *is* the decision. The owner pressed it on a 4K copy
+		 * of a film he held in 1080p and got a run that planned nothing, finished in no
+		 * time and said nothing — see `SyncFilter.includeHeld`.
+		 *
+		 * Keeping both rather than replacing is deliberate and is what he asked for: the
+		 * new copy lands beside the old one, renamed by `disambiguate`, which is what
+		 * every media server knows how to present as two versions of one film.
+		 */
+		if (
+			local !== null
+			&& filter.includeHeld !== true
+			&& !(filter.replaceOutdated === true && state === SyncState.OUTDATED)
+		) {
 			return false;
 		}
 

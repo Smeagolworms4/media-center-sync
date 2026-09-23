@@ -266,7 +266,52 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 * better to know that before wondering why it is slow.
 	 */
 	public async identity(): Promise<PeerIdentity> {
-		return this._links.identity(await this._instanceName());
+		return this._links.identity(await this._instanceName(), await this._directAddress());
+	}
+
+	/**
+	 * Where a friend reaches this gateway, as a host and a port.
+	 *
+	 * Derived from the public address on the settings screen rather than asked for a
+	 * second time. That setting is already what an invitation carries and what a
+	 * notification links to, and a household that has filled it in has answered this
+	 * question — being told on another screen that nobody can reach them is the setting
+	 * being ignored, not a fact about their network.
+	 *
+	 * It is written as a URL there and wanted as `host:port` here, so the port is taken
+	 * from the address or implied by its scheme. A value that is not a URL at all is
+	 * passed through untouched: somebody who typed `home.example.org:8443` meant exactly
+	 * that, and refusing it would be correcting a person who was right.
+	 *
+	 * `PEER_PUBLIC_ADDRESS` stays underneath, for a gateway configured before the
+	 * setting existed. Null when neither says anything, which is what makes the peers
+	 * screen say a gateway is reachable only through a friend.
+	 */
+	private async _directAddress(): Promise<string | null> {
+		const configured = (await this._settings.getValue('publicUrl')) ?? '';
+
+		if (configured === '') {
+			return null;
+		}
+
+		/*
+		 * Only what announces a scheme is parsed as a URL, and that test is not
+		 * decoration. `new URL('home.example.org:7443')` does not throw: it reads the
+		 * host as a scheme and `7443` as a path, so a host and port somebody typed by
+		 * hand would come back as the nonsense `:443` with the host gone.
+		 */
+		if (!/^https?:\/\//i.test(configured)) {
+			return configured;
+		}
+
+		try {
+			const url = new URL(configured);
+			const port = url.port === '' ? (url.protocol === 'http:' ? '80' : '443') : url.port;
+
+			return `${url.hostname}:${port}`;
+		} catch {
+			return configured;
+		}
 	}
 
 	/**
