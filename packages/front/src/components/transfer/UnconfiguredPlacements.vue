@@ -27,7 +27,7 @@
 	});
 
 	defineEmits<{
-		move: [transferId: string, libraryId: string];
+		move: [transferId: string, libraryId: string, folder: string | null];
 		remember: [categoryKey: string, libraryId: string];
 	}>();
 
@@ -132,7 +132,7 @@
 					:category-name="item.categoryName"
 					:destinations="destinations"
 					:loading="loading"
-					@move="libraryId => $emit('move', item.transferId, libraryId)"
+					@move="(libraryId, folder) => $emit('move', item.transferId, libraryId, folder)"
 					@remember="libraryId => item.categoryKey && $emit('remember', item.categoryKey, libraryId)"
 				/>
 			</div>

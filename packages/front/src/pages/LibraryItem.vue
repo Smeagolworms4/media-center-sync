@@ -69,6 +69,13 @@
 	 * file — that is the point of asking — and a dialog that had to look the path back
 	 * up would show nothing for the one second the list is reloading.
 	 */
+	/** What holds other media rather than a file of its own. See `downloadOne`. */
+	const CONTAINER_KINDS = new Set<string>([
+		MediaKind.SERIES,
+		MediaKind.SEASON,
+		MediaKind.COLLECTION,
+	]);
+
 	const removing = ref<MediaGroupSource | null>(null);
 	const erasing = ref(false);
 	const matchesOpen = ref(false);
@@ -259,6 +266,31 @@
 	 * list.
 	 */
 	const downloadOne = tryCallback(async (itemId: string) => {
+		const source = (group.value?.sources ?? []).find(one => one.itemId === itemId) ?? null;
+
+		/*
+		 * A series is a folder, and the planner refuses anything carrying no file — so
+		 * pressing fetch on a show used to answer "a sync has started" and plan nothing.
+		 *
+		 * On a container the button means the whole thing from that server, not only the
+		 * gaps. "What is missing" skips every episode held in a worse version, which is
+		 * precisely the case somebody fetching a show from a better source is trying to
+		 * fix — and it is the same decision as on one file: naming a copy is the answer,
+		 * and both copies are kept rather than one written over the other.
+		 *
+		 * "Fetch what is missing" stays its own button, above, for the other intent.
+		 */
+		if (group.value && CONTAINER_KINDS.has(group.value.kind)) {
+			await syncStore.run({
+				scope: { rootItemIds: [props.itemId] },
+				filter: { includeHeld: true },
+				...(source ? { sourceServiceIds: [source.serviceId] } : {}),
+			});
+			void notify('library.sync_started');
+
+			return;
+		}
+
 		await syncStore.run({
 			scope: { itemIds: [itemId] },
 			// Pressing fetch on one row of the source list is the decision, already

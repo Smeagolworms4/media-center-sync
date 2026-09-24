@@ -612,13 +612,16 @@ describe('pages/Library', () => {
 		const filters = wrapper.findComponent({ name: 'MediaFilters' });
 		filters.vm.$emit('update:states', [SyncState.MISSING]);
 		filters.vm.$emit('update:kind', 'movie');
-		filters.vm.$emit('update:libraryId', 'l2');
+		// The shelf, which is what the wall is built from and what the filter offers.
+		// It used to offer libraries — two servers with a shelf of one name came out as
+		// two identical lines with nothing to tell them apart.
+		filters.vm.$emit('update:categoryKey', 'movies');
 		await settle();
 
 		expect(router.currentRoute.value.query.states).toBe('missing');
 		expect(router.currentRoute.value.query.kind).toBe('movie');
-		expect(router.currentRoute.value.query.libraryId).toBe('l2');
-		// One library chosen is one band, and that band is paginated.
+		expect(router.currentRoute.value.query.category).toBe('movies');
+		// One shelf chosen is one band, and that band is paginated.
 		expect(wrapper.findAll('[data-test="library-section"]')).toHaveLength(1);
 	});
 

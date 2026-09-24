@@ -308,7 +308,8 @@
 			"kind": "Tipo",
 			"state": "Estado",
 			"sort": "Ordenar por",
-			"clear": "Borrar los filtros"
+			"clear": "Borrar los filtros",
+			"category": "Estante"
 		},
 		"sort": {
 			"title": "Título",
@@ -1156,7 +1157,8 @@
 				"default_library": "La biblioteca de este elemento no pertenece a ninguna categoría, así que la biblioteca de destino predeterminada lo aceptó.",
 				"fallback_path": "La biblioteca de este elemento no pertenece a ninguna categoría y no hay biblioteca predeterminada, así que fue a la carpeta de reserva.",
 				"any_writable": "La biblioteca de este elemento no pertenece a ninguna categoría y tampoco había nada más definido: fue a la primera biblioteca que pudo aceptarlo."
-			}
+			},
+			"folder": "Carpeta (su raíz por defecto)"
 		},
 		"chunks": {
 			"title": "Fragmentos",

@@ -434,11 +434,10 @@ export class ServiceManager implements OnApplicationBootstrap {
 	}
 
 	public async libraries(id: string): Promise<Library[]> {
-		await this._require(id);
-
+		const service = await this._require(id);
 		const libraries = await this._libraries.findByService(id);
 
-		return libraries.map(toLibrary);
+		return libraries.map((library) => toLibrary(library, service));
 	}
 
 	/**

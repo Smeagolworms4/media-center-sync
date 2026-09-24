@@ -308,7 +308,8 @@
 			"kind": "Tipo",
 			"state": "Stato",
 			"sort": "Ordina per",
-			"clear": "Azzera i filtri"
+			"clear": "Azzera i filtri",
+			"category": "Scaffale"
 		},
 		"sort": {
 			"title": "Titolo",
@@ -1156,7 +1157,8 @@
 				"default_library": "La libreria di questo elemento non appartiene a nessuna categoria, quindi l'ha preso la libreria di destinazione predefinita.",
 				"fallback_path": "La libreria di questo elemento non appartiene a nessuna categoria e non c'è una libreria predefinita, quindi il file è finito nella cartella di ripiego.",
 				"any_writable": "La libreria di questo elemento non appartiene a nessuna categoria e non era impostato nient'altro: il file è finito nella prima libreria in grado di accoglierlo."
-			}
+			},
+			"folder": "Cartella (la sua radice per impostazione predefinita)"
 		},
 		"chunks": {
 			"title": "Blocchi",

@@ -308,7 +308,8 @@
 			"kind": "Art",
 			"state": "Status",
 			"sort": "Sortieren nach",
-			"clear": "Filter zurücksetzen"
+			"clear": "Filter zurücksetzen",
+			"category": "Regal"
 		},
 		"sort": {
 			"title": "Titel",
@@ -1156,7 +1157,8 @@
 				"default_library": "Die Bibliothek dieses Eintrags gehört zu keiner Kategorie, deshalb hat die Standard-Zielbibliothek sie aufgenommen.",
 				"fallback_path": "Die Bibliothek dieses Eintrags gehört zu keiner Kategorie und es gibt keine Standard-Zielbibliothek, deshalb ging die Datei in den Ausweichordner.",
 				"any_writable": "Die Bibliothek dieses Eintrags gehört zu keiner Kategorie, und sonst war nichts festgelegt — die Datei ging in die erste Bibliothek, die sie aufnehmen konnte."
-			}
+			},
+			"folder": "Ordner (standardmäßig sein Stammverzeichnis)"
 		},
 		"chunks": {
 			"title": "Blöcke",

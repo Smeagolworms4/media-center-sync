@@ -558,15 +558,15 @@
 		<v-card class="library_toolbar mb-5" variant="tonal">
 			<v-card-text class="py-3">
 				<MediaFilters
+					v-model:category-key="category"
 					v-model:direction="direction"
 					v-model:kind="kind"
-					v-model:library-id="libraryId"
 					v-model:origins="origins"
 					v-model:search="search"
 					v-model:service-ids="serviceIds"
 					v-model:sort="sort"
 					v-model:states="states"
-					:libraries="librariesStore.libraries"
+					:categories="librariesStore.orderedCategories"
 					:loading="mediaStore.groupsLoading"
 					:services="servicesStore.services"
 					:sortable="focused"

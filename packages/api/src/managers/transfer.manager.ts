@@ -45,6 +45,7 @@ import {
 	SettingsService,
 	TransferEngineService,
 	VerificationService,
+	derivedLocalRoots,
 	isInside,
 } from '@/services';
 import { LandingManager } from './landing.manager';
@@ -530,7 +531,8 @@ export class TransferManager implements OnApplicationBootstrap {
 	): Promise<Transfer> {
 		const transfer = await this._require(id);
 		const library = await this._requireDestination(request.libraryId);
-		const path = await this._destinationPath(transfer, library);
+		const folder = await this._requireFolder(library, request.folder ?? null);
+		const path = await this._destinationPath(transfer, library, folder);
 
 		if (path === resolve(transfer.targetPath) && transfer.targetLibraryId === library.id) {
 			// The destination already in force. Answering the transfer unchanged beats
@@ -727,9 +729,45 @@ export class TransferManager implements OnApplicationBootstrap {
 	 * folders on the way out. Only a file that sits under neither falls back to its own
 	 * name, and then there is genuinely nothing to preserve.
 	 */
+	/**
+	 * The folder somebody chose, once it is shown to be inside the library they chose.
+	 *
+	 * Refused otherwise, and that refusal is the whole reason a folder can be named at
+	 * all: a directory under a root the service declared is a directory that service
+	 * scans, while a path somebody typed can be anywhere — and a file written where no
+	 * server looks is a transfer that reports success and produces nothing.
+	 *
+	 * A folder that does not exist yet is accepted. Nothing is created here: the
+	 * directory appears when the bytes are written, so a redirection somebody changes
+	 * their mind about leaves no empty folders behind.
+	 */
+	private async _requireFolder(
+		library: LibraryEntity,
+		folder: string | null,
+	): Promise<string | null> {
+		if (folder === null || folder.trim() === '') {
+			return null;
+		}
+
+		const chosen = resolve(folder.trim());
+		const service = await this._services.findOne({ where: { id: library.serviceId } });
+		// A service with no mappings declared yet answers with nothing, and the library's
+		// own path is then the only root there is — which is what it was before a library
+		// could have several.
+		const roots = service?.rootMappings ? derivedLocalRoots(library.paths ?? [], service) : [];
+		const reachable = roots.length > 0 ? roots : [library.localPath].filter(Boolean);
+
+		if (!(reachable as string[]).some((root) => isInside(chosen, resolve(root)))) {
+			throw new ConflictException(ErrorKey.TRANSFER_DESTINATION_INVALID);
+		}
+
+		return chosen;
+	}
+
 	private async _destinationPath(
 		transfer: TransferEntity,
 		library: LibraryEntity,
+		folder: string | null = null,
 	): Promise<string> {
 		const current = resolve(transfer.targetPath);
 		const previous =
@@ -746,7 +784,10 @@ export class TransferManager implements OnApplicationBootstrap {
 		const root = roots.find((candidate) => isInside(current, candidate)) ?? null;
 		const inside = root === null ? basename(current) : relative(root, current);
 
-		return join(resolve(library.localPath as string), inside);
+		// The chosen folder replaces the root and nothing else: the layout below it is
+		// kept, so a show still lands under its own folder and its season rather than
+		// as a bare file in whatever directory somebody picked.
+		return join(folder ?? resolve(library.localPath as string), inside);
 	}
 
 	/** Saves a state change and pushes it, so a long move is visible while it runs. */

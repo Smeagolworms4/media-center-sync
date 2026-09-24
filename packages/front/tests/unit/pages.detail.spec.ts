@@ -218,6 +218,9 @@ describe('pages/LibraryItem', () => {
 	 */
 	it('fetches the exact copy a row names, and leaves the button above it alone', async () => {
 		const twoVersions = mediaGroup({
+			// A film, because a container has no file of its own and its fetch button
+			// means something else entirely — see the show case below.
+			kind: MediaKind.MOVIE,
 			sources: [
 				{
 					itemId: 'copy-theatrical',
@@ -347,6 +350,61 @@ describe('pages/LibraryItem', () => {
 
 		expect(wrapper.find('[data-test="item-sync"]').exists()).toBe(false);
 		expect(wrapper.find('[data-test="group-source-download"]').exists()).toBe(false);
+	});
+
+	it('fetches a whole show from the server the row names, rather than planning nothing', async () => {
+		/*
+		 * A series is a folder and the planner refuses anything carrying no file, so
+		 * pressing fetch on a show answered "a sync has started" and planned nothing —
+		 * the owner watched it happen on Spartacus.
+		 *
+		 * The whole show and not only its gaps: "what is missing" skips every episode
+		 * held in a worse version, which is what somebody fetching a show from a better
+		 * source is trying to fix. "Fetch what is missing" is its own button for the
+		 * other intent.
+		 */
+		const show = mediaGroup({
+			kind: MediaKind.SERIES,
+			sources: [
+				{
+					itemId: 'copy-theirs',
+					serviceId: 's2',
+					serviceName: 'plex',
+					serviceType: MediaServiceType.PLEX,
+					shared: false,
+					filesMounted: false,
+					peerId: null,
+					peerName: null,
+					quality: null,
+					companions: null,
+					bytes: null,
+					versionId: null,
+					edition: null,
+					local: false,
+					path: null,
+					sync: SyncState.MISSING,
+				},
+			],
+			versions: [],
+		});
+
+		const stub = stubFetchRoutes({ ...routes, '/api/media/groups/m1': { body: show } });
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="group-source-download"]').trigger('click');
+		await settle();
+
+		const run = stub.mock.calls.find(call => String(call[0]).includes('/api/sync/run'));
+
+		expect(JSON.parse(String(run?.[1]?.body))).toMatchObject({
+			scope: { rootItemIds: ['m1'] },
+			filter: { includeHeld: true },
+			sourceServiceIds: ['s2'],
+		});
 	});
 
 	it('names the file before erasing it, and only erases once somebody agrees', async () => {

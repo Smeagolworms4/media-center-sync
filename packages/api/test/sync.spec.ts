@@ -675,9 +675,12 @@ describe('Syncing', () => {
 			await patchSettings({ categoryTargets: {} }).expect(200);
 		});
 
-		it('refuses a destination that is not a library identifier, naming the field', async () => {
+		it('refuses a destination that is neither an identifier nor a path', async () => {
+			// A path is an answer now — one of a library's own roots, since a library can
+			// be several directories. Anything that is neither is still refused here
+			// rather than stored and quietly ignored.
 			const refused = await patchSettings({
-				categoryTargets: { 'their-shows': '/mnt/nas/anime' },
+				categoryTargets: { 'their-shows': 'somewhere' },
 			}).expect(400);
 
 			expect(refused.body).toMatchObject({

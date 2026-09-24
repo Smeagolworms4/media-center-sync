@@ -77,6 +77,7 @@ import {
 	SettingsService,
 	TransferEngineService,
 	applyCeilings,
+	derivedLocalRoots,
 	editionOf,
 	needsAcknowledgement,
 	refusesRun,
@@ -2044,6 +2045,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	private async _placementLibraries(): Promise<PlacementLibrary[]> {
 		const local = await this._services.findLocal();
 		const libraries = await this._libraries.findByServices(local.map((service) => service.id));
+		const byService = new Map(local.map((one) => [one.id, one]));
 		/*
 		 * The shelf each library sits on, so a media can land on the one it came from
 		 * without anybody having configured a thing. Read through the library manager
@@ -2052,15 +2054,22 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		 */
 		const categoryKeys = await this._libraryManager.categoryKeysByLibrary();
 
-		return libraries.map((library: LibraryEntity) => ({
-			id: library.id,
-			name: library.name,
-			kind: library.kind,
-			localPath: library.localPath,
-			writable: library.writable,
-			isDefaultTarget: library.isDefaultTarget,
-			categoryKey: categoryKeys.get(library.id) ?? null,
-		}));
+		return libraries.map((library: LibraryEntity) => {
+			const service = byService.get(library.serviceId);
+
+			return {
+				id: library.id,
+				name: library.name,
+				kind: library.kind,
+				localPath: library.localPath,
+				writable: library.writable,
+				isDefaultTarget: library.isDefaultTarget,
+				categoryKey: categoryKeys.get(library.id) ?? null,
+				// Every directory of this library on our disk, so a destination naming one
+				// of them resolves back to the library that declares it.
+				localRoots: service ? derivedLocalRoots(library.paths, service) : [],
+			};
+		});
 	}
 
 	private async _reschedule(): Promise<void> {

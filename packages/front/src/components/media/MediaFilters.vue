@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { Library, MediaOrigin, MediaService } from '@mcs/shared';
+	import type { MediaCategory, MediaOrigin, MediaService } from '@mcs/shared';
 	import { MediaKind, SyncState } from '@mcs/shared';
 	import { computed } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -19,13 +19,20 @@
 	 * is not. The API intersects them, so naming a friend's server and ticking
 	 * *friends* narrows rather than contradicts.
 	 *
-	 * The library select stays, and it is not the category filter: the wall is built
-	 * from categories, while one library is the diagnostic question — which of the
-	 * two servers that both call it `Shows` is this title actually on.
+	 * The shelf select offers **categories**, which are the names on the wall. It used
+	 * to offer libraries, on the argument that one library answers the diagnostic
+	 * question — which of the two servers that both call it `Shows` is this title on.
+	 * That question is real, and the control could not ask it: two libraries of one name
+	 * came out as two identical lines with nothing to tell them apart, so the owner read
+	 * `Emission TV` beside `Émissions TV` and `Films` twice and could only guess. A
+	 * filter that offers a name the screen never shows is a filter nobody can use, and
+	 * the diagnostic belongs on the media's own page, where each copy is named with the
+	 * server holding it.
 	 */
 	const props = withDefaults(defineProps<{
 		services?: MediaService[];
-		libraries?: Library[];
+		/** The merged shelves, which are what the wall is built from. */
+		categories?: MediaCategory[];
 		loading?: boolean;
 		/**
 		 * Off on the overview, where every band is already the latest additions of its
@@ -34,7 +41,7 @@
 		sortable?: boolean;
 	}>(), {
 		services: () => [],
-		libraries: () => [],
+		categories: () => [],
 		loading: false,
 		sortable: true,
 	});
@@ -45,19 +52,19 @@
 	const search = defineModel<string | null>('search', { default: null });
 	const serviceIds = defineModel<string[] | null>('serviceIds', { default: null });
 	const origins = defineModel<MediaOrigin[] | null>('origins', { default: null });
-	const libraryId = defineModel<string | null>('libraryId', { default: null });
+	const categoryKey = defineModel<string | null>('categoryKey', { default: null });
 	const kind = defineModel<MediaKind | null>('kind', { default: null });
 	const states = defineModel<SyncState[] | null>('states', { default: null });
 	const sort = defineModel<string | null>('sort', { default: null });
 	const direction = defineModel<string | null>('direction', { default: null });
 
 	/**
-	 * Choosing services narrows the libraries: offering the libraries of a service
-	 * nobody is looking at produces a pair of filters that answers nothing.
+	 * Choosing services narrows the shelves: offering a shelf no chosen server holds
+	 * anything on produces a pair of filters that answers nothing.
 	 */
-	const libraryItems = computed(() => (serviceIds.value?.length
-		? props.libraries.filter(one => serviceIds.value!.includes(one.serviceId))
-		: props.libraries));
+	const categoryItems = computed(() => (serviceIds.value?.length
+		? props.categories.filter(one => one.serviceIds.some(id => serviceIds.value!.includes(id)))
+		: props.categories));
 
 	/**
 	 * Items carry their translated title rather than a key rendered in a slot: the
@@ -94,7 +101,7 @@
 		search.value,
 		serviceIds.value?.length,
 		origins.value?.length,
-		libraryId.value,
+		categoryKey.value,
 		kind.value,
 		states.value?.length,
 	].some(Boolean));
@@ -103,15 +110,15 @@
 		search.value = null;
 		serviceIds.value = null;
 		origins.value = null;
-		libraryId.value = null;
+		categoryKey.value = null;
 		kind.value = null;
 		states.value = null;
 	}
 
 	function onServicesChange (): void {
-		// A library of a service nobody is looking at would filter everything out.
-		if (libraryId.value && !libraryItems.value.some(one => one.id === libraryId.value)) {
-			libraryId.value = null;
+		// A shelf no chosen server holds anything on would filter everything out.
+		if (categoryKey.value && !categoryItems.value.some(one => one.key === categoryKey.value)) {
+			categoryKey.value = null;
 		}
 	}
 
@@ -155,15 +162,15 @@
 
 			<v-col cols="12" md="2" sm="6">
 				<v-select
-					v-model="libraryId"
+					v-model="categoryKey"
 					clearable
 					data-test="media-library"
 					density="compact"
 					hide-details
 					item-title="name"
-					item-value="id"
-					:items="libraryItems"
-					:label="$t('media.filter.library')"
+					item-value="key"
+					:items="categoryItems"
+					:label="$t('media.filter.category')"
 				/>
 			</v-col>
 

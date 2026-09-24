@@ -16,6 +16,7 @@ function library (overrides: Partial<Library> = {}): Library {
 		kind: LibraryKind.SHOWS,
 		paths: ['/data/shows'],
 		localPath: '/media/shows',
+		localRoots: ['/media/shows'],
 		writable: true,
 		isDefaultTarget: false,
 		itemCount: 400,

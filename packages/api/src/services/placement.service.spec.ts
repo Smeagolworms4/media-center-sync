@@ -108,6 +108,58 @@ describe('PlacementService', () => {
 		expect(target.libraryId).toBe('lib-movies');
 	});
 
+	it('writes into the root a destination names, not the library’s first', async () => {
+		/*
+		 * A library is not one folder. The owner's `Series TV` is five directories on
+		 * five disks and his `Films` is two, and naming the library named only the first
+		 * — every pull landed there and nothing on any screen said why.
+		 *
+		 * A root the service declared is a directory that server scans, so choosing one
+		 * keeps the guarantee that made this a library rather than a path in the first
+		 * place.
+		 */
+		const target = await service.resolve({
+			kind: MediaKind.MOVIE,
+			settings: settings({ categoryTargets: { films: movies } }),
+			categoryKey: 'films',
+			libraries: [
+				library({
+					id: 'lib-movies',
+					name: 'Films',
+					kind: LibraryKind.MOVIES,
+					localPath: shows,
+					localRoots: [shows, movies],
+				}),
+			],
+			relativeName: 'Casper (1995)/Casper (1995).mkv',
+		});
+
+		expect(target.libraryId).toBe('lib-movies');
+		expect(target.path.startsWith(movies)).toBe(true);
+	});
+
+	it('skips a path no library declares rather than writing into it', async () => {
+		// The difference between a setting that stopped applying and a gateway quietly
+		// filling a folder nothing indexes.
+		const target = await service.resolve({
+			kind: MediaKind.MOVIE,
+			settings: settings({ categoryTargets: { films: '/somewhere/nobody/declared' } }),
+			categoryKey: 'films',
+			libraries: [
+				library({
+					id: 'lib-movies',
+					name: 'Films',
+					kind: LibraryKind.MOVIES,
+					localPath: movies,
+					localRoots: [movies],
+				}),
+			],
+			relativeName: 'Casper (1995)/Casper (1995).mkv',
+		});
+
+		expect(target.path.startsWith(movies)).toBe(true);
+	});
+
 	it('lands a media on the shelf it came from, with nothing configured', async () => {
 		/*
 		 * The owner pulled *Casper* from his `Films` shelf and found it under

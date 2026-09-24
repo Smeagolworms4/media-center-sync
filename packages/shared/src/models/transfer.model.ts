@@ -394,12 +394,29 @@ export interface UnconfiguredPlacement {
 /** Sending a transfer somewhere else, before it lands or after. */
 export interface ChangeDestinationRequest {
 	/**
-	 * A library, never a path.
+	 * Which library receives it, and the answer is never a bare path.
 	 *
 	 * A library is a directory this gateway has probed for write access and one of our
-	 * own media servers is known to scan. A raw path is a string somebody typed, and a
+	 * own media servers is known to scan. A path somebody typed can be anywhere, and a
 	 * file written where no server ever looks is the failure this whole area exists to
 	 * prevent — it reports success and produces nothing.
 	 */
 	libraryId: string;
+	/**
+	 * A folder inside that library, when somebody chose one rather than taking its root.
+	 *
+	 * The reason it is not a free path: it is refused unless it sits inside one of that
+	 * library's own roots, so the guarantee above holds exactly as it did — a directory
+	 * under a root the service declared is a directory that service scans.
+	 *
+	 * Below it the file keeps the layout it already had. A show that was going to
+	 * `The Expanse/Season 1/…` lands at `<chosen>/The Expanse/Season 1/…`, because the
+	 * folders are what a media server groups a series by and flattening them would
+	 * scatter a season.
+	 *
+	 * It may name a folder that does not exist yet. Nothing is created here: the
+	 * directory appears when the bytes are written, so a redirection somebody changes
+	 * their mind about leaves nothing behind.
+	 */
+	folder?: string | null;
 }

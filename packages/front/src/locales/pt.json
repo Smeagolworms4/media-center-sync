@@ -308,7 +308,8 @@
 			"kind": "Tipo",
 			"state": "Estado",
 			"sort": "Ordenar por",
-			"clear": "Limpar os filtros"
+			"clear": "Limpar os filtros",
+			"category": "Prateleira"
 		},
 		"sort": {
 			"title": "Título",
@@ -1156,7 +1157,8 @@
 				"default_library": "A biblioteca deste item não pertence a nenhuma categoria, por isso a biblioteca de destino predefinida recebeu-o.",
 				"fallback_path": "A biblioteca deste item não pertence a nenhuma categoria e não há biblioteca predefinida, por isso foi para a pasta de recurso.",
 				"any_writable": "A biblioteca deste item não pertence a nenhuma categoria e também não havia mais nada definido: foi para a primeira biblioteca que o conseguiu receber."
-			}
+			},
+			"folder": "Pasta (a sua raiz por omissão)"
 		},
 		"chunks": {
 			"title": "Blocos",

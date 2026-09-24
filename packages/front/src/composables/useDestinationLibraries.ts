@@ -99,14 +99,32 @@ export function useDestinationLibraries (): DestinationLibraries {
 		// eslint-disable-next-line unicorn/no-array-sort
 		.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)));
 
+	/*
+	 * One entry per *root*, not per library.
+	 *
+	 * A library is not one folder. A shelf called `Series TV` can be five directories
+	 * on five disks, and offering the library offered only the first of them — every
+	 * pull landed there and nothing said why. So each of a library's own roots is its
+	 * own answer, named by the folder it actually is.
+	 *
+	 * A library the gateway cannot reach has no roots and therefore no entry, which is
+	 * the same rule as before said in the data rather than in a filter: there is nothing
+	 * to offer, not a choice to grey out.
+	 */
 	const destinations = computed<DestinationLibrary[]>(() => sorted.value
 		.filter(one => one.serviceId in ours.value && writable(one))
-		.map(one => ({
-			id: one.id,
-			name: one.alias ?? one.name,
-			serviceName: serviceName(one),
-			path: one.localPath,
-		})));
+		.flatMap(one => {
+			// An older gateway sends no roots at all; its single path is still an answer,
+			// and offering nothing would empty the menu on every one of its libraries.
+			const roots = one.localRoots?.length ? one.localRoots : [one.localPath].filter(Boolean);
+
+			return (roots as string[]).map(path => ({
+				id: one.id,
+				name: one.alias ?? one.name,
+				serviceName: serviceName(one),
+				path,
+			}));
+		}));
 
 	const rejected = computed<RejectedLibrary[]>(() => sorted.value
 		.filter(one => !(one.serviceId in ours.value) || !writable(one))

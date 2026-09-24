@@ -198,9 +198,16 @@ export const useTransfersStore = defineStore('transfers', () => {
 	 * things needing attention that keeps showing what has been dealt with is one
 	 * people stop reading.
 	 */
-	async function setDestination (id: string, libraryId: string): Promise<Transfer> {
+	async function setDestination (
+		id: string,
+		libraryId: string,
+		folder: string | null = null,
+	): Promise<Transfer> {
 		const transfer = await caller('api').post<Transfer>(`/transfers/${id}/destination`, {
 			libraryId,
+			// Left out entirely when nobody chose one, so the API reads "its root" rather
+			// than "a folder called nothing".
+			...(folder ? { folder } : {}),
 		});
 		mergeTransfer(transfer);
 		unconfigured.value = unconfigured.value.filter(one => one.transferId !== id);

@@ -1,5 +1,5 @@
-import { ShareVisibility } from '@mcs/shared';
-import { serviceMode } from '@/services';
+import { ShareVisibility, type RootMapping } from '@mcs/shared';
+import { derivedLocalRoots, serviceMode } from '@/services';
 import type { ServiceConnection } from '@/services';
 import type {
 	Library as LibraryModel,
@@ -138,7 +138,18 @@ export const toNotificationChannel = (
 	updatedAt: channel.updatedAt.toISOString(),
 });
 
-export const toLibrary = (library: Library): LibraryModel => ({
+/**
+ * One library as a screen reads it.
+ *
+ * The service is optional and only ever used to derive `localRoots`, which is the
+ * list of this library's own directories on the gateway's disk. A caller that has the
+ * service passes it; one that has not answers with an empty list rather than with a
+ * guess, and nothing downstream reads an empty list as "one root".
+ */
+export const toLibrary = (
+	library: Library,
+	service?: { rootMappings: readonly RootMapping[] } | null,
+): LibraryModel => ({
 	id: library.id,
 	serviceId: library.serviceId,
 	externalId: library.externalId,
@@ -148,6 +159,7 @@ export const toLibrary = (library: Library): LibraryModel => ({
 	kind: library.kind,
 	paths: library.paths,
 	localPath: library.localPath,
+	localRoots: service ? derivedLocalRoots(library.paths, service) : [],
 	writable: library.writable,
 	isDefaultTarget: library.isDefaultTarget,
 	itemCount: library.itemCount,

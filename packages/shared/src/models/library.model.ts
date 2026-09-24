@@ -56,6 +56,25 @@ export interface Library {
 	kind: LibraryKind;
 	paths: string[];
 	localPath: string | null;
+	/**
+	 * Every root of this library as a path on the gateway's own disk, in the order the
+	 * service reports them.
+	 *
+	 * A library is not one folder. A shelf called `Series TV` can be five directories
+	 * on five disks, and `localPath` names exactly one of them — the first — which is
+	 * where every pull landed and the only one any screen ever offered. Somebody with
+	 * `/media/SeriesTV` through `/media/SeriesTV5` could not say "put this one on the
+	 * fifth", and nothing told them why.
+	 *
+	 * Derived from `paths` through the service's root mappings, so a root the gateway
+	 * cannot reach is simply absent rather than present and broken. Empty for a library
+	 * whose files this gateway does not reach at all.
+	 *
+	 * Optional because a gateway one version behind does not send it, and a screen that
+	 * treated its absence as "no roots" would offer an empty menu on every library of a
+	 * perfectly working server. Absent means "ask `localPath`"; empty means "none".
+	 */
+	localRoots?: string[];
 	writable: boolean;
 	/** Default destination for media pulled into this kind of library. */
 	isDefaultTarget: boolean;

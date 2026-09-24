@@ -473,6 +473,65 @@ describe('TransferManager', () => {
 			expect(saved.state).toBe(TransferState.DOWNLOADING);
 		});
 
+		it('writes into the folder somebody chose, keeping the layout under it', async () => {
+			/*
+			 * A library is not one folder, and redirecting offered only its root — so a
+			 * household with five directories called `Series TV` could put a show on the
+			 * first and nowhere else. The chosen folder replaces the root and nothing
+			 * else: the show keeps its own folder and its season under it, because those
+			 * are what a media server groups a series by.
+			 */
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.transfers.findOne.mockResolvedValue(
+				transfer({
+					state: TransferState.DOWNLOADING,
+					targetPath: '/media/shows/The Expanse/Season 1/S01E02.mkv',
+					targetLibraryId: 'lib-shows',
+				}),
+			);
+
+			await manager.changeDestination('transfer-1', {
+				libraryId: 'lib-anime',
+				folder: '/media/anime/Seasonal',
+			});
+
+			expect((fakes.transfers.save.mock.calls[0][0] as Transfer).targetPath).toBe(
+				'/media/anime/Seasonal/The Expanse/Season 1/S01E02.mkv',
+			);
+		});
+
+		it('refuses a folder outside the library it was asked to go to', async () => {
+			// The guarantee the whole area rests on: a directory under a root the service
+			// declared is a directory that service scans, and a path somebody typed can be
+			// anywhere. A file written where no server looks reports success and produces
+			// nothing.
+			const { manager } = build(TransferState.DOWNLOADING);
+
+			await expect(
+				manager.changeDestination('transfer-1', {
+					libraryId: 'lib-anime',
+					folder: '/somewhere/else',
+				}),
+			).rejects.toThrow(ErrorKey.TRANSFER_DESTINATION_INVALID);
+		});
+
+		it('takes a folder that does not exist yet, and creates nothing', async () => {
+			// It appears when the bytes are written, so a redirection somebody changes
+			// their mind about leaves no empty folders behind.
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			await manager.changeDestination('transfer-1', {
+				libraryId: 'lib-anime',
+				folder: '/media/anime/Nouveau',
+			});
+
+			expect((fakes.transfers.save.mock.calls[0][0] as Transfer).targetPath).toBe(
+				'/media/anime/Nouveau/S01E03.mkv',
+			);
+			expect(fakes.mover.move).not.toHaveBeenCalled();
+		});
+
 		it('keeps the folders the file already sits in, one library over', async () => {
 			const { manager, fakes } = build(TransferState.DOWNLOADING);
 

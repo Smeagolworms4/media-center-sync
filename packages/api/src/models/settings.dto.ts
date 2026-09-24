@@ -95,10 +95,26 @@ const IsCategoryTargets = (): PropertyDecorator => (target, propertyName) => {
 				}
 
 				for (const entry of Object.values(value)) {
-					// A library identifier and not a path: a path can point somewhere no
-					// media server ever scans, which is the failure this whole area
-					// exists to prevent.
-					if (!isLibraryChoice(entry) || entry === null || entry === '') {
+					/*
+					 * A library identifier, or one of that library's own roots.
+					 *
+					 * It was identifiers alone, on the argument that a path can point
+					 * somewhere no media server ever scans — true of a path somebody
+					 * typed, and false of a root the service itself declared. A library is
+					 * not one folder: a shelf called `Series TV` can be five directories on
+					 * five disks, and naming the library named only the first, so every
+					 * pull landed there and nothing said why.
+					 *
+					 * The shape is checked here and the meaning where the libraries are:
+					 * this decorator cannot ask the database whether a path is a root, and
+					 * a rule that accepted any absolute path would be no rule at all. See
+					 * `SettingsService`.
+					 */
+					if (typeof entry !== 'string' || entry === '') {
+						return refuse(propertyName);
+					}
+
+					if (!isUUID(entry, '4') && !entry.startsWith('/')) {
 						return refuse(propertyName);
 					}
 				}
@@ -150,10 +166,11 @@ export class UpdateSettingsDto {
 	 */
 	@ApiPropertyOptional({
 		type: 'object',
-		additionalProperties: { type: 'string', format: 'uuid' },
+		additionalProperties: { type: 'string' },
 		description:
-			'Which library receives a pull, per category: a category key to a library identifier. ' +
-			'A category with no entry falls through to the default target library.',
+			'Where a pull lands, per category: a category key to a library identifier or to one '
+			+ 'of that library’s own roots. A category with no entry falls through to the default '
+			+ 'target library.',
 	})
 	@IsCategoryTargets()
 	public categoryTargets?: Record<string, string>;

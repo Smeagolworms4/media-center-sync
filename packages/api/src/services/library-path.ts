@@ -113,6 +113,39 @@ export const mappedLocalPath = (reported: string, mappings: readonly RootMapping
  * across scans, where picking "the best" would depend on the order the service listed
  * them in.
  */
+/**
+ * Every root of a library the gateway can reach, in the order the service lists them.
+ *
+ * `derivedLocalPath` answers with the first, on the reasoning that a gateway has one
+ * directory to write into. That is true of one transfer and false of the library: a
+ * shelf called `Series TV` can be five directories on five disks, and a household that
+ * wants a show on the fifth had no way to say so and nothing telling them why. The
+ * single answer stays where it is — it is what a scan translates paths with — and this
+ * is what a person is offered when they are choosing.
+ *
+ * A root the mappings cannot answer for is left out rather than guessed at: a rewritten
+ * prefix nobody declared points at a directory nobody chose, which is the failure the
+ * mapping exists to prevent.
+ */
+export const derivedLocalRoots = (
+	reported: readonly string[],
+	service: ServiceRootMappings,
+): string[] => {
+	const roots: string[] = [];
+
+	for (const entry of reported) {
+		const local = mappedLocalPath(entry, service.rootMappings);
+
+		// Distinct, because two reported roots under one mapping can land on the same
+		// directory, and offering the same folder twice reads as a fault in the list.
+		if (local !== null && !roots.includes(local)) {
+			roots.push(local);
+		}
+	}
+
+	return roots;
+};
+
 export const derivedLocalPath = (
 	reported: readonly string[],
 	service: ServiceRootMappings,

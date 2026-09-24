@@ -308,7 +308,8 @@
 			"kind": "Kind",
 			"state": "State",
 			"sort": "Sort by",
-			"clear": "Clear filters"
+			"clear": "Clear filters",
+			"category": "Shelf"
 		},
 		"sort": {
 			"title": "Title",
@@ -1156,7 +1157,8 @@
 				"default_library": "This item's library belongs to no category, so the default destination library took it.",
 				"fallback_path": "This item's library belongs to no category and there is no default destination library, so it went to the fallback folder.",
 				"any_writable": "This item's library belongs to no category, and nothing else was set either, so it went to the first library that could take it."
-			}
+			},
+			"folder": "Folder (its root by default)"
 		},
 		"chunks": {
 			"title": "Pieces",

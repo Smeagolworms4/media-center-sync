@@ -32,7 +32,7 @@ import {
 	ApiTags,
 } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { Granted } from '@/decorators';
 import { TransferManager } from '@/managers';
 
@@ -81,6 +81,16 @@ class ChangeDestinationDto {
 	@ApiProperty()
 	@IsUUID()
 	public libraryId!: string;
+
+	@ApiPropertyOptional({
+		description:
+			'A folder inside that library. Refused unless it sits under one of the library’s own '
+			+ 'roots, and not created here — the directory appears when the bytes are written.',
+	})
+	@IsOptional()
+	@IsString()
+	@MaxLength(1024)
+	public folder?: string | null;
 }
 
 /**

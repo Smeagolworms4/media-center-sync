@@ -110,22 +110,39 @@ function group (overrides: Partial<MediaGroup> = {}): MediaGroup {
 
 describe('components/media/MediaFilters', () => {
 	const libraries = [library({ id: 'l1', serviceId: 's1' }), library({ id: 'l2', serviceId: 's2' })];
+	/*
+	 * Shelves rather than libraries, which is what the wall is built from and what the
+	 * filter now offers. Two libraries of one name are one shelf, so a household with
+	 * `Films` on two servers reads one line here instead of two identical ones with
+	 * nothing to tell them apart.
+	 */
+	const categories = [
+		{
+			key: 'films', name: 'Films', kind: LibraryKind.MOVIES, position: 0,
+			libraryIds: ['l1'], serviceIds: ['s1'], itemCount: 2, local: true,
+		},
+		{
+			key: 'shows', name: 'Shows', kind: LibraryKind.SHOWS, position: 1,
+			libraryIds: ['l2'], serviceIds: ['s2'], itemCount: 4, local: false,
+		},
+	];
 
-	it('offers only the libraries of the services being looked at', () => {
+	it('offers only the shelves the services being looked at hold something on', () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries, serviceIds: ['s1'] },
+			props: { services: [service()], categories, serviceIds: ['s1'] },
 		});
 
-		expect((wrapper.vm as any).libraryItems.map((one: Library) => one.id)).toEqual(['l1']);
+		expect((wrapper.vm as any).categoryItems.map((one: { key: string }) => one.key))
+			.toEqual(['films']);
 	});
 
 	/** Comparing two friends' shelves is the ordinary case, not the exotic one. */
 	it('takes several services at once', () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries, serviceIds: ['s1', 's2'] },
+			props: { services: [service()], categories, serviceIds: ['s1', 's2'] },
 		});
 
-		expect((wrapper.vm as any).libraryItems).toHaveLength(2);
+		expect((wrapper.vm as any).categoryItems).toHaveLength(2);
 	});
 
 	/**
@@ -135,7 +152,7 @@ describe('components/media/MediaFilters', () => {
 	 */
 	it('offers the four origins as something to read, not a select to open', () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries },
+			props: { services: [service()], categories },
 			global: { stubs: tooltipStub },
 		});
 
@@ -160,33 +177,33 @@ describe('components/media/MediaFilters', () => {
 		expect(wrapper.emitted('update:origins')?.at(-1)).toEqual([null]);
 	});
 
-	it('offers every library when no service is chosen', () => {
+	it('offers every shelf when no service is chosen', () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries },
+			props: { services: [service()], categories },
 		});
 
-		expect((wrapper.vm as any).libraryItems).toHaveLength(2);
+		expect((wrapper.vm as any).categoryItems).toHaveLength(2);
 	});
 
-	it('drops the library filter when the services change, or it would filter everything out', async () => {
+	it('drops the shelf filter when the services change, or it would filter everything out', async () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries, serviceIds: ['s2'], libraryId: 'l1' },
+			props: { services: [service()], categories, serviceIds: ['s2'], categoryKey: 'films' },
 		});
 
 		(wrapper.vm as any).onServicesChange();
 
-		expect(wrapper.emitted('update:libraryId')?.at(-1)).toEqual([null]);
+		expect(wrapper.emitted('update:categoryKey')?.at(-1)).toEqual([null]);
 	});
 
-	/** A library still offered by the narrowed list is a filter worth keeping. */
-	it('keeps a library the chosen services still offer', async () => {
+	/** A shelf still offered by the narrowed list is a filter worth keeping. */
+	it('keeps a shelf the chosen services still offer', async () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
-			props: { services: [service()], libraries, serviceIds: ['s1'], libraryId: 'l1' },
+			props: { services: [service()], categories, serviceIds: ['s1'], categoryKey: 'films' },
 		});
 
 		(wrapper.vm as any).onServicesChange();
 
-		expect(wrapper.emitted('update:libraryId')).toBeUndefined();
+		expect(wrapper.emitted('update:categoryKey')).toBeUndefined();
 	});
 
 	/**
@@ -365,11 +382,16 @@ describe('components/media/GroupSources', () => {
 				global: { stubs: tooltipStub },
 			});
 
+			/*
+			 * One button, not two: the theatrical cut is already on our disk, and
+			 * fetching a version we hold would write a second copy of bytes we have.
+			 * Only the extended cut is missing, and it is the one offered.
+			 */
 			const buttons = wrapper.findAll('[data-test="group-source-download"]');
 
-			expect(buttons).toHaveLength(2);
+			expect(buttons).toHaveLength(1);
 
-			await buttons[1].trigger('click');
+			await buttons[0].trigger('click');
 
 			expect(wrapper.emitted('download')?.at(-1)).toEqual(['i-extended']);
 		});
@@ -410,7 +432,8 @@ describe('components/media/GroupSources', () => {
 
 			expect(wrapper.findAll('[data-test="group-source-progress"]')).toHaveLength(1);
 			expect(wrapper.find('[data-test="group-source-progress"]').text()).toContain('50%');
-			expect(wrapper.findAll('[data-test="group-source-download"]')).toHaveLength(1);
+			// And none left to offer: the other version is already on our disk.
+			expect(wrapper.findAll('[data-test="group-source-download"]')).toHaveLength(0);
 		});
 
 		it('offers to erase a copy of ours, naming the copy and not the row', async () => {

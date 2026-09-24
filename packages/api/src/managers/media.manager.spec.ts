@@ -671,10 +671,29 @@ describe('MediaManager', () => {
 			});
 		});
 
-		it('never correlates an item with another row of its own service', async () => {
+		it('correlates two rows of one service, which is how a second cut is found', async () => {
+			/*
+			 * This used to be refused, in two places — here and in the scoring — and
+			 * lifting only one changed nothing, because a candidate dropped here is never
+			 * scored at all.
+			 *
+			 * The owner keeps two cuts of a show on one Jellyfin, `HD - VOST` beside
+			 * `SD`. They were two unrelated series, and filing episodes under the season
+			 * their numbers name then stacked both into the same seasons: forty-eight
+			 * episodes in a season of twenty-four, each of them twice.
+			 */
 			const here = item();
 			const twin = item({ id: 'item-a2', externalId: 'a-5-again' });
 			const { manager, fakes } = build({ items: [here, twin] });
+
+			await manager.correlateService('service-a');
+
+			expect(fakes.matches.upsertPair).toHaveBeenCalled();
+		});
+
+		it('never correlates a row with itself', async () => {
+			const alone = item();
+			const { manager, fakes } = build({ items: [alone] });
 
 			await manager.correlateService('service-a');
 

@@ -340,8 +340,15 @@
 							</span>
 						</div>
 
+						<!--
+							Not for a version already on our disk, however many servers also
+							carry it. Fetching it would write a second copy of bytes we hold,
+							which is the very offer that cost the owner twenty gigabytes — and
+							it only became reachable here once two rows of one server could be
+							related, which is what put a local and a remote copy on one row.
+						-->
 						<v-btn
-							v-else-if="offer.from"
+							v-else-if="offer.from && !offer.heldLocally"
 							data-test="group-source-download"
 							:disabled="disabled"
 							prepend-icon="mdi-download"

@@ -20,6 +20,8 @@ export interface PlacementLibrary {
 	kind: LibraryKind;
 	/** Where the gateway can write. Null means the library is read-only to us. */
 	localPath: string | null;
+	/** Every directory of this library on our disk. See `Library.localRoots`. */
+	localRoots?: string[];
 	writable: boolean;
 	isDefaultTarget: boolean;
 	/**
@@ -502,21 +504,34 @@ export class PlacementService {
 	 * Looked up in the full list rather than in the writable one, because "gone" and
 	 * "read-only" call for different fixes and a filtered list cannot tell them apart.
 	 */
+	/**
+	 * A configured destination, which names either a library or one of its roots.
+	 *
+	 * A path is resolved to the library that declares it as a root, never to whatever
+	 * library happens to contain it: the guarantee this whole area rests on is that a
+	 * pull lands somewhere a media server scans, and a root the service itself declared
+	 * is exactly that. A path no library claims is skipped with its reason rather than
+	 * written to — which is the difference between a setting that stopped applying and a
+	 * gateway quietly filling a folder nothing indexes.
+	 */
 	private _pushConfigured(
 		libraries: PlacementLibrary[],
-		libraryId: string | null,
+		choice: string | null,
 		label: string,
 		attempts: PlacementAttempt[],
 		skipped: string[],
 	): void {
-		if (!libraryId) {
+		if (!choice) {
 			return;
 		}
 
-		const library = libraries.find((candidate) => candidate.id === libraryId);
+		const asRoot = choice.startsWith('/')
+			? libraries.find((candidate) => (candidate.localRoots ?? []).includes(choice))
+			: undefined;
+		const library = asRoot ?? libraries.find((candidate) => candidate.id === choice);
 
 		if (library === undefined) {
-			skipped.push(`${label} no longer exists (${libraryId})`);
+			skipped.push(`${label} no longer exists (${choice})`);
 
 			return;
 		}
@@ -527,7 +542,12 @@ export class PlacementService {
 			return;
 		}
 
-		if (!library.localPath) {
+		// The root that was named when one was, and the library's own otherwise. A
+		// library with several roots had only ever offered the first, which is the whole
+		// reason a choice can name one.
+		const root = asRoot === undefined ? library.localPath : choice;
+
+		if (!root) {
 			skipped.push(`${label}, ${library.name}, has no local path`);
 
 			return;
@@ -535,7 +555,7 @@ export class PlacementService {
 
 		attempts.push({
 			library,
-			root: library.localPath,
+			root,
 			// There is no strategy value for "the library this was configured to go to":
 			// the enum names the three answers somebody picks on the settings screen, and
 			// adding a fourth is a change to a contract the interface is being rebuilt

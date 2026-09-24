@@ -460,7 +460,15 @@ export class MediaManager {
 			...this._sameWorkAs(item, context.byWork),
 			...this._alignedWith(item, context),
 		]) {
-			if (candidate.id !== item.id && candidate.serviceId !== item.serviceId) {
+			/*
+			 * Every row but this one, its own service included.
+			 *
+			 * The second of two refusals — the first was in `MatchingService.correlate` —
+			 * and lifting only that one changed nothing, because a candidate dropped here
+			 * is never scored at all. A household with two cuts of a show on one Jellyfin
+			 * had them as two unrelated series through both.
+			 */
+			if (candidate.id !== item.id) {
 				candidates.set(candidate.id, candidate);
 			}
 		}
@@ -1466,7 +1474,8 @@ export class MediaManager {
 				...(byTitle.get(one.normalizedTitle) ?? []),
 				...this._sameWorkAs(one, context.byWork),
 			]) {
-				if (candidate.id !== one.id && candidate.serviceId !== one.serviceId) {
+				// Its own service included, for the reason the same test gives above.
+				if (candidate.id !== one.id) {
 					candidates.set(candidate.id, candidate);
 				}
 			}

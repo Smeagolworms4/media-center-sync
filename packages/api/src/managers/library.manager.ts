@@ -115,11 +115,18 @@ export class LibraryManager {
 				? await this._libraries.find({ order: { name: 'ASC' } })
 				: await this._libraries.findByService(serviceId);
 
-		return libraries.map(toLibrary);
+		// The services come along because a library's own roots are derived through its
+		// service's mappings, and a screen that offers a destination has to name real
+		// directories rather than the one the scan happens to translate paths with.
+		const services = new Map((await this._services.find()).map((one) => [one.id, one]));
+
+		return libraries.map((library) => toLibrary(library, services.get(library.serviceId)));
 	}
 
 	public async read(id: string): Promise<Library> {
-		return toLibrary(await this._require(id));
+		const library = await this._require(id);
+
+		return toLibrary(library, await this._services.findOne({ where: { id: library.serviceId } }));
 	}
 
 	/**
@@ -188,7 +195,7 @@ export class LibraryManager {
 			await this.refreshMount(saved.serviceId);
 		}
 
-		return toLibrary(saved);
+		return toLibrary(saved, await this._services.findOne({ where: { id: saved.serviceId } }));
 	}
 
 	/**

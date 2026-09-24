@@ -189,8 +189,8 @@
 
 	/** Move this one file. Cheap while it is still downloading, a real move once it landed. */
 	const move = tryCallback(
-		async (transferId: string, libraryId: string) => {
-			await transfersStore.setDestination(transferId, libraryId);
+		async (transferId: string, libraryId: string, folder: string | null = null) => {
+			await transfersStore.setDestination(transferId, libraryId, folder);
 			await notify('transfer.unconfigured.moved');
 		},
 	);

@@ -308,7 +308,8 @@
 			"kind": "Type",
 			"state": "État",
 			"sort": "Trier par",
-			"clear": "Effacer les filtres"
+			"clear": "Effacer les filtres",
+			"category": "Rayon"
 		},
 		"sort": {
 			"title": "Titre",
@@ -1156,7 +1157,8 @@
 				"default_library": "La bibliothèque de cet élément n’appartient à aucune catégorie : la bibliothèque de destination par défaut l’a pris.",
 				"fallback_path": "La bibliothèque de cet élément n’appartient à aucune catégorie et il n’y a pas de bibliothèque par défaut : le fichier est allé dans le dossier de repli.",
 				"any_writable": "La bibliothèque de cet élément n’appartient à aucune catégorie et rien d’autre n’était défini : le fichier est allé dans la première bibliothèque capable de l’accueillir."
-			}
+			},
+			"folder": "Dossier (sa racine par défaut)"
 		},
 		"chunks": {
 			"title": "Morceaux",

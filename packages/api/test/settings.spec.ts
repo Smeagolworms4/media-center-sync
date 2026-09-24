@@ -273,8 +273,26 @@ describe('PATCH /api/settings — where a pull lands', () => {
 		expect(((await read()).body as Settings).defaultTargetLibraryId).toBeNull();
 	});
 
-	it('refuses a destination that is a path, naming the field', async () => {
-		const refused = await patch({ categoryTargets: { animes: '/mnt/nas/anime' } }).expect(400);
+	it('takes a destination that names one of a library’s own roots', async () => {
+		/*
+		 * A library is not one folder. A shelf called `Series TV` can be five
+		 * directories on five disks, and naming the library named only the first — every
+		 * pull landed there and nothing said why. A root the service itself declared is
+		 * a directory that server scans, which is the whole guarantee this area rests on.
+		 *
+		 * Whether the path really is a root is settled where the libraries are, when a
+		 * pull is placed: a path none of them claims is skipped with its reason rather
+		 * than written to. This route validates the shape and stores the answer.
+		 */
+		const saved = await patch({ categoryTargets: { animes: '/share/SeriesTV5' } }).expect(200);
+
+		expect((saved.body as Settings).categoryTargets).toEqual({ animes: '/share/SeriesTV5' });
+
+		await patch({ categoryTargets: {} }).expect(200);
+	});
+
+	it('refuses a destination that is neither an identifier nor a path', async () => {
+		const refused = await patch({ categoryTargets: { animes: 'somewhere' } }).expect(400);
 
 		expect(refused.body).toMatchObject({
 			key: 'error.settings.invalid',

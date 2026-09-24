@@ -2,6 +2,7 @@
 	import type { MediaGroup } from '@mcs/shared';
 	import { SyncState } from '@mcs/shared';
 	import { computed } from 'vue';
+	import ByteSize from '@/components/common/ByteSize.vue';
 	import MediaPoster from '@/components/media/MediaPoster.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SourceMarks from '@/components/media/SourceMarks.vue';
@@ -140,7 +141,26 @@
 				{{ subtitle }}
 			</p>
 
-			<QualityChip class="media-card_quality" :quality="group.quality" size="x-small" />
+			<div class="media-card_marks">
+				<QualityChip :quality="group.quality" size="x-small" />
+
+				<!--
+					How much this holds, which on a season or a show is the number people
+					actually want: the quality chip says what the files are and nothing
+					said how much of the disk they take. Only where it is known and not
+					zero — a season nobody holds has no size, and `0 B` under every missing
+					episode would be noise on most of a library.
+				-->
+				<v-chip
+					v-if="(group.quality?.totalBytes ?? 0) > 0"
+					data-test="media-card-size"
+					label
+					size="x-small"
+					variant="tonal"
+				>
+					<ByteSize :bytes="group.quality!.totalBytes" />
+				</v-chip>
+			</div>
 		</div>
 	</div>
 </template>
@@ -236,6 +256,14 @@
 
 		&_subtitle {
 			margin: 1px 0 0;
+		}
+
+		&_marks {
+			display: flex;
+			align-items: center;
+			flex-wrap: wrap;
+			gap: 4px;
+			margin-top: 6px;
 		}
 
 		&_quality {

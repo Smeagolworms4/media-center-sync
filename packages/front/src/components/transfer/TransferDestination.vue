@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 	import type { DestinationLibrary } from '@/composables/useDestinationLibraries';
-	import { computed, ref } from 'vue';
+	import { computed, ref, watch } from 'vue';
+	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
 
 	/**
 	 * Choosing where one file should go, and what to do with the answer.
@@ -27,11 +28,35 @@
 	});
 
 	const emit = defineEmits<{
-		move: [libraryId: string];
+		move: [libraryId: string, folder: string | null];
 		remember: [libraryId: string];
 	}>();
 
 	const chosen = ref<string | null>(null);
+
+	/**
+	 * The folder inside the chosen library, when somebody wants one.
+	 *
+	 * Empty means its root, which is what the gateway would have picked anyway — so the
+	 * ordinary case costs nobody a decision. It exists because a library is not one
+	 * folder: a shelf can be five directories on five disks, and choosing the library
+	 * chose only the first of them.
+	 *
+	 * A folder that does not exist yet is a perfectly good answer. Nothing is created
+	 * here or when it is typed; the directory appears when the bytes are written, so
+	 * changing one's mind leaves nothing behind.
+	 */
+	const folder = ref<string | null>(null);
+	const browsing = ref(false);
+
+	const rootOf = computed(
+		() => props.destinations.find(one => one.id === chosen.value)?.path ?? null);
+
+	// Cleared with the library, because a folder of the shelf somebody just left would
+	// be refused by the API and read as a bug here.
+	watch(chosen, () => {
+		folder.value = null;
+	});
 
 	const items = computed(() => props.destinations.map(one => ({
 		value: one.id,
@@ -57,6 +82,39 @@
 			:loading="loading"
 		/>
 
+		<!--
+			Only once a library is chosen: a folder without a shelf to sit in is a field
+			that cannot be filled, and browsing from nowhere has nothing to show.
+		-->
+		<div v-if="chosen" class="transfer-destination_folder">
+			<v-text-field
+				v-model="folder"
+				clearable
+				data-test="transfer-destination-folder"
+				density="compact"
+				hide-details
+				:label="$t('transfer.unconfigured.folder')"
+				:placeholder="rootOf ?? ''"
+			>
+				<template #append-inner>
+					<v-btn
+						data-test="transfer-destination-browse"
+						icon="mdi-folder-open-outline"
+						size="small"
+						:title="$t('browse.open')"
+						variant="text"
+						@click="browsing = true"
+					/>
+				</template>
+			</v-text-field>
+
+			<DirectoryPicker
+				v-model="browsing"
+				:path="folder ?? rootOf"
+				@choose="folder = $event"
+			/>
+		</div>
+
 		<div class="transfer-destination_actions">
 			<v-btn
 				data-test="transfer-destination-move"
@@ -64,7 +122,7 @@
 				prepend-icon="mdi-folder-move-outline"
 				size="small"
 				variant="tonal"
-				@click="chosen && emit('move', chosen)"
+				@click="chosen && emit('move', chosen, folder?.trim() || null)"
 			>
 				{{ $t('transfer.unconfigured.move') }}
 			</v-btn>
