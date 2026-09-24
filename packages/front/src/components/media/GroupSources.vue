@@ -158,10 +158,6 @@
 
 	const heldCount = computed(() => offers.value.filter(offer => offer.heldLocally).length);
 
-	function labelOf (offer: SourceOffer): string {
-		return offer.from?.serviceName ?? offer.copies[0]?.serviceName ?? '';
-	}
-
 	const { originOf, describeMediaOrigin } = useMediaOrigin();
 
 	/** Resolved once per source rather than once per binding that reads it. */
@@ -209,11 +205,6 @@
 			? Math.min(100, Math.round((transfer.bytesDone / transfer.bytesTotal) * 100))
 			: 0;
 	}
-
-	/** The copy of this row that sits on a disk we can write to, if there is one. */
-	function ourCopy (offer: SourceOffer): MediaGroupSource | null {
-		return offer.copies.find(one => one.local && one.path !== null) ?? null;
-	}
 </script>
 
 <template>
@@ -244,19 +235,6 @@
 			>
 				<div class="group-sources_row">
 					<span class="group-sources_label">
-						<!--
-							Only when the copy actually carries a state. A row of question
-							marks beside a state the header already gives says nothing, and
-							an older gateway simply does not send this field.
-						-->
-						<SyncStateIcon
-							v-if="offer.copies[0].sync && offer.copies[0].sync !== SyncState.UNKNOWN"
-							:size="16"
-							:state="offer.copies[0].sync"
-						/>
-
-						<span class="group-sources_name">{{ labelOf(offer) }}</span>
-
 						<v-chip
 							v-if="offer.edition"
 							data-test="group-source-edition"
@@ -289,41 +267,16 @@
 							{{ $t('media.version.held') }}
 						</v-chip>
 
-						<!--
-							Only where the copy is not ours: the chip beside it already says
-							so, and two chips saying the same word is noise on every row of
-							a gateway with one server.
-						-->
-						<template v-for="copy of offer.copies" :key="copy.itemId">
-							<v-chip
-								v-if="!copy.local && originOfItem(copy)"
-								:data-origin="originOfItem(copy)!.origin"
-								data-test="group-source-origin"
-								label
-								:prepend-icon="originOfItem(copy)!.icon"
-								size="x-small"
-								variant="outlined"
-							>
-								{{ $t(originOfItem(copy)!.labelKey) }}
-							</v-chip>
-
-							<span v-if="peerNameOf(copy)" class="text-caption text-medium-emphasis">
-								{{ $t('media.source.via_peer', { peer: peerNameOf(copy) }) }}
-							</span>
-						</template>
-
 						<CompanionMarks :companions="offer.copies[0].companions" />
 					</span>
 
 					<!--
-						One action per row, and the state of the copy decides which. A
-						transfer in flight outranks both buttons: offering to fetch
-						something already being fetched is how somebody ends up with two
-						of it.
+						A transfer in flight is the version's, not one copy's: offering to
+						fetch something already being fetched is how somebody ends up with
+						two of it.
 					-->
-					<div class="group-sources_action">
+					<div v-if="transferOf(offer)" class="group-sources_action">
 						<div
-							v-if="transferOf(offer)"
 							class="group-sources_progress"
 							data-test="group-source-progress"
 							:title="$t(`transfer.state.${transferOf(offer)!.state}`)"
@@ -339,41 +292,90 @@
 								{{ percentOf(transferOf(offer)!) }}%
 							</span>
 						</div>
+					</div>
+				</div>
 
+				<!--
+					**One line per copy, ours included.**
+
+					These used to be folded into the line above, which named the server a
+					pull would come from and carried a delete button that acted on a copy
+					the line never mentioned. So the row said `plex-pve` and erasing it
+					erased the file on our own disk — and the copy somebody actually owns,
+					the one they came to this page to find, was not on screen at all.
+
+					Each line now carries the one action that belongs to it: our own copy
+					offers to be erased, a copy somebody else has that we have already
+					fetched says so and offers nothing, and a copy we do not hold offers to
+					be fetched. A copy with nothing to offer is still listed, because "you
+					already have this one" is an answer and an empty list is not.
+				-->
+				<div
+					v-for="copy of offer.copies"
+					:key="copy.itemId"
+					class="group-sources_copy"
+					:data-copy-local="copy.local"
+					data-test="group-source-copy"
+				>
+					<span class="group-sources_label">
 						<!--
-							Not for a version already on our disk, however many servers also
-							carry it. Fetching it would write a second copy of bytes we hold,
-							which is the very offer that cost the owner twenty gigabytes — and
-							it only became reachable here once two rows of one server could be
-							related, which is what put a local and a remote copy on one row.
+							Only when the copy actually carries a state. A row of question
+							marks beside a state the header already gives says nothing, and
+							an older gateway simply does not send this field.
 						-->
-						<v-btn
-							v-else-if="offer.from && !offer.heldLocally"
-							data-test="group-source-download"
-							:disabled="disabled"
-							prepend-icon="mdi-download"
-							size="small"
-							variant="tonal"
-							@click="emit('download', offer.from.itemId)"
-						>
-							{{ $t('media.source.download') }}
-						</v-btn>
+						<SyncStateIcon
+							v-if="copy.sync && copy.sync !== SyncState.UNKNOWN"
+							:path="copy.localPath"
+							:size="16"
+							:state="copy.sync"
+						/>
 
-						<!--
-                            Stated rather than left blank: "you already have this one" is
-                            an answer, and an empty cell reads like something failed to
-                            load.
-                        -->
-						<span
-							v-else-if="!ourCopy(offer)"
-							class="text-caption text-medium-emphasis"
-							data-test="group-source-nothing"
+						<span class="group-sources_name">{{ copy.serviceName }}</span>
+
+						<v-chip
+							v-if="copy.local"
+							data-test="group-source-here"
+							label
+							prepend-icon="mdi-harddisk"
+							size="x-small"
+							variant="outlined"
 						>
-							{{ $t('media.version.nothing_to_pull') }}
+							{{ $t('media.source.here') }}
+						</v-chip>
+
+						<v-chip
+							v-if="!copy.local && originOfItem(copy)"
+							:data-origin="originOfItem(copy)!.origin"
+							data-test="group-source-origin"
+							label
+							:prepend-icon="originOfItem(copy)!.icon"
+							size="x-small"
+							variant="outlined"
+						>
+							{{ $t(originOfItem(copy)!.labelKey) }}
+						</v-chip>
+
+						<span v-if="peerNameOf(copy)" class="text-caption text-medium-emphasis">
+							{{ $t('media.source.via_peer', { peer: peerNameOf(copy) }) }}
 						</span>
 
+						<!--
+							The path, where we have one. The state icon carries it too, and
+							saying it in the open costs a line that answers the question
+							somebody opened the page with.
+						-->
+						<span
+							v-if="copy.localPath"
+							class="group-sources_path text-caption text-medium-emphasis"
+							data-test="group-source-path"
+						>
+							{{ copy.localPath }}
+						</span>
+					</span>
+
+					<div class="group-sources_action">
 						<v-btn
-							v-if="ourCopy(offer) && !transferOf(offer)"
+							v-if="copy.local && copy.path !== null && !transferOf(offer)"
 							color="error"
 							data-test="group-source-delete"
 							:disabled="disabled"
@@ -381,8 +383,47 @@
 							size="small"
 							:title="$t('media.source.delete')"
 							variant="text"
-							@click="emit('remove', ourCopy(offer)!)"
+							@click="emit('remove', copy)"
 						/>
+
+						<!--
+							Fetched already, so there is nothing to press. Said rather than
+							left blank: an empty cell reads like something failed to load,
+							and a download button here would write a second copy of bytes we
+							hold — the offer that cost the owner twenty gigabytes.
+						-->
+						<span
+							v-else-if="!copy.local && offer.heldLocally"
+							class="text-caption text-medium-emphasis"
+							data-test="group-source-downloaded"
+						>
+							{{ $t('media.source.downloaded') }}
+						</span>
+
+						<v-btn
+							v-else-if="!copy.local && !transferOf(offer)"
+							data-test="group-source-download"
+							:disabled="disabled"
+							prepend-icon="mdi-download"
+							size="small"
+							variant="tonal"
+							@click="emit('download', copy.itemId)"
+						>
+							{{ $t('media.source.download') }}
+						</v-btn>
+
+						<!--
+							Ours, and with no file to erase: a show or a season, or a row a
+							scan has not filled in yet. Stated rather than left blank, since
+							an empty cell reads like something failed to load.
+						-->
+						<span
+							v-else-if="copy.local"
+							class="text-caption text-medium-emphasis"
+							data-test="group-source-nothing"
+						>
+							{{ $t('media.version.nothing_to_pull') }}
+						</span>
 					</div>
 				</div>
 			</div>
@@ -415,6 +456,23 @@
 			flex-wrap: wrap;
 			gap: 8px;
 			padding: 4px 0;
+		}
+
+		&_copy {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			gap: 8px;
+			// Indented under the version it belongs to, so the eye reads one thing to
+			// hold with the places it can be had from, rather than a flat list of rows
+			// that all look like the same question.
+			padding: 2px 0 2px 16px;
+		}
+
+		&_path {
+			font-family: monospace;
+			overflow-wrap: anywhere;
 		}
 
 		&_label {

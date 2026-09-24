@@ -258,6 +258,17 @@
 	}
 
 	/**
+	 * Where this media sits on the gateway's own disks.
+	 *
+	 * The first copy that has one, which on a household with one server is the only
+	 * one. A show and a season have no file of their own, so the gateway answers the
+	 * folder every file beneath them shares — which is the thing somebody wants when
+	 * they ask where a series is.
+	 */
+	const localPath = computed(
+		() => (group.value?.sources ?? []).find(one => one.localPath)?.localPath ?? null);
+
+	/**
 	 * Fetch this exact copy, now.
 	 *
 	 * Named by item and never by service: one server can hold two versions of a film,
@@ -443,7 +454,7 @@
 
 					<div class="library-item_meta">
 						<div class="library-item_chips">
-							<SyncStateBadge :state="group.sync" with-label />
+							<SyncStateBadge :path="localPath" :state="group.sync" with-label />
 							<QualityChip :quality="group.quality" />
 
 							<v-chip label size="small" variant="tonal">

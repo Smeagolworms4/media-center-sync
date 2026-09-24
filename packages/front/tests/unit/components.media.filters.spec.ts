@@ -78,6 +78,7 @@ function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 		edition: null,
 		local: true,
 		path: null,
+		localPath: null,
 		sync: SyncState.IN_SYNC,
 		...overrides,
 	};
@@ -484,6 +485,64 @@ describe('components/media/GroupSources', () => {
 			});
 
 			expect(wrapper.find('[data-test="group-source-delete"]').exists()).toBe(false);
+		});
+
+		/**
+		 * The line the owner could not find: his own copy.
+		 *
+		 * A version row used to fold the local and the remote copy together, name itself
+		 * after the server a pull would come from, and carry a delete button that acted
+		 * on a copy the line never mentioned — so the row said `plex-pve` and pressing
+		 * the bin erased the file on his own disk. He asked for both, plainly: the remote
+		 * one marked as already fetched with no button at all, and the delete on his.
+		 */
+		it('lists our copy and the remote one, each with its own action', () => {
+			const { wrapper } = mountWithApp(GroupSources, {
+				props: {
+					sources: [
+						source({
+							itemId: 'i-ours',
+							versionId: 'q1',
+							local: true,
+							serviceName: 'MisaMisa',
+							path: '/media/Shows/S01E02.mkv',
+							localPath: '/share/Shows/S01E02.mkv',
+						}),
+						source({
+							itemId: 'i-theirs',
+							versionId: 'q1',
+							local: false,
+							serviceName: 'plex-pve',
+						}),
+					],
+					versions: [{
+						versionId: 'q1',
+						edition: null,
+						quality: null,
+						bytes: 1024,
+						heldLocally: true,
+						sourceItemIds: ['i-ours', 'i-theirs'],
+					}],
+				},
+				global: { stubs: tooltipStub },
+			});
+
+			const copies = wrapper.findAll('[data-test="group-source-copy"]');
+
+			expect(copies).toHaveLength(2);
+
+			const ours = copies.find(one => one.attributes('data-copy-local') === 'true');
+			const theirs = copies.find(one => one.attributes('data-copy-local') === 'false');
+
+			// The bin is on our copy, where the file it would erase actually is.
+			expect(ours?.find('[data-test="group-source-delete"]').exists()).toBe(true);
+			expect(ours?.text()).toContain('/share/Shows/S01E02.mkv');
+
+			// And the remote one says it has been fetched, with nothing to press: a
+			// download button here writes a second copy of bytes we already hold.
+			expect(theirs?.find('[data-test="group-source-downloaded"]').exists()).toBe(true);
+			expect(theirs?.find('[data-test="group-source-download"]').exists()).toBe(false);
+			expect(theirs?.find('[data-test="group-source-delete"]').exists()).toBe(false);
 		});
 
 		it('offers nothing to pull for a version only we hold', () => {
