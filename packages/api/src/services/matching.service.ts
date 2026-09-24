@@ -623,11 +623,27 @@ export class MatchingService {
 			local.episodeNumber !== null &&
 			remote.episodeNumber !== null;
 
+		/*
+		 * Numbers missing on one side, and an identifier not shown to be this episode's:
+		 * there is nothing here that says these two are the same *episode*.
+		 *
+		 * This used to answer a match at 0.9 — above the threshold, so applied — and the
+		 * reasoning was that a shared identifier plus an unknown coordinate is better
+		 * than nothing. It is worse than nothing, and a real library showed why: a server
+		 * that stamps the show's number onto every episode, against a library where the
+		 * episodes carry no season or episode number at all, pairs every row with the
+		 * first candidate offered. The whole show then reads as held. The owner was told
+		 * he had six seasons he could not see anywhere, and a fetch of the missing ones
+		 * planned nothing.
+		 *
+		 * Nothing is lost by refusing here, because refusing is not the end of the
+		 * question: the chain goes on to the season and episode numbers, to the absolute
+		 * numbering — which is what covers a show published as one continuous run against
+		 * the same show cut into seasons — then to the title and the path. What it stops
+		 * is the identifier alone standing in for evidence it does not carry.
+		 */
 		if (!known) {
-			return {
-				strategy: MatchStrategy.EXTERNAL_ID,
-				confidence: CONFIDENCE.externalIdPartial,
-			};
+			return null;
 		}
 
 		if (

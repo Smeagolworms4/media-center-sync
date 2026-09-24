@@ -262,7 +262,16 @@ describe('MatchingService', () => {
 			expect(service.score(local, remote, options())).toBeNull();
 		});
 
-		it('lowers its confidence when the episode numbers are unknown', () => {
+		/**
+		 * The presumption that told somebody he owned six seasons he could not see.
+		 *
+		 * A shared identifier that was not shown to be the episode's own is the *show's*
+		 * number, and on a library whose episodes carry no season or episode number it
+		 * would otherwise pair every row with the first candidate offered — at 0.9, which
+		 * is above the threshold, so applied and shown as held. A fetch of the missing
+		 * episodes then planned nothing, correctly, from a belief that was false.
+		 */
+		it('refuses an identifier alone when neither side numbers the episode', () => {
 			const local = candidate({ seasonNumber: null, episodeNumber: null });
 			const remote = candidate({
 				id: 'r',
@@ -270,9 +279,26 @@ describe('MatchingService', () => {
 				seasonNumber: null,
 				episodeNumber: null,
 				normalizedTitle: 'unrelated',
+				// A path of its own as well, so nothing further down the chain fires and
+				// the assertion is about the identifier alone.
+				file: file({ path: '/srv/other/Whatever/file.mkv' }),
 			});
 
-			expect(service.score(local, remote, options())?.confidence).toBe(0.9);
+			expect(service.score(local, remote, options())).toBeNull();
+		});
+
+		it('still pairs two unnumbered episodes that agree on their title', () => {
+			// Refusing the identifier is not refusing the pair: the chain goes on, and an
+			// episode title is the distinctive thing a show identifier is not.
+			const local = candidate({ seasonNumber: null, episodeNumber: null });
+			const remote = candidate({
+				id: 'r',
+				serviceId: 's2',
+				seasonNumber: null,
+				episodeNumber: null,
+			});
+
+			expect(service.score(local, remote, options())).not.toBeNull();
 		});
 
 		it('matches season and episode under a parent that is already matched', () => {
