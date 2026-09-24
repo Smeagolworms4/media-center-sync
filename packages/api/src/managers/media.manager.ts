@@ -1292,6 +1292,13 @@ export class MediaManager {
 	 * very next pass if the evidence ever comes back, which is what makes this safe to
 	 * run twice.
 	 *
+	 * It also drops a pair that nothing supports any anymore, which is not the same
+	 * question: two rows can agree on every identifier they carry and still be the same
+	 * *series* rather than the same episode. A rule that stops firing has to take its
+	 * old rows with it, or a correction ships and changes nothing on exactly the
+	 * catalogue that needed it. Only a score of null counts — a pair the rules still
+	 * vouch for at any confidence is a pair, and weakening it is the review's business.
+	 *
 	 * Three things it deliberately does not do. It never revokes a pair where only one
 	 * side carries an identifier: the ordinary house has one library that scrapes and
 	 * one that does not, and absence is not disagreement — see
@@ -1300,6 +1307,19 @@ export class MediaManager {
 	 * this pass happened to look at, because a pair whose two titles no longer meet in
 	 * the title index would otherwise never be re-examined by anybody.
 	 */
+	/** Whether the rules, as they stand now, link these two at all. */
+	private _scoresNothing(
+		mine: MatchCandidate,
+		theirs: MatchCandidate,
+		context: CorrelationContext,
+	): boolean {
+		return this._matching.score(mine, theirs, {
+			threshold: context.threshold,
+			episodeIdentifiers: context.episodeIdentifiers,
+			absolutePairs: context.absolutePairs,
+		}) === null;
+	}
+
 	private async _revokeContradicted(
 		item: MediaItemEntity,
 		context: CorrelationContext,
@@ -1326,13 +1346,37 @@ export class MediaManager {
 				continue;
 			}
 
-			if (!this._matching.contradicted(mine, this._candidate(other, context.peers))) {
+			const theirs = this._candidate(other, context.peers);
+
+			if (this._matching.contradicted(mine, theirs)) {
+				this._logger.warn(
+					`${item.title}: dropping a match with ${other.title}, their identifiers name two different works`,
+				);
+			} else if (this._scoresNothing(mine, theirs, context)) {
+				/*
+				 * Not contradicted, and no longer supported by anything either.
+				 *
+				 * A rule that stops firing has to take its old rows with it, or a
+				 * correction ships and changes nothing on the catalogue that needed it. The
+				 * case that forced this: an episode used to be matched on an identifier
+				 * shared with every other episode of its show, which is now refused — but
+				 * the two sides still name the same *series*, so nothing contradicts them
+				 * and the check above kept every wrong pair. A whole show read as held, a
+				 * re-scan said the same thing, and the only way out was emptying the
+				 * database.
+				 *
+				 * Only a score of null, never a low one. A pair the rules still vouch for
+				 * at any confidence is a pair, and downgrading it is the review's business
+				 * rather than this pass's; a deleted row is re-proposed by the very next
+				 * pass if the evidence comes back, which is what makes it safe to run
+				 * twice.
+				 */
+				this._logger.warn(
+					`${item.title}: dropping a match with ${other.title}, nothing supports it any more`,
+				);
+			} else {
 				continue;
 			}
-
-			this._logger.warn(
-				`${item.title}: dropping a match with ${other.title}, their identifiers name two different works`,
-			);
 
 			await this._matches.delete({ id: match.id });
 			// Struck off the snapshot as well as the table. A pass settles both halves of

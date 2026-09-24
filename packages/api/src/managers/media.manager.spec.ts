@@ -555,6 +555,61 @@ describe('MediaManager', () => {
 				expect(fakes.matches.upsertPair).not.toHaveBeenCalled();
 			});
 
+			/**
+			 * The rule that stopped firing, and the rows it had to take with it.
+			 *
+			 * An episode used to be matched on an identifier shared with every other
+			 * episode of its show. That is refused now — but the two sides still name the
+			 * same *series*, so nothing contradicts them and the check above kept every
+			 * wrong pair. A whole show read as held, a re-scan said the same thing, and
+			 * the only way out was emptying the database.
+			 */
+			it('revokes a pair the rules no longer support at all', async () => {
+				const episode = (overrides: Partial<MediaItem> = {}): MediaItem =>
+					item({
+						kind: MediaKind.EPISODE,
+						title: 'Mine',
+						normalizedTitle: 'mine',
+						// The show's own number, stamped onto the episode — which is what
+						// very many servers do, and what this used to believe.
+						externalIds: { tvdb: '432104' },
+						seasonNumber: null,
+						episodeNumber: null,
+						year: null,
+						file: null,
+						...overrides,
+					} as Partial<MediaItem>);
+
+				const pairs = [
+					match({
+						id: 'match-series-id',
+						localItemId: 'item-a',
+						remoteItemId: 'item-b',
+						strategy: MatchStrategy.EXTERNAL_ID,
+						confidence: 0.9,
+					}),
+				];
+				const { manager, fakes } = build({
+					items: [
+						episode({ id: 'item-a', serviceId: 'service-a' }),
+						episode({
+							id: 'item-b',
+							serviceId: 'service-b',
+							libraryId: 'library-b',
+							externalId: 'b-1',
+							title: 'Theirs',
+							normalizedTitle: 'theirs',
+						}),
+					],
+					matches: pairs,
+				});
+
+				await manager.correlateService('service-a');
+
+				expect(fakes.matches.delete).toHaveBeenCalledWith({ id: 'match-series-id' });
+				expect(pairs).toHaveLength(0);
+			});
+
 			it('upgrades a title guess into proof when the numbers agree', async () => {
 				const { manager, fakes } = build({
 					items: [here({ imdb: 'tt0417299' }), there({ imdb: 'tt0417299' })],
