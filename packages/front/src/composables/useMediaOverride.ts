@@ -1,5 +1,5 @@
-import type { ExternalIds, MediaItem, MediaOverride, MediaReported } from '@mcs/shared';
-import { computed, reactive, type Ref, watch } from 'vue';
+import type { ExternalIds, MediaItem, MediaOverride, MediaReported, ReleasePreference } from '@mcs/shared';
+import { computed, type InjectionKey, reactive, type Ref, watch } from 'vue';
 
 /** The text fields a correction can carry, in the order the dialog shows them. */
 export const OVERRIDE_TEXT_FIELDS = ['title', 'seriesTitle', 'overview'] as const;
@@ -15,8 +15,54 @@ export type OverrideNumberField = typeof OVERRIDE_NUMBER_FIELDS[number];
 export type OverrideIdField = typeof OVERRIDE_ID_FIELDS[number];
 export type OverrideField = OverrideTextField | OverrideNumberField;
 
+/**
+ * How a list row asks the page around it to correct one media.
+ *
+ * Provided by the page that owns the dialog and injected by the rows, rather than
+ * emitted up through them. A card is drawn by `LibrarySection` on the wall and straight
+ * by the media page for its children, so an event would have to be declared and
+ * forwarded by every component in between — one of which is not the dialog's owner and
+ * has no reason to know the feature exists. Injection also keeps there being exactly one
+ * dialog per screen: two hundred posters each carrying their own would be two hundred
+ * forms mounted to open one.
+ *
+ * A row where nothing provides it simply offers no action, which is what the children of
+ * a page that does not own a dialog must do.
+ */
+export const OPEN_OVERRIDE: InjectionKey<(itemId: string) => void> = Symbol('openOverride');
+
+/**
+ * Cancel one media's own search order, leaving the rest of its correction alone.
+ *
+ * The whole instruction is replaced by a `PUT`, so cancelling means sending everything
+ * that is still corrected plus an explicit `null` here. Sending only the null would
+ * withdraw the title, the year and the reclassification along with it — the one press
+ * the owner asked for would quietly undo every other correction on the media.
+ */
+export function withoutReleasePreference (
+	overrides: MediaOverride | null | undefined,
+): MediaOverride {
+	return { ...overrides, releasePreference: null };
+}
+
 export interface OverrideDraft {
 	libraryId: string | null;
+	/**
+	 * This media's own search order, or null when it follows its category's.
+	 *
+	 * Null and an order with no values are two different sentences — see
+	 * `isEmptyReleasePreference` — so the draft holds the difference rather than
+	 * flattening an empty order into "no order".
+	 */
+	releasePreference: ReleasePreference | null;
+	/**
+	 * Carried rather than edited: nothing in the dialog sets this one.
+	 *
+	 * The dialog still has to send it back, because the `PUT` replaces the whole
+	 * instruction — a form that left it out would un-ignore a special every time
+	 * somebody corrected a title on it, which nothing on the screen would explain.
+	 */
+	ignored: boolean;
 	/** Every correctable field as typed, numbers included: an input holds text. */
 	values: Record<OverrideField, string>;
 	/**
@@ -64,12 +110,23 @@ export function reportedOf (item: MediaItem | null): MediaReported | null {
 		seasonNumber: item.seasonNumber,
 		episodeNumber: item.episodeNumber,
 		overview: item.overview,
-		externalIds: item.externalIds,
+		// `?? {}` because a row can legitimately arrive without any identifiers at all —
+		// a media nothing ever matched, a peer's row read from a listing that omits them —
+		// and every reader below indexes this by key. Left undefined it is not an empty
+		// form, it is a page that throws while drawing.
+		externalIds: item.externalIds ?? {},
 	};
 }
 
 function text (value: string | number | null | undefined): string {
 	return value === null || value === undefined ? '' : String(value);
+}
+
+/** A preference the editor can rewrite without touching the item it came from. */
+function clonePreference (preference: ReleasePreference | null): ReleasePreference | null {
+	return preference === null
+		? null
+		: { ranks: preference.ranks.map(rank => ({ dimension: rank.dimension, values: [...rank.values] })) };
 }
 
 /**
@@ -83,6 +140,8 @@ function text (value: string | number | null | undefined): string {
 export function useMediaOverride (item: Ref<MediaItem | null>) {
 	const draft = reactive<OverrideDraft>({
 		libraryId: null,
+		releasePreference: null,
+		ignored: false,
 		values: emptyValues(),
 		cleared: emptyCleared(),
 		externalIds: { tvdb: '', tmdb: '', imdb: '' },
@@ -99,6 +158,12 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		draft.cleared = emptyCleared();
 		draft.externalIds = { tvdb: '', tmdb: '', imdb: '' };
 		draft.libraryId = source?.libraryId ?? null;
+		// Copied rather than referenced: the editor rewrites the ranks in place as
+		// somebody reorders them, and a draft sharing the item's object would change
+		// what the page shows before anything was saved — including the note that says
+		// what the order currently is.
+		draft.releasePreference = clonePreference(source?.overrides?.releasePreference ?? null);
+		draft.ignored = source?.overrides?.ignored === true;
 
 		if (!source || !answer) {
 			return;
@@ -118,7 +183,7 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		}
 
 		for (const key of OVERRIDE_ID_FIELDS) {
-			draft.externalIds[key] = text(source.externalIds[key] ?? answer.externalIds[key]);
+			draft.externalIds[key] = text(source.externalIds?.[key] ?? answer.externalIds[key]);
 		}
 	}
 
@@ -143,6 +208,17 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		draft.cleared = emptyCleared();
 		draft.externalIds = { tvdb: '', tmdb: '', imdb: '' };
 		draft.libraryId = answer?.libraryId ?? item.value?.libraryId ?? null;
+		/*
+		 * The search order goes too, and no media server has an opinion to put back.
+		 *
+		 * "Put back what the service reported" is a statement about the fields a service
+		 * reports, and this is not one of them — its baseline is simply "no order of its
+		 * own", exactly as `ignored`'s is false. Leaving it in force here would make the
+		 * one button that is supposed to undo everything the one that quietly kept a
+		 * setting nobody could then see in the boxes.
+		 */
+		draft.releasePreference = null;
+		draft.ignored = false;
 
 		if (!answer) {
 			return;
@@ -178,6 +254,19 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 	const libraryChanged = computed(
 		() => draft.libraryId !== null && draft.libraryId !== (reported.value?.libraryId ?? null));
 
+	/** The order in force on the media right now, which is what the note reads. */
+	const releasePreference = computed(() => item.value?.overrides?.releasePreference ?? null);
+
+	/**
+	 * Whether the search order is part of this correction, either way round.
+	 *
+	 * Presence and never emptiness: an order with no values is a decision — "order by
+	 * nothing, on purpose" — and comparing on emptiness would make it indistinguishable
+	 * from cancelling.
+	 */
+	const preferenceChanged = computed(
+		() => JSON.stringify(draft.releasePreference) !== JSON.stringify(releasePreference.value));
+
 	/**
 	 * The body of the `PUT`, built field by field.
 	 *
@@ -191,6 +280,28 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 
 		if (libraryChanged.value && draft.libraryId) {
 			body.libraryId = draft.libraryId;
+		}
+
+		/*
+		 * Sent back whether or not this form touched it, because the `PUT` replaces the
+		 * whole instruction rather than patching it.
+		 *
+		 * Neither of these has a reported counterpart to compare with — no media server
+		 * has an opinion about whether an episode counts or about which copy the house
+		 * prefers — so "unchanged" here means "still in force", and leaving it out is how
+		 * correcting a title would silently un-ignore a special or cancel a search order
+		 * set on another screen.
+		 */
+		if (draft.ignored) {
+			body.ignored = true;
+		}
+
+		if (draft.releasePreference !== null) {
+			body.releasePreference = draft.releasePreference;
+		} else if (releasePreference.value !== null) {
+			// Explicitly cancelled rather than merely absent, which is the same
+			// distinction every other field here draws between `null` and missing.
+			body.releasePreference = null;
 		}
 
 		for (const field of OVERRIDE_TEXT_FIELDS) {
@@ -242,6 +353,8 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		hasOverride,
 		correctedFields,
 		libraryChanged,
+		releasePreference,
+		preferenceChanged,
 		reset,
 		fillFromReported,
 		reportedValue,

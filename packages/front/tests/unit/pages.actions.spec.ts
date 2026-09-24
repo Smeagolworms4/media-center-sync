@@ -1176,7 +1176,10 @@ describe('pages/Transfers repairing', () => {
 
 		// Said before the click, because this is the expensive half of the answer.
 		expect(wrapper.find('[data-test="retarget-hint"]').text()).toContain('already landed are moved');
-		expect(wrapper.find('[data-test="retarget-subject"]').text()).toContain('whole run');
+		// "Download" and not "run": a block is one thing being fetched, and its files can
+		// come from several runs — which is exactly what the sentence beside it promises to
+		// move.
+		expect(wrapper.find('[data-test="retarget-subject"]').text()).toContain('whole download');
 	});
 
 	it('says the opposite while the file is still being downloaded', async () => {

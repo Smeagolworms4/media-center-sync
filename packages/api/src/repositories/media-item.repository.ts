@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, In, IsNull, Not, Repository, type SelectQueryBuilder } from 'typeorm';
+import { Brackets, DataSource, In, IsNull, Not, Repository, type SelectQueryBuilder } from 'typeorm';
 import type { MediaGroupQuery, MediaSearchQuery } from '@mcs/shared';
 import { MediaKind, SyncState } from '@mcs/shared';
 import { MediaItem } from '@/entities';
@@ -115,13 +115,42 @@ export interface UnresolvedParent {
 	libraryId: string;
 }
 
+/**
+ * Which JSON values a needle may be built from.
+ *
+ * `%` and `_` are wildcards inside a `LIKE` parameter — bound, so never an injection,
+ * but a value carrying one would silently match more than it named. Rather than agree
+ * an escape character with two dialects for values that are codec names and band
+ * labels, anything outside this alphabet is treated as a value the index cannot hold.
+ */
+const JSON_VALUE = /^[a-z0-9.+-]+$/;
+
 /** A group listing's filter, with the parent addressed as a set of items rather than one. */
 export interface GroupSeedQuery
-	extends Omit<MediaGroupQuery, 'parentId' | 'states' | 'libraryId' | 'origins'> {
+	extends Omit<
+		MediaGroupQuery,
+		'parentId' | 'states' | 'libraryId' | 'origins' | 'followed' | 'actionable'
+	> {
 	/** Resolved from the origins and the service filter before the query is built. */
 	libraryIds?: string[];
 	/** Every item of the parent group, because a series' seasons may live on either. */
 	parentIds?: string[];
+	/**
+	 * Rows a resolved filter keeps outright — see `coveredParentIds` beside it.
+	 *
+	 * Resolved from `followed` before the query is built, because which items a sync
+	 * plan covers is a rule and rules do not live here. An empty list is a filter
+	 * nothing satisfies, like every other list in this query.
+	 */
+	coveredIds?: string[];
+	/**
+	 * Rows a resolved filter keeps because their parent is one of these.
+	 *
+	 * Split from `coveredIds` rather than merged into it so the two directions stay
+	 * different questions: the episodes of a followed season have to come along, while
+	 * a *sibling* season of it does not just because they share a series.
+	 */
+	coveredParentIds?: string[];
 }
 
 @Injectable()
@@ -496,6 +525,18 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			builder.andWhere('item.parentId IN (:...parentIds)', { parentIds: query.parentIds });
 		}
 
+		if (query.coveredIds !== undefined) {
+			MediaItemRepository._covered(builder, query.coveredIds, query.coveredParentIds ?? []);
+		}
+
+		if (query.resolutions !== undefined) {
+			MediaItemRepository._anyVariant(builder, 'resolution', query.resolutions);
+		}
+
+		if (query.videoCodecs !== undefined) {
+			MediaItemRepository._anyVariant(builder, 'videoCodec', query.videoCodecs);
+		}
+
 		if (query.search !== undefined && query.search !== '') {
 			// Against the normalised title, like every other search in the application:
 			// the displayed title would miss `Amelie` typed without its accent.
@@ -581,6 +622,78 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	 */
 	private static _digests(rows: MediaItemDigest[]): MediaItemDigest[] {
 		return rows.map((row) => ({ ...row, ignored: row.ignored === true || Number(row.ignored) === 1 }));
+	}
+
+	/** Rows a resolved coverage filter keeps: named outright, or filed under one that is. */
+	private static _covered(
+		builder: SelectQueryBuilder<MediaItem>,
+		ids: string[],
+		parentIds: string[],
+	): void {
+		if (ids.length === 0 && parentIds.length === 0) {
+			// Nothing is covered, which is a filter nothing satisfies rather than no
+			// filter — the same distinction the service and library lists make above.
+			builder.andWhere('1 = 0');
+
+			return;
+		}
+
+		builder.andWhere(
+			new Brackets((scoped) => {
+				if (ids.length > 0) {
+					scoped.orWhere('item.id IN (:...coveredIds)', { coveredIds: ids });
+				}
+
+				if (parentIds.length > 0) {
+					scoped.orWhere('item.parentId IN (:...coveredParentIds)', {
+						coveredParentIds: parentIds,
+					});
+				}
+			}),
+		);
+	}
+
+	/**
+	 * Rows holding at least one encoding whose `field` is one of these values.
+	 *
+	 * Read off the stored quality summary, which is the whole reason this filter can be
+	 * a `WHERE` at all. `quality` is `simple-json` — text to both engines — and it holds
+	 * the *derived* values: `QualityService` bands the dimensions and folds the codec
+	 * spellings, and a scan writes the result onto every row that has a file anywhere
+	 * beneath it. So a substring naming the key and the whole value is exact, not a
+	 * prefilter: `"resolution":"1080p"` cannot be matched by any other field of that
+	 * blob, and the closing quote stops `x264` matching a longer name that starts with
+	 * it.
+	 *
+	 * Doing it any other way means reading `file` and `quality` for every row in the
+	 * index to drop most of them in JavaScript, which is what the projection this query
+	 * selects exists to avoid.
+	 *
+	 * A row on a shelf nobody has summarised yet matches nothing, which is honest: the
+	 * one thing known about its encoding is that nobody has looked.
+	 */
+	private static _anyVariant(
+		builder: SelectQueryBuilder<MediaItem>,
+		field: 'resolution' | 'videoCodec',
+		values: string[],
+	): void {
+		const usable = values.filter((value) => JSON_VALUE.test(value));
+
+		if (usable.length === 0) {
+			builder.andWhere('1 = 0');
+
+			return;
+		}
+
+		builder.andWhere(
+			new Brackets((any) => {
+				usable.forEach((value, index) => {
+					const name = `${field}${index}`;
+
+					any.orWhere(`item.quality LIKE :${name}`, { [name]: `%"${field}":"${value}"%` });
+				});
+			}),
+		);
 	}
 
 	private _digestQuery(): SelectQueryBuilder<MediaItem> {

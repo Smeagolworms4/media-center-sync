@@ -105,6 +105,29 @@ interface CorrelationContext {
 	settled: Map<string, MediaMatchEntity[]>;
 }
 
+/**
+ * A cancelled search order is an absent one, and the stored instruction must say so.
+ *
+ * `null` at a level means "I have no order of my own here" — `resolveReleasePreference`
+ * chooses a level on presence and never on emptiness — so a blob that kept the key with
+ * a null in it would resolve exactly as an absent key while still counting as a
+ * correction: the dialog would offer to restore an item nobody had corrected, the media
+ * would be labelled as corrected for ever, and every rescan would dutifully re-apply an
+ * instruction that says nothing. Dropping the key is also what lets cancelling the last
+ * correction remove the correction, since an empty instruction is already spelled "none".
+ */
+const withoutCancelledPreference = (override: MediaOverride | null): MediaOverride | null => {
+	if (override === null || override.releasePreference !== null) {
+		return override;
+	}
+
+	const kept = { ...override };
+
+	delete kept.releasePreference;
+
+	return kept;
+};
+
 /** A person's decision about a pair, which no later pass is allowed to overturn. */
 const decidedByHand = (match: MediaMatchEntity): boolean =>
 	match.strategy === MatchStrategy.MANUAL || match.confirmedAt !== null;
@@ -643,11 +666,19 @@ export class MediaManager {
 	 * one's children has been relabelled rather than corrected. Re-correlated because
 	 * renumbering an episode changes what it matches, and leaving that until the next
 	 * scan means the screen that made the correction still shows the old state.
+	 *
+	 * **Nothing here asks whether we hold the media.** A correction is about what the
+	 * index says a thing is, not about where its bytes are, and the case that matters
+	 * most is precisely the one we do not hold: a film seen on a friend's server that
+	 * belongs on the documentaries shelf has to be reclassified *before* it is pulled,
+	 * or the pull lands in the wrong folder and the correction becomes a tidy-up
+	 * afterwards. Refusing a row with no local file would also refuse every row a peer
+	 * reported, which is most of what a gateway with one server can see.
 	 */
 	public async setOverride(id: string, override: MediaOverride | null): Promise<MediaItem> {
 		const item = await this._require(id);
 
-		applyOverride(item, override, normalizeTitle);
+		applyOverride(item, withoutCancelledPreference(override), normalizeTitle);
 
 		const saved = await this._items.save(item);
 

@@ -76,6 +76,38 @@ export class Transfer extends Timestampable {
 	@Column({ type: 'varchar', nullable: true })
 	public placedBy!: PlacedBy | null;
 
+	/**
+	 * The thing somebody pressed download on, which this file is one part of.
+	 *
+	 * A film, a series, a season or an episode — the subtree root the item was reached
+	 * through when the run was planned. The planner has always decided it, in order to
+	 * pin every file of one lot under the same root, but the decision only lived as long
+	 * as the plan did: nothing stored it, so everything downstream had to group on
+	 * `jobId` instead, and that is a different question. A season pulled over three
+	 * nights is one lot and three runs, and grouping on the run showed it as three
+	 * unrelated blocks going to the same folder; a run that named three shows is one run
+	 * and three lots, and grouping on the run fused them into a block nothing could take
+	 * apart.
+	 *
+	 * Not derived on read, either. The lot is a property of the scope the run was
+	 * started with, and walking the parent chain again months later would answer
+	 * differently the moment somebody corrects an episode into another season — the
+	 * files on the disk would not have moved, and the block on screen would split.
+	 *
+	 * Null on rows written before this existed, and never back-filled for that same
+	 * reason. A reader must take null to mean "this transfer is its own lot"; a shared
+	 * null would collapse the whole history of a gateway into one enormous download,
+	 * which is why the column is nullable rather than defaulted to the empty string.
+	 *
+	 * Indexed because it is what the move reads by: redirecting a lot has to find every
+	 * file of it, including the ones an earlier run already landed, and without an index
+	 * that is a scan of every transfer the gateway has ever run.
+	 */
+	@ApiProperty({ nullable: true })
+	@Index()
+	@Column({ type: 'varchar', nullable: true })
+	public lot!: string | null;
+
 	/** Where the pieces accumulate until verification passes. */
 	@ApiProperty()
 	@Column()

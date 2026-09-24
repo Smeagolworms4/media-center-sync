@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsRootMappings } from './media-service.dto';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
 	ArrayMaxSize,
 	ArrayNotEmpty,
@@ -14,12 +16,19 @@ import {
 	MaxLength,
 	Min,
 	registerDecorator,
+	ValidateNested,
 } from 'class-validator';
 import {
+	DownloadClientType,
 	ErrorKey,
+	IndexerType,
 	MAX_PEER_MAX_DEPTH,
+	type ReleasePreferenceSettings,
+	RELEASE_PREFERENCE_DIMENSIONS,
+	type RootMapping,
 	NamingScheme,
 	PlacementStrategy,
+	RequestSourceType,
 	ShareVisibility,
 } from '@mcs/shared';
 
@@ -125,6 +134,163 @@ const IsCategoryTargets = (): PropertyDecorator => (target, propertyName) => {
 	});
 };
 
+/**
+ * How much of a release preference the API will take, and why there is a ceiling.
+ *
+ * The preference is one settings row, read whole on every search, and it arrives from a
+ * browser: without bounds a body carrying a hundred thousand values would be accepted,
+ * written, and then folded value by value against every release of every search for
+ * ever. The numbers are far past a real opinion — nobody ranks forty resolutions, and a
+ * value is a tag off a tracker (`WEB-DL`, `NTb`) rather than a sentence — so anything
+ * beyond them is a mistake or an attack and neither is worth storing.
+ */
+const PREFERENCE_VALUE_MAX = 60;
+const PREFERENCE_VALUES_LIMIT = 40;
+const PREFERENCE_CATEGORY_KEY_MAX = 120;
+const PREFERENCE_CATEGORY_LIMIT = 200;
+
+const PREFERENCE_DIMENSIONS = new Set<string>(RELEASE_PREFERENCE_DIMENSIONS);
+
+/**
+ * One order over dimensions and over the values inside each, or a refusal.
+ *
+ * Empty is accepted twice over, and both are the point rather than an oversight. A
+ * preference with no ranks separates nothing and leaves a search exactly as it arrived,
+ * which is what a gateway nobody has configured must do; and a rank with no values says
+ * "I have no opinion in this dimension", which is how a category silences one the
+ * household order cares about. See `isEmptyReleasePreference` — absent and empty are two
+ * different sentences, and refusing the empty one would make the second unsayable.
+ *
+ * A dimension may appear once. Twice is not a stricter preference but an ambiguous one:
+ * the comparator walks the ranks in order and the second occurrence would be dead
+ * weight, silently ignored, with the screen showing two rows that disagree.
+ *
+ * Keys are checked as well as values, because `whitelist` stops at this property. The
+ * pipe strips what a DTO does not declare, but a custom validator owns the whole subtree
+ * — so anything this function does not refuse is written into the row verbatim and read
+ * back on every search, and no route removes a settings row.
+ */
+const isReleasePreference = (value: unknown): boolean => {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		return false;
+	}
+
+	const keys = Object.keys(value);
+
+	if (keys.some((key) => key !== 'ranks')) {
+		return false;
+	}
+
+	const { ranks } = value as { ranks?: unknown };
+
+	if (!Array.isArray(ranks) || ranks.length > RELEASE_PREFERENCE_DIMENSIONS.length) {
+		return false;
+	}
+
+	const seen = new Set<string>();
+
+	for (const rank of ranks) {
+		if (typeof rank !== 'object' || rank === null || Array.isArray(rank)) {
+			return false;
+		}
+
+		if (Object.keys(rank).some((key) => key !== 'dimension' && key !== 'values')) {
+			return false;
+		}
+
+		const { dimension, values } = rank as { dimension?: unknown; values?: unknown };
+
+		if (typeof dimension !== 'string' || !PREFERENCE_DIMENSIONS.has(dimension)) {
+			return false;
+		}
+
+		if (seen.has(dimension)) {
+			return false;
+		}
+
+		seen.add(dimension);
+
+		if (!Array.isArray(values) || values.length > PREFERENCE_VALUES_LIMIT) {
+			return false;
+		}
+
+		if (values.some((one) => typeof one !== 'string' || one.length > PREFERENCE_VALUE_MAX)) {
+			return false;
+		}
+	}
+
+	return true;
+};
+
+/**
+ * The household order and the per-category ones, in one value.
+ *
+ * Both halves are required, which is the one rule here that is about storage rather than
+ * about taste. The row is replaced wholesale and read back through a shape guard that
+ * only asks whether it is still an object — so a body carrying `global` alone would be
+ * stored, come back with no `byCategory`, and turn the first category lookup of the next
+ * search into a thrown error. There is nothing to merge against either: a table's
+ * entries are removals as much as additions, and cancelling an override *is* the missing
+ * key.
+ *
+ * Keyed like `categoryTargets` and bounded like it, for the same reason: categories are
+ * folded from library names and have no row of their own, so a key is a short identifier
+ * we produced and never a name somebody typed.
+ */
+const IsReleasePreferences = (): PropertyDecorator => (target, propertyName) => {
+	registerDecorator({
+		name: 'isReleasePreferences',
+		target: target.constructor,
+		propertyName: propertyName as string,
+		validator: {
+			validate(value: unknown): boolean {
+				if (value === undefined) {
+					return true;
+				}
+
+				if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+					return refuse(propertyName);
+				}
+
+				if (Object.keys(value).some((key) => key !== 'global' && key !== 'byCategory')) {
+					return refuse(propertyName);
+				}
+
+				const { global, byCategory } = value as {
+					global?: unknown;
+					byCategory?: unknown;
+				};
+
+				if (!isReleasePreference(global)) {
+					return refuse(propertyName);
+				}
+
+				if (typeof byCategory !== 'object' || byCategory === null || Array.isArray(byCategory)) {
+					return refuse(propertyName);
+				}
+
+				const keys = Object.keys(byCategory);
+
+				if (keys.length > PREFERENCE_CATEGORY_LIMIT) {
+					return refuse(propertyName);
+				}
+
+				for (const key of keys) {
+					if (key === '' || key.length > PREFERENCE_CATEGORY_KEY_MAX) {
+						return refuse(propertyName);
+					}
+
+					if (!isReleasePreference((byCategory as Record<string, unknown>)[key])) {
+						return refuse(propertyName);
+					}
+				}
+
+				return true;
+			},
+		},
+	});
+};
+
 /** One library identifier, nothing, or a refusal naming the field. */
 const IsLibraryChoice = (): PropertyDecorator => (target, propertyName) => {
 	registerDecorator({
@@ -146,6 +312,124 @@ const IsLibraryChoice = (): PropertyDecorator => (target, propertyName) => {
  * under a megabyte turns a large file into hundreds of thousands of rows. The
  * interface offers sensible values, and this stops the rest from reaching the engine.
  */
+/**
+ * One indexer, as the settings screen sends it.
+ *
+ * The key is optional on the way in and never sent back out: a form cannot show what
+ * is stored, so an empty box is the ordinary state of somebody editing the address
+ * beside it — taking it literally would silently unauthenticate their indexer.
+ */
+export class IndexerDto {
+	@ApiProperty({ enum: IndexerType })
+	@IsEnum(IndexerType)
+	public type!: IndexerType;
+
+	@ApiProperty({ example: 'http://prowlarr:9696' })
+	@IsString()
+	@MaxLength(500)
+	public baseUrl!: string;
+
+	@ApiPropertyOptional({ description: 'Write-only. Blank keeps the stored key.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public apiKey?: string | null;
+
+	@ApiProperty()
+	@IsBoolean()
+	public enabled!: boolean;
+}
+
+/** One row of the client's path correspondence. The same shape a service uses. */
+class ClientRootMappingDto implements RootMapping {
+	@ApiProperty({ example: '/downloads' })
+	public remoteRoot!: string;
+
+	@ApiProperty({ example: '/share/torrents' })
+	public localRoot!: string;
+}
+
+/** One download client. See `IndexerDto` for why the password is write-only. */
+export class DownloadClientDto {
+	@ApiProperty({ enum: DownloadClientType })
+	@IsEnum(DownloadClientType)
+	public type!: DownloadClientType;
+
+	@ApiProperty({ example: 'http://qbittorrent:8080' })
+	@IsString()
+	@MaxLength(500)
+	public baseUrl!: string;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(200)
+	public username?: string | null;
+
+	@ApiPropertyOptional({ description: 'Write-only. Blank keeps the stored password.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public password?: string | null;
+
+	/**
+	 * Where the client's folders are, for us — the same statement a service makes.
+	 *
+	 * A client in its own container writes to `/downloads` and the gateway reaches the
+	 * same directory at `/share/torrents`, which is word for word what `RootMapping`
+	 * exists for. The same type, the same validator and the same field names, so a
+	 * refusal lands under the input that is wrong exactly as it does on a server.
+	 */
+	@ApiProperty({ type: [ClientRootMappingDto] })
+	// Without it, implicit conversion reads the declared array type and turns every
+	// entry into an array of its own — see `CreateMediaServiceDto.rootMappings`.
+	@Type(() => ClientRootMappingDto)
+	@IsRootMappings()
+	public rootMappings!: RootMapping[];
+
+	@ApiPropertyOptional({
+		description:
+			'Where the client is told to write, in its own spelling. Defaults to the first '
+			+ 'mapping’s remote root, which is what a client already configured needs.',
+	})
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public savePath?: string | null;
+
+	@ApiProperty()
+	@IsBoolean()
+	public enabled!: boolean;
+}
+
+/**
+ * Where the household asks for things. See `IndexerDto` for why the key is write-only.
+ *
+ * Exactly the same convention, deliberately: this is the third secret on one screen, and
+ * a second convention for the same problem is how one of the three ends up cleared by
+ * somebody editing the address beside it.
+ */
+export class RequestSourceDto {
+	@ApiProperty({ enum: RequestSourceType })
+	@IsEnum(RequestSourceType)
+	public type!: RequestSourceType;
+
+	@ApiProperty({ example: 'http://jellyseerr:5055' })
+	@IsString()
+	@MaxLength(500)
+	public baseUrl!: string;
+
+	@ApiPropertyOptional({ description: 'Write-only. Blank keeps the stored key.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(500)
+	public apiKey?: string | null;
+
+	@ApiProperty()
+	@IsBoolean()
+	public enabled!: boolean;
+}
+
 export class UpdateSettingsDto {
 	@ApiPropertyOptional({ enum: PlacementStrategy })
 	@IsOptional()
@@ -211,6 +495,64 @@ export class UpdateSettingsDto {
 	@IsOptional()
 	@IsBoolean()
 	public pullMetadata?: boolean;
+
+	@ApiPropertyOptional({
+		description:
+			'The indexer to search for releases nobody you know holds. The key is write-only: '
+			+ 'leave it blank to keep the stored one.',
+		type: () => IndexerDto,
+	})
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => IndexerDto)
+	public indexer?: IndexerDto | null;
+
+	@ApiPropertyOptional({
+		description:
+			'The torrent client that moves the bytes. The password is write-only, like the '
+			+ 'indexer key.',
+		type: () => DownloadClientDto,
+	})
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => DownloadClientDto)
+	public downloadClient?: DownloadClientDto | null;
+
+	/**
+	 * Declared here or unreachable, like the two above it: the pipe runs with
+	 * `whitelist`, so a key the DTO does not name is stripped before anything sees it.
+	 * The screen would save, the answer would come back without the source, and the only
+	 * symptom would be a request list that stays empty.
+	 */
+	@ApiPropertyOptional({
+		description:
+			'Where the household asks for things — a Seerr, Overseerr or Jellyseerr. The key is '
+			+ 'write-only: leave it blank to keep the stored one.',
+		type: () => RequestSourceDto,
+	})
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => RequestSourceDto)
+	public requestSource?: RequestSourceDto | null;
+
+	/**
+	 * What a better copy is, as an order over dimensions and an order inside each.
+	 *
+	 * Checked by a validator of its own rather than by a nested DTO, for the reason
+	 * `categoryTargets` is: half of the value is a table keyed by a category, which
+	 * `@ValidateNested` cannot describe. The rules it enforces are in
+	 * `IsReleasePreferences`, and the one worth knowing here is that an empty order and
+	 * an empty rank are both accepted — they are answers, not unfinished forms.
+	 */
+	@ApiPropertyOptional({
+		type: 'object',
+		additionalProperties: true,
+		description:
+			'The order releases are offered in: one for the household and one per category. '
+			+ 'Both halves have to be sent, because the row is replaced rather than merged.',
+	})
+	@IsReleasePreferences()
+	public releasePreferences?: ReleasePreferenceSettings;
 
 	@ApiPropertyOptional({
 		description: 'Write an .nfo from what we know when the source sent none.',

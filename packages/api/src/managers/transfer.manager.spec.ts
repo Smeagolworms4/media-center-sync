@@ -43,6 +43,7 @@ interface Fakes {
 		findUnconfigured: jest.Mock;
 		findUnfinishedFromService: jest.Mock;
 		findByJob: jest.Mock;
+		findByLots: jest.Mock;
 	};
 	chunks: {
 		findByTransfer: jest.Mock;
@@ -65,7 +66,9 @@ interface Fakes {
 	lines: { findLine: jest.Mock; save: jest.Mock };
 	libraryManager: { probe: jest.Mock; categories: jest.Mock };
 	mover: { move: jest.Mock };
-	landings: { record: jest.Mock };
+	/** The services behind the libraries, whose root mappings say where a file really is. */
+	services: { find: jest.Mock; findOne: jest.Mock };
+	landings: { record: jest.Mock; statesByTransfer: jest.Mock };
 	filesystem: { pruneEmptyFolders: jest.Mock };
 	/** Holds what registered with it, so a test can remove a service the way the manager would. */
 	serviceManager: { onRemoving: jest.Mock; listeners: ((serviceId: string) => Promise<void>)[] };
@@ -91,6 +94,10 @@ const transfer = (overrides: Partial<Transfer> = {}): Transfer =>
 		targetPath: '/media/shows/S01E03.mkv',
 		targetLibraryId: 'lib-shows',
 		placedBy: PlacedBy.DEFAULT_LIBRARY,
+		// No lot by default, which is what every row written before the column existed
+		// says — and the shape most of these tests are about, since they are about one
+		// file or one run.
+		lot: null,
 		workPath: '/var/transfer/transfer-1.part',
 		bytesTotal: 1000,
 		bytesDone: 400,
@@ -125,6 +132,9 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 			findUnfinishedFromService: jest.fn().mockResolvedValue([]),
 			// The run this transfer belongs to. A test about a batch says what is in it.
 			findByJob: jest.fn().mockResolvedValue([]),
+			// The rest of the lots the run named — another night's episodes of the same
+			// season. Empty by default, so a test that never mentions a lot gets a run.
+			findByLots: jest.fn().mockResolvedValue([]),
 		},
 		chunks: {
 			findByTransfer: jest.fn().mockResolvedValue([
@@ -182,12 +192,29 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 			probe: jest.fn().mockResolvedValue({ exists: false, readable: true, writable: true }),
 			categories: jest.fn().mockResolvedValue([]),
 		},
+		services: {
+			find: jest.fn().mockResolvedValue([]),
+			// Answered by identifier rather than fixed, so that a library sitting on a
+			// friend's server really is a different answer here.
+			findOne: jest.fn(({ where }: { where: { id: string } }) =>
+				Promise.resolve({
+					id: where.id,
+					peerId: null,
+					filesMounted: where.id === 'service-1',
+				}),
+			),
+		},
 		mover: {
 			move: jest
 				.fn()
 				.mockResolvedValue({ outcome: FileMoveOutcome.RENAMED, bytesCopied: 0, partialPath: null }),
 		},
-		landings: { record: jest.fn().mockResolvedValue(undefined) },
+		landings: {
+			record: jest.fn().mockResolvedValue(undefined),
+			// Nothing waiting by default: a landing is deleted the moment a server
+			// indexes the file, so an empty map is what most rows honestly answer.
+			statesByTransfer: jest.fn().mockResolvedValue(new Map()),
+		},
 		// Nothing is empty behind the file by default: the interesting case is the one
 		// where a folder is tidied, and a fake that always tidied would make every move
 		// look like it had.
@@ -208,18 +235,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				.fn()
 				.mockResolvedValue([{ id: 'item-1', kind: MediaKind.EPISODE, libraryId: 'lib-source' }]),
 		} as unknown as MediaItemRepository,
-		{
-			find: jest.fn().mockResolvedValue([]),
-			// Answered by identifier rather than fixed, so that a library sitting on a
-			// friend's server really is a different answer here.
-			findOne: jest.fn(({ where }: { where: { id: string } }) =>
-				Promise.resolve({
-					id: where.id,
-					peerId: null,
-					filesMounted: where.id === 'service-1',
-				}),
-			),
-		} as unknown as MediaServiceRepository,
+		fakes.services as unknown as MediaServiceRepository,
 		fakes.libraries as unknown as LibraryRepository,
 		fakes.lines as unknown as SyncJobItemRepository,
 		fakes.libraryManager as unknown as LibraryManager,
@@ -833,6 +849,56 @@ describe('TransferManager', () => {
 			expect(fakes.landings.record).not.toHaveBeenCalled();
 		});
 
+		/**
+		 * The defect that put fifty files flat in one directory.
+		 *
+		 * `Series TV` is five directories on five disks and `localPath` holds one of
+		 * them, so a file sitting on any of the other four was judged to be outside its
+		 * own library — and `_destinationPath` reads that as "there is nothing to
+		 * preserve" and falls back to the bare file name. A season redirected to
+		 * `/share/Animes2/Series` landed as fifty files in that directory with no show
+		 * folder and no season folder, and nothing failed.
+		 *
+		 * The layout was not lost in the move. It was never looked for.
+		 */
+		it('keeps the layout for a file sitting on a root that is not the library\'s first', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			fakes.transfers.findOne.mockResolvedValue(
+				transfer({
+					state: TransferState.DONE,
+					// The second root of the library, which is exactly the case `localPath`
+					// cannot answer for.
+					targetPath: '/media/shows2/The Expanse/Season 1/S01E02.mkv',
+				}),
+			);
+			fakes.services.findOne.mockResolvedValue({
+				id: 'service-1',
+				peerId: null,
+				filesMounted: true,
+				rootMappings: [
+					{ remoteRoot: '/data/shows', localRoot: '/media/shows' },
+					{ remoteRoot: '/data/shows2', localRoot: '/media/shows2' },
+				],
+			});
+			fakes.libraries.findOne.mockResolvedValue({
+				id: 'lib-shows',
+				name: 'Shows',
+				alias: null,
+				serviceId: 'service-1',
+				localPath: '/media/shows',
+				paths: ['/data/shows', '/data/shows2'],
+			});
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-shows' });
+
+			expect(fakes.mover.move).toHaveBeenCalledWith(
+				expect.objectContaining({
+					destination: '/media/shows/The Expanse/Season 1/S01E02.mkv',
+				}),
+			);
+		});
+
 		it('tidies the folders the file has just left, within its old library', async () => {
 			const { manager, fakes } = build(TransferState.DONE);
 
@@ -988,6 +1054,63 @@ describe('TransferManager', () => {
 			// finished by clicking again.
 			expect(moved).toHaveLength(1);
 			expect(fakes.mover.move).not.toHaveBeenCalled();
+		});
+
+		/**
+		 * The bug as it was reported: a season moved, and half of it stayed behind.
+		 *
+		 * The half that stayed behind was not the half that had already landed — that one
+		 * was fixed by moving landed files for real. It was the half pulled by an *earlier*
+		 * run, which a redirection asking by `jobId` never saw at all. The two runs are
+		 * never on screen together, so the split is discovered on the media server, months
+		 * later, as a series listed twice.
+		 */
+		it('moves the whole lot, including the files an earlier run landed', async () => {
+			const { manager, fakes } = build();
+
+			fakes.transfers.findByJob.mockResolvedValue([
+				transfer({
+					id: 'tonight',
+					jobId: 'job-2',
+					lot: 'series-scrubs',
+					state: TransferState.QUEUED,
+					targetPath: '/media/shows/Scrubs/Season 2/S02E03.mkv',
+				}),
+			]);
+			fakes.transfers.findByLots.mockResolvedValue([
+				transfer({
+					id: 'last-night',
+					jobId: 'job-1',
+					lot: 'series-scrubs',
+					state: TransferState.DONE,
+					targetPath: '/media/shows/Scrubs/Season 2/S02E01.mkv',
+				}),
+			]);
+
+			const moved = await manager.changeJobDestination('job-2', { libraryId: 'lib-anime' });
+
+			expect(fakes.transfers.findByLots).toHaveBeenCalledWith(['series-scrubs']);
+			// Real bytes for last night's episode, and its layout kept: a season that ends
+			// up in two libraries is the state somebody pressing this is trying to leave.
+			expect(fakes.mover.move).toHaveBeenCalledWith(
+				expect.objectContaining({
+					source: '/media/shows/Scrubs/Season 2/S02E01.mkv',
+					destination: '/media/anime/Scrubs/Season 2/S02E01.mkv',
+				}),
+			);
+			expect(moved).toHaveLength(2);
+		});
+
+		it('asks for no lot at all when the run carries none', async () => {
+			// A gateway upgrading in place has a table full of transfers with no lot. The
+			// run is then the only answer there is, and it is the answer it always was.
+			const { manager, fakes } = build();
+
+			runOfTwo(fakes);
+
+			await manager.changeJobDestination('job-1', { libraryId: 'lib-anime' });
+
+			expect(fakes.transfers.findByLots).not.toHaveBeenCalled();
 		});
 
 		it('refuses a run nobody has', async () => {

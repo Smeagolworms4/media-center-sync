@@ -172,6 +172,63 @@ export class FilesystemService {
 		return removed;
 	}
 
+	/**
+	 * The biggest file at or under a path, which is the one a download actually meant.
+	 *
+	 * A torrent is a folder as often as it is a file, and that folder holds the video
+	 * beside a sample, a screenshot, an `.nfo` and sometimes the whole thing again in
+	 * another container. The largest is what people mean, every time. Any rule cleverer
+	 * than that — a list of extensions, a name pattern — is a rule that is wrong on
+	 * somebody's library, and being wrong here means filing the sample.
+	 *
+	 * Bounded at three levels, which covers `Show/Season 1/episode.mkv` and stops a
+	 * walk from following a symlink loop for as long as the request lasts.
+	 */
+	public async largestFileUnder(path: string): Promise<string | null> {
+		const root = await stat(path).catch(() => null);
+
+		if (root === null) {
+			return null;
+		}
+
+		if (root.isFile()) {
+			return path;
+		}
+
+		let best: { path: string; size: number } | null = null;
+		let frontier = [path];
+
+		for (let depth = 0; depth < 3 && frontier.length > 0; depth += 1) {
+			const next: string[] = [];
+
+			for (const directory of frontier) {
+				const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+
+				for (const entry of entries) {
+					const child = join(directory, entry.name);
+					// `stat` rather than the dirent's own type, so a symlinked file counts as
+					// the file it points at — which is what a client that hard-links its
+					// completed downloads produces.
+					const stats = await stat(child).catch(() => null);
+
+					if (stats === null) {
+						continue;
+					}
+
+					if (stats.isDirectory()) {
+						next.push(child);
+					} else if (stats.isFile() && (best === null || stats.size > best.size)) {
+						best = { path: child, size: stats.size };
+					}
+				}
+			}
+
+			frontier = next;
+		}
+
+		return best?.path ?? null;
+	}
+
 	/** What this gateway may do with a path, asked of the filesystem rather than guessed. */
 	public async rights(path: string): Promise<PathRights> {
 		const [readable, writable] = await Promise.all([

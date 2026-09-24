@@ -57,8 +57,37 @@ export class SettingsManager {
 	 * because a form that renders before it arrives would offer an editable control
 	 * for a locked field and then take it away — and somebody will have typed in it.
 	 */
-	public read(): Promise<SettingsView> {
-		return this._settings.view();
+	public async read(): Promise<SettingsView> {
+		const view = await this._settings.view();
+
+		// The secrets never leave. An API key and a client password are the two values
+		// on this screen that somebody cannot recover once they are typed, and a form
+		// that renders them is a form that leaks them to anybody who can open it or
+		// read the response in a browser's network panel. The screen is told *whether*
+		// one is set, which is all it needs to say "leave blank to keep".
+		return {
+			...view,
+			indexer:
+				view.indexer === null
+					? null
+					: { ...view.indexer, apiKey: null, hasApiKey: Boolean(view.indexer.apiKey) },
+			requestSource:
+				view.requestSource === null
+					? null
+					: {
+						...view.requestSource,
+						apiKey: null,
+						hasApiKey: Boolean(view.requestSource.apiKey),
+					},
+			downloadClient:
+				view.downloadClient === null
+					? null
+					: {
+						...view.downloadClient,
+						password: null,
+						hasPassword: Boolean(view.downloadClient.password),
+					},
+		};
 	}
 
 	/**
@@ -69,6 +98,36 @@ export class SettingsManager {
 	 * with nothing reporting anything.
 	 */
 	public async write(patch: UpdateSettingsRequest): Promise<Settings> {
+		// A secret left blank means "keep the one you have", never "clear it". The form
+		// cannot show what is stored — see `read` — so an empty box is the ordinary
+		// state of somebody editing the address beside it, and taking that literally
+		// would silently unauthenticate their indexer.
+		const kept = await this._settings.get();
+
+		if (patch.indexer && !patch.indexer.apiKey) {
+			patch = { ...patch, indexer: { ...patch.indexer, apiKey: kept.indexer?.apiKey ?? null } };
+		}
+
+		if (patch.requestSource && !patch.requestSource.apiKey) {
+			patch = {
+				...patch,
+				requestSource: {
+					...patch.requestSource,
+					apiKey: kept.requestSource?.apiKey ?? null,
+				},
+			};
+		}
+
+		if (patch.downloadClient && !patch.downloadClient.password) {
+			patch = {
+				...patch,
+				downloadClient: {
+					...patch.downloadClient,
+					password: kept.downloadClient?.password ?? null,
+				},
+			};
+		}
+
 		if (patch.defaultTargetPath !== undefined) {
 			await this._requireWritable(normaliseTargetPath(patch.defaultTargetPath));
 		}

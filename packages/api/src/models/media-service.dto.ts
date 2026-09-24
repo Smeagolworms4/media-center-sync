@@ -38,7 +38,10 @@ import {
  * empty list already says that, and two spellings for one instruction is how a
  * client ends up sending the one nobody tested.
  */
-const IsRootMappings = (): PropertyDecorator => (target, propertyName) => {
+// Exported, because a download client makes the very same statement about the very
+// same kind of path — see `settings.dto`. A second copy of this rule would drift, and
+// the day it did the two screens would disagree about what a valid mapping is.
+export const IsRootMappings = (): PropertyDecorator => (target, propertyName) => {
 	registerDecorator({
 		name: 'isRootMappings',
 		target: target.constructor,

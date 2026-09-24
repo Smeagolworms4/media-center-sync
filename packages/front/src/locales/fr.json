@@ -255,7 +255,13 @@
 			"missing": "Ce chemin n'existe pas tel que la passerelle le voit.",
 			"unreadable": "La passerelle ne peut pas lire ce chemin.",
 			"not_writable": "La passerelle ne peut pas écrire ici : aucun transfert ne peut atterrir dans cette bibliothèque."
-		}
+		},
+		"tab": {
+			"all": "Bibliothèque",
+			"followed": "Suivis"
+		},
+		"followed_empty_title": "Rien en attente",
+		"followed_empty_text": "Tout ce que vous suivez est à jour. Suivez une série ou une saison depuis sa page pour la voir apparaître ici."
 	},
 	"category": {
 		"empty": "Aucune catégorie pour l'instant. Enregistrez un service média et analysez-le : ses bibliothèques apparaîtront ici.",
@@ -309,7 +315,9 @@
 			"state": "État",
 			"sort": "Trier par",
 			"clear": "Effacer les filtres",
-			"category": "Rayon"
+			"category": "Rayon",
+			"resolution": "Résolution",
+			"codec": "Codec"
 		},
 		"sort": {
 			"title": "Titre",
@@ -375,6 +383,12 @@
 			"confirmed": "Corrélation confirmée.",
 			"confirmed_at": "confirmée",
 			"removed": "Corrélation supprimée."
+		},
+		"preference": {
+			"own": "Ce média a son propre ordre de recherche : une recherche le concernant n’est pas triée comme le reste de son étagère.",
+			"none": "Aucun tri : les sources et la taille décident pour ce média.",
+			"cancel": "Suivre à nouveau l’ordre de la catégorie",
+			"cancelled": "Ce média suit à nouveau l’ordre de sa catégorie."
 		}
 	},
 	"override": {
@@ -412,6 +426,15 @@
 			"was_empty": "Le service n'annonce rien ici.",
 			"cleared": "Vidé : ce champ reste vide quoi que dise le service.",
 			"cleared_was": "Vidé : le service annonce « {value} », et cette passerelle l'ignore."
+		},
+		"reassign": "Réaffecter la bibliothèque de ce média",
+		"library_elsewhere": "Il se trouve sur {value}, dont cette passerelle ne peut pas écrire les dossiers. Choisissez-en une des vôtres pour le réaffecter — cela fonctionne avant même tout téléchargement.",
+		"library_none": "Aucune de vos bibliothèques n’est accessible en écriture : il n’y a nulle part où réaffecter ceci. Déclarez d’abord les dossiers d’un service média.",
+		"preference": {
+			"title": "Ordre de recherche pour ce média",
+			"intro": "Quelle copie proposer en premier pour ce seul média, quand l’ordre du foyer ou celui de sa catégorie ne lui convient pas. Cela trie et ne cache jamais : tout ce qui est trouvé reste dans la liste.",
+			"give": "Donner à ce média son propre ordre",
+			"follow": "Suivre à nouveau l’ordre de la catégorie"
 		}
 	},
 	"service": {
@@ -808,7 +831,9 @@
 			"categories": "Catégories",
 			"peers": "Pairs et partage",
 			"index": "Index et cache",
-			"notifications": "Notifications"
+			"notifications": "Notifications",
+			"releases": "Recherche et téléchargements",
+			"preferences": "Ordre de recherche"
 		},
 		"destination": {
 			"rule_title": "Comment la passerelle décide où va un fichier",
@@ -907,7 +932,61 @@
 		"default_share_help": "S'applique dès qu'un scan découvre une bibliothèque, pour qu'un ami qui se relie à cette passerelle ne tombe pas sur une étagère vide.",
 		"default_share_note": "S’applique à toutes les bibliothèques d’un serveur dont le partage est activé — y compris celles dont cette passerelle n’a pas les fichiers, qui sont alors lues sur ce serveur et retransmises aux dépens de cette connexion. Ce qu’un pair partage avec nous n’est jamais retransmis plus loin.",
 		"failed_history_days": "Conserver les échecs pendant",
-		"failed_history_days_help": "En jours, et plus longtemps à dessein : un transfert en échec est la trace de ce qui n’est jamais arrivé."
+		"failed_history_days_help": "En jours, et plus longtemps à dessein : un transfert en échec est la trace de ce qui n’est jamais arrivé.",
+		"releases": {
+			"intro": "Un indexeur trouve des copies que personne autour de vous ne détient ; un client torrent les récupère. Laissez vide pour désactiver.",
+			"indexer_enabled": "Interroger un indexeur",
+			"indexer_url": "Adresse de Prowlarr",
+			"indexer_key": "Clé API",
+			"key_set": "Une clé est enregistrée. Laissez vide pour la conserver.",
+			"client_enabled": "Confier à un client de téléchargement",
+			"client_url": "Adresse de qBittorrent",
+			"client_username": "Nom d'utilisateur",
+			"client_username_hint": "Laissez vide si le client n'en demande pas sur votre réseau.",
+			"client_password": "Mot de passe",
+			"paths_help": "Le dossier de téléchargement sous forme de correspondance, exactement comme un serveur média déclare ses disques : le préfixe qu'écrit le client, et le même dossier tel que la passerelle l'atteint."
+		},
+		"preference": {
+			"orders_only": "Ceci trie les résultats de recherche et n'en cache jamais aucun. Ce que vous n'avez pas classé reste dans la liste, en dernier — l'unique copie de l'épisode d'hier soir reste donc visible même si elle vient d'un groupe que vous n'avez pas nommé.",
+			"global_title": "Pour toute la maison",
+			"category_title": "Pour {category}",
+			"category_absent": "aucun serveur ne signale cette catégorie actuellement",
+			"cancel_override": "Revenir à l'ordre de la maison",
+			"separates_nothing": "Rien de classé : les sources et la taille décident encore.",
+			"dimension": {
+				"resolution": "Résolution",
+				"codec": "Codec",
+				"team": "Équipe de release",
+				"source": "Source",
+				"language": "Langue"
+			},
+			"dimension_help": {
+				"resolution": "1080p, 2160p, 720p, SD. SD couvre le 576p, le 480p et le 360p.",
+				"codec": "x265, x264, AV1. Toutes les orthographes d'un codec comptent pour une : HEVC et H.265, c'est x265.",
+				"team": "La fin d'un nom de release, -NTb, -FLUX. Un nom illisible passe en dernier au lieu d'être refusé.",
+				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, tel que le nom l'indique.",
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. Une release qui en porte plusieurs est classée sur la meilleure."
+			},
+			"move_up": "Décide plus tôt",
+			"move_down": "Décide plus tard",
+			"drop": "Aucun avis là-dessus",
+			"promote": "Préférer davantage",
+			"add_value": "Ajouter une valeur",
+			"no_value": "Aucun avis sur ce critère.",
+			"unused": "Non classés :",
+			"add_override": "Donner son propre ordre à une catégorie",
+			"override_note": "L'ordre d'une catégorie remplace entièrement celui de la maison au lieu de s'y ajouter : il démarre donc comme une copie, et modifier l'ordre de la maison ensuite ne le touche pas.",
+			"media_note": "Une série ou un film peut avoir son propre ordre, défini sur le média lui-même — où il est affiché et peut être annulé."
+		},
+		"request": {
+			"title": "D’où viennent les demandes",
+			"intro": "Une source de demandes, c’est l’écran dans lequel votre foyer tape déjà — un Seerr, un Overseerr ou un Jellyseerr. Cette passerelle lit ce qui a été demandé et dit si elle le détient déjà. Elle ne récupère rien d’elle-même : une copie se récupère toujours à la main, sur le média lui-même. Laissez l’adresse vide pour désactiver.",
+			"enabled": "Lire les demandes de cette source",
+			"url": "Adresse du Seerr",
+			"url_help": "La même adresse que celle à laquelle vous l’ouvrez, port compris. Overseerr et Jellyseerr se lisent de la même façon.",
+			"key": "Clé d’API",
+			"key_help": "Dans Seerr, sous Paramètres → Général. Elle est enregistrée une fois et jamais réaffichée."
+		}
 	},
 	"sync": {
 		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",
@@ -1140,6 +1219,12 @@
 			"ok": "Vérifié : {count} morceaux contrôlés, tous intacts.",
 			"corrupt": "Vérifié : {count} morceaux ne correspondent pas et doivent revenir."
 		},
+		"landing": {
+			"waiting": "Rangé. En attente de l’indexation par le serveur multimédia.",
+			"stale": "Rangé, mais aucun serveur multimédia ne l’a indexé. Le fichier est sur le disque et personne ne le voit.",
+			"batch_waiting": "{count} fichier est rangé et attend son indexation | {count} fichiers sont rangés et attendent leur indexation",
+			"batch_stale": "{count} fichier n’a été indexé par aucun serveur multimédia | {count} fichiers n’ont été indexés par aucun serveur multimédia"
+		},
 		"unconfigured": {
 			"title": "{count} fichier est arrivé là où personne n’a choisi | {count} fichiers sont arrivés là où personne n’a choisi",
 			"hint": "Leurs transferts ont réussi, donc rien d’autre ne les signale. Indiquez où ils doivent aller, ou dites-le une fois pour toute la catégorie.",
@@ -1215,15 +1300,15 @@
 		"retarget": {
 			"title": "L'envoyer dans une autre bibliothèque",
 			"action": "Envoyer ailleurs",
-			"whole_run": "{title} — tout le lot, {count} fichiers",
 			"hint_repoint": "Rien n'a encore été déposé : cela ne change que la destination. Le téléchargement n'est pas interrompu et pas un octet n'est copié.",
 			"hint_move": "Ce fichier est déjà dans une bibliothèque. En choisir une autre le déplace réellement, ce qui prend un moment sur un gros fichier — la file en montre la progression.",
-			"hint_run_landed": "Les fichiers du lot déjà déposés sont déplacés eux aussi, et les dossiers qu’ils laissent vides sont supprimés.",
 			"library": "Bibliothèque de destination",
 			"confirm": "L'envoyer là",
 			"confirm_move": "Le déplacer là",
 			"repointed": "Il ira là à la place.",
-			"moved": "Déplacé. Le fichier est maintenant dans cette bibliothèque."
+			"moved": "Déplacé. Le fichier est maintenant dans cette bibliothèque.",
+			"whole_lot": "{title} — tout le téléchargement, {count} fichiers",
+			"hint_lot_landed": "Les fichiers de ce téléchargement déjà déposés sont déplacés eux aussi, y compris ceux qu’une exécution antérieure a apportés, et les dossiers qu’ils laissent vides sont supprimés."
 		},
 		"revalidation": {
 			"title": "Pourquoi ce transfert a changé d'avis",
@@ -1280,7 +1365,8 @@
 		"settings_shares": "Partages",
 		"settings_users": "Utilisateurs",
 		"not_found": "Page introuvable",
-		"not_found_text": "Il n'y a rien à cette adresse."
+		"not_found_text": "Il n'y a rien à cette adresse.",
+		"requests": "Demandes"
 	},
 	"components": {
 		"paginate": {
@@ -1361,7 +1447,8 @@
 		"media": {
 			"not_found": "Ce média n'existe plus.",
 			"not_on_our_disk": "Cette copie n’est pas sur un disque accessible en écriture par la passerelle : rien n’a été effacé.",
-			"has_no_file": "Cet élément ne porte aucun fichier à effacer."
+			"has_no_file": "Cet élément ne porte aucun fichier à effacer.",
+			"not_identified": "Ce média ne porte aucun identifiant qu'une source de demandes reconnaîtrait."
 		},
 		"peer": {
 			"not_found": "Ce pair n'existe plus.",
@@ -1419,11 +1506,195 @@
 			"config_invalid": "Ce canal ne peut pas fonctionner avec ces réglages.",
 			"handler_unknown": "Ce type de canal de notification n'est pas pris en charge.",
 			"send_failed": "Le canal n'a pas délivré le message."
+		},
+		"indexer": {
+			"not_configured": "Aucun indexeur configuré. Renseignez-en un dans les réglages.",
+			"unreachable": "L'indexeur n'a pas répondu. Vérifiez son adresse et sa clé.",
+			"unknown": "Cette version n'implémente pas cet indexeur."
+		},
+		"download_client": {
+			"not_configured": "Aucun client de téléchargement configuré. Renseignez-en un dans les réglages.",
+			"unreachable": "Le client de téléchargement n'a pas répondu.",
+			"unknown": "Cette version n'implémente pas ce client.",
+			"refused": "Le client de téléchargement a refusé.",
+			"path_unreadable": "La passerelle ne peut pas lire le dossier où écrit le client."
+		},
+		"release": {
+			"not_found": "Cette version n'est plus dans les résultats. Relancez la recherche.",
+			"not_grabbable": "Cette ligne est une copie chez un pair, pas une release. Rapatriez-la à la place."
+		},
+		"grab": {
+			"not_found": "Téléchargement introuvable."
+		},
+		"request_source": {
+			"not_configured": "Aucune source de demandes configurée. Renseignez-en une dans les réglages.",
+			"unreachable": "La source de demandes n'a pas répondu. Vérifiez son adresse et sa clé.",
+			"unknown": "Cette version n'implémente pas cette source de demandes.",
+			"unauthorized": "La source de demandes a refusé la clé. Vérifiez-la dans les paramètres."
+		},
+		"request": {
+			"not_found": "Demande introuvable.",
+			"not_held": "Rien ici ne répond encore à cette demande : la dire satisfaite empêcherait quiconque de la redemander."
 		}
 	},
 	"indications": {
 		"placement": "Où atterrissent les médias récupérés quand rien de plus précis ne le dit.",
 		"match_threshold": "En dessous de ce score, une corrélation est proposée plutôt qu'appliquée.",
 		"full_scan_cron": "Un rafraîchissement ne voit que ce qu'un service annonce comme nouveau ; un passage complet rattrape les fichiers déplacés ou réencodés sur place."
+	},
+	"release": {
+		"title": "Recherche",
+		"intro": "Chercher une copie que personne autour de vous ne détient, sur l'indexeur configuré. Rien n'est cherché tant que vous ne le demandez pas.",
+		"term": "Termes de recherche",
+		"season_pack": "Saison entière",
+		"search": "Chercher",
+		"asked": "Demandé : {query}",
+		"failed": "{indexer} n'a pas répondu. Vérifiez son adresse et sa clé dans les réglages.",
+		"none": "Rien n'est revenu. Essayez d'autres mots — les trackers connaissent certaines séries sous un autre titre.",
+		"seeders": "{count} sources",
+		"on_indexers": "sur {count} trackers",
+		"held": "Vous avez cette taille",
+		"grab": "Récupérer",
+		"grabbed": "Confié au client de téléchargement.",
+		"downloads": "En cours de récupération",
+		"kind": {
+			"movie": "Film",
+			"episode": "Épisode",
+			"season_pack": "Pack de saison",
+			"unknown": "Nom illisible"
+		},
+		"state": {
+			"sent": "Envoyé",
+			"downloading": "Téléchargement",
+			"fetched": "Récupéré",
+			"placed": "Rangé",
+			"failed": "Échec",
+			"cancelled": "Disparu du client"
+		},
+		"phase": {
+			"fetching": "Téléchargement depuis le tracker",
+			"copying": "Copie vers la bibliothèque"
+		},
+		"intro_peers": "Les copies que vos pairs détiennent déjà reviennent dans la même liste, au-dessus des lignes de tracker : ces fichiers existent, et leur qualité a été lue sur le fichier et non sur un nom.",
+		"peer": {
+			"exists": "Existe déjà",
+			"fills": "complète 1 épisode qui vous manque | complète {count} épisodes qui vous manquent"
+		},
+		"pull": "Rapatrier",
+		"pulled": "Le rapatriement a commencé. Suivez-le sur l’écran des transferts.",
+		"plan": {
+			"open": "Combler les manques",
+			"summary": "{steps} étapes, couvrant {covered} des {total} épisodes manquants.",
+			"close": "Fermer",
+			"covers": "pour {episodes}",
+			"partial": "seulement {count} fichiers de ce pack",
+			"empty": "Rien de ce qui est proposé ne comble le moindre manque.",
+			"grab": "Récupérer les {count} étapes",
+			"uncovered": "{count} que rien de proposé ne peut combler :",
+			"uncovered_peer": "L’un d’eux est chez un pair — rapatriez-le depuis la liste ci-dessus. | {count} d’entre eux sont chez des pairs — rapatriez-les depuis la liste ci-dessus.",
+			"uncovered_hint": "Essayez d’autres termes de recherche, ou revenez quand une release apparaîtra."
+		}
+	},
+	"classification": {
+		"title": "Où ceci pourrait aller",
+		"intro": "La passerelle a remarqué quelques choses sur ce média. Rien n’a été rangé : accepter une suggestion le réaffecte exactement comme si vous choisissiez la bibliothèque vous-même.",
+		"current": "Rangé dans {value} actuellement",
+		"current_none": "Sur aucune étagère que cette passerelle reconnaît",
+		"move": "{from} → {to}",
+		"accept": "Le ranger là",
+		"accepted": "Réaffecté à {value}.",
+		"dismiss": "Le laisser où il est",
+		"none": "Rien à suggérer : ce que l’on sait de ce média ne désigne aucune des étagères que la passerelle reconnaît.",
+		"confidence": "{value} % de certitude",
+		"evidence_title": "Ce qui l’a fait dire ça",
+		"evidence_counts": "{count} indices",
+		"withheld_title": "Envisagé, et non suggéré",
+		"withheld_intro": "Pourquoi il n’y a rien à accepter ici.",
+		"failed": "Les suggestions n’ont pas pu être lues.",
+		"reread": "Regarder à nouveau",
+		"category": {
+			"anime": "Animés japonais",
+			"cartoons": "Dessins animés",
+			"animated_films": "Films d’animation",
+			"concerts": "Concerts"
+		},
+		"signal": {
+			"anime_genre": "Le genre {value} désigne explicitement l’animation japonaise.",
+			"animation_genre": "Le genre {value} dit que c’est de l’animation.",
+			"animation_studio": "{value} ne fait que de l’animation.",
+			"japanese_studio": "{value} est un studio japonais.",
+			"original_language_japanese": "Sa langue d’origine est le japonais ({value}).",
+			"country_japan": "Il vient du Japon ({value}).",
+			"romanised_japanese_title": "Le titre se lit comme du japonais romanisé ({value}). À lui seul, cela ne décide rien.",
+			"fansub_group": "Publié par {value}, un groupe qui ne sous-titre que de l’animation japonaise.",
+			"concert_genre": "Le genre {value} désigne un spectacle enregistré.",
+			"music_genre": "Le genre {value} est un genre musical.",
+			"live_performance_phrase": "Il s’intitule « {value} ».",
+			"venue": "{value} est une salle ou un festival.",
+			"animation_path_keyword": "Un dossier sur le chemin du fichier s’appelle « {value} », ce qui peut ne dire que où quelqu’un l’a déjà mis.",
+			"concert_path_keyword": "Un dossier sur le chemin du fichier s’appelle « {value} », ce qui peut ne dire que où quelqu’un l’a déjà mis.",
+			"kind_is_film": "Le catalogue le tient déjà pour un film.",
+			"kind_is_series": "Le catalogue le tient déjà pour une série.",
+			"documentary_genre": "À l’encontre : le genre {value} en fait d’abord un documentaire."
+		},
+		"source": {
+			"genre": "genre",
+			"studio": "studio",
+			"language": "langue",
+			"country": "pays",
+			"title": "titre",
+			"original_title": "titre original",
+			"kind": "catalogue",
+			"path": "dossier",
+			"release_name": "nom de la release"
+		},
+		"blocker": {
+			"no_such_category": "Aucune bibliothèque ici ne porte un nom que cette passerelle lit comme {value} : il n’y a donc nulle part où le ranger. Renommez une bibliothèque, donnez-lui un alias, ou rattachez un nom à cette catégorie.",
+			"no_writable_library": "{value} n’existe que sur un serveur dont cette passerelle ne peut pas écrire les dossiers : une réaffectation ne déplacerait rien.",
+			"already_filed": "Il est déjà sur cette étagère."
+		},
+		"withheld": {
+			"below_threshold": "Les indices ne suffisaient pas. Rien n’est suggéré sur une seule observation.",
+			"no_decisive_signal": "Rien ne disait ce qu’est vraiment ce média — seulement où il se trouve et combien il dure.",
+			"ambiguous_origin": "C’est de l’animation, et rien de fiable ne dit d’où elle vient. Animation japonaise et dessin animé sont la même question : deviner entre les deux serait un tirage au sort.",
+			"settled_by_origin": "Son origine est connue, et l’autre étagère répond à la même question."
+		}
+	},
+	"request": {
+		"subtitle": "Ce que le foyer a demandé, et si cette passerelle le détient déjà.",
+		"filter_state": "État",
+		"state": {
+			"pending": "En attente de réponse",
+			"approved": "Acceptée",
+			"declined": "Refusée",
+			"processing": "En cours de traitement",
+			"partial": "Partiellement là",
+			"available": "Satisfaite",
+			"unknown": "État inconnu"
+		},
+		"not_configured_title": "Aucune source de demandes",
+		"configure": "Ouvrir les paramètres",
+		"none_title": "Rien n’a été demandé",
+		"none_text": "Aucune demande en cours. Tout ce que quelqu’un demande dans Overseerr ou Jellyseerr apparaît ici.",
+		"unnamed": "La source n’a pas dit de quoi il s’agit",
+		"from_source": "nommé par la source",
+		"asked_by": "Demandé par {name}",
+		"asked_by_unknown": "Demandé par quelqu’un que la source ne nomme pas",
+		"tmdb": "TMDB {id}",
+		"tvdb": "TVDB {id}",
+		"no_identifier": "La source n’a fourni aucun identifiant pour ceci.",
+		"holdings": "Détenu ici :",
+		"seasons": "saisons {seasons}",
+		"held_none": "Rien ici n’y répond.",
+		"missing_seasons": "Manquant ici : saisons {seasons}",
+		"asked_seasons": "Demandé : saisons {seasons}",
+		"fulfil": "Marquer comme satisfaite",
+		"fulfilled": "La source a été informée que la demande est satisfaite.",
+		"search": "Chercher une version",
+		"no_search": "Rien à chercher",
+		"search_title": "Chercher une copie",
+		"search_intro": "La recherche que cette demande suggère. Rien n’est cherché avant que vous n’appuyiez, et rien n’est récupéré ici.",
+		"search_season": "Saison",
+		"search_no_grab": "Ce sont des noms sur un tracker. Récupérez une copie depuis la page du média, là où elle a un endroit où se poser."
 	}
 }

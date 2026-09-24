@@ -8,6 +8,7 @@ export * from './media-service.entity';
 export * from './notification-channel.entity';
 export * from './peer.entity';
 export * from './peer-invite.entity';
+export * from './release-grab.entity';
 export * from './revalidation.entity';
 export * from './session.entity';
 export * from './setting.entity';

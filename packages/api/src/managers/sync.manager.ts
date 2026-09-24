@@ -77,7 +77,6 @@ import {
 	SettingsService,
 	TransferEngineService,
 	applyCeilings,
-	derivedLocalRoots,
 	editionOf,
 	episodeLabel,
 	needsAcknowledgement,
@@ -89,6 +88,7 @@ import {
 	toLocalPath,
 	versionIdOf,
 	type PlacementLibrary,
+	type PlacementPin,
 	type RunCeilings,
 	type TransferSourceRef,
 } from '@/services';
@@ -137,6 +137,18 @@ export interface PlannedItem {
 	 * that did is not recoverable from the strategy alone.
 	 */
 	placedBy: PlacedBy;
+	/**
+	 * The lot this file belongs to — see `_lotKeys`.
+	 *
+	 * Carried on the planned item rather than worked out again by whoever reads the plan,
+	 * because the lot is decided once, against the scope: a second derivation would have
+	 * to walk the parent chain again and could answer differently the day somebody
+	 * corrects an episode into another season.
+	 *
+	 * Spelled the same as the column and the wire field, because it is the same value:
+	 * the plan decides it, the transfer row keeps it, and the queue screen groups on it.
+	 */
+	lot: string;
 	bytes: number;
 	contentId: string | null;
 	state: SyncState;
@@ -752,6 +764,11 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 					// null rather than as a library identifier nothing can resolve.
 					targetLibraryId: planned.targetLibraryId === '' ? null : planned.targetLibraryId,
 					placedBy: planned.placedBy,
+					// The lot the plan decided, stored rather than left to be derived again.
+					// It is what the queue groups on and what a redirection moves, and both
+					// have to keep answering the same thing long after this run is history —
+					// a second derivation would walk the parent chain as it stands then.
+					lot: planned.lot,
 					// The pieces accumulate beside the database rather than in the library:
 					// a half-written file in a watched folder is one a media server will
 					// happily index and then fail to play.
@@ -1400,6 +1417,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	public async plan(request: RunSyncRequest): Promise<SyncPlanning> {
 		const { effective, settings, wanted, estimate } = await this._select(request);
 		const libraries = await this._placementLibraries();
+		const pins = new Map<string, PlacementPin>();
 		// Which category each item belongs to, so placement can look up the library that
 		// category was configured to receive. Asked of the library manager rather than
 		// folded from the library name here: the merge is its rule, and a second reading
@@ -1410,6 +1428,10 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		);
 		const items: PlannedItem[] = [];
 		const planned = wanted.slice(0, MAX_PLANNED_ITEMS);
+		// Which lot each item belongs to, and where each lot has already been sent. The
+		// first item of a lot decides; the others are handed its answer. Built here
+		// because a run that named no subtree takes its lots from the items themselves.
+		const lots = await this._lotKeys(effective.scope, planned.map((entry) => entry.item));
 		const shows = await this._seriesFacts(planned.map((entry) => entry.item));
 		const siblings = await this._localSiblings(planned.map((entry) => entry.item), shows);
 
@@ -1456,7 +1478,17 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				),
 			};
 
+			/*
+			 * The lot this file belongs to, and the destination that lot already has.
+			 *
+			 * Null for the first item of a lot, which is the one that decides. Every other
+			 * item is handed that answer and never gets to disagree with it: the hierarchy
+			 * under the root is still rendered per item — a series already on the disk keeps
+			 * the folders it has — but the root itself is the lot's and not this file's.
+			 */
+			const lot = lots.get(entry.item.id) ?? entry.item.id;
 			const target = await this._placement.resolve({
+				pinned: pins.get(lot) ?? null,
 				kind: entry.item.kind,
 				categoryKey: categoryKeys.get(entry.item.libraryId) ?? null,
 				settings,
@@ -1486,6 +1518,20 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 
 			claimed.add(target.path);
 
+			// The first item of a lot decides for all of them, and the reason it was chosen
+			// for travels with the root: the tail of a download reports the same decision as
+			// its head rather than a freshly derived one.
+			if (!pins.has(lot)) {
+				pins.set(lot, {
+					root: target.root,
+					libraryId: target.libraryId,
+					libraryName: target.libraryName,
+					strategy: target.strategy,
+					fallback: target.fallback,
+					placedBy: target.placedBy,
+				});
+			}
+
 			items.push({
 				itemId: entry.item.id,
 				localItemId: entry.local?.id ?? null,
@@ -1497,6 +1543,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				targetLibraryName: target.libraryName,
 				targetPath: target.path,
 				placedBy: target.placedBy,
+				lot,
 				bytes: entry.item.file?.size ?? 0,
 				contentId: entry.item.file?.contentId ?? null,
 				state: entry.state,
@@ -1828,6 +1875,116 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			: explicit.filter((itemId) => within.has(itemId));
 	}
 
+	/**
+	 * Which lot each item belongs to, by item identifier.
+	 *
+	 * A download is one thing somebody pressed — a film, a series, a season, an episode —
+	 * and that thing is the lot. So the key is the subtree root the item was reached
+	 * through, and an item the scope named on its own is its own lot: that is why a
+	 * missing entry falls back to the item itself in `plan()` rather than to a shared
+	 * bucket, which would pin a whole unbounded run to wherever its first file landed.
+	 *
+	 * A node reachable from two named roots is attributed to the first root that reaches
+	 * it, in the order they were listed. Letting it belong to both would split it across
+	 * two destinations, which is the outcome the lot exists to prevent.
+	 */
+	private async _lotKeys(scope: SyncScope, planned: MediaItem[] = []): Promise<Map<string, string>> {
+		const lots = new Map<string, string>();
+
+		for (const root of scope.rootItemIds ?? []) {
+			if (lots.has(root)) {
+				continue;
+			}
+
+			lots.set(root, root);
+
+			let frontier = [root];
+
+			while (frontier.length > 0) {
+				const children = await this._items.find({ where: { parentId: In(frontier) } });
+
+				frontier = children.map((child) => child.id).filter((id) => !lots.has(id));
+
+				for (const id of frontier) {
+					lots.set(id, root);
+				}
+			}
+		}
+
+		/*
+		 * A run that named no subtree still has lots, and they are the shows.
+		 *
+		 * The scope is what names a lot when somebody presses fetch on a series: the lot
+		 * is the root they pressed. A plan with no roots — "everything missing", or a
+		 * list of item identifiers — had none at all, so every episode decided for
+		 * itself and a season could still land in two libraries. That is precisely the
+		 * guarantee this whole mechanism exists to give, lost in the one case nobody
+		 * pressed a button for.
+		 *
+		 * So an item nobody's root covers takes its own show as its lot, walked up the
+		 * parent chain. A film is its own lot, which is what it already was.
+		 */
+		await this._fillLotsFromParents(planned, lots);
+
+		return lots;
+	}
+
+	/**
+	 * The show each unclaimed item belongs to, as its lot.
+	 *
+	 * Two hops at most, which is the whole shape of a media tree — episode, season,
+	 * series — and a walk with no bound would follow a cycle in a corrupt parent chain
+	 * for as long as the request lasted. Batched per level rather than per item: a plan
+	 * is five hundred episodes, and one query each would be five hundred round trips to
+	 * learn one fact.
+	 */
+	private async _fillLotsFromParents(
+		planned: MediaItem[],
+		lots: Map<string, string>,
+	): Promise<void> {
+		// Which item each ancestor is being resolved for. An item already covered by a
+		// named root keeps that answer: the scope is a statement and outranks the tree.
+		let pending = new Map<string, string>(
+			planned.filter((item) => !lots.has(item.id)).map((item) => [item.id, item.id]),
+		);
+
+		for (let depth = 0; depth < 2 && pending.size > 0; depth += 1) {
+			const parents = new Map<string, string[]>();
+
+			for (const [itemId, currentId] of pending) {
+				const current = planned.find((one) => one.id === currentId);
+				const parentId = current?.parentId ?? null;
+
+				if (parentId === null) {
+					continue;
+				}
+
+				parents.set(parentId, [...(parents.get(parentId) ?? []), itemId]);
+			}
+
+			if (parents.size === 0) {
+				break;
+			}
+
+			const rows = await this._items.find({ where: { id: In([...parents.keys()]) } });
+			const next = new Map<string, string>();
+
+			for (const row of rows) {
+				for (const itemId of parents.get(row.id) ?? []) {
+					// The highest ancestor found so far, so a second pass overwrites the
+					// season with the series — which is the lot somebody means.
+					lots.set(itemId, row.id);
+					next.set(itemId, row.id);
+				}
+			}
+
+			// The rows just read are what the next hop walks from, so they have to be
+			// reachable by `planned.find` the way the first hop was.
+			planned = [...planned, ...rows];
+			pending = next;
+		}
+	}
+
 	/** Everything under these nodes, the nodes themselves included. */
 	private async _descendants(rootItemIds: string[]): Promise<Set<string>> {
 		const seen = new Set<string>(rootItemIds);
@@ -2048,34 +2205,15 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		].join('|');
 	}
 
-	private async _placementLibraries(): Promise<PlacementLibrary[]> {
-		const local = await this._services.findLocal();
-		const libraries = await this._libraries.findByServices(local.map((service) => service.id));
-		const byService = new Map(local.map((one) => [one.id, one]));
-		/*
-		 * The shelf each library sits on, so a media can land on the one it came from
-		 * without anybody having configured a thing. Read through the library manager
-		 * rather than folded from the name here, or `Animés` would have two keys the day
-		 * somebody aliased one of them.
-		 */
-		const categoryKeys = await this._libraryManager.categoryKeysByLibrary();
-
-		return libraries.map((library: LibraryEntity) => {
-			const service = byService.get(library.serviceId);
-
-			return {
-				id: library.id,
-				name: library.name,
-				kind: library.kind,
-				localPath: library.localPath,
-				writable: library.writable,
-				isDefaultTarget: library.isDefaultTarget,
-				categoryKey: categoryKeys.get(library.id) ?? null,
-				// Every directory of this library on our disk, so a destination naming one
-				// of them resolves back to the library that declares it.
-				localRoots: service ? derivedLocalRoots(library.paths, service) : [],
-			};
-		});
+	/**
+	 * Delegated, because it is a fact about libraries rather than about syncing.
+	 *
+	 * A run, a redirected transfer and a finished torrent are all placed by one rule,
+	 * and two readings of "which shelves exist" would eventually disagree about one of
+	 * them. See `LibraryManager.placementLibraries`.
+	 */
+	private _placementLibraries(): Promise<PlacementLibrary[]> {
+		return this._libraryManager.placementLibraries();
 	}
 
 	private async _reschedule(): Promise<void> {

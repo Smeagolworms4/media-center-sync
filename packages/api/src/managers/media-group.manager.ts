@@ -22,6 +22,7 @@ import {
 	MediaMatchRepository,
 	MediaServiceRepository,
 	PeerRepository,
+	SyncPlanRepository,
 	type GroupSeedQuery,
 	type MatchPair,
 	type MediaItemDigest,
@@ -80,6 +81,26 @@ const GROUP_STATE_ORDER = [
 	SyncState.IN_SYNC,
 	SyncState.LOCAL_ONLY,
 ] as const;
+
+/**
+ * The states that mean a copy worth having exists somewhere else.
+ *
+ * What `actionable` reads for its "something new" half, and deliberately the same three
+ * words the state chips already use rather than a fourth vocabulary: missing is not here
+ * at all, outdated is here in a worse encoding, and conflict is a cut of the work we do
+ * not hold. `syncing` is left out because a transfer already running is not something to
+ * ask anybody to do, and `local_only` because nobody else has anything to offer.
+ */
+const ACTIONABLE_STATES = [SyncState.MISSING, SyncState.OUTDATED, SyncState.CONFLICT] as const;
+
+/**
+ * How far up a parent chain the followed scope climbs.
+ *
+ * Series, season, episode is three steps, and one extra for a collection above a film.
+ * Bounded because the chain is data a media server wrote: a loop in somebody's index has
+ * to cost a few queries rather than the request.
+ */
+const FOLLOWED_HOPS = 4;
 
 /**
  * Connected components of the applied-match graph.
@@ -236,7 +257,21 @@ interface GroupContext {
  * one query per request, not one per item. The full rows, with their JSON columns, are
  * read for the page and for nothing else.
  *
- * Three things could not be pushed down, and each is a schema fact rather than an
+ * Two filters that look like they could not be pushed down are, and both are worth
+ * naming because the obvious reading of them is the expensive one:
+ *
+ * - **Resolution and codec.** They describe files, and the files sit in a JSON column —
+ *   but a scan writes the *derived* labels onto every row's quality summary, banded and
+ *   folded by `QualityService`, so the filter is a substring test on that column rather
+ *   than thirty thousand rows deserialised to be dropped. It also means the wall and the
+ *   chip on a card can never disagree about what a file is, since both read the one
+ *   reading. Aggregates roll upward, so a series row carries every encoding beneath it
+ *   and the filter needs no walk down the tree.
+ * - **Following.** Which media a sync plan covers is a rule — coverage takes the parent
+ *   chain — so it is resolved here, into identifiers, and handed to the query as a set of
+ *   rows to keep. The set is the followed subtrees and not the index, which is the point.
+ *
+ * Four things could not be pushed down, and each is a schema fact rather than an
  * oversight:
  *
  * - **The components.** There is no `groupId` column and there should not be one; see
@@ -250,6 +285,10 @@ interface GroupContext {
  *   different question — "is one of the copies missing" rather than "is this media
  *   missing here" — and would be wrong exactly where it matters, on a media held
  *   nowhere local.
+ * - **Having something to do about it.** One half of it is the state above; the other is
+ *   the gap count, which is a fold of the children through the match graph and not a
+ *   column either. Both are already computed for the filtered set, so the filter costs
+ *   the reading rather than a query.
  */
 @Injectable()
 export class MediaGroupManager {
@@ -261,6 +300,7 @@ export class MediaGroupManager {
 		private readonly _quality: QualityService,
 		private readonly _settings: SettingsService,
 		private readonly _libraries: LibraryManager,
+		private readonly _plans: SyncPlanRepository,
 	) {}
 
 	public async groups(query: MediaGroupQuery): Promise<ResultList<MediaGroup>> {
@@ -268,6 +308,7 @@ export class MediaGroupManager {
 		const context = await this._context();
 		const parentIds =
 			query.parentId === undefined ? undefined : await this._parentScope(query.parentId, context);
+		const followed = query.followed === true ? await this._followedScope() : null;
 
 		const seedQuery: GroupSeedQuery = {
 			serviceIds: this._servicesFor(query, context),
@@ -278,15 +319,32 @@ export class MediaGroupManager {
 			sort: query.sort,
 			direction: query.direction,
 			parentIds,
+			resolutions: query.resolutions,
+			// Folded before the query sees them, because the index only ever holds the
+			// folded spelling and `hevc` is what somebody will actually type.
+			videoCodecs: this._codecsFor(query),
+			coveredIds: followed?.ids,
+			coveredParentIds: followed?.underIds,
 		};
 		const seeds = await this._items.findGroupSeeds(seedQuery);
 
-		const skeletons = await this._skeletons(seeds, context, query.hideOwned === true);
+		// The gap count is worked out for `actionable` as well as for `hideOwned`: both
+		// ask whether anything beneath a media is still missing, and neither can read it
+		// off a column.
+		const skeletons = await this._skeletons(
+			seeds,
+			context,
+			query.hideOwned === true || query.actionable === true,
+		);
 		const states = query.states ?? [];
 		const byState =
 			states.length === 0
 				? skeletons
 				: await this._inState(skeletons, states, seedQuery, context);
+		const actionable =
+			query.actionable === true
+				? await this._actionable(byState, seedQuery, context)
+				: byState;
 
 		/*
 		 * "Hide what I already have" means hidden only when there is nothing left to
@@ -298,8 +356,8 @@ export class MediaGroupManager {
 		 * to be closed too, and an ignored child is not a gap.
 		 */
 		const matching = query.hideOwned === true
-			? byState.filter((skeleton) => !skeleton.held || skeleton.missingCount > 0)
-			: byState;
+			? actionable.filter((skeleton) => !skeleton.held || skeleton.missingCount > 0)
+			: actionable;
 
 		const window = matching.slice((page - 1) * limit, page * limit);
 		const groups = await this._read(
@@ -510,6 +568,129 @@ export class MediaGroupManager {
 		return skeletons.filter(
 			(skeleton) => ownState(skeleton) || skeleton.memberIds.some((memberId) => roots.has(memberId)),
 		);
+	}
+
+	/**
+	 * The groups there is something to do about: a gap beneath them, or a copy worth
+	 * having somewhere else.
+	 *
+	 * An **or**, and that is the whole shape of the filter. A followed series we hold
+	 * complete but in 1080p while a friend has the 2160p is worth showing and has no gap;
+	 * a series we hold complete in the best encoding anybody has, with three episodes
+	 * nobody has sent us yet, is worth showing and is in no interesting state. Either
+	 * alone would hide half of what somebody opened this list to find.
+	 *
+	 * Neither half is a new rule. The gaps are the count a season card already shows —
+	 * ignored children excluded, a child held under another name counted as held — and
+	 * the states go through `_inState`, so "something beneath it is outdated" is answered
+	 * for a series poster exactly as the state chips are. That second point is what makes
+	 * this usable at all: a series is almost never itself `outdated`, its episodes are.
+	 *
+	 * The skeletons come back from `_inState` by identity, which is why the set can hold
+	 * them: it filters the very array it was handed and never rebuilds an element.
+	 */
+	private async _actionable(
+		skeletons: GroupSkeleton[],
+		seedQuery: GroupSeedQuery,
+		context: GroupContext,
+	): Promise<GroupSkeleton[]> {
+		const newer = new Set(
+			await this._inState(skeletons, [...ACTIONABLE_STATES], seedQuery, context),
+		);
+
+		return skeletons.filter((skeleton) => skeleton.missingCount > 0 || newer.has(skeleton));
+	}
+
+	/**
+	 * The items a sync plan undertakes to keep in step, as rows a query can filter on.
+	 *
+	 * Following is not a notion of its own in this product and must not become one: a
+	 * plan whose `SyncScope.rootItemIds` names a media *is* the standing intent to follow
+	 * it, created by one gesture on that media's own page and named after it. A second
+	 * flag beside it would be a second answer to "am I following this", and the two would
+	 * disagree the first time somebody deleted a plan.
+	 *
+	 * Read across every plan rather than the enabled ones, which is the same reading
+	 * `SyncManager.itemPlans` uses when it tells somebody a plan already speaks for a
+	 * media. A paused plan is a standing intent somebody paused; a tab that called it
+	 * unfollowed while the dialog called it covered would be two answers to one question.
+	 *
+	 * Two directions, because a wall of posters is not where the plan was made:
+	 *
+	 * - **Up**, so a plan on one season makes its series appear. The library shows roots,
+	 *   and a filter that answered nothing for a followed season would put the followed
+	 *   thing out of reach of the screen built to show it.
+	 * - **Down one level**, which together with the parent half of the test reaches the
+	 *   episodes of a followed series — the seasons match on their parent, the episodes on
+	 *   theirs. Kept as a separate list so that reach downward does not also drag in a
+	 *   sibling of a followed season.
+	 *
+	 * Nothing here goes through the match graph, and it does not need to: a plan names one
+	 * copy, that copy is a member of its group, and one member matching is what makes a
+	 * group appear.
+	 */
+	private async _followedScope(): Promise<{ ids: string[]; underIds: string[] }> {
+		const plans = await this._plans.find();
+		const roots = [...new Set(plans.flatMap((plan) => plan.scope?.rootItemIds ?? []))];
+
+		if (roots.length === 0) {
+			// Nothing is followed, which the query has to read as a filter nothing
+			// satisfies rather than as no filter at all.
+			return { ids: [], underIds: [] };
+		}
+
+		const ids = new Set(roots);
+		let frontier = await this._items.findDigests(roots);
+
+		for (let hop = 0; hop < FOLLOWED_HOPS && frontier.length > 0; hop += 1) {
+			const parents = [
+				...new Set(
+					frontier
+						.map((digest) => digest.parentId)
+						.filter((id): id is string => id !== null && !ids.has(id)),
+				),
+			];
+
+			if (parents.length === 0) {
+				break;
+			}
+
+			for (const id of parents) {
+				ids.add(id);
+			}
+
+			frontier = await this._items.findDigests(parents);
+		}
+
+		const children = await this._items.findChildDigests(roots);
+
+		return { ids: [...ids], underIds: [...roots, ...children.map((child) => child.id)] };
+	}
+
+	/**
+	 * The codecs a query is asking for, spelled the way the index spells them.
+	 *
+	 * `x265`, `hevc`, `h265` and `h.265` are one decoder and four habits of naming it,
+	 * and the quality summaries are written after that folding — so a filter that passed
+	 * `hevc` through untouched would answer nothing on a library entirely encoded in it.
+	 * Folded through the same service that wrote the values, never a second table.
+	 *
+	 * A spelling that folds to nothing leaves an empty list, which the query reads as a
+	 * filter nothing satisfies — the same answer the service list gives to somebody
+	 * naming a server that does not exist.
+	 */
+	private _codecsFor(query: MediaGroupQuery): string[] | undefined {
+		if (query.videoCodecs === undefined) {
+			return undefined;
+		}
+
+		return [
+			...new Set(
+				query.videoCodecs
+					.map((codec) => this._quality.normalizeVideoCodec(codec))
+					.filter((codec): codec is string => codec !== null),
+			),
+		];
 	}
 
 	private async _context(): Promise<GroupContext> {

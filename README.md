@@ -163,16 +163,20 @@ location / {
   - [Indexing, and why the gateway caches](#indexing-and-why-the-gateway-caches)
   - [Correlation: what is the same media](#correlation-what-is-the-same-media)
   - [When the library is organised in a way your server misreads](#when-the-library-is-organised-in-a-way-your-server-misreads)
+  - [Guessing where something belongs, and asking first](#guessing-where-something-belongs-and-asking-first)
   - [Quality at a glance](#quality-at-a-glance)
   - [Syncing](#syncing)
   - [Transfers](#transfers)
   - [When a transfer goes wrong](#when-a-transfer-goes-wrong)
   - [Peers, friends, and friends of friends](#peers-friends-and-friends-of-friends)
   - [What one port does not solve](#what-one-port-does-not-solve)
+  - [What the household asked for](#what-the-household-asked-for)
+  - [Finding what nobody you know holds](#finding-what-nobody-you-know-holds)
   - [Sharing](#sharing)
   - [Signing in](#signing-in)
 - [Development](#development)
 - [Testing](#testing)
+  - [The lab](#the-lab)
 - [Project layout](#project-layout)
 - [Continuous integration](#continuous-integration)
 - [Licence](#licence)
@@ -204,6 +208,18 @@ location / {
   introduction from a friend they already have when it does not, with
   friend-of-a-friend discovery so several people holding the same file can feed one
   transfer.
+- **Reads what the household asked for**, from a Seerr, and says of each ask whether this
+  gateway already holds it — all of it, some of it, or none — so the list can be acted on.
+  It fetches nothing on that basis: it suggests a search and somebody presses it.
+- **Searches an indexer for what nobody you know holds**, groups the answers by what they
+  actually are, works out how to cover a gap from them — a season rebuilt out of single
+  episodes, or only the missing files taken out of a pack — and drives a torrent client to
+  fetch it, keeping it seeding and copying the files into the library.
+- **Orders those answers the way the household would**: resolution, codec and group, as
+  ordered lists whose own order counts, set globally, per category, or for the one series
+  that needs its own.
+- **Suggests where a media belongs** — anime, cartoons, animated films, concerts — with
+  the evidence that made it say so, and never files anything on the strength of a guess.
 - **Lets you decide what you share**, per library, with whom, and at what bandwidth.
 
 ## How it works
@@ -338,6 +354,27 @@ and nowhere else reported:
   library and the dashboard say so in one line, with the way to fix it, and the line
   goes on its own the moment one mapping exists. It has no dismissal for that reason:
   it is the one sentence that explains the whole screen.
+
+### Guessing where something belongs, and asking first
+
+Categories come from library names, so a household with an anime shelf and a cartoon shelf
+has told the gateway something useful without filling in a form. From there it can look at
+a media — its genres, its studio, its original language, the release name, the folder it
+sits in — and say *this looks like an anime*, with the evidence that made it say so.
+
+It is a **proposal, never a move**. Accepting one performs exactly the reassignment you
+would have made by choosing the library yourself, through the same single mechanism, so a
+media that moved moved for a reason that is on the record in one place. And the evidence is
+shown rather than hidden behind a disclosure triangle, for a reason worth stating: a
+suggestion nobody can check is one people learn to accept without reading, and then it is
+automatic after all, by a route nobody chose.
+
+It abstains rather than guesses. Nothing is proposed on a single observation, nothing is
+proposed without something saying what the media actually *is* — a folder name only says
+where somebody already put it — and when it is plainly animation with nothing trustworthy
+saying where it came from, it says so instead of tossing a coin between two shelves that
+answer the same question. A documentary about animation is not animation, and a
+live-action film with a cartoon character in its title is not a cartoon.
 
 ### Quality at a glance
 
@@ -489,6 +526,85 @@ The answer to the general case is **WebRTC** — ICE, STUN to discover each end'
 address, TURN when it cannot be discovered, signalled over the peer link that already
 carries introductions. It is **not implemented**, and that is the honest state of it.
 
+### What the household asked for
+
+Nobody asks a sync gateway for a film. They ask in Seerr — or Overseerr, or Jellyseerr,
+which are one API and are read the same way — because that is the screen with a search box
+that everybody in the house already has on their phone. So a request source is read here as
+a **source of information** and nothing else: it says what people want, and this gateway
+says what it can do about it.
+
+The point of the screen is the verdict. A household opens forty asks over a year and most
+of them arrive by some other route, so a list of open requests with no idea which are
+already satisfied is a list nobody acts on. Each ask is matched to the catalogue on its
+metadata identifiers and comes back as one of three answers, kept distinct on purpose: we
+hold all of this, we hold some of it, we have never heard of it. The middle one is the one
+that matters — a request for seasons two and three is not answered by holding two, and a
+screen that said it was would close the ask on half of it.
+
+**A request row carries no title.** This is not a quirk to work around quietly; it is
+worth knowing, because it is what the screen would otherwise be. Seerr's request rows are
+identifiers and statuses and nothing readable, so the works nobody here holds — which is
+exactly what a request usually is — arrive as a column of numbers. The gateway therefore
+asks the source itself what each one is, once per unnamed ask, and only for the ones the
+catalogue cannot name: a listing that asked about every row would spend a round trip each
+to re-learn titles it already has.
+
+Two things can then be pressed:
+
+- **Mark it answered**, which is how an ask stops being open in the place the household
+  looks. Offered only when saying so would be true, and refused by the API as well as
+  hidden by the interface — told an ask is complete, people stop asking, so closing one
+  that delivered nothing ends the asking and delivers nothing. The route takes a
+  deliberate `force` for the copy that exists on a shelf this catalogue was never told
+  about.
+- **Search for it.** Every unsatisfied ask carries the search it implies — the work's
+  title, the seasons actually missing — worked out and handed over. Pressing it is a
+  person's decision, and that separation is the product's central choice about this
+  feature rather than an unfinished edge: wired to a download, an account on somebody
+  else's Seerr would spend this gateway's disk.
+
+A media of ours can also be pushed the other way, which is how "we are following this
+here" gets said where the household looks.
+
+### Finding what nobody you know holds
+
+A peer is the best source there is, and sometimes nobody you know has it. An **indexer**
+(Prowlarr) is read for releases and a **download client** (qBittorrent) moves the bytes,
+both behind the same decorator-and-registry pattern as the media handlers — another of
+either costs one class and one enum value.
+
+What makes this more than a search box is that a tracker's answers and a household's
+question are shaped differently. You want season two; the tracker has episode one in three
+qualities from three groups, a season pack, a run of three episodes under a single info
+hash, and the complete series in subdirectories. So results are **grouped by what they
+actually are** — the same release listed by two trackers is one row, and codec, resolution
+and group are part of what makes two listings different rather than folded together — and
+the gateway works out coverage from there: a season can be **rebuilt out of single
+episodes**, and conversely a season pack can be told to fetch **only the files that are
+missing**, through the client's own per-file selection. The download **stays seeding** and
+the files are copied into the library, progress and all, which is visible in the transfers
+queue beside every other transfer — only the ones this gateway started, with the same
+choice of destination a pull has.
+
+Not every suggestion is a tracker's. **A copy on a peer is an answer to the same
+question**, and a better one — the file exists, and its quality was measured on the file
+rather than read off a name — so peer copies come back in the same ordered list, above the
+tracker rows, and a coverage plan that cannot fill a gap says which of them a friend is
+holding instead of calling it unobtainable. The two kinds are deliberately **not** dressed
+as one shape: a peer copy has no seeders and no magnet, a release has no service and no
+path, and the row's own action follows from which it is. Handing a peer copy to a torrent
+client would be accepted by the client, move nothing, and report success on every screen —
+which is why refusing it is a rule with a test rather than a happy accident.
+
+Order is a household's opinion, so it is a setting rather than a heuristic: resolution,
+codec and group, each an ordered list of values, and **the order of the dimensions counts
+too**. Preferring 1080p over 2160p and then x265 over x264 is a different answer from
+preferring x265 first. It is set once globally, overridden per category, and overridden
+again for the one series that needs it — a media carrying its own order says so on its own
+page, with one press to cancel it, because the alternative is somebody wondering for a
+year why that one show searches differently from every other.
+
 ### Sharing
 
 Sharing is decided **per library**, not per service: you may want your series visible
@@ -580,6 +696,51 @@ make test          # unit and functional, both packages
 make api/coverage  # with coverage
 make e2e           # journeys, against the running stack
 ```
+
+### The lab
+
+`make lab/up` builds the thing all three layers eventually have to be believed against:
+a complete household on one machine, configured, with nothing reaching the internet.
+
+- **Four media servers** — two Jellyfin and two Plex, one pair yours and one pair a
+  friend's. The friend's call their libraries `Séries` and `Films`, because a library
+  name that is not ASCII and a correlation across two naming schemes are two of the
+  things this exists to break.
+- **Three gateways** on one bridge. Two prove that a peer link works; the third is what
+  makes the questions about peers answerable at all — which of two peers that both hold
+  a file is offered, what a screen does while one is down and another answers, whether a
+  lookup picks the right row in a list with more than one element in it.
+- **An indexer and a swarm.** Prowlarr, holding a Torznab indexer that lives in this
+  repository: a fixed fixture of releases chosen for the names a parser has to get right,
+  from three qualities of one episode to a complete series in subdirectories. The same
+  process answers `/announce`, and every release points at a real torrent of real lab
+  media that a second qBittorrent is really seeding to the first. So a search answers the
+  same thing on every machine and on every run, and a grab of any of it completes.
+- **A request source.** Seerr, set up unattended against the lab's own Jellyfin, with two
+  asks already open. Neither of them carries a title — which is not a quirk of the lab but
+  what the API is, and the reason the gateway looks a work up separately before it can put
+  anything on a screen.
+
+Why go to this length: the failures this product actually has are not exceptions, they
+are **operations that succeed while doing nothing**. A search that answers an empty list
+because it asked the wrong category. A magnet handed to a client that fetches nothing and
+reports no error. A transfer that finishes with every file written somewhere nobody looks.
+None of those throw, none appear in a log, and a test suite built on mocks agrees with all
+of them. Three of them were found by this lab and by nothing else.
+
+```bash
+make lab/up             # everything, configured, about four minutes the first time
+make lab/link           # link the three gateways and report what each agreed on
+make lab/register       # register the four servers in a gateway, mapped and scanned
+make lab/services       # reprint the addresses, keys and sign-ins
+make lab/torrents-check # search, grab, download, and compare the bytes that landed
+make lab/requests-check # read Seerr's asks through the gateway and check every verdict
+make lab/down           # stop it; the configuration survives
+```
+
+The lab is committed, and **what it becomes when you run it is not**: everything under
+`var/` — the generated media, the servers' own databases, the keys, the torrents — is
+state, and none of it belongs in a commit.
 
 ## Project layout
 

@@ -163,16 +163,20 @@ location / {
   - [Indexation, et pourquoi la passerelle met en cache](#indexation-et-pourquoi-la-passerelle-met-en-cache)
   - [Corrélation : qu'est-ce que le même contenu](#correlation-quest-ce-que-le-meme-contenu)
   - [Quand la bibliothèque est organisée d'une façon que votre serveur lit de travers](#quand-la-bibliotheque-est-organisee-dune-facon-que-votre-serveur-lit-de-travers)
+  - [Devine où quelque chose appartient, et demande d'abord](#devine-ou-quelque-chose-appartient-et-demande-dabord)
   - [La qualité en un coup d'œil](#la-qualite-en-un-coup-doeil)
   - [Synchronisation](#synchronisation)
   - [Transferts](#transferts)
   - [Quand un transfert tourne mal](#quand-un-transfert-tourne-mal)
   - [Pairs, amis, et amis d'amis](#pairs-amis-et-amis-damis)
   - [Ce qu'un seul port ne résout pas](#ce-quun-seul-port-ne-résout-pas)
+  - [Ce que le foyer a demandé](#ce-que-le-foyer-a-demande)
+  - [Trouver ce que personne de votre entourage ne détient](#trouver-ce-que-personne-de-votre-entourage-ne-detient)
   - [Partage](#partage)
   - [Connexion](#connexion)
 - [Développement](#developpement)
 - [Tests](#tests)
+  - [Le labo](#le-labo)
 - [Organisation du projet](#organisation-du-projet)
 - [Intégration continue](#integration-continue)
 - [Licence](#licence)
@@ -206,6 +210,21 @@ location / {
   par la présentation d'un ami qu'elles ont déjà quand ce n'est pas le cas, avec une
   découverte d'amis d'amis permettant à plusieurs personnes détenant le même fichier
   d'alimenter un même transfert.
+- **Lit ce que le foyer a demandé**, depuis un Seerr, et dit de chaque demande si cette
+  passerelle le détient déjà — tout, une partie, ou rien — pour que la liste soit
+  actionnable. Elle ne récupère rien sur cette base : elle suggère une recherche et
+  quelqu'un appuie.
+- **Cherche chez un indexeur ce que personne de votre entourage ne détient**, regroupe les
+  réponses par ce qu'elles sont réellement, calcule comment combler un manque à partir
+  d'elles — une saison reconstruite à partir d'épisodes isolés, ou seulement les fichiers
+  manquants extraits d'un pack — et pilote un client torrent pour la récupérer, en
+  continuant à partager et en copiant les fichiers dans la bibliothèque.
+- **Trie ces réponses comme le foyer le ferait** : résolution, codec et team, en listes
+  ordonnées dont l'ordre entre elles compte aussi, réglé globalement, par catégorie, ou
+  pour la seule série qui a besoin du sien.
+- **Suggère où un média appartient** — animation japonaise, dessins animés, films
+  d'animation, concerts — avec les indices qui le lui font dire, et ne range jamais rien
+  sur la foi d'une supposition.
 - **Vous laisse décider ce que vous partagez**, par bibliothèque, avec qui, et si les
   destinataires reçoivent les fichiers ou seulement le catalogue.
 
@@ -362,6 +381,30 @@ coûteuses à démêler seul, et signalées nulle part ailleurs :
   moyen d'y remédier, et la ligne disparaît d'elle-même dès qu'une correspondance
   existe. Elle n'a pas de bouton pour la masquer, justement : c'est la seule phrase qui
   explique tout l'écran.
+
+### Devine où quelque chose appartient, et demande d'abord
+
+Les catégories viennent des noms de bibliothèques : un foyer qui a une étagère d'animation
+japonaise et une étagère de dessins animés a déjà dit quelque chose d'utile à la passerelle
+sans remplir de formulaire. À partir de là, elle peut regarder un média — ses genres, son
+studio, sa langue d'origine, le nom de la release, le dossier où il se trouve — et dire
+*ceci ressemble à de l'animation japonaise*, avec les indices qui le lui font dire.
+
+C'est une **proposition, jamais un déplacement**. En accepter une effectue exactement la
+réaffectation que vous auriez faite en choisissant la bibliothèque vous-même, par le même
+mécanisme unique : un média qui a bougé a bougé pour une raison consignée en un seul
+endroit. Et les indices sont montrés plutôt que cachés derrière un triangle, pour une
+raison qui mérite d'être dite : une suggestion que personne ne peut vérifier est une
+suggestion qu'on apprend à accepter sans la lire — et alors c'est devenu automatique, par
+un chemin que personne n'a choisi.
+
+Elle s'abstient plutôt que de deviner. Rien n'est proposé sur une seule observation, rien
+n'est proposé sans que quelque chose dise ce que le média *est* — un nom de dossier ne dit
+que là où quelqu'un l'a déjà mis — et quand c'est manifestement de l'animation sans que
+rien de fiable dise d'où elle vient, elle le dit au lieu de tirer à pile ou face entre deux
+étagères qui répondent à la même question. Un documentaire sur l'animation n'est pas de
+l'animation, et un film en prise de vues réelles avec un personnage de dessin animé dans
+son titre n'est pas un dessin animé.
 
 ### La qualité en un coup d'œil
 
@@ -531,6 +574,92 @@ publique de chaque extrémité, TURN quand elle ne peut pas l'être, signalés s
 liaison entre pairs qui transporte déjà les présentations. Ce n'est **pas implémenté**,
 et c'est l'état honnête de la chose.
 
+### Ce que le foyer a demandé
+
+Personne ne demande un film à une passerelle de synchronisation. On demande dans Seerr — ou
+Overseerr, ou Jellyseerr, qui sont une seule API et se lisent de la même façon — parce que
+c'est l'écran avec un champ de recherche que tout le monde dans la maison a déjà sur son
+téléphone. Une source de demandes est donc lue ici comme une **source d'information** et
+rien d'autre : elle dit ce que les gens veulent, et cette passerelle dit ce qu'elle peut y
+faire.
+
+Tout l'intérêt de l'écran, c'est le verdict. Un foyer ouvre quarante demandes par an et la
+plupart arrivent par un autre chemin ; une liste de demandes en cours sans savoir
+lesquelles sont déjà satisfaites est une liste sur laquelle personne n'agit. Chaque demande
+est rapprochée du catalogue par ses identifiants de métadonnées et revient avec une réponse
+sur trois, maintenues distinctes exprès : nous avons tout, nous en avons une partie, nous
+n'en avons jamais entendu parler. C'est celle du milieu qui compte — une demande pour les
+saisons deux et trois n'est pas satisfaite parce qu'on détient la deux, et un écran qui
+dirait le contraire clôturerait la demande sur la moitié.
+
+**Une ligne de demande ne porte aucun titre.** Ce n'est pas une bizarrerie à contourner
+discrètement, cela mérite d'être su, parce que c'est ce que l'écran serait sinon : les
+lignes de Seerr sont des identifiants et des statuts, et rien de lisible. Les œuvres que
+personne ici ne détient — c'est-à-dire exactement ce qu'est une demande, d'ordinaire —
+arrivent donc comme une colonne de nombres. La passerelle demande donc à la source
+elle-même ce qu'est chacune, une fois par demande sans nom, et seulement pour celles que le
+catalogue ne peut pas nommer : une liste qui interrogerait chaque ligne dépenserait un
+aller-retour par ligne pour réapprendre des titres qu'elle a déjà.
+
+Deux choses peuvent ensuite être appuyées :
+
+- **La marquer satisfaite**, qui est la façon dont une demande cesse d'être en cours là où
+  le foyer regarde. Proposée seulement quand ce serait vrai, et refusée par l'API autant
+  que cachée par l'interface — quand on dit aux gens qu'une demande est satisfaite, ils
+  cessent de demander : en clôturer une qui n'a rien livré met fin aux demandes et ne livre
+  rien. La route accepte un `force` explicite, pour la copie qui existe sur une étagère
+  dont ce catalogue n'a jamais été informé.
+- **La chercher.** Chaque demande non satisfaite porte la recherche qu'elle implique — le
+  titre de l'œuvre, les saisons réellement manquantes — calculée et transmise. Appuyer est
+  la décision d'une personne, et cette séparation est le choix central du produit sur cette
+  fonctionnalité plutôt qu'un bord inachevé : câblée à un téléchargement, un compte sur le
+  Seerr de quelqu'un d'autre dépenserait le disque de cette passerelle.
+
+Un média à nous peut aussi être poussé dans l'autre sens, et c'est ainsi que « on suit ça
+ici » se dit là où le foyer regarde.
+
+### Trouver ce que personne de votre entourage ne détient
+
+Un pair est la meilleure source qui soit, et parfois personne que vous connaissez ne l'a.
+Un **indexeur** (Prowlarr) est lu pour les releases et un **client de téléchargement**
+(qBittorrent) déplace les octets, tous deux derrière le même motif décorateur-et-registre
+que les handlers de services média — un autre de l'un ou de l'autre coûte une classe et une
+valeur d'énumération.
+
+Ce qui en fait plus qu'un champ de recherche, c'est que les réponses d'un tracker et la
+question d'un foyer n'ont pas la même forme. Vous voulez la saison deux ; le tracker a
+l'épisode un en trois qualités venant de trois groupes, un pack de saison, une suite de
+trois épisodes sous un seul info hash, et la série complète en sous-répertoires. Les
+résultats sont donc **regroupés par ce qu'ils sont réellement** — la même release listée
+par deux trackers ne fait qu'une ligne, et le codec, la résolution et le groupe font partie
+de ce qui distingue deux annonces au lieu d'être confondus — et la passerelle en déduit la
+couverture : une saison peut être **reconstruite à partir d'épisodes isolés** et,
+inversement, on peut demander à un pack de saison de ne récupérer **que les fichiers
+manquants**, par la sélection fichier par fichier du client. Le téléchargement **reste en
+partage** et les fichiers sont copiés dans la bibliothèque, progression comprise, ce qui se
+voit dans la file des transferts à côté de tous les autres — uniquement ceux que cette
+passerelle a lancés, avec le même choix de destination qu'un rapatriement.
+
+Toutes les suggestions ne viennent pas d'un tracker. **Une copie chez un pair répond à la
+même question**, et mieux — le fichier existe, et sa qualité a été mesurée sur le fichier
+plutôt que lue sur un nom — alors les copies des pairs reviennent dans la même liste
+ordonnée, au-dessus des lignes de tracker, et un plan de couverture qui ne peut pas combler
+un manque dit lequel d'entre eux un ami détient au lieu de le déclarer introuvable. Les
+deux sortes ne sont exprès **pas** habillées d'une même forme : une copie de pair n'a ni
+sources ni magnet, une release n'a ni service ni chemin, et l'action de la ligne découle de
+ce qu'elle est. Confier une copie de pair à un client torrent serait accepté par le client,
+ne déplacerait rien, et annoncerait un succès sur tous les écrans — d'où une règle avec un
+test plutôt qu'un heureux hasard.
+
+L'ordre est une opinion du foyer, donc c'est un réglage et pas une heuristique : résolution,
+codec et team, chacun une liste ordonnée de valeurs, et **l'ordre des dimensions compte
+aussi**. Préférer le 1080p au 2160p puis le x265 au x264 n'est pas la même réponse que
+préférer le x265 d'abord. Cela se règle une fois globalement, se surcharge par catégorie, et
+se surcharge encore pour la seule série qui en a besoin — un média portant son propre ordre
+le dit sur sa propre page, avec un appui pour l'annuler, parce que l'alternative c'est
+quelqu'un qui se demande pendant un an pourquoi cette série-là cherche autrement que toutes
+les autres.
+
 ### Partage
 
 Le partage se décide **par bibliothèque**, pas par service : vous pouvez vouloir que
@@ -627,6 +756,54 @@ make test          # unit and functional, both packages
 make api/coverage  # with coverage
 make e2e           # journeys, against the running stack
 ```
+
+### Le labo
+
+`make lab/up` construit ce contre quoi les trois couches doivent finir par être crues :
+un foyer complet sur une seule machine, configuré, sans que rien n'atteigne Internet.
+
+- **Quatre serveurs de médias** — deux Jellyfin et deux Plex, une paire à vous et une
+  paire chez un ami. Les bibliothèques de l'ami s'appellent `Séries` et `Films`, parce
+  qu'un nom de bibliothèque non ASCII et une corrélation entre deux conventions de
+  nommage font partie de ce que ce labo existe pour casser.
+- **Trois passerelles** sur un même réseau. Deux prouvent qu'un lien pair à pair
+  fonctionne ; la troisième est ce qui rend les questions sur les pairs seulement
+  répondables — lequel de deux pairs détenant le même fichier est proposé, ce qu'affiche
+  un écran pendant que l'un est éteint et que l'autre répond, si une recherche par
+  empreinte choisit la bonne ligne dans une liste qui en compte plus d'une.
+- **Un indexeur et un essaim.** Prowlarr, avec un indexeur Torznab qui vit dans ce dépôt :
+  un jeu figé de releases choisies pour les noms qu'un analyseur doit savoir lire, de
+  trois qualités d'un même épisode à une série complète en sous-répertoires. Le même
+  processus répond à `/announce`, et chaque release pointe vers un vrai torrent de vrais
+  médias du labo qu'un second qBittorrent sème réellement vers le premier. Une recherche
+  répond donc la même chose sur toutes les machines et à chaque exécution, et n'importe
+  quel grab va jusqu'au bout.
+- **Une source de demandes.** Seerr, installé sans intervention contre le Jellyfin du
+  labo, avec deux demandes déjà ouvertes. Aucune des deux ne porte de titre — ce n'est pas
+  une bizarrerie du labo mais ce qu'est l'API, et c'est la raison pour laquelle la
+  passerelle va chercher l'œuvre séparément avant de pouvoir afficher quoi que ce soit.
+
+Pourquoi aller jusque-là : les défaillances de ce produit ne sont pas des exceptions, ce
+sont des **opérations qui réussissent sans rien faire**. Une recherche qui répond une
+liste vide parce qu'elle a demandé la mauvaise catégorie. Un magnet confié à un client qui
+ne télécharge rien et ne signale aucune erreur. Un transfert qui se termine avec tous les
+fichiers écrits là où personne ne regarde. Aucune ne lève d'exception, aucune n'apparaît
+dans un journal, et une suite de tests bâtie sur des mocks leur donne raison à toutes.
+Trois d'entre elles ont été trouvées par ce labo et par rien d'autre.
+
+```bash
+make lab/up             # tout, configuré ; environ quatre minutes la première fois
+make lab/link           # lie les trois passerelles et rapporte ce que chaque lien a négocié
+make lab/register       # enregistre les quatre serveurs dans une passerelle, mappés et scannés
+make lab/services       # réaffiche les adresses, les clés et les identifiants
+make lab/torrents-check # cherche, grab, télécharge, et compare les octets arrivés
+make lab/requests-check # lit les demandes de Seerr à travers la passerelle et vérifie chaque verdict
+make lab/down           # l'arrête ; la configuration survit
+```
+
+Le labo est versionné, et **ce qu'il devient quand on le lance ne l'est pas** : tout ce
+qui se trouve sous `var/` — les médias générés, les bases des serveurs, les clés, les
+torrents — est de l'état, et rien de cela n'a sa place dans un commit.
 
 ## Organisation du projet
 

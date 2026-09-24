@@ -1,3 +1,4 @@
+import type { ReleasePreference } from './preference.model';
 import type { MediaServiceType } from './service.model';
 import type { SyncState } from './sync.model';
 
@@ -216,6 +217,16 @@ export interface MediaOverride {
 	 * sync plans, and from ever being called missing, not hidden.
 	 */
 	ignored?: boolean;
+	/**
+	 * This one media's own search order, and null cancels it.
+	 *
+	 * In the overrides blob rather than a column of its own: it is a household decision
+	 * about one media, which is exactly what `ignored` beside it is, and it costs no
+	 * migration on either engine. A whole level replaces the one above it — see
+	 * `resolveReleasePreference` — so cancelling is writing null here and the category's
+	 * order applies again.
+	 */
+	releasePreference?: ReleasePreference | null;
 }
 
 /** The overridable fields as the service last reported them, so a change can be shown. */
@@ -459,6 +470,53 @@ export enum MediaOrigin {
 	FRIEND_OF_FRIEND = 'friend_of_friend',
 }
 
+/**
+ * The resolutions a filter may name, and the only ones.
+ *
+ * These are the labels the gateway *derives*, never the ones a release claims: the
+ * reading is banded on both dimensions in one place, and a 1920 × 804 scope master is
+ * `1080p` here whatever its filename says. Anything outside this list is a spelling
+ * the index never wrote, so a filter naming it would answer nothing and look broken.
+ *
+ * Closed on purpose, which is what lets the interface build the control from it and
+ * the API refuse a value by validation rather than by returning an empty wall. The
+ * values have to stay equal to the band labels in `QualityService`; they are stored in
+ * the quality summaries, so changing one of them without the other silently stops the
+ * filter matching anything already scanned.
+ */
+export enum MediaResolution {
+	UHD = '2160p',
+	FULL_HD = '1080p',
+	HD = '720p',
+	PAL = '576p',
+	NTSC = '480p',
+}
+
+/**
+ * The video codecs worth offering as a filter, with the spellings people look for.
+ *
+ * `codec` is the folded spelling, which is the only one the index holds: `hevc`,
+ * `h265`, `h.265` and `x265` are one decoder and four habits of naming it, and the
+ * quality summaries are written after that folding. `label` pairs it with the
+ * standard's name because those are the same thing to a person and only one of them is
+ * on the shelf — somebody hunting for HEVC must not have to know that this gateway
+ * spells it `x265`.
+ *
+ * Product names rather than prose, so they are not translated.
+ *
+ * The list is what the control offers and not what the API accepts: a filter naming an
+ * unusual codec by hand is still answered, folded the same way, because the index can
+ * hold any spelling a media server reports.
+ */
+export const MEDIA_VIDEO_CODECS: { codec: string; label: string }[] = [
+	{ codec: 'x265', label: 'x265 / HEVC' },
+	{ codec: 'x264', label: 'x264 / AVC' },
+	{ codec: 'av1', label: 'AV1' },
+	{ codec: 'vp9', label: 'VP9' },
+	{ codec: 'xvid', label: 'Xvid / DivX' },
+	{ codec: 'mpeg2', label: 'MPEG-2' },
+];
+
 export interface MediaGroupQuery {
 	/**
 	 * Restrict to what these services hold, without ungrouping the rest.
@@ -491,6 +549,47 @@ export interface MediaGroupQuery {
 	 * Items marked ignored do not count as gaps — see `MediaOverride.ignored`.
 	 */
 	hideOwned?: boolean;
+	/**
+	 * Keep only media something under them is in one of these resolutions.
+	 *
+	 * Read off what the gateway measured and not off what a release announced — the
+	 * same reading the chip shows, so a wall filtered on `1080p` and a card labelled
+	 * `1080p` can never disagree. A scope master of 1920 × 804 is 1080p to both.
+	 *
+	 * Satisfied by *any* copy and any file beneath, which is the answer somebody
+	 * filtering on `2160p` wants: a series held here in 1080p that a friend has in
+	 * 2160p is exactly what the filter is for, and a rule demanding every copy agree
+	 * would hide it. The group's own chip already says `mixed` when they disagree.
+	 */
+	resolutions?: MediaResolution[];
+	/**
+	 * Keep only media something under them is encoded with one of these codecs.
+	 *
+	 * The spellings are folded before anything is matched — `x265`, `hevc` and `h265`
+	 * are one thing to a person, and the index only ever holds the folded form. Read
+	 * across the copies exactly as `resolutions` is.
+	 */
+	videoCodecs?: string[];
+	/**
+	 * Keep only media a sync plan undertakes to keep in step.
+	 *
+	 * Following is not a second notion beside the plans: a plan whose scope names a
+	 * media *is* the standing intent to follow it, which is what the media's own page
+	 * already creates and names. A media counts as followed when a plan's
+	 * `SyncScope.rootItemIds` names it or names something above it, which is the same
+	 * reading of coverage the item's page uses.
+	 */
+	followed?: boolean;
+	/**
+	 * Keep only media there is something to do about.
+	 *
+	 * Two things, either of which counts: a gap beneath it — children known somewhere
+	 * and absent here, ignored ones excluded — or itself or something beneath it in a
+	 * state that says a better or missing copy exists elsewhere. Neither is a new
+	 * notion: the first is the count a season card already shows, the second is the
+	 * vocabulary `SyncState` already speaks.
+	 */
+	actionable?: boolean;
 	/** Children of this group, addressed by the parent's representative item. */
 	parentId?: string;
 	/**

@@ -2,11 +2,13 @@ import type {
 	Revalidation,
 	Transfer,
 	TransferChunk,
+	TransferProgress,
 	TransferSource,
 	UnconfiguredPlacement,
 } from '@mcs/shared';
 import {
 	ChunkState,
+	MediaLandingState,
 	PlacedBy,
 	RevalidationAction,
 	RevalidationOutcome,
@@ -20,6 +22,7 @@ import RevalidationList from '@/components/transfer/RevalidationList.vue';
 import TransferActions from '@/components/transfer/TransferActions.vue';
 import TransferBatch from '@/components/transfer/TransferBatch.vue';
 import TransferDestination from '@/components/transfer/TransferDestination.vue';
+import TransferRow from '@/components/transfer/TransferRow.vue';
 import TransferSources from '@/components/transfer/TransferSources.vue';
 import UnconfiguredPlacements from '@/components/transfer/UnconfiguredPlacements.vue';
 import { mountWithApp, tooltipStub } from './helpers';
@@ -36,6 +39,8 @@ function transfer (overrides: Partial<Transfer> = {}): Transfer {
 		targetPath: '/media/shows/pilot.mkv',
 		targetLibraryId: 'lib-shows',
 		placedBy: PlacedBy.CATEGORY,
+		lot: null,
+		landing: null,
 		bytesTotal: 1000,
 		bytesDone: 100,
 		rate: 10,
@@ -53,6 +58,21 @@ function transfer (overrides: Partial<Transfer> = {}): Transfer {
 		createdAt: '2026-01-01T00:00:00.000Z',
 		updatedAt: '2026-01-01T00:00:00.000Z',
 		...overrides,
+	};
+}
+
+/** The stream shape of a transfer, for a component that is handed both. */
+function progressOf (one: Transfer): TransferProgress {
+	return {
+		id: one.id,
+		state: one.state,
+		bytesDone: one.bytesDone,
+		bytesTotal: one.bytesTotal,
+		rate: one.rate,
+		etaSeconds: one.etaSeconds,
+		chunksDone: one.chunksDone,
+		chunksTotal: one.chunksTotal,
+		sourceCount: one.sources.length,
 	};
 }
 
@@ -487,6 +507,47 @@ describe('components/TransferDestination', () => {
 	});
 });
 
+describe('components/transfer/TransferRow', () => {
+	/*
+	 * The bytes finishing is not the file arriving: it still has to be moved into place
+	 * and then noticed by a media server. A row that showed a full bar and `done`
+	 * through all of that was read as a gateway that had stopped.
+	 */
+	function landed (landing: MediaLandingState | null) {
+		const one = transfer({ state: TransferState.DONE, bytesDone: 1000, landing });
+
+		return mountWithApp(TransferRow, {
+			props: { transfer: one, progress: progressOf(one) },
+			global: { stubs: tooltipStub },
+		});
+	}
+
+	it('warns about a file no media server has indexed', () => {
+		// The serious one: the transfer succeeded, so nothing else anywhere reports it.
+		const { wrapper } = landed(MediaLandingState.STALE);
+		const note = wrapper.find('[data-test="transfer-landing"]');
+
+		expect(note.attributes('data-landing')).toBe('stale');
+		expect(note.classes().some(name => name.includes('warning'))).toBe(true);
+		expect(note.text()).toContain('no media server has indexed it');
+	});
+
+	it('says a filed file is waiting to be indexed, without alarming anybody', () => {
+		const { wrapper } = landed(MediaLandingState.WAITING);
+		const note = wrapper.find('[data-test="transfer-landing"]');
+
+		expect(note.attributes('data-landing')).toBe('waiting');
+		expect(note.classes().some(name => name.includes('warning'))).toBe(false);
+		expect(note.text()).toContain('Waiting for the media server');
+	});
+
+	it('says nothing about the landing when there is nothing left to wait for', () => {
+		const { wrapper } = landed(null);
+
+		expect(wrapper.find('[data-test="transfer-landing"]').exists()).toBe(false);
+	});
+});
+
 describe('components/transfer/TransferBatch', () => {
 	/*
 	 * Fetching a season produced eleven rows in the queue, each with its own
@@ -607,6 +668,26 @@ describe('components/transfer/TransferBatch', () => {
 		expect(wrapper.emitted('retarget')?.[0]).toEqual([transfers]);
 	});
 
+	it('draws one download although its files came from two runs', () => {
+		/*
+		 * The complaint this comes from: a season was moved, and the episodes that had
+		 * arrived from an earlier run read as somebody else's work. A block is a lot, and
+		 * the run a file came from is not a property this card may notice — the
+		 * destination, the count and the redirection are all taken from the files.
+		 */
+		const [tonight, lastNight] = season();
+		const transfers = [tonight, { ...lastNight, jobId: 'job-0', state: TransferState.DONE }];
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers, progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-path"]').text())
+			.toBe('/share/SeriesTV/Spartacus (2012)/Season 02');
+		expect(wrapper.find('[data-test="transfer-batch"]').text()).toContain('1 of 2 files');
+		expect(wrapper.find('[data-test="transfer-batch-retarget"]').exists()).toBe(true);
+	});
+
 	it('still offers a destination for a run that has entirely landed', () => {
 		/*
 		 * The one worth moving, and the buttons around it are not: pause and cancel have
@@ -622,5 +703,65 @@ describe('components/transfer/TransferBatch', () => {
 		expect(wrapper.find('[data-test="transfer-batch-retarget"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="transfer-batch-pause"]').exists()).toBe(false);
 		expect(wrapper.find('[data-test="transfer-batch-cancel"]').exists()).toBe(false);
+	});
+
+	it('does not call a run finished while its files are waiting to be indexed', () => {
+		/*
+		 * "2 of 2 files" over a run no server has indexed is the claim that hid this:
+		 * every number on the card agreed the work was over, so nobody looked.
+		 */
+		const waiting = season().map(one => ({
+			...one,
+			state: TransferState.DONE,
+			bytesDone: 1000,
+			landing: MediaLandingState.WAITING,
+		}));
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers: waiting, progress },
+			global: { stubs: tooltipStub },
+		});
+		const card = wrapper.find('[data-test="transfer-batch"]');
+
+		expect(card.text()).not.toContain('2 of 2 files');
+		expect(card.text()).toContain('0 of 2 files');
+		expect(wrapper.find('[data-test="transfer-batch-landing"]').attributes('data-landing'))
+			.toBe('waiting');
+	});
+
+	it('counts a run finished once its files have been indexed', () => {
+		// The other half of the rule: a run nothing is waiting for is over, and a card
+		// that never said so would be a bar that never fills.
+		const indexed = season().map(one => ({
+			...one,
+			state: TransferState.DONE,
+			bytesDone: 1000,
+		}));
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers: indexed, progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch"]').text()).toContain('2 of 2 files');
+		expect(wrapper.find('[data-test="transfer-batch-landing"]').exists()).toBe(false);
+	});
+
+	it('reports the files nothing indexed over the ones still on schedule', () => {
+		// One file no server took is what somebody has to act on; a count of the others
+		// on the same line would bury it.
+		const [first, second] = season();
+		const transfers = [
+			{ ...first, state: TransferState.DONE, landing: MediaLandingState.WAITING },
+			{ ...second, state: TransferState.DONE, landing: MediaLandingState.STALE },
+		];
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers, progress },
+			global: { stubs: tooltipStub },
+		});
+
+		const note = wrapper.find('[data-test="transfer-batch-landing"]');
+
+		expect(note.attributes('data-landing')).toBe('stale');
+		expect(note.classes()).toContain('text-warning');
+		expect(note.text()).toContain('1 file was never indexed');
 	});
 });

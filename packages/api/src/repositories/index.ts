@@ -8,6 +8,7 @@ export * from './media-service.repository';
 export * from './notification-channel.repository';
 export * from './peer.repository';
 export * from './peer-invite.repository';
+export * from './release-grab.repository';
 export * from './revalidation.repository';
 export * from './session.repository';
 export * from './setting.repository';

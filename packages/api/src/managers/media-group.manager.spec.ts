@@ -1,18 +1,21 @@
 import {
 	MatchStrategy,
 	MediaKind,
+	MediaResolution,
 	MediaServiceType,
 	SyncState,
 	type MediaFileInfo,
 	type MediaGroupQuery,
+	type QualitySummary,
 } from '@mcs/shared';
-import type { MediaItem, MediaService, Peer } from '@/entities';
+import type { MediaItem, MediaService, Peer, SyncPlan } from '@/entities';
 import type {
 	MediaItemDigest,
 	MediaItemRepository,
 	MediaMatchRepository,
 	MediaServiceRepository,
 	PeerRepository,
+	SyncPlanRepository,
 	GroupSeedQuery,
 	MatchPair,
 } from '@/repositories';
@@ -85,6 +88,26 @@ const service = (overrides: Partial<MediaService> = {}): MediaService =>
 		...overrides,
 	}) as MediaService;
 
+/**
+ * The summary a scan writes onto a row, built by the service that writes the real one.
+ *
+ * Never a hand-written literal: the resolution and the codec in there are *derived*
+ * values, and a test that spelled them itself would pass while the filter matched
+ * something the gateway never stores.
+ */
+const summarised = (...files: MediaFileInfo[]): QualitySummary =>
+	new QualityService().summarise(files);
+
+const plan = (overrides: Partial<SyncPlan> = {}): SyncPlan =>
+	({
+		id: 'plan',
+		name: 'The Flight',
+		enabled: true,
+		scope: {},
+		filter: {},
+		...overrides,
+	}) as SyncPlan;
+
 const correlation = (overrides: Partial<Correlation> = {}): Correlation => ({
 	localItemId: 'a',
 	remoteItemId: 'b',
@@ -100,8 +123,23 @@ interface World {
 	matches: Correlation[];
 	services: MediaService[];
 	peers: Peer[];
+	plans: SyncPlan[];
 	threshold: number;
 }
+
+/**
+ * The `LIKE` the repository writes against the stored quality summary.
+ *
+ * Repeated here rather than approximated, and serialised the way the driver serialises
+ * a `simple-json` column, because that is what the filter actually is: a substring test
+ * naming the key and the whole value. A fake that compared the deserialised object
+ * instead would prove the manager against a filter nobody ships — and would hide the
+ * one way the real one can go wrong, which is a row nothing has summarised yet.
+ */
+const holdsVariant = (row: MediaItem, field: string, values: string[]): boolean =>
+	values.some((value) =>
+		JSON.stringify(row.quality ?? null).includes(`"${field}":"${value}"`),
+	);
 
 const digest = (row: MediaItem): MediaItemDigest => ({
 	id: row.id,
@@ -135,6 +173,7 @@ const build = (
 		matches: [],
 		services: [service(), service({ id: 'remote', name: 'Cabin', filesMounted: false, priority: 200 })],
 		peers: [],
+		plans: [],
 		threshold: 0.8,
 		...world,
 	};
@@ -151,8 +190,17 @@ const build = (
 							(query.libraryIds === undefined ||
 								query.libraryIds.includes(row.libraryId)) &&
 							(query.kind === undefined || row.kind === query.kind) &&
+							(query.rootsOnly !== true || row.parentId === null) &&
 							(query.parentIds === undefined ||
 								(row.parentId !== null && query.parentIds.includes(row.parentId))) &&
+							(query.resolutions === undefined ||
+								holdsVariant(row, 'resolution', query.resolutions)) &&
+							(query.videoCodecs === undefined ||
+								holdsVariant(row, 'videoCodec', query.videoCodecs)) &&
+							(query.coveredIds === undefined ||
+								query.coveredIds.includes(row.id) ||
+								(row.parentId !== null &&
+									(query.coveredParentIds ?? []).includes(row.parentId))) &&
 							(query.search === undefined ||
 								row.normalizedTitle.includes(query.search.toLowerCase())),
 					)
@@ -228,6 +276,9 @@ const build = (
 			{
 				librariesOfCategory: jest.fn(() => Promise.resolve([])),
 			} as unknown as LibraryManager,
+			// Following is a sync plan covering a media and nothing else, so the plans are
+			// the whole of what the followed filter reads.
+			{ find: jest.fn(() => Promise.resolve(full.plans)) } as unknown as SyncPlanRepository,
 		),
 		world: full,
 		reads: { items, matches },
@@ -486,9 +537,8 @@ describe('MediaGroupManager', () => {
 
 			const answer = await manager.groups(query({ hideOwned: true, rootsOnly: true }));
 
-			// Named rather than counted: the fake repository here does not implement
-			// `rootsOnly`, so the episodes come back as groups of their own and a
-			// length would be asserting the harness, not the filter.
+			// Named rather than counted, so the assertion stays about the show rather than
+			// about how many other groups the world happens to hold.
 			expect(answer.items.map((group) => group.id)).not.toContain('show');
 		});
 
@@ -1470,6 +1520,300 @@ describe('MediaGroupManager', () => {
 			// Three groups match, one page is asked for: the JSON columns of the other
 			// two are never read.
 			expect(reads.items.findByIds).toHaveBeenCalledWith(['a']);
+		});
+	});
+	/**
+	 * Filtering the wall by what the files actually are.
+	 *
+	 * The labels are read off the summary a scan wrote, which is the one place dimensions
+	 * become a resolution — so the wall and the chip on a card cannot disagree about what
+	 * a file is, and neither can be told otherwise by a filename.
+	 */
+	describe('the resolution and codec filters', () => {
+		const scanned = (
+			id: string,
+			title: string,
+			overrides: Partial<MediaFileInfo>,
+			extra: Partial<MediaItem> = {},
+		): MediaItem => {
+			const own = file(overrides);
+
+			return item({ id, title, file: own, quality: summarised(own), ...extra });
+		};
+
+		it('keeps only the media something under them is in that resolution', async () => {
+			const { manager } = build({
+				items: [
+					scanned('hd', 'Alpha', { width: 1920, height: 1080 }),
+					scanned('uhd', 'Bravo', { width: 3840, height: 2160 }),
+				],
+			});
+
+			const page = await manager.groups(query({ resolutions: [MediaResolution.UHD] }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['uhd']);
+			expect(page.pagination.total).toBe(1);
+		});
+
+		/**
+		 * The case the owner's library already broke on.
+		 *
+		 * A scope master is 1920 × 804 and is a 1080p Blu-ray by every definition anybody
+		 * uses, whatever the release called itself. The filter has to agree with the chip,
+		 * and both read `QualityService`.
+		 */
+		it('reads the resolution the gateway measured, not the one the file is named after', async () => {
+			const { manager } = build({
+				items: [
+					scanned('scope', 'Alpha', {
+						path: '/library/Alpha - 720p.mkv',
+						width: 1920,
+						height: 804,
+					}),
+				],
+			});
+
+			expect((await manager.groups(query({ resolutions: [MediaResolution.FULL_HD] }))).items)
+				.toHaveLength(1);
+			expect((await manager.groups(query({ resolutions: [MediaResolution.HD] }))).items)
+				.toHaveLength(0);
+		});
+
+		it('folds the codec spellings, so hevc, h265 and x265 are one filter', async () => {
+			const { manager } = build({
+				items: [scanned('five', 'Alpha', { videoCodec: 'hevc' })],
+			});
+
+			for (const spelling of ['hevc', 'h265', 'h.265', 'x265', 'HEVC']) {
+				expect(
+					(await manager.groups(query({ videoCodecs: [spelling] }))).items.map((one) => one.id),
+				).toEqual(['five']);
+			}
+
+			expect((await manager.groups(query({ videoCodecs: ['x264'] }))).items).toHaveLength(0);
+		});
+
+		it('answers nothing to a codec no spelling folds to', async () => {
+			const { manager } = build({ items: [scanned('five', 'Alpha', { videoCodec: 'hevc' })] });
+
+			// An empty filter is not the absence of one, here for the same reason it is not
+			// for a service nobody has registered.
+			expect((await manager.groups(query({ videoCodecs: ['  '] }))).items).toHaveLength(0);
+		});
+
+		it('leaves out a media nobody has summarised yet', async () => {
+			const { manager } = build({ items: [item({ id: 'unscanned', quality: null })] });
+
+			// Honest rather than convenient: the one thing known about its encoding is that
+			// nobody has looked at it.
+			expect((await manager.groups(query({ resolutions: [MediaResolution.FULL_HD] }))).items)
+				.toHaveLength(0);
+		});
+
+		/**
+		 * **A group whose copies disagree matches every resolution any of them is.**
+		 *
+		 * The decision, and it is not the tidy one. A media held here in 1080p while a
+		 * friend has the 2160p is *the* case somebody filtering on `2160p` is looking for:
+		 * that is where the better copy is, and where a sync would fetch it from. A rule
+		 * demanding every copy agree would hide exactly the row worth acting on, and one
+		 * reading only the local copy would answer "you have no 4K" to somebody who is
+		 * asking where the 4K is.
+		 *
+		 * It is also the only reading consistent with the card: the group's own chip
+		 * already says `mixed`, which is the honest summary of two copies that differ, and
+		 * a wall whose filter meant something narrower than its chip would be two answers
+		 * to one question.
+		 */
+		it('shows a group whose copies disagree under both of their resolutions', async () => {
+			const world = {
+				items: [
+					scanned('ours', 'Alpha', { width: 1920, height: 1080 }),
+					scanned('theirs', 'Alpha', { width: 3840, height: 2160 }, {
+						serviceId: 'remote',
+						libraryId: 'library-remote',
+					}),
+				],
+				matches: [correlation({ localItemId: 'ours', remoteItemId: 'theirs', confidence: 0.95 })],
+			};
+
+			const grouped = await build(world).manager.groups(query());
+
+			expect(grouped.items).toHaveLength(1);
+			expect(grouped.items[0].quality?.mixed).toBe(true);
+
+			for (const resolution of [MediaResolution.FULL_HD, MediaResolution.UHD]) {
+				const page = await build(world).manager.groups(query({ resolutions: [resolution] }));
+
+				expect(page.items.map((one) => one.sources.length)).toEqual([2]);
+				expect(page.pagination.total).toBe(1);
+			}
+		});
+	});
+
+	/**
+	 * The library, pre-filtered to what is followed and worth acting on.
+	 *
+	 * Following is a sync plan covering a media and never a second flag beside it, so
+	 * everything here is read off `SyncScope.rootItemIds` — the same reading the media's
+	 * own page uses when it says a plan already speaks for it.
+	 */
+	describe('the followed filter', () => {
+		const show = (id: string, title: string, overrides: Partial<MediaItem> = {}): MediaItem =>
+			item({ id, title, kind: MediaKind.SERIES, file: null, quality: null, ...overrides });
+
+		it('keeps only the media a sync plan covers', async () => {
+			const { manager } = build({
+				items: [show('followed', 'Alpha'), show('ignored', 'Bravo')],
+				plans: [plan({ scope: { rootItemIds: ['followed'] } })],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, followed: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['followed']);
+		});
+
+		/**
+		 * A plan is usually made on a season, and the wall shows series.
+		 *
+		 * Without the climb the followed thing would be unreachable from the one screen
+		 * built to show it, which is the same reason the state filter walks up.
+		 */
+		it('shows the series above a followed season', async () => {
+			const { manager } = build({
+				items: [
+					show('series', 'Alpha'),
+					item({ id: 'season', title: 'Season 1', kind: MediaKind.SEASON, parentId: 'series', file: null }),
+					show('other', 'Bravo'),
+				],
+				plans: [plan({ scope: { rootItemIds: ['season'] } })],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, followed: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['series']);
+		});
+
+		it('reaches the episodes of a followed series', async () => {
+			const { manager } = build({
+				items: [
+					show('series', 'Alpha'),
+					item({ id: 'ep1', title: 'One', parentId: 'series' }),
+					item({ id: 'ep2', title: 'Two', parentId: 'series' }),
+				],
+				plans: [plan({ scope: { rootItemIds: ['series'] } })],
+			});
+
+			const page = await manager.groups(query({ parentId: 'series', followed: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['ep1', 'ep2']);
+		});
+
+		it('answers nothing while nothing is followed', async () => {
+			const { manager } = build({ items: [show('a', 'Alpha')], plans: [] });
+
+			// Not "no filter": a tab of followed media with no plans is empty, and
+			// answering the whole library would be the one failure that looks like the
+			// filter being ignored.
+			expect((await manager.groups(query({ rootsOnly: true, followed: true }))).items)
+				.toHaveLength(0);
+		});
+	});
+
+	/**
+	 * What there is something to do about, which is the other half of the tab.
+	 *
+	 * Two readings, either of which counts, and neither of them new: the gap count a
+	 * season card already shows, and the states the chips already speak.
+	 */
+	describe('the actionable filter', () => {
+		const show = (id: string, title: string): MediaItem =>
+			item({ id, title, kind: MediaKind.SERIES, file: null, quality: null });
+
+		it('keeps a media an episode is missing under, and drops one with nothing left to fetch', async () => {
+			const { manager } = build({
+				items: [
+					show('short', 'Alpha'),
+					item({ id: 'short-1', title: 'One', parentId: 'short' }),
+					item({
+						id: 'short-2',
+						title: 'Two',
+						parentId: 'short',
+						serviceId: 'remote',
+						libraryId: 'library-remote',
+						syncState: SyncState.MISSING,
+					}),
+					show('complete', 'Bravo'),
+					item({ id: 'complete-1', title: 'One', parentId: 'complete' }),
+				],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['short']);
+			expect(page.items[0].missingCount).toBe(1);
+		});
+
+		/**
+		 * The half a gap count cannot see.
+		 *
+		 * Every episode is here, so nothing is missing — and a friend holds a better
+		 * encoding of one of them, which is the whole reason "something new" is read off
+		 * the state rather than off the count. A series is almost never itself outdated;
+		 * its episodes are.
+		 */
+		it('keeps a media held in full whose episode is outdated beneath it', async () => {
+			const { manager } = build({
+				items: [
+					show('dated', 'Alpha'),
+					item({ id: 'dated-1', title: 'One', parentId: 'dated', syncState: SyncState.OUTDATED }),
+					show('clean', 'Bravo'),
+					item({ id: 'clean-1', title: 'One', parentId: 'clean' }),
+				],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['dated']);
+			expect(page.items[0].missingCount).toBe(0);
+		});
+
+		/** The tab itself: one listing, two filters, and they narrow together. */
+		it('narrows to what is both followed and worth acting on', async () => {
+			const { manager } = build({
+				items: [
+					show('followed-short', 'Alpha'),
+					item({
+						id: 'followed-short-1',
+						title: 'One',
+						parentId: 'followed-short',
+						serviceId: 'remote',
+						libraryId: 'library-remote',
+						syncState: SyncState.MISSING,
+					}),
+					show('followed-complete', 'Bravo'),
+					item({ id: 'followed-complete-1', title: 'One', parentId: 'followed-complete' }),
+					show('unfollowed-short', 'Charlie'),
+					item({
+						id: 'unfollowed-short-1',
+						title: 'One',
+						parentId: 'unfollowed-short',
+						serviceId: 'remote',
+						libraryId: 'library-remote',
+						syncState: SyncState.MISSING,
+					}),
+				],
+				plans: [
+					plan({ id: 'p1', scope: { rootItemIds: ['followed-short'] } }),
+					plan({ id: 'p2', scope: { rootItemIds: ['followed-complete'] } }),
+				],
+			});
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, followed: true, actionable: true }),
+			);
+
+			expect(page.items.map((one) => one.id)).toEqual(['followed-short']);
 		});
 	});
 });

@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 	import type { TrailStep } from '@/composables/useMediaTrail';
 	import type { LibraryKind, MediaCategory, MediaGroup, MediaGroupQuery } from '@mcs/shared';
-	import { MediaKind, MediaOrigin, Right, SyncState } from '@mcs/shared';
-	import { computed, onMounted, ref, watch } from 'vue';
+	import { MediaKind, MediaOrigin, MediaResolution, Right, SyncState } from '@mcs/shared';
+	import { computed, onMounted, provide, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -11,7 +11,9 @@
 	import LibrarySection from '@/components/media/LibrarySection.vue';
 	import MediaBreadcrumb from '@/components/media/MediaBreadcrumb.vue';
 	import MediaFilters from '@/components/media/MediaFilters.vue';
+	import OverrideDialog from '@/components/media/OverrideDialog.vue';
 	import Pagination from '@/components/paginate/Pagination.vue';
+	import { OPEN_OVERRIDE } from '@/composables/useMediaOverride';
 	import { useViewMode } from '@/composables/useViewMode';
 	import { useDebounce } from '@/hooks/useDebounce';
 	import { useNotifier } from '@/hooks/useNotifier';
@@ -101,6 +103,36 @@
 		validate: values => values.every(
 			one => (Object.values(SyncState) as string[]).includes(one)),
 	}));
+	/**
+	 * What the files actually are, rather than what they are called.
+	 *
+	 * Validated like the states and the origins beside them, so a hand-edited address is
+	 * ignored rather than forwarded: the API is right to refuse a band it has no name for,
+	 * and a 400 in place of a wall is a poor way to be told a link was mistyped. The
+	 * codecs are not validated, because the gateway accepts any spelling a media server
+	 * might report and folds them itself.
+	 */
+	const resolutions = queryRef<MediaResolution[]>('resolutions', queryTypes.delimitedArray<MediaResolution>({
+		itemParse: value => value as MediaResolution,
+		validate: values => values.every(
+			one => (Object.values(MediaResolution) as string[]).includes(one)),
+	}));
+	const videoCodecs = queryRef<string[]>('videoCodecs', queryTypes.delimitedArray<string>());
+	/**
+	 * Which of the two tabs the wall is showing.
+	 *
+	 * In the address like every other filter, because the followed tab is the view most
+	 * worth sending to somebody — "here is what we are short of" — and because it has to
+	 * survive the reload that follows starting a sync from it.
+	 *
+	 * A tab and not a second screen: the same page, the same component, the same bands,
+	 * with two filters added to every band's query. A second screen would be a second
+	 * place for the poster wall, the selection bar and the pager to drift apart.
+	 */
+	const tab = queryRef<string>('tab', queryTypes.stringEnum({
+		values: ['all', 'followed'],
+		defaultValue: 'all',
+	}));
 	const sort = queryRef<string>('sort', queryTypes.string({ defaultValue: 'title' }));
 	const direction = queryRef<string>('direction', queryTypes.string({ defaultValue: 'asc' }));
 	/**
@@ -160,6 +192,16 @@
 			limit.value = value;
 		},
 	});
+
+	/** An address with no tab in it is the whole library, which is the default view. */
+	const tabModel = computed({
+		get: () => tab.value ?? 'all',
+		set: (value: string) => {
+			tab.value = value;
+		},
+	});
+
+	const followedOnly = computed(() => tabModel.value === 'followed');
 
 	function bandOfCategory (one: MediaCategory): Band {
 		return {
@@ -351,6 +393,12 @@
 			...(serviceIds.value?.length ? { serviceIds: serviceIds.value } : {}),
 			...(origins.value?.length ? { origins: origins.value } : {}),
 			...(states.value?.length ? { states: states.value } : {}),
+			...(resolutions.value?.length ? { resolutions: resolutions.value } : {}),
+			...(videoCodecs.value?.length ? { videoCodecs: videoCodecs.value } : {}),
+			// The tab is two filters and nothing else, which is what makes it the same
+			// listing rather than another screen: what a plan keeps in step, narrowed to
+			// what there is something to do about.
+			...(followedOnly.value ? { followed: true, actionable: true } : {}),
 			...(band.categoryKey ? { categoryKey: band.categoryKey } : {}),
 			...(band.libraryId ? { libraryId: band.libraryId } : {}),
 			...(kind.value ? { kind: kind.value } : {}),
@@ -368,6 +416,27 @@
 		};
 	}
 
+	/**
+	 * Correcting a media from the wall, without opening it.
+	 *
+	 * The shelf a media sits on is the one correction people make while looking at a
+	 * list, because the list is where a documentary filed under Films is obvious. Opening
+	 * the media to fix it means two navigations for a one-field change, on every one of
+	 * the dozen rows a mis-scraped folder produces.
+	 *
+	 * One dialog for the whole page, reached by the rows through `OPEN_OVERRIDE` rather
+	 * than by an event: a poster is drawn by `LibrarySection`, which owns no dialog and has
+	 * no reason to learn about this one. Two hundred tiles carrying a dialog each would be
+	 * two hundred forms mounted to open one.
+	 */
+	const correcting = ref<string | null>(null);
+	const correctingOpen = ref(false);
+
+	provide(OPEN_OVERRIDE, (itemId: string) => {
+		correcting.value = itemId;
+		correctingOpen.value = true;
+	});
+
 	async function runSearch (): Promise<void> {
 		failed.value = false;
 		try {
@@ -375,6 +444,19 @@
 		} catch {
 			failed.value = true;
 		}
+	}
+
+	/**
+	 * Re-read rather than patched in, because a reclassification moves the media.
+	 *
+	 * The bands are categories and the category is derived from the library: a media
+	 * moved to another shelf belongs to another band, and writing the corrected row back
+	 * into the band it was drawn in would leave it on screen under the heading it has
+	 * just stopped belonging to — the one thing somebody who reassigned it is watching
+	 * for.
+	 */
+	async function onCorrected (): Promise<void> {
+		await runSearch();
 	}
 
 	/** Typing must not fire one search per keystroke; the rest apply immediately. */
@@ -393,7 +475,7 @@
 		void runSearch();
 	});
 
-	watch([serviceIds, origins, kind, states, sort, direction, limit], () => {
+	watch([serviceIds, origins, kind, states, resolutions, videoCodecs, tab, sort, direction, limit], () => {
 		page.value = 1;
 		void runSearch();
 	});
@@ -555,6 +637,30 @@
 
 		<MediaBreadcrumb :steps="trail" />
 
+		<!--
+			The same wall, pre-filtered — never a second screen.
+
+			"Followed" is what a sync plan already undertakes to keep in step, narrowed to
+			the media there is something to do about: an episode nobody here holds, or a
+			copy elsewhere worth having. Both halves are filters on the same request, so
+			everything else on this page — the bands, the selection bar, the pager — behaves
+			identically and cannot drift from the tab beside it.
+		-->
+		<v-tabs
+			v-model="tabModel"
+			class="library_tabs mb-3"
+			data-test="library-tabs"
+			density="compact"
+		>
+			<v-tab data-test="library-tab-all" value="all">
+				{{ $t('library.tab.all') }}
+			</v-tab>
+
+			<v-tab data-test="library-tab-followed" value="followed">
+				{{ $t('library.tab.followed') }}
+			</v-tab>
+		</v-tabs>
+
 		<v-card class="library_toolbar mb-5" variant="tonal">
 			<v-card-text class="py-3">
 				<MediaFilters
@@ -562,10 +668,12 @@
 					v-model:direction="direction"
 					v-model:kind="kind"
 					v-model:origins="origins"
+					v-model:resolutions="resolutions"
 					v-model:search="search"
 					v-model:service-ids="serviceIds"
 					v-model:sort="sort"
 					v-model:states="states"
+					v-model:video-codecs="videoCodecs"
 					:categories="librariesStore.orderedCategories"
 					:loading="mediaStore.groupsLoading"
 					:services="servicesStore.services"
@@ -598,6 +706,20 @@
 			icon="mdi-bookshelf"
 			:text="$t('library.empty_service_text')"
 			:title="$t('library.empty_service_title')"
+		/>
+
+		<!--
+			An empty followed tab is good news, and has to read as good news.
+
+			The general empty state says the library holds nothing and offers a scan, which
+			would be the wrong advice here: everything followed being up to date is the
+			state this tab exists to reach.
+		-->
+		<EmptyState
+			v-else-if="nothingAtAll && followedOnly"
+			icon="mdi-check-circle-outline"
+			:text="$t('library.followed_empty_text')"
+			:title="$t('library.followed_empty_title')"
 		/>
 
 		<EmptyState
@@ -638,6 +760,17 @@
 				:total="total"
 			/>
 		</template>
+
+		<!--
+			One dialog for every row of the page. `correcting` is null until something asks
+			for it, so nothing is fetched on a wall nobody corrects.
+		-->
+		<OverrideDialog
+			v-if="correcting"
+			v-model="correctingOpen"
+			:item-id="correcting"
+			@saved="onCorrected"
+		/>
 
 		<!--
 			The selection bar is what makes picking on a poster wall workable: a grid has

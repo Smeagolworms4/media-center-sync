@@ -112,6 +112,19 @@ export interface FileMoveRequest {
 	reserveBytes?: number;
 	/** Called as bytes land. Never called on the rename path, where there are none. */
 	onProgress?: (progress: FileMoveProgress) => void;
+	/**
+	 * Leave the source where it is: copy rather than move.
+	 *
+	 * For a file somebody else still owns. A torrent that has finished is still seeding,
+	 * and a file moved out from under its client is a torrent that errors and a ratio
+	 * that stops — which on a private tracker is somebody's account. The cost is the
+	 * disk space for as long as they choose to keep seeding, and that is their decision
+	 * rather than ours.
+	 *
+	 * It also turns off the rename fast path, necessarily: a rename *is* a move, so on a
+	 * same-mount deployment the cheap route is the one thing this must not take.
+	 */
+	keepSource?: boolean;
 }
 
 /**
@@ -227,6 +240,11 @@ export class FileMoveService {
 		}
 
 		await this._fs.mkdir(dirname(request.destination));
+
+		// A rename is a move, so the caller who asked to keep the source cannot have it.
+		if (request.keepSource === true) {
+			return this._stream(request, partial);
+		}
 
 		try {
 			await this._fs.rename(request.source, request.destination);
@@ -470,12 +488,15 @@ export class FileMoveService {
 		}
 
 		await this._fs.rename(partial, request.destination);
-		// The source goes last and its failure is swallowed: the file is in the library
-		// and the move succeeded. A working copy nobody could delete is a disk to tidy,
-		// not a transfer to fail.
-		await this._fs.unlink(request.source).catch((error: unknown) => {
-			this._logger.warn(`Could not remove ${request.source}: ${String(error)}`);
-		});
+
+		if (request.keepSource !== true) {
+			// The source goes last and its failure is swallowed: the file is in the
+			// library and the move succeeded. A working copy nobody could delete is a
+			// disk to tidy, not a transfer to fail.
+			await this._fs.unlink(request.source).catch((error: unknown) => {
+				this._logger.warn(`Could not remove ${request.source}: ${String(error)}`);
+			});
+		}
 
 		return { outcome: FileMoveOutcome.COPIED, bytesCopied, partialPath: null };
 	}

@@ -1,4 +1,5 @@
 import type { MediaFileInfo } from './media.model';
+import type { MediaLandingState } from './sync.model';
 
 /**
  * How the bytes travel.
@@ -243,6 +244,44 @@ export interface Transfer {
 	 * against individual values.
 	 */
 	placedBy: PlacedBy | null;
+	/**
+	 * The download this file is one part of — a film, a series, a season, an episode.
+	 *
+	 * What the queue groups by, and the reason it is not `jobId`. The two answer
+	 * different questions: a run is one press of a button, a lot is one thing being
+	 * fetched. Grouping on the run splits a season across every run that carried part
+	 * of it — the episodes that landed last night sit in one block and tonight's in
+	 * another, although they are the same season going to the same folder — and it
+	 * fuses three shows asked for at once into one block that nothing can take apart
+	 * again.
+	 *
+	 * Null on rows written before this was recorded, and it means "its own lot". A
+	 * reader that gathered every null together would present an entire history as a
+	 * single nameless download, which is worse than the ungrouped truth it replaces.
+	 *
+	 * Optional, and absent means exactly what null means — but only one thing answers
+	 * without it, and it is not this gateway: an older one, which this interface can
+	 * perfectly well be pointed at. Everything here says it, the queue read and the
+	 * progress stream alike, because a frame that omitted it would knock a row out of the
+	 * block somebody is watching it in the instant its state changed. Readers still go
+	 * through `?? null` for the older gateway's sake — one comparing against `null` alone
+	 * would treat "not said" as a lot of its own and split a block apart.
+	 */
+	lot?: string | null;
+	/**
+	 * Where the file has got to after the bytes, or null once there is nothing left
+	 * to wait for.
+	 *
+	 * A download is not over when the last byte lands: the file still has to be moved
+	 * into place and then noticed by the media server. Without this the bar reaches a
+	 * hundred percent and the row says `done` while nothing has appeared on any
+	 * server — which reads as a gateway that has stopped, and is how a `stale` landing
+	 * went unnoticed for as long as it did.
+	 *
+	 * Null also covers a transfer announced on the progress stream while its bytes are
+	 * still moving: it has no landing yet, and the queue read is what fills this in.
+	 */
+	landing: MediaLandingState | null;
 	bytesTotal: number;
 	bytesDone: number;
 	/** Aggregated over every source. */

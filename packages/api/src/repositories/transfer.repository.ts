@@ -90,6 +90,35 @@ export class TransferRepository extends Repository<Transfer> {
 	}
 
 	/**
+	 * Every file of these lots, whichever run pulled it.
+	 *
+	 * The counterpart of `findByJob`, and the query the lot column exists for: a season
+	 * somebody redirects was very often pulled over several nights, and the episodes
+	 * that landed during the first of them belong to a run nobody is looking at. Asking
+	 * by run finds the tail and leaves the head where it was, which is the split on the
+	 * disk this whole area exists to prevent.
+	 *
+	 * Cancelled and failed transfers are left out. There is no file behind them and
+	 * nothing aimed anywhere, so including them buys nothing — and it costs something
+	 * real: a lot pulled twice holds two rows for the same episode, both of which
+	 * compute the same new path, and the second would be refused as landing on the
+	 * first.
+	 */
+	public findByLots(lots: string[]): Promise<Transfer[]> {
+		if (lots.length === 0) {
+			return Promise.resolve([]);
+		}
+
+		return this.find({
+			where: {
+				lot: In(lots),
+				state: Not(In([TransferState.FAILED, TransferState.CANCELLED])),
+			},
+			order: { createdAt: 'ASC' },
+		});
+	}
+
+	/**
 	 * Every transfer not yet finished whose source is an item of this service.
 	 *
 	 * Paused ones included: a paused transfer resumes against the same source, and

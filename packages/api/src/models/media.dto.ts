@@ -1,6 +1,8 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+	ArrayMaxSize,
+	ArrayUnique,
 	IsArray,
 	IsBoolean,
 	IsEnum,
@@ -12,8 +14,16 @@ import {
 	Max,
 	MaxLength,
 	Min,
+	ValidateNested,
 } from 'class-validator';
-import { MediaKind, MediaOrigin, SyncState } from '@mcs/shared';
+import {
+	MediaKind,
+	MediaOrigin,
+	MediaResolution,
+	RELEASE_PREFERENCE_DIMENSIONS,
+	ReleasePreferenceDimension,
+	SyncState,
+} from '@mcs/shared';
 
 /**
  * Browsing the index.
@@ -197,6 +207,57 @@ export class MediaGroupQueryDto {
 	@IsBoolean()
 	public hideOwned?: boolean;
 
+	/**
+	 * What the files actually are, not what they are called.
+	 *
+	 * A closed set, because the gateway derives these five labels and stores no others:
+	 * a value outside it could only ever answer an empty wall, and a 400 naming the five
+	 * is a better way to be told a link was mistyped. One value is read as a list of
+	 * one, as `states` is.
+	 */
+	@ApiPropertyOptional({ enum: MediaResolution, isArray: true })
+	@IsOptional()
+	@Transform(({ value }) =>
+		Array.isArray(value) ? (value as MediaResolution[]) : [value as MediaResolution])
+	@IsArray()
+	@IsEnum(MediaResolution, { each: true })
+	public resolutions?: MediaResolution[];
+
+	/**
+	 * Free strings rather than an enum, and the spellings are folded behind this.
+	 *
+	 * `MEDIA_VIDEO_CODECS` is what the control offers and not what the API accepts: a
+	 * media server can report any codec name at all, and refusing the unusual ones here
+	 * would make a library holding them unfilterable. `x265`, `hevc` and `h265` all
+	 * arrive intact and mean the same thing by the time they reach a query.
+	 */
+	@ApiPropertyOptional({ type: [String] })
+	@IsOptional()
+	@Transform(({ value }) => (Array.isArray(value) ? (value as string[]) : [value as string]))
+	@IsArray()
+	@IsString({ each: true })
+	@MaxLength(40, { each: true })
+	public videoCodecs?: string[];
+
+	/**
+	 * Only what a sync plan keeps in step.
+	 *
+	 * Arrives as the string `true` from a query string, so it is transformed before it
+	 * is validated — exactly as `rootsOnly` and `hideOwned` are.
+	 */
+	@ApiPropertyOptional({ description: 'Only media a sync plan covers.' })
+	@IsOptional()
+	@Transform(({ value }) => value === true || value === 'true' || value === '1')
+	@IsBoolean()
+	public followed?: boolean;
+
+	/** Only what there is something to do about. Transformed like the two booleans above. */
+	@ApiPropertyOptional({ description: 'Only media with a gap beneath them or something newer elsewhere.' })
+	@IsOptional()
+	@Transform(({ value }) => value === true || value === 'true' || value === '1')
+	@IsBoolean()
+	public actionable?: boolean;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsString()
@@ -243,6 +304,65 @@ export class ConfirmMatchDto {
 	@IsOptional()
 	@IsUUID()
 	public localItemId?: string | null;
+}
+
+/**
+ * How much of one media's search order the API will take, and why there is a ceiling.
+ *
+ * The preference rides in the overrides blob of a row that is read on every search for
+ * that media, and it arrives from a browser: without bounds a body carrying a hundred
+ * thousand values would be accepted, written, and then folded value by value against
+ * every release of every search for ever. The numbers match the ones the settings
+ * validator uses for the household and category orders, because they are the same
+ * sentence at a third level and two different ceilings would be a difference nobody
+ * could explain.
+ */
+const PREFERENCE_VALUE_MAX = 60;
+const PREFERENCE_VALUES_LIMIT = 40;
+
+/** One dimension and the values somebody prefers in it, best first. */
+export class ReleasePreferenceRankDto {
+	@ApiProperty({ enum: ReleasePreferenceDimension })
+	@IsEnum(ReleasePreferenceDimension)
+	public dimension!: ReleasePreferenceDimension;
+
+	/**
+	 * Empty is accepted, and that is the point rather than an oversight.
+	 *
+	 * A rank with no values says "I have no opinion in this dimension", which is how
+	 * one media silences a dimension the category order cares about. See
+	 * `isEmptyReleasePreference`: absent and empty are two different sentences, and
+	 * refusing the empty one would make the second unsayable — the only way to say it
+	 * would be to list every value in the order they already arrive in.
+	 */
+	@ApiProperty({ type: [String] })
+	@IsArray()
+	@ArrayMaxSize(PREFERENCE_VALUES_LIMIT)
+	@IsString({ each: true })
+	@MaxLength(PREFERENCE_VALUE_MAX, { each: true })
+	public values!: string[];
+}
+
+/**
+ * This one media's own order over dimensions, and over the values inside each.
+ *
+ * An empty `ranks` is accepted too: a preference with no ranks separates nothing and
+ * leaves a search exactly as it arrived. It is still a different sentence from having no
+ * preference at all — see `resolveReleasePreference`, which chooses a level on presence
+ * and never on emptiness — so it must be storable.
+ *
+ * A dimension may appear once. Twice is not a stricter preference but an ambiguous one:
+ * the comparator walks the ranks in order, so the second occurrence would be dead weight
+ * silently ignored, with the screen showing two rows that disagree.
+ */
+export class MediaReleasePreferenceDto {
+	@ApiProperty({ type: [ReleasePreferenceRankDto] })
+	@IsArray()
+	@ArrayMaxSize(RELEASE_PREFERENCE_DIMENSIONS.length)
+	@ArrayUnique((rank: ReleasePreferenceRankDto) => rank.dimension)
+	@ValidateNested({ each: true })
+	@Type(() => ReleasePreferenceRankDto)
+	public ranks!: ReleasePreferenceRankDto[];
 }
 
 /**
@@ -317,4 +437,27 @@ export class MediaOverrideDto {
 	@IsOptional()
 	@IsBoolean()
 	public ignored?: boolean;
+
+	/**
+	 * This one media's own search order, and `null` cancels it.
+	 *
+	 * Validated here rather than left to the manager because the whole subtree comes
+	 * from a browser and is stored verbatim: whitelisting stops at a property the DTO
+	 * does not describe, so an undeclared preference would have travelled into the blob
+	 * unread and been folded against every release of every search afterwards.
+	 *
+	 * `null` is a different instruction from leaving the field out, exactly as it is for
+	 * every other field here — except that here the cancelled value is a whole level:
+	 * writing null puts this media back under its category's order, which is what
+	 * `resolveReleasePreference` does with an absent level.
+	 */
+	@ApiPropertyOptional({
+		type: MediaReleasePreferenceDto,
+		nullable: true,
+		description: 'Order this media’s searches on its own. Null puts the category’s order back.',
+	})
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => MediaReleasePreferenceDto)
+	public releasePreference?: MediaReleasePreferenceDto | null;
 }

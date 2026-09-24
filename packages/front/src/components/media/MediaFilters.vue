@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { MediaCategory, MediaOrigin, MediaService } from '@mcs/shared';
-	import { MediaKind, SyncState } from '@mcs/shared';
+	import { MEDIA_VIDEO_CODECS, MediaKind, MediaResolution, SyncState } from '@mcs/shared';
 	import { computed } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import { MEDIA_ORIGINS, useMediaOrigin } from '@/composables/useMediaOrigin';
@@ -55,6 +55,8 @@
 	const categoryKey = defineModel<string | null>('categoryKey', { default: null });
 	const kind = defineModel<MediaKind | null>('kind', { default: null });
 	const states = defineModel<SyncState[] | null>('states', { default: null });
+	const resolutions = defineModel<MediaResolution[] | null>('resolutions', { default: null });
+	const videoCodecs = defineModel<string[] | null>('videoCodecs', { default: null });
 	const sort = defineModel<string | null>('sort', { default: null });
 	const direction = defineModel<string | null>('direction', { default: null });
 
@@ -81,6 +83,33 @@
 		title: t(`sync.state.${value}`),
 	})));
 
+	/**
+	 * The five bands the gateway derives, in the order somebody thinks of them.
+	 *
+	 * Not translated and not relabelled: `2160p` is the word on every release and on the
+	 * quality chip beside the poster, and inventing a second vocabulary here would mean
+	 * the control and the card naming the same file two different things.
+	 */
+	const resolutionItems = computed(() => [
+		MediaResolution.UHD,
+		MediaResolution.FULL_HD,
+		MediaResolution.HD,
+		MediaResolution.PAL,
+		MediaResolution.NTSC,
+	].map(value => ({ value, title: value })));
+
+	/**
+	 * One entry per codec, labelled with both spellings people use.
+	 *
+	 * The value is the folded one — the only spelling the index holds — and the label
+	 * carries the standard's name beside it, because somebody looking for HEVC has no
+	 * reason to know this gateway writes it `x265`.
+	 */
+	const codecItems = computed(() => MEDIA_VIDEO_CODECS.map(one => ({
+		value: one.codec,
+		title: one.label,
+	})));
+
 	const sortItems = computed(() => [
 		{ value: 'title', title: t('media.sort.title') },
 		{ value: 'year', title: t('media.sort.year') },
@@ -104,6 +133,8 @@
 		categoryKey.value,
 		kind.value,
 		states.value?.length,
+		resolutions.value?.length,
+		videoCodecs.value?.length,
 	].some(Boolean));
 
 	function clear (): void {
@@ -113,6 +144,8 @@
 		categoryKey.value = null;
 		kind.value = null;
 		states.value = null;
+		resolutions.value = null;
+		videoCodecs.value = null;
 	}
 
 	function onServicesChange (): void {
@@ -200,6 +233,49 @@
 					item-value="value"
 					:items="stateItems"
 					:label="$t('media.filter.state')"
+					multiple
+				/>
+			</v-col>
+		</v-row>
+
+		<!--
+			What the files actually are, on a row of their own.
+
+			Two selects rather than a single "quality" control: they are independent
+			questions — "anything in 4K" and "anything still in x264" are both asked, and
+			often separately — and a control that mixed them would offer combinations the
+			library does not hold. Both are multiple, because the useful filter is usually
+			a couple of bands rather than exactly one.
+		-->
+		<v-row density="compact">
+			<v-col cols="12" md="3" sm="6">
+				<v-select
+					v-model="resolutions"
+					chips
+					clearable
+					data-test="media-resolutions"
+					density="compact"
+					hide-details
+					item-title="title"
+					item-value="value"
+					:items="resolutionItems"
+					:label="$t('media.filter.resolution')"
+					multiple
+				/>
+			</v-col>
+
+			<v-col cols="12" md="3" sm="6">
+				<v-select
+					v-model="videoCodecs"
+					chips
+					clearable
+					data-test="media-codecs"
+					density="compact"
+					hide-details
+					item-title="title"
+					item-value="value"
+					:items="codecItems"
+					:label="$t('media.filter.codec')"
 					multiple
 				/>
 			</v-col>

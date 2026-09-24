@@ -3,6 +3,7 @@ import {
 	LibraryKind,
 	MediaKind,
 	MediaOrigin,
+	MediaResolution,
 	MediaServiceMode,
 	MediaServiceStatus,
 	MediaServiceType,
@@ -12,7 +13,14 @@ import GroupSources from '@/components/media/GroupSources.vue';
 import MediaFilters from '@/components/media/MediaFilters.vue';
 import MediaGroupRow from '@/components/media/MediaGroupRow.vue';
 import CatalogueList from '@/components/peer/CatalogueList.vue';
-import { mountWithApp, tooltipStub } from './helpers';
+import LibraryPage from '@/pages/Library.vue';
+import { mountWithApp, mountWithAppAt, stubFetchRoutes, tooltipStub } from './helpers';
+
+async function settle (times = 6): Promise<void> {
+	for (let index = 0; index < times; index += 1) {
+		await new Promise(resolve => setTimeout(resolve, 0));
+	}
+}
 
 function service (overrides: Partial<MediaService> = {}): MediaService {
 	return {
@@ -239,6 +247,204 @@ describe('components/media/MediaFilters', () => {
 		(wrapper.vm as any).toggleDirection();
 
 		expect(wrapper.emitted('update:direction')?.at(-1)).toEqual(['desc']);
+	});
+
+	/**
+	 * What the files actually are, which is the question the filter bar could not ask.
+	 *
+	 * Two controls rather than one, because "anything in 4K" and "anything still in x264"
+	 * are independent questions and usually asked separately.
+	 */
+	describe('resolution and codec', () => {
+		it('offers both controls, and every band the gateway derives', () => {
+			const { wrapper } = mountWithApp(MediaFilters, {
+				props: { services: [service()], categories },
+			});
+
+			expect(wrapper.find('[data-test="media-resolutions"]').exists()).toBe(true);
+			expect(wrapper.find('[data-test="media-codecs"]').exists()).toBe(true);
+			expect((wrapper.vm as any).resolutionItems.map((one: { value: string }) => one.value))
+				.toEqual(['2160p', '1080p', '720p', '576p', '480p']);
+		});
+
+		/**
+		 * The label carries both spellings and the value carries one.
+		 *
+		 * Somebody hunting for HEVC has no reason to know this gateway writes it `x265`,
+		 * and the API only ever matches the folded spelling — so the pairing has to be on
+		 * the label and never on the value.
+		 */
+		it('names a codec by both spellings while sending only the folded one', () => {
+			const { wrapper } = mountWithApp(MediaFilters, { props: { services: [service()] } });
+
+			const items = (wrapper.vm as any).codecItems as { value: string; title: string }[];
+			const hevc = items.find(one => one.value === 'x265');
+
+			expect(hevc?.title).toBe('x265 / HEVC');
+			expect(items.map(one => one.value)).toContain('x264');
+			// Never an alias as a value: the index holds no row spelled `hevc`.
+			expect(items.map(one => one.value)).not.toContain('hevc');
+		});
+
+		it('reports the bands and the codecs it was given', () => {
+			const { wrapper } = mountWithApp(MediaFilters, {
+				props: { services: [service()], categories },
+			});
+
+			(wrapper.vm as any).resolutions = [MediaResolution.UHD];
+			(wrapper.vm as any).videoCodecs = ['x265'];
+
+			expect(wrapper.emitted('update:resolutions')?.at(-1)).toEqual([['2160p']]);
+			expect(wrapper.emitted('update:videoCodecs')?.at(-1)).toEqual([['x265']]);
+		});
+
+		it('counts as a filter on its own, and is cleared with the rest', () => {
+			const { wrapper } = mountWithApp(MediaFilters, {
+				props: {
+					services: [service()],
+					resolutions: [MediaResolution.FULL_HD],
+					videoCodecs: ['x264'],
+				},
+			});
+
+			// Offering "clear" only for the older filters would leave somebody stuck on a
+			// wall narrowed by a control that said nothing about being on.
+			expect(wrapper.find('[data-test="media-clear"]').exists()).toBe(true);
+
+			(wrapper.vm as any).clear();
+
+			expect(wrapper.emitted('update:resolutions')?.at(-1)).toEqual([null]);
+			expect(wrapper.emitted('update:videoCodecs')?.at(-1)).toEqual([null]);
+		});
+	});
+});
+
+/**
+ * The followed tab: the same wall, pre-filtered.
+ *
+ * Proving it is the same listing is most of the point — a second screen would be a
+ * second place for the bands, the pager and the selection bar to drift apart — so these
+ * assert on the requests the page makes and on the address it keeps.
+ */
+describe('pages/Library the followed tab', () => {
+	const CATEGORY = {
+		key: 'films',
+		name: 'Films',
+		kind: LibraryKind.MOVIES,
+		position: 0,
+		libraryIds: ['l1'],
+		serviceIds: ['s1'],
+		itemCount: 2,
+		local: true,
+	};
+
+	const page = (items: MediaGroup[]): unknown => ({
+		items,
+		pagination: { page: 1, limit: 24, total: items.length, pages: items.length > 0 ? 1 : 0 },
+	});
+
+	const ROUTES = (groups: MediaGroup[]): Record<string, { body: unknown }> => ({
+		'/api/services': { body: [] },
+		'/api/peers': { body: [] },
+		'/api/libraries/categories': { body: [CATEGORY] },
+		'/api/libraries': { body: [] },
+		'/api/media/groups': { body: page(groups) },
+	});
+
+	const askedFor = (stub: ReturnType<typeof stubFetchRoutes>): string[] =>
+		stub.mock.calls.map(call => String(call[0])).filter(url => url.includes('/media/groups'));
+
+	it('asks for what a plan follows and what there is something to do about', async () => {
+		const stub = stubFetchRoutes(ROUTES([group()]));
+		await mountWithAppAt(LibraryPage, '/library?tab=followed', { global: { stubs: tooltipStub } });
+		await settle();
+
+		const asked = askedFor(stub);
+
+		expect(asked.length).toBeGreaterThan(0);
+		expect(asked.every(url => url.includes('followed=true'))).toBe(true);
+		expect(asked.every(url => url.includes('actionable=true'))).toBe(true);
+		// Still the same wall: the band is still a category, asked for the same way.
+		expect(asked.every(url => url.includes('categoryKey=films'))).toBe(true);
+		expect(asked.every(url => url.includes('rootsOnly=true'))).toBe(true);
+	});
+
+	it('asks for neither of them on the library tab', async () => {
+		const stub = stubFetchRoutes(ROUTES([group()]));
+		await mountWithAppAt(LibraryPage, '/library', { global: { stubs: tooltipStub } });
+		await settle();
+
+		const asked = askedFor(stub);
+
+		expect(asked.length).toBeGreaterThan(0);
+		expect(asked.some(url => url.includes('followed='))).toBe(false);
+		expect(asked.some(url => url.includes('actionable='))).toBe(false);
+	});
+
+	/** A pre-filtered wall is only worth anything if it is a link somebody can send. */
+	it('puts the tab in the address rather than in component state', async () => {
+		stubFetchRoutes(ROUTES([group()]));
+		const { wrapper, router } = await mountWithAppAt(LibraryPage, '/library', {
+			global: { stubs: tooltipStub },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="library-tab-followed"]').trigger('click');
+		await settle();
+
+		expect(router.currentRoute.value.query.tab).toBe('followed');
+	});
+
+	it('reads the tab back out of a link that was sent', async () => {
+		stubFetchRoutes(ROUTES([group()]));
+		const { wrapper } = await mountWithAppAt(LibraryPage, '/library?tab=followed', {
+			global: { stubs: tooltipStub },
+		});
+		await settle();
+
+		expect(wrapper.find('[data-test="library-tab-followed"]').classes())
+			.toContain('v-tab--selected');
+	});
+
+	it('carries the resolution and the codec into every band it asks for', async () => {
+		const stub = stubFetchRoutes(ROUTES([group()]));
+		await mountWithAppAt(LibraryPage, '/library?resolutions=2160p&videoCodecs=x265', {
+			global: { stubs: tooltipStub },
+		});
+		await settle();
+
+		const asked = askedFor(stub);
+
+		expect(asked.length).toBeGreaterThan(0);
+		expect(asked.every(url => url.includes('resolutions=2160p'))).toBe(true);
+		expect(asked.every(url => url.includes('videoCodecs=x265'))).toBe(true);
+	});
+
+	/** A band with nothing to act on is good news, and must not read as a broken library. */
+	it('says everything followed is up to date rather than that there is no library', async () => {
+		stubFetchRoutes(ROUTES([]));
+		const { wrapper } = await mountWithAppAt(LibraryPage, '/library?tab=followed', {
+			global: { stubs: tooltipStub },
+		});
+		await settle();
+
+		const empty = wrapper.find('[data-test="empty-state"]');
+
+		expect(empty.exists()).toBe(true);
+		expect(empty.find('.mdi-check-circle-outline').exists()).toBe(true);
+	});
+
+	it('shows the ordinary empty state on the library tab', async () => {
+		stubFetchRoutes(ROUTES([]));
+		const { wrapper } = await mountWithAppAt(LibraryPage, '/library', {
+			global: { stubs: tooltipStub },
+		});
+		await settle();
+
+		const empty = wrapper.find('[data-test="empty-state"]');
+
+		expect(empty.exists()).toBe(true);
+		expect(empty.find('.mdi-check-circle-outline').exists()).toBe(false);
 	});
 });
 

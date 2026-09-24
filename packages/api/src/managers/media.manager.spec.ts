@@ -17,6 +17,7 @@ import {
 	MediaKind,
 	MediaLandingState,
 	MediaServiceType,
+	ReleasePreferenceDimension,
 	SyncState,
 	type MediaFileInfo,
 } from '@mcs/shared';
@@ -1141,6 +1142,93 @@ describe('MediaManager', () => {
 			expect(saved.seasonNumber).toBe(1);
 			expect(saved.overrides).toBeNull();
 			expect(saved.reported).toBeNull();
+		});
+
+		/**
+		 * The case the owner asked for in as many words: reassign it *before* pulling it.
+		 *
+		 * A media this gateway holds no copy of is the ordinary case rather than the
+		 * exotic one — a film on a friend's server, a row a peer reported and nothing
+		 * local has ever seen — and it is exactly when reclassifying matters, because the
+		 * library decides which folder the pull lands in. A guard that asked for a local
+		 * file here would refuse most of what a gateway with one server can see, and the
+		 * correction would become a tidy-up after a transfer had already filed the file
+		 * under the wrong shelf.
+		 */
+		it('reclassifies a media we hold no copy of, rather than refusing it', async () => {
+			const remote = item({
+				id: 'remote-film',
+				serviceId: 'peer-service',
+				kind: MediaKind.MOVIE,
+				libraryId: 'their-films',
+				// Nothing on our disks: this row is somebody else's catalogue entry.
+				file: null,
+			});
+			const { manager, fakes } = build({ items: [remote] });
+
+			fakes.services.find.mockResolvedValue([
+				mediaService({ id: 'peer-service', filesMounted: false, peerId: 'peer-1' }),
+			]);
+
+			const answered = await manager.setOverride('remote-film', { libraryId: 'our-documentaries' });
+
+			expect(answered.libraryId).toBe('our-documentaries');
+
+			const saved = fakes.items.save.mock.calls[0][0] as MediaItem;
+
+			// And the service's own answer is kept, so the next scan re-applies the
+			// correction instead of filing the row back under the shelf it came from.
+			expect(saved.overrides).toMatchObject({ libraryId: 'our-documentaries' });
+			expect(saved.reported).toMatchObject({ libraryId: 'their-films' });
+		});
+
+		/**
+		 * The third level of a search order, and the one press that cancels it.
+		 *
+		 * It rides in the overrides blob because it is a household decision about one
+		 * media, like `ignored` beside it. What has to be true is that cancelling leaves
+		 * *nothing*: a blob still carrying `releasePreference: null` resolves exactly like
+		 * an absent key, so the item would go on being labelled as corrected and the
+		 * dialog would offer to restore a correction nobody made.
+		 */
+		it('keeps a media’s own search order, and cancelling it leaves no correction', async () => {
+			const { manager, fakes } = build({ items: [item()] });
+
+			await manager.setOverride('item-a', {
+				releasePreference: {
+					ranks: [{ dimension: ReleasePreferenceDimension.RESOLUTION, values: ['1080p'] }],
+				},
+			});
+
+			expect((fakes.items.save.mock.calls[0][0] as MediaItem).overrides).toMatchObject({
+				releasePreference: {
+					ranks: [{ dimension: ReleasePreferenceDimension.RESOLUTION, values: ['1080p'] }],
+				},
+			});
+
+			await manager.setOverride('item-a', { releasePreference: null });
+
+			const cancelled = fakes.items.save.mock.calls.at(-1)?.[0] as MediaItem;
+
+			expect(cancelled.overrides).toBeNull();
+		});
+
+		/**
+		 * An empty order is a sentence, and it is not the same one as having none.
+		 *
+		 * "Order by nothing, on purpose" is how one series opts out of a household order
+		 * that is wrong for it — see `isEmptyReleasePreference`. Pruning it as though it
+		 * were absent would make that unsayable, and the only way to say it would be to
+		 * list every value in the order they already arrive in.
+		 */
+		it('keeps an order that separates nothing, because that is a decision too', async () => {
+			const { manager, fakes } = build({ items: [item()] });
+
+			await manager.setOverride('item-a', { releasePreference: { ranks: [] } });
+
+			expect((fakes.items.save.mock.calls[0][0] as MediaItem).overrides).toEqual({
+				releasePreference: { ranks: [] },
+			});
 		});
 	});
 

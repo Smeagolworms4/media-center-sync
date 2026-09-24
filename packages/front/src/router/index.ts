@@ -125,6 +125,24 @@ export const routes: RouteRecordRaw[] = [
 		},
 	},
 	{
+		/*
+		 * Guarded by `MEDIA_READ` and not by a right of its own: looking at what the
+		 * household asked for is reading the catalogue against somebody else's list, and
+		 * that is the right the API checks on the listing. Acting — closing an ask,
+		 * pushing one the other way — asks for `TRANSFER_MANAGE`, which is tested on the
+		 * button rather than on the route, because the list is worth reading without it.
+		 */
+		path: '/requests',
+		name: 'requests',
+		component: () => import('@/pages/Requests.vue'),
+		meta: {
+			title: 'pages.requests',
+			icon: 'mdi-playlist-star',
+			nav: true,
+			granted: [Right.MEDIA_READ],
+		},
+	},
+	{
 		path: '/settings',
 		name: 'settings',
 		component: () => import('@/pages/Settings.vue'),

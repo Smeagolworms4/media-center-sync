@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import { stat } from 'node:fs/promises';
 import {
+	EventName,
 	MediaLandingState,
 	MediaServiceMode,
 	SyncState,
@@ -22,6 +23,7 @@ import {
 	MediaServiceRepository,
 } from '@/repositories';
 import {
+	EventGatewayService,
 	HandlerRegistry,
 	LANDING_GRACE_MS,
 	LANDING_SETTLE_MS,
@@ -113,6 +115,16 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 		private readonly _handlers: HandlerRegistry,
 		private readonly _settings: SettingsService,
 		private readonly _engine: TransferEngineService,
+		/**
+		 * Told when a landing goes stale, because nothing else will ever say so.
+		 *
+		 * The state changes on a timer and not in response to anything anybody did: a
+		 * file written to a disk no media server looks at sits there, and the moment it
+		 * is declared lost is minutes after the last thing that happened. Without a push
+		 * the queue only learns it the next time somebody reloads the page — and the one
+		 * state that most needs to arrive on its own would be the one that never does.
+		 */
+		private readonly _events: EventGatewayService,
 	) {}
 
 	/**
@@ -190,6 +202,37 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 	}
 
 	/**
+	 * How far past its last byte each of these transfers has got, by transfer.
+	 *
+	 * Absent from the map means there is nothing left to wait for: either a media
+	 * server indexed the file and `reconcile` deleted the row, or the transfer never
+	 * landed anything. Both read the same way on a queue — nothing left to say — and
+	 * telling them apart would need a row we deliberately delete once the media server
+	 * has caught up.
+	 *
+	 * Asked for a whole page at once because the caller draws a page at a time, and
+	 * because a landing has no column on the transfer that could hold it in step: the
+	 * row is gone the moment the file is indexed.
+	 */
+	public async statesByTransfer(transferIds: string[]): Promise<Map<string, MediaLandingState>> {
+		const landings = await this._landings.findForTransfers(transferIds);
+		const states = new Map<string, MediaLandingState>();
+
+		for (const landing of landings) {
+			// A landing recorded outside a transfer — a file somebody put in the folder
+			// themselves — belongs to no row here, and keying it under anything would
+			// read one file's state onto another file's line.
+			if (landing.transferId === null) {
+				continue;
+			}
+
+			states.set(landing.transferId, landing.state);
+		}
+
+		return states;
+	}
+
+	/**
 	 * Settle every open landing against what the index now holds.
 	 *
 	 * Called at the end of an indexing pass, **before** correlation re-derives the item
@@ -256,6 +299,7 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 			landing.state = MediaLandingState.STALE;
 
 			await this._landings.save(landing);
+			this._pushLanding(landing.transferId, MediaLandingState.STALE);
 			this._logger.warn(
 				`${landing.path} has been on the disk since ${new Date(landing.createdAt).toISOString()} `
 					+ 'and no media server has indexed it',
@@ -263,6 +307,29 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 		}
 
 		await this._paint(surviving);
+	}
+
+	/**
+	 * Push a landing change onto the transfer it belongs to.
+	 *
+	 * Named apart from `_announce`, which tells the *media server* to look: these are
+	 * two different audiences and folding them would be one method with two reasons to
+	 * change.
+	 *
+	 * The transfer's own row and not a stream of its own: a landing is the tail of a
+	 * transfer from everybody's point of view but this class's, and a second channel
+	 * would be one the queue screen has no component for.
+	 *
+	 * A landing with no transfer is skipped rather than broadcast: it belongs to a file
+	 * the gateway placed outside the queue, and there is no row on any screen to put it
+	 * on.
+	 */
+	private _pushLanding(transferId: string | null, state: MediaLandingState): void {
+		if (transferId === null) {
+			return;
+		}
+
+		this._events.emit(EventName.TRANSFER_LANDING, { transferId, landing: state });
 	}
 
 	/**

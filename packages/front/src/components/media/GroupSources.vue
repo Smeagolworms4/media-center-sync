@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 	import type { MediaGroupSource, MediaService, MediaVersion, TransferProgress } from '@mcs/shared';
 	import { FINISHED_TRANSFER_STATES, SyncState } from '@mcs/shared';
-	import { computed } from 'vue';
+	import { computed, ref } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import CompanionMarks from '@/components/media/CompanionMarks.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
@@ -63,6 +63,14 @@
 		 */
 		transfers?: Record<string, TransferProgress>;
 		disabled?: boolean;
+		/**
+		 * A fetch asked for and not yet answered.
+		 *
+		 * Distinct from `transfers`, which only fills once the plan has produced one: the
+		 * gap between the press and that row appearing is seconds of planning, and with
+		 * nothing shown in it the button reads as having ignored the click.
+		 */
+		downloading?: boolean;
 	}>(), {
 		sources: () => [],
 		versions: () => [],
@@ -70,12 +78,25 @@
 		peerNames: () => ({}),
 		transfers: () => ({}),
 		disabled: false,
+		downloading: false,
 	});
 
 	const emit = defineEmits<{
 		download: [itemId: string];
 		remove: [source: MediaGroupSource];
 	}>();
+
+	/*
+	 * Which row was pressed, so the spinner sits on that button and not on every
+	 * fetchable row at once. The parent owns the call and can only tell us that one is
+	 * running; it is this component that knows which one was asked for.
+	 */
+	const pressed = ref<string | null>(null);
+
+	function askDownload (itemId: string): void {
+		pressed.value = itemId;
+		emit('download', itemId);
+	}
 
 	const priorities = computed(() => {
 		const map: Record<string, number> = {};
@@ -404,10 +425,11 @@
 							v-else-if="!copy.local && !transferOf(offer)"
 							data-test="group-source-download"
 							:disabled="disabled"
+							:loading="downloading && pressed === copy.itemId"
 							prepend-icon="mdi-download"
 							size="small"
 							variant="tonal"
-							@click="emit('download', copy.itemId)"
+							@click="askDownload(copy.itemId)"
 						>
 							{{ $t('media.source.download') }}
 						</v-btn>

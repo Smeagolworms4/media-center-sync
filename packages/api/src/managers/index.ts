@@ -1,4 +1,5 @@
 export * from './auth.manager';
+export * from './classification.manager';
 export * from './directory.manager';
 export * from './filesystem.manager';
 export * from './landing.manager';
@@ -15,5 +16,7 @@ export * from './service.manager';
 export * from './settings.manager';
 export * from './share.manager';
 export * from './sync.manager';
+export * from './release.manager';
+export * from './request.manager';
 export * from './transfer.manager';
 export * from './user.manager';

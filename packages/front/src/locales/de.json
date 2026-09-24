@@ -255,7 +255,13 @@
 			"missing": "Diesen Pfad gibt es nicht, so wie das Gateway ihn sieht.",
 			"unreadable": "Das Gateway kann diesen Pfad nicht lesen.",
 			"not_writable": "Das Gateway kann hier nicht schreiben, es kann also keine Übertragung in dieser Bibliothek landen."
-		}
+		},
+		"tab": {
+			"all": "Mediathek",
+			"followed": "Verfolgt"
+		},
+		"followed_empty_title": "Nichts offen",
+		"followed_empty_text": "Alles, was Sie verfolgen, ist aktuell. Halten Sie eine Serie oder Staffel auf ihrer eigenen Seite im Takt, um sie hier zu sehen."
 	},
 	"category": {
 		"empty": "Noch keine Kategorie. Registrieren Sie einen Mediendienst und scannen Sie ihn; seine Bibliotheken erscheinen hier.",
@@ -309,7 +315,9 @@
 			"state": "Status",
 			"sort": "Sortieren nach",
 			"clear": "Filter zurücksetzen",
-			"category": "Regal"
+			"category": "Regal",
+			"resolution": "Auflösung",
+			"codec": "Codec"
 		},
 		"sort": {
 			"title": "Titel",
@@ -375,6 +383,12 @@
 			"confirmed": "Korrelation bestätigt.",
 			"confirmed_at": "bestätigt",
 			"removed": "Korrelation entfernt."
+		},
+		"preference": {
+			"own": "Dieses Medium hat eine eigene Suchreihenfolge, eine Suche dazu ist also nicht wie der Rest seines Regals sortiert.",
+			"none": "Keine Sortierung: für dieses Medium entscheiden Seeder und Größe.",
+			"cancel": "Wieder der Reihenfolge der Kategorie folgen",
+			"cancelled": "Dieses Medium folgt wieder der Reihenfolge seiner Kategorie."
 		}
 	},
 	"override": {
@@ -412,6 +426,15 @@
 			"was_empty": "Der Dienst sagt hier nichts.",
 			"cleared": "Geleert: Dieses Feld bleibt leer, was der Dienst auch sagt.",
 			"cleared_was": "Geleert: Der Dienst sagt „{value}“, und dieses Gateway ignoriert es."
+		},
+		"reassign": "Bibliothek dieses Mediums ändern",
+		"library_elsewhere": "Es liegt auf {value}, in dessen Ordner dieses Gateway nicht schreiben kann. Wählen Sie eine eigene, um es neu zuzuweisen — das geht, noch bevor irgendetwas heruntergeladen wurde.",
+		"library_none": "Keine eigene Bibliothek ist beschreibbar, also gibt es kein Ziel für eine Neuzuweisung. Ordnen Sie zuerst die Ordner eines Mediendienstes zu.",
+		"preference": {
+			"title": "Suchreihenfolge für dieses Medium",
+			"intro": "Welche Kopie für dieses eine Medium zuerst angeboten wird, wenn die Reihenfolge des Haushalts oder die seiner Kategorie hier falsch ist. Es sortiert und verbirgt nie: alles Gefundene bleibt in der Liste.",
+			"give": "Diesem Medium eine eigene Reihenfolge geben",
+			"follow": "Wieder der Reihenfolge der Kategorie folgen"
 		}
 	},
 	"service": {
@@ -808,7 +831,9 @@
 			"categories": "Kategorien",
 			"peers": "Peers und Freigaben",
 			"index": "Index und Cache",
-			"notifications": "Benachrichtigungen"
+			"notifications": "Benachrichtigungen",
+			"releases": "Suche & Downloads",
+			"preferences": "Suchreihenfolge"
 		},
 		"destination": {
 			"rule_title": "Wie das Gateway entscheidet, wohin eine Datei geht",
@@ -907,7 +932,61 @@
 		"default_share_help": "Gilt, sobald ein Scan eine Bibliothek findet, damit ein Freund, der sich verbindet, nicht auf ein leeres Regal stößt.",
 		"default_share_note": "Gilt für jede Bibliothek auf einem Server, dessen Freigabe eingeschaltet ist — auch für eine, deren Dateien dieses Gateway nicht hat: Sie wird dann von jenem Server gelesen und auf Kosten dieser Verbindung weitergereicht. Was ein Peer mit uns teilt, wird niemals weitergereicht.",
 		"failed_history_days": "Fehlschläge aufbewahren für",
-		"failed_history_days_help": "In Tagen, und absichtlich länger: eine fehlgeschlagene Übertragung ist der Beleg dafür, warum etwas nie angekommen ist."
+		"failed_history_days_help": "In Tagen, und absichtlich länger: eine fehlgeschlagene Übertragung ist der Beleg dafür, warum etwas nie angekommen ist.",
+		"releases": {
+			"intro": "Ein Indexer findet Kopien, die niemand in Ihrem Umfeld hat; ein Torrent-Client holt sie. Leer lassen, um es abzuschalten.",
+			"indexer_enabled": "Einen Indexer befragen",
+			"indexer_url": "Prowlarr-Adresse",
+			"indexer_key": "API-Schlüssel",
+			"key_set": "Einer ist gespeichert. Leer lassen, um ihn zu behalten.",
+			"client_enabled": "An einen Download-Client geben",
+			"client_url": "qBittorrent-Adresse",
+			"client_username": "Benutzername",
+			"client_username_hint": "Leer lassen, wenn der Client in Ihrem Netz keinen verlangt.",
+			"client_password": "Passwort",
+			"paths_help": "Der Download-Ordner als Zuordnung, genau wie ein Medienserver seine Platten angibt: das Präfix, das der Client schreibt, und dasselbe Verzeichnis, wie dieses Gateway es erreicht."
+		},
+		"preference": {
+			"orders_only": "This orders search results and never hides any of them. Anything you have not ranked stays on the list, last — so the only copy of last night’s episode is still there when it comes from a group you have not named.",
+			"global_title": "For the whole household",
+			"category_title": "For {category}",
+			"category_absent": "no server is reporting this shelf right now",
+			"cancel_override": "Follow the household order again",
+			"separates_nothing": "Nothing ordered: seeders and size still decide.",
+			"dimension": {
+				"resolution": "Resolution",
+				"codec": "Codec",
+				"team": "Release group",
+				"source": "Source",
+				"language": "Language"
+			},
+			"dimension_help": {
+				"resolution": "1080p, 2160p, 720p, SD. SD covers 576p, 480p and 360p.",
+				"codec": "x265, x264, AV1. Every spelling of one codec counts as the same: HEVC and H.265 are x265.",
+				"team": "The tail of a release name, -NTb, -FLUX. A name it cannot be read from ranks last rather than being refused.",
+				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, as the name states it.",
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one."
+			},
+			"move_up": "Decides earlier",
+			"move_down": "Decides later",
+			"drop": "No opinion on this",
+			"promote": "Prefer this one more",
+			"add_value": "Add a value",
+			"no_value": "No opinion in this dimension.",
+			"unused": "Not ranked:",
+			"add_override": "Give a category its own order",
+			"override_note": "A category’s order replaces the household one whole rather than adding to it, so it starts as a copy of it and changing the household order later does not reach into it.",
+			"media_note": "One series or one film can have an order of its own, set on the media itself — where it is shown and can be cancelled."
+		},
+		"request": {
+			"title": "Woher Anfragen kommen",
+			"intro": "Eine Anfragequelle ist der Bildschirm, in den Ihr Haushalt schon tippt — ein Seerr, Overseerr oder Jellyseerr. Dieses Gateway liest, was angefragt wurde, und sagt, ob es das schon besitzt. Es holt von sich aus nichts: eine Kopie wird weiterhin von Hand geholt, am Medium selbst. Adresse leer lassen schaltet es ab.",
+			"enabled": "Anfragen aus dieser Quelle lesen",
+			"url": "Seerr-Adresse",
+			"url_help": "Dieselbe Adresse, unter der Sie es öffnen, samt Port. Overseerr und Jellyseerr werden genauso gelesen.",
+			"key": "API-Schlüssel",
+			"key_help": "In Seerr unter Einstellungen → Allgemein. Er wird einmal gespeichert und nie wieder angezeigt."
+		}
 	},
 	"sync": {
 		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",
@@ -1140,6 +1219,12 @@
 			"ok": "Geprüft: {count} Blöcke kontrolliert, alle unversehrt.",
 			"corrupt": "Geprüft: {count} Blöcke stimmen nicht und müssen erneut geholt werden."
 		},
+		"landing": {
+			"waiting": "Abgelegt. Wartet darauf, dass der Medienserver die Datei indiziert.",
+			"stale": "Abgelegt, aber kein Medienserver hat die Datei indiziert. Sie liegt auf der Platte und niemand sieht sie.",
+			"batch_waiting": "{count} Datei ist abgelegt und wartet auf die Indizierung | {count} Dateien sind abgelegt und warten auf die Indizierung",
+			"batch_stale": "{count} Datei wurde von keinem Medienserver indiziert | {count} Dateien wurden von keinem Medienserver indiziert"
+		},
 		"unconfigured": {
 			"title": "{count} Datei ist dort gelandet, wo niemand etwas gewählt hat | {count} Dateien sind dort gelandet, wo niemand etwas gewählt hat",
 			"hint": "Ihre Übertragungen waren erfolgreich, also meldet sie sonst nichts. Sagen Sie, wohin sie gehören — oder sagen Sie es einmal für die ganze Kategorie.",
@@ -1215,15 +1300,15 @@
 		"retarget": {
 			"title": "In eine andere Bibliothek schicken",
 			"action": "Woanders hinschicken",
-			"whole_run": "{title} — der ganze Lauf, {count} Dateien",
 			"hint_repoint": "Es ist noch nichts abgelegt worden, das ändert also nur das Ziel. Der Download läuft weiter, und es wird kein Byte kopiert.",
 			"hint_move": "Diese Datei liegt bereits in einer Bibliothek. Eine andere zu wählen verschiebt sie wirklich, was bei einer großen Datei dauert — die Warteschlange zeigt den Fortschritt.",
-			"hint_run_landed": "Die bereits abgelegten Dateien dieses Laufs werden ebenfalls verschoben, und die Ordner, die dabei leer bleiben, werden entfernt.",
 			"library": "Zielbibliothek",
 			"confirm": "Dorthin schicken",
 			"confirm_move": "Dorthin verschieben",
 			"repointed": "Sie geht stattdessen dorthin.",
-			"moved": "Verschoben. Die Datei liegt jetzt in dieser Bibliothek."
+			"moved": "Verschoben. Die Datei liegt jetzt in dieser Bibliothek.",
+			"whole_lot": "{title} — der ganze Download, {count} Dateien",
+			"hint_lot_landed": "Die Dateien dieses Downloads, die schon gelandet sind, werden mitverschoben — auch die aus einem früheren Lauf — und die Ordner, die dadurch leer bleiben, werden entfernt."
 		},
 		"revalidation": {
 			"title": "Warum diese Übertragung es sich anders überlegt hat",
@@ -1280,7 +1365,8 @@
 		"settings_shares": "Freigaben",
 		"settings_users": "Benutzer",
 		"not_found": "Seite nicht gefunden",
-		"not_found_text": "Unter dieser Adresse gibt es nichts."
+		"not_found_text": "Unter dieser Adresse gibt es nichts.",
+		"requests": "Anfragen"
 	},
 	"components": {
 		"paginate": {
@@ -1361,7 +1447,8 @@
 		"media": {
 			"not_found": "Dieses Medienelement gibt es nicht mehr.",
 			"not_on_our_disk": "Diese Kopie liegt nicht auf einer Festplatte, auf die dieses Gateway schreiben kann; es wurde nichts gelöscht.",
-			"has_no_file": "Dieser Eintrag enthält keine Datei zum Löschen."
+			"has_no_file": "Dieser Eintrag enthält keine Datei zum Löschen.",
+			"not_identified": "Dieses Medium trägt keine Kennung, die eine Anfragequelle erkennen würde."
 		},
 		"peer": {
 			"not_found": "Diesen Peer gibt es nicht mehr.",
@@ -1419,11 +1506,195 @@
 			"config_invalid": "Mit diesen Einstellungen kann dieser Kanal nicht arbeiten.",
 			"handler_unknown": "Diese Art von Benachrichtigungskanal wird nicht unterstützt.",
 			"send_failed": "Der Kanal hat die Nachricht nicht zugestellt."
+		},
+		"indexer": {
+			"not_configured": "Kein Indexer eingerichtet. Richten Sie einen in den Einstellungen ein.",
+			"unreachable": "Der Indexer hat nicht geantwortet. Adresse und Schlüssel prüfen.",
+			"unknown": "Dieser Build kennt diesen Indexer nicht."
+		},
+		"download_client": {
+			"not_configured": "Kein Download-Client eingerichtet.",
+			"unreachable": "Der Download-Client hat nicht geantwortet.",
+			"unknown": "Dieser Build kennt diesen Client nicht.",
+			"refused": "Der Download-Client hat es abgelehnt.",
+			"path_unreadable": "Das Gateway kann den Schreibordner des Clients nicht lesen."
+		},
+		"release": {
+			"not_found": "Diese Veröffentlichung ist nicht mehr in den Ergebnissen. Erneut suchen.",
+			"not_grabbable": "Diese Zeile ist eine Kopie bei einem Peer, kein Release. Holen Sie sie stattdessen."
+		},
+		"grab": {
+			"not_found": "Download nicht gefunden."
+		},
+		"request_source": {
+			"not_configured": "Keine Anfragequelle eingerichtet.",
+			"unreachable": "Die Anfragequelle hat nicht geantwortet.",
+			"unknown": "Dieser Build kennt diese Anfragequelle nicht.",
+			"unauthorized": "Die Anfragequelle hat den Schlüssel abgelehnt. Prüfen Sie ihn in den Einstellungen."
+		},
+		"request": {
+			"not_found": "Anfrage nicht gefunden.",
+			"not_held": "Nichts hier erfüllt diese Anfrage bisher; sie als erledigt zu melden würde dafür sorgen, dass niemand sie erneut stellt."
 		}
 	},
 	"indications": {
 		"placement": "Wohin geholte Medien kommen, wenn nichts Genaueres etwas anderes sagt.",
 		"match_threshold": "Unterhalb dieses Wertes wird eine Korrelation vorgeschlagen statt angewendet.",
 		"full_scan_cron": "Eine Aktualisierung sieht nur, was ein Dienst als neu meldet; ein vollständiger Durchlauf findet Dateien, die an Ort und Stelle verschoben oder neu kodiert wurden."
+	},
+	"release": {
+		"title": "Suche",
+		"intro": "Nach einer Kopie suchen, die niemand in Ihrem Umfeld hat, über den eingerichteten Indexer. Es wird erst gesucht, wenn Sie es verlangen.",
+		"term": "Suchbegriffe",
+		"season_pack": "Ganze Staffel",
+		"search": "Suchen",
+		"asked": "Angefragt: {query}",
+		"failed": "{indexer} hat nicht geantwortet. Adresse und Schlüssel in den Einstellungen prüfen.",
+		"none": "Nichts gefunden. Andere Wörter versuchen — Tracker kennen manche Serien unter anderem Titel.",
+		"seeders": "{count} Seeder",
+		"on_indexers": "auf {count} Trackern",
+		"held": "Diese Größe haben Sie",
+		"grab": "Holen",
+		"grabbed": "An den Download-Client übergeben.",
+		"downloads": "Wird geholt",
+		"kind": {
+			"movie": "Film",
+			"episode": "Folge",
+			"season_pack": "Staffelpaket",
+			"unknown": "Unlesbarer Name"
+		},
+		"state": {
+			"sent": "Gesendet",
+			"downloading": "Lädt",
+			"fetched": "Geholt",
+			"placed": "Abgelegt",
+			"failed": "Fehlgeschlagen",
+			"cancelled": "Nicht mehr im Client"
+		},
+		"phase": {
+			"fetching": "Lädt vom Tracker",
+			"copying": "Wird in die Mediathek kopiert"
+		},
+		"intro_peers": "Kopien, die Ihre eigenen Peers schon haben, kommen in derselben Liste zurück, über den Tracker-Zeilen: diese Dateien existieren, und ihre Qualität wurde an der Datei gelesen und nicht an einem Namen.",
+		"peer": {
+			"exists": "Existiert schon",
+			"fills": "füllt 1 fehlende Folge | füllt {count} fehlende Folgen"
+		},
+		"pull": "Holen",
+		"pulled": "Das Holen hat begonnen. Verfolgen Sie es im Transfer-Bildschirm.",
+		"plan": {
+			"open": "Die Lücken füllen",
+			"summary": "{steps} Schritte, die {covered} von {total} fehlenden Folgen abdecken.",
+			"close": "Schließen",
+			"covers": "für {episodes}",
+			"partial": "nur {count} Dateien aus diesem Paket",
+			"empty": "Nichts vom Angebotenen füllt eine der Lücken.",
+			"grab": "Alle {count} Schritte holen",
+			"uncovered": "{count}, die nichts vom Angebotenen füllen kann:",
+			"uncovered_peer": "Eine davon liegt bei einem Peer — holen Sie sie aus der Liste oben. | {count} davon liegen bei Peers — holen Sie sie aus der Liste oben.",
+			"uncovered_hint": "Versuchen Sie andere Suchbegriffe, oder kommen Sie wieder, wenn ein Release auftaucht."
+		}
+	},
+	"classification": {
+		"title": "Wohin das gehören könnte",
+		"intro": "Dem Gateway ist einiges an diesem Medium aufgefallen. Es wurde nichts einsortiert: einen Vorschlag anzunehmen weist es genauso zu, wie wenn Sie die Bibliothek selbst wählen.",
+		"current": "Derzeit einsortiert in {value}",
+		"current_none": "In keinem Regal, das dieses Gateway kennt",
+		"move": "{from} → {to}",
+		"accept": "Dort einsortieren",
+		"accepted": "Nach {value} zugewiesen.",
+		"dismiss": "Dort lassen, wo es ist",
+		"none": "Kein Vorschlag: was über dieses Medium bekannt ist, deutet auf keines der Regale, die das Gateway kennt.",
+		"confidence": "{value} % sicher",
+		"evidence_title": "Was dafür spricht",
+		"evidence_counts": "{count} Hinweise",
+		"withheld_title": "Erwogen und nicht vorgeschlagen",
+		"withheld_intro": "Warum es hier nichts anzunehmen gibt.",
+		"failed": "Die Vorschläge konnten nicht gelesen werden.",
+		"reread": "Erneut nachsehen",
+		"category": {
+			"anime": "Anime",
+			"cartoons": "Zeichentrick",
+			"animated_films": "Animationsfilme",
+			"concerts": "Konzerte"
+		},
+		"signal": {
+			"anime_genre": "Das Genre {value} benennt japanische Animation ausdrücklich.",
+			"animation_genre": "Das Genre {value} sagt, dass dies animiert ist.",
+			"animation_studio": "{value} macht Animation und nichts anderes.",
+			"japanese_studio": "{value} ist ein japanisches Studio.",
+			"original_language_japanese": "Seine Originalsprache ist Japanisch ({value}).",
+			"country_japan": "Es kommt aus Japan ({value}).",
+			"romanised_japanese_title": "Der Titel liest sich wie romanisiertes Japanisch ({value}). Allein entscheidet das nichts.",
+			"fansub_group": "Veröffentlicht von {value}, einer Gruppe, die nur Anime untertitelt.",
+			"concert_genre": "Das Genre {value} benennt eine aufgezeichnete Darbietung.",
+			"music_genre": "Das Genre {value} ist ein Musikgenre.",
+			"live_performance_phrase": "Es nennt sich „{value}“.",
+			"venue": "{value} ist ein Veranstaltungsort oder ein Festival.",
+			"animation_path_keyword": "Ein Ordner auf dem Weg zur Datei heißt „{value}“ — das sagt womöglich nur, wohin es jemand schon gelegt hat.",
+			"concert_path_keyword": "Ein Ordner auf dem Weg zur Datei heißt „{value}“ — das sagt womöglich nur, wohin es jemand schon gelegt hat.",
+			"kind_is_film": "Der Katalog führt das bereits als Film.",
+			"kind_is_series": "Der Katalog führt das bereits als Serie.",
+			"documentary_genre": "Dagegen: das Genre {value} macht das zuerst zu einer Dokumentation."
+		},
+		"source": {
+			"genre": "Genre",
+			"studio": "Studio",
+			"language": "Sprache",
+			"country": "Land",
+			"title": "Titel",
+			"original_title": "Originaltitel",
+			"kind": "Katalog",
+			"path": "Ordner",
+			"release_name": "Release-Name"
+		},
+		"blocker": {
+			"no_such_category": "Keine Bibliothek hier trägt einen Namen, den dieses Gateway als {value} liest — es gibt also keinen Ort dafür. Benennen Sie eine Bibliothek um, geben Sie ihr einen Alias, oder hängen Sie einen Namen an diese Kategorie.",
+			"no_writable_library": "{value} gibt es nur auf einem Server, in dessen Ordner dieses Gateway nicht schreiben kann — eine Neuzuweisung würde nichts verschieben.",
+			"already_filed": "Es steht schon in diesem Regal."
+		},
+		"withheld": {
+			"below_threshold": "Die Hinweise reichten nicht. Auf eine einzige Beobachtung hin wird nichts vorgeschlagen.",
+			"no_decisive_signal": "Nichts sagte, was dieses Medium tatsächlich ist — nur, wo es liegt und wie lang es ist.",
+			"ambiguous_origin": "Es ist animiert, und nichts Verlässliches sagt, woher es kommt. Anime und Zeichentrick sind dieselbe Frage — zwischen ihnen zu raten wäre ein Münzwurf.",
+			"settled_by_origin": "Seine Herkunft ist bekannt, und das andere Regal ist die Antwort auf dieselbe Frage."
+		}
+	},
+	"request": {
+		"subtitle": "Was der Haushalt angefragt hat, und ob dieses Gateway es schon besitzt.",
+		"filter_state": "Status",
+		"state": {
+			"pending": "Wartet auf Antwort",
+			"approved": "Genehmigt",
+			"declined": "Abgelehnt",
+			"processing": "Wird bearbeitet",
+			"partial": "Teilweise vorhanden",
+			"available": "Erfüllt",
+			"unknown": "Unbekannter Status"
+		},
+		"not_configured_title": "Keine Anfragequelle",
+		"configure": "Einstellungen öffnen",
+		"none_title": "Es wurde nichts angefragt",
+		"none_text": "Keine offene Anfrage. Alles, was jemand in Overseerr oder Jellyseerr anfragt, erscheint hier.",
+		"unnamed": "Die Quelle hat nicht gesagt, was das ist",
+		"from_source": "von der Quelle benannt",
+		"asked_by": "Angefragt von {name}",
+		"asked_by_unknown": "Angefragt von jemandem, den die Quelle nicht nennt",
+		"tmdb": "TMDB {id}",
+		"tvdb": "TVDB {id}",
+		"no_identifier": "Die Quelle hat dafür keine Kennung geliefert.",
+		"holdings": "Hier vorhanden:",
+		"seasons": "Staffeln {seasons}",
+		"held_none": "Nichts hier erfüllt das.",
+		"missing_seasons": "Hier fehlen: Staffeln {seasons}",
+		"asked_seasons": "Angefragt: Staffeln {seasons}",
+		"fulfil": "Als erfüllt markieren",
+		"fulfilled": "Der Quelle wurde mitgeteilt, dass die Anfrage erfüllt ist.",
+		"search": "Danach suchen",
+		"no_search": "Nichts zu suchen",
+		"search_title": "Nach einer Kopie suchen",
+		"search_intro": "Die Suche, die diese Anfrage vorschlägt. Es wird nichts gesucht, bis Sie drücken, und hier wird nichts geholt.",
+		"search_season": "Staffel",
+		"search_no_grab": "Das sind Namen auf einem Tracker. Holen Sie eine Kopie von der Medienseite, wo sie auch einen Platz zum Landen hat."
 	}
 }

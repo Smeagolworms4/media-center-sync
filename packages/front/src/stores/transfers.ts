@@ -45,6 +45,47 @@ export interface TransferQuery {
 	view?: HistoryView | null;
 }
 
+/**
+ * One block on the queue screen: the files of one download.
+ *
+ * `lot` is null for a block that is not one — a legacy row, or a run from a gateway
+ * that does not send the lot yet — and the screen has nothing to do differently about
+ * it, which is the point of carrying it rather than re-deriving it.
+ */
+export interface QueueBatch {
+	key: string;
+	lot: string | null;
+	transfers: Transfer[];
+}
+
+/**
+ * What a transfer is grouped under, and why it is asked in this order.
+ *
+ * The lot first, because the lot is the download: a season is one block whichever runs
+ * pulled it, which is the whole complaint — a season fetched over three nights read as
+ * three unrelated blocks going to the same folder, and the episodes that had already
+ * landed looked like somebody else's work.
+ *
+ * `jobId` second, and only as a fallback. A gateway upgrading in place has a table full
+ * of transfers whose lot is null, and grouping those on the lot would fuse every
+ * download in its history into one nameless block. The run is the best answer that
+ * exists for them, and it is the answer the screen gave before lots existed.
+ *
+ * The identifier last: a transfer belonging to no run and no lot is its own block, which
+ * is what a single pull is.
+ */
+function keyOf (transfer: Transfer): { key: string; lot: string | null } {
+	const lot = transfer.lot ?? null;
+
+	if (lot !== null) {
+		return { key: `lot:${lot}`, lot };
+	}
+
+	const run = transfer.jobId;
+
+	return { key: run === null ? `one:${transfer.id}` : `job:${run}`, lot: null };
+}
+
 /** A transfer the list does not hold yet has to show something before its first frame. */
 function progressOf (transfer: Transfer): TransferProgress {
 	return {
@@ -115,6 +156,49 @@ export const useTransfersStore = defineStore('transfers', () => {
 
 	const failed = computed(() => transfers.value.filter(one => one.errorKind !== null));
 
+	/**
+	 * The queue as downloads rather than as files.
+	 *
+	 * Fetching a season produced eleven rows, each with its own destination and its own
+	 * three buttons, so "how far is Spartacus" was eleven numbers to add up. One download
+	 * is one piece of work; the files are its detail.
+	 *
+	 * Here rather than on the page because it is derived state and nothing else: the page
+	 * renders it, and a second screen wanting the same blocks — or a test wanting to know
+	 * that a row from before the lot existed still ends up in a readable one — would
+	 * otherwise have to reimplement the fallback chain in `keyOf` and get it subtly
+	 * different.
+	 *
+	 * **Grouped over what the page holds**, deliberately. Paginating by download instead
+	 * would give a page of one block and a page of eighty, and a screen that cannot say
+	 * how many rows it will draw. A download longer than a page therefore shows as two
+	 * blocks; sorting by activity keeps its files adjacent, since they were created in one
+	 * act. First appearance decides the order, so the blocks follow the sort the list was
+	 * asked for.
+	 */
+	const batches = computed<QueueBatch[]>(() => {
+		const grouped: QueueBatch[] = [];
+		const byKey = new Map<string, QueueBatch>();
+
+		for (const transfer of transfers.value) {
+			const { key, lot } = keyOf(transfer);
+			const batch = byKey.get(key);
+
+			if (batch === undefined) {
+				const created: QueueBatch = { key, lot, transfers: [transfer] };
+
+				byKey.set(key, created);
+				grouped.push(created);
+
+				continue;
+			}
+
+			batch.transfers.push(transfer);
+		}
+
+		return grouped;
+	});
+
 	function seedProgress (list: Transfer[]): void {
 		const next: Record<string, TransferProgress> = {};
 		for (const transfer of list) {
@@ -128,7 +212,25 @@ export const useTransfersStore = defineStore('transfers', () => {
 	function mergeTransfer (transfer: Transfer): void {
 		const existing = transfers.value.find(one => one.id === transfer.id);
 		if (existing) {
-			Object.assign(existing, transfer);
+			/*
+			 * A pushed row keeps the landing the last read gave it.
+			 *
+			 * The engine announces a transfer while its bytes move, and at that moment it
+			 * has no landing to report — so it answers null, quite correctly. Assigning
+			 * that over an open row would *erase* "waiting to be indexed" from a queue
+			 * somebody is watching, and the file that most needs saying so — one written
+			 * to a disk no media server ever looks at — would go quiet the instant
+			 * anything else on the row changed.
+			 *
+			 * The lot is kept the same way and for a blunter reason: the engine's frame
+			 * does not carry it, and a row that lost its lot would jump out of the block it
+			 * is being watched in and into one of its own, the moment it changed state.
+			 */
+			Object.assign(existing, {
+				...transfer,
+				lot: transfer.lot ?? existing.lot ?? null,
+				landing: transfer.landing ?? existing.landing ?? null,
+			});
 		} else {
 			transfers.value = [transfer, ...transfers.value];
 		}
@@ -372,6 +474,7 @@ export const useTransfersStore = defineStore('transfers', () => {
 		unconfigured,
 		byId,
 		failed,
+		batches,
 		load,
 		loadStats,
 		loadUnconfigured,

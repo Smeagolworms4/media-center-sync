@@ -1,12 +1,13 @@
 <script lang="ts" setup>
 	import type { MediaGroup } from '@mcs/shared';
 	import { SyncState } from '@mcs/shared';
-	import { computed } from 'vue';
+	import { computed, inject } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import MediaPoster from '@/components/media/MediaPoster.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SourceMarks from '@/components/media/SourceMarks.vue';
 	import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
+	import { OPEN_OVERRIDE } from '@/composables/useMediaOverride';
 
 	/**
 	 * One media, whoever holds it, as a poster.
@@ -43,6 +44,16 @@
 	});
 
 	const emit = defineEmits<{ 'update:selected': [value: boolean] }>();
+
+	/**
+	 * Correcting a media without opening it, when the page around us offers that.
+	 *
+	 * Null where nothing provides it, and the action is then not drawn: a card is also
+	 * used under a media page that owns no correction dialog, and a button that opened
+	 * nothing would be worse than no button. See `OPEN_OVERRIDE` for why this is injected
+	 * rather than emitted up through whatever draws the wall.
+	 */
+	const openOverride = inject(OPEN_OVERRIDE, null);
 
 	const to = computed(() => ({ name: 'library-item', params: { itemId: props.group.id } }));
 	const missing = computed(() => props.group.sync === SyncState.MISSING);
@@ -127,6 +138,24 @@
 			/>
 		</span>
 
+		<!--
+			Outside the link, for the same reason the tick is: inside it the only way to
+			stop a click navigating is to cancel the event, and cancelling it is what would
+			swallow the press that opens the dialog.
+		-->
+		<span v-if="openOverride" class="media-card_override">
+			<v-btn
+				:aria-label="$t('override.reassign')"
+				data-test="media-card-override"
+				density="comfortable"
+				icon="mdi-pencil-outline"
+				size="x-small"
+				:title="$t('override.reassign')"
+				variant="text"
+				@click="openOverride(group.id)"
+			/>
+		</span>
+
 		<div class="media-card_body">
 			<router-link
 				class="media-card_title"
@@ -174,7 +203,8 @@
 		&:hover {
 			transform: translateY(-2px);
 
-			.media-card_select {
+			.media-card_select,
+			.media-card_override {
 				opacity: 1;
 			}
 		}
@@ -221,6 +251,24 @@
 			position: absolute;
 			right: 6px;
 			bottom: 6px;
+		}
+
+		// Under the tick rather than beside it: two round buttons in one corner are one
+		// target as far as a thumb is concerned, and the tick is the one people reach for.
+		// Revealed on hover and on keyboard focus, so a wall of two hundred posters is not
+		// a wall of two hundred pencils and the action is still reachable without a mouse.
+		&_override {
+			position: absolute;
+			top: 34px;
+			right: 2px;
+			border-radius: 999px;
+			background: rgba(12, 17, 23, 0.6);
+			opacity: 0;
+			transition: opacity 120ms ease;
+
+			&:focus-within {
+				opacity: 1;
+			}
 		}
 
 		&_missing {

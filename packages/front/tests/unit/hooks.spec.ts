@@ -193,6 +193,63 @@ describe('useNotifier', () => {
 		expect(await tryCallback(async () => 'ok', { onComplete })()).toBe('ok');
 		expect(onComplete).toHaveBeenCalled();
 	});
+
+	it('is loading while the call is in flight', async () => {
+		const { tryCallback } = useNotifier();
+		let release = (): void => {};
+		const action = tryCallback(async () => {
+			await new Promise<void>(resolve => {
+				release = resolve;
+			});
+		});
+
+		expect(action.loading).toBe(false);
+
+		const call = action();
+
+		expect(action.loading).toBe(true);
+
+		release();
+		await call;
+
+		expect(action.loading).toBe(false);
+	});
+
+	it('stops loading when the call fails', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const { tryCallback } = useNotifier();
+		const action = tryCallback(() => {
+			throw new Error('boom');
+		});
+
+		await action();
+
+		expect(action.loading).toBe(false);
+	});
+
+	it('stays loading until the last of several calls answers', async () => {
+		const { tryCallback } = useNotifier();
+		const releases: Array<() => void> = [];
+		const action = tryCallback(async () => {
+			await new Promise<void>(resolve => {
+				releases.push(resolve);
+			});
+		});
+
+		const first = action();
+		const second = action();
+
+		releases[0]?.();
+		await first;
+
+		// The point of counting: one row answering does not mean the others have.
+		expect(action.loading).toBe(true);
+
+		releases[1]?.();
+		await second;
+
+		expect(action.loading).toBe(false);
+	});
 });
 
 describe('useLoading and useToken', () => {

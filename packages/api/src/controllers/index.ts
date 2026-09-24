@@ -1,4 +1,5 @@
 export * from './auth.controller';
+export * from './classification.controller';
 export * from './directory.controller';
 export * from './filesystem.controller';
 export * from './health.controller';
@@ -11,5 +12,7 @@ export * from './service.controller';
 export * from './settings.controller';
 export * from './share.controller';
 export * from './sync.controller';
+export * from './release.controller';
+export * from './request.controller';
 export * from './transfer.controller';
 export * from './user.controller';

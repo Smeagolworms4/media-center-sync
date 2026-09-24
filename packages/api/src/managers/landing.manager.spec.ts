@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
 	MatchStrategy,
 	MediaKind,
+	EventName,
 	MediaLandingState,
 	MediaServiceType,
 	SyncState,
@@ -24,7 +25,12 @@ import type {
 	MediaMatchRepository,
 	MediaServiceRepository,
 } from '@/repositories';
-import type { HandlerRegistry, SettingsService, TransferEngineService } from '@/services';
+import type {
+	EventGatewayService,
+	HandlerRegistry,
+	SettingsService,
+	TransferEngineService,
+} from '@/services';
 import { LANDING_GRACE_MS, LANDING_SETTLE_MS, RescanOutcome } from '@/services';
 import { LandingManager } from './landing.manager';
 
@@ -104,12 +110,16 @@ interface World {
 }
 
 interface Fakes {
+	/** Told when a landing goes stale, which is the one state nothing else announces. */
+	events: { emit: jest.Mock; publishProgress: jest.Mock; flushProgress: jest.Mock };
 	landings: MediaLanding[];
 	items: MediaItem[];
 	requestRescan: jest.Mock;
 	setSyncState: jest.Mock;
 	rescanListener: jest.Mock;
 	deleted: string[];
+	/** Exposed so a test can hand back a row the ordinary query would never produce. */
+	findForTransfers: jest.Mock;
 }
 
 const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => {
@@ -167,7 +177,16 @@ const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => 
 		findForItem: jest.fn((itemId: string) =>
 			Promise.resolve(landings.find((one) => one.itemId === itemId) ?? null),
 		),
+		findForTransfers: jest.fn((transferIds: string[]) =>
+			Promise.resolve(
+				landings.filter(
+					(one) => one.transferId !== null && transferIds.includes(one.transferId),
+				),
+			),
+		),
 	};
+
+	const events = { emit: jest.fn(), publishProgress: jest.fn(), flushProgress: jest.fn() };
 
 	const manager = new LandingManager(
 		landingRepository as unknown as MediaLandingRepository,
@@ -203,11 +222,26 @@ const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => 
 		{ find: jest.fn(() => ({ requestRescan })) } as unknown as HandlerRegistry,
 		{ getValue: jest.fn().mockResolvedValue(0.8) } as unknown as SettingsService,
 		{ onTransferState: jest.fn() } as unknown as TransferEngineService,
+		// Told when a landing goes stale, which is the one state nothing else announces:
+		// it changes on a timer, minutes after the last event on its transfer.
+		events as unknown as EventGatewayService,
 	);
 
 	manager.onRescan(rescanListener);
 
-	return { manager, fakes: { landings, items, requestRescan, setSyncState, rescanListener, deleted } };
+	return {
+		manager,
+		fakes: {
+			landings,
+			items,
+			requestRescan,
+			setSyncState,
+			rescanListener,
+			deleted,
+			findForTransfers: landingRepository.findForTransfers,
+			events,
+		},
+	};
 };
 
 describe('LandingManager', () => {
@@ -584,6 +618,38 @@ describe('LandingManager', () => {
 			expect(fakes.items[0].syncState).toBe(SyncState.NOT_INDEXED);
 		});
 
+		/**
+		 * The one state that has to arrive on its own.
+		 *
+		 * It changes on a timer rather than in answer to anything anybody did — minutes
+		 * after the last event on its transfer — so without a push the queue only learns
+		 * it on the next reload. A file written to a disk no media server looks at would
+		 * then be the thing the screen is quietest about.
+		 */
+		it('pushes the change, because nothing else will ever announce it', async () => {
+			const { manager, fakes } = make(world({ landings: [expired()] }));
+
+			await manager.reconcile();
+
+			expect(fakes.events.emit).toHaveBeenCalledWith(
+				EventName.TRANSFER_LANDING,
+				expect.objectContaining({ landing: MediaLandingState.STALE }),
+			);
+		});
+
+		it('says nothing about a landing that belongs to no transfer', async () => {
+			// A file the gateway placed outside the queue. There is no row on any screen
+			// to put it on, so announcing it would be a frame nothing reconciles.
+			const { manager, fakes } = make(world({ landings: [expired({ transferId: null })] }));
+
+			await manager.reconcile();
+
+			expect(fakes.events.emit).not.toHaveBeenCalledWith(
+				EventName.TRANSFER_LANDING,
+				expect.anything(),
+			);
+		});
+
 		it('does not send the media back to missing, which would offer it again', async () => {
 			const { manager, fakes } = make(world({ landings: [expired()] }));
 
@@ -639,6 +705,86 @@ describe('LandingManager', () => {
 			await manager.reconcile();
 
 			expect(fakes.landings).toHaveLength(0);
+		});
+	});
+
+	/**
+	 * What the queue asks for, a page of transfers at a time.
+	 *
+	 * A transfer absent from the answer has nothing left to wait for, and the queue
+	 * draws it as finished — so this is the only thing standing between a file no media
+	 * server can see and a row claiming the download is over.
+	 */
+	describe('the landing state of a page of transfers', () => {
+		const open = (overrides: Partial<MediaLanding> = {}): MediaLanding =>
+			({
+				id: 'landing-1',
+				itemId: 'their-episode',
+				transferId: 'transfer-1',
+				libraryId: OUR_LIBRARY,
+				path: landed,
+				bytes: 4_000_000,
+				contentId: 'q1-abcdef',
+				state: MediaLandingState.WAITING,
+				expiresAt: new Date(Date.now() + LANDING_GRACE_MS),
+				createdAt: new Date(),
+				rescanOutcome: RescanOutcome.LIBRARY,
+				...overrides,
+			}) as MediaLanding;
+
+		it('answers each transfer with the state of what it landed', async () => {
+			const { manager } = make(
+				world({
+					landings: [
+						open(),
+						open({
+							id: 'landing-2',
+							transferId: 'transfer-2',
+							state: MediaLandingState.STALE,
+						}),
+					],
+				}),
+			);
+
+			// `transfer-3` landed nothing anybody is still waiting for, and says nothing.
+			await expect(
+				manager.statesByTransfer(['transfer-1', 'transfer-2', 'transfer-3']),
+			).resolves.toEqual(
+				new Map([
+					['transfer-1', MediaLandingState.WAITING],
+					['transfer-2', MediaLandingState.STALE],
+				]),
+			);
+		});
+
+		it('asks for the whole page in one read rather than one read per row', async () => {
+			// One query per row is what kept this off the queue screen in the first place.
+			const { manager, fakes } = make(world({ landings: [open()] }));
+
+			await manager.statesByTransfer(['transfer-1', 'transfer-2', 'transfer-3']);
+
+			expect(fakes.findForTransfers).toHaveBeenCalledTimes(1);
+			expect(fakes.findForTransfers).toHaveBeenCalledWith([
+				'transfer-1',
+				'transfer-2',
+				'transfer-3',
+			]);
+		});
+
+		it('says nothing at all when no transfer is asked about', async () => {
+			const { manager } = make(world({ landings: [open()] }));
+
+			await expect(manager.statesByTransfer([])).resolves.toEqual(new Map());
+		});
+
+		it('skips a landing that names no transfer at all', async () => {
+			// A file somebody put in the folder themselves belongs to no row on the queue,
+			// and keying it under anything would read its state onto another file's line.
+			const { manager, fakes } = make(world());
+
+			fakes.findForTransfers.mockResolvedValue([open({ transferId: null })]);
+
+			await expect(manager.statesByTransfer(['transfer-1'])).resolves.toEqual(new Map());
 		});
 	});
 });

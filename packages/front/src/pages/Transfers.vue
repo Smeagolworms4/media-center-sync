@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { Transfer } from '@mcs/shared';
+	import type { ReleaseGrab, Transfer } from '@mcs/shared';
 	import { EventName, FINISHED_TRANSFER_STATES, HistoryView, TransferSort, TransferState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -12,6 +12,7 @@
 	import Rate from '@/components/common/Rate.vue';
 	import StatTile from '@/components/common/StatTile.vue';
 	import Pagination from '@/components/paginate/Pagination.vue';
+	import ReleaseGrabRow from '@/components/transfer/ReleaseGrabRow.vue';
 	import TransferBatch from '@/components/transfer/TransferBatch.vue';
 	import TransferRow from '@/components/transfer/TransferRow.vue';
 	import Window from '@/components/Window.vue';
@@ -21,6 +22,7 @@
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { queryRef, queryTypes } from '@/libs/vue3-query-ref';
 	import { useLibrariesStore } from '@/stores/libraries';
+	import { useReleasesStore } from '@/stores/releases';
 	import { useServicesStore } from '@/stores/services';
 	import { useSyncStore } from '@/stores/sync';
 	import { useTransfersStore } from '@/stores/transfers';
@@ -42,6 +44,7 @@
 	 * succeeded, six months for what failed.
 	 */
 	const transfersStore = useTransfersStore();
+	const releasesStore = useReleasesStore();
 	const syncStore = useSyncStore();
 	const librariesStore = useLibrariesStore();
 	const servicesStore = useServicesStore();
@@ -133,6 +136,8 @@
 	const targetFolder = ref<string | null>(null);
 	const browsingTarget = ref(false);
 	const retargetBusy = ref(false);
+	/** The torrent being redirected, when the dialog was opened from one. */
+	const retargetingGrab = ref<ReleaseGrab | null>(null);
 	const resumingAll = ref(false);
 
 	/**
@@ -214,6 +219,10 @@
 			librariesStore.loaded ? Promise.resolve() : librariesStore.load().catch(() => undefined),
 			librariesStore.loadChecks().catch(() => undefined),
 			servicesStore.loaded ? Promise.resolve() : servicesStore.load().catch(() => undefined),
+			// Swallowed like the rest: a gateway with no download client configured has
+			// none of these, and a queue that failed to draw because of a feature nobody
+			// turned on would be the whole screen lost to an optional part of it.
+			releasesStore.loadGrabs().catch(() => undefined),
 		]);
 		await load();
 	});
@@ -255,45 +264,11 @@
 	const transfers = computed(() => transfersStore.transfers);
 
 	/**
-	 * The queue as runs rather than as files.
-	 *
-	 * Fetching a season produced eleven rows, each with its own destination and its own
-	 * three buttons, so "how far is Spartacus" was eleven numbers to add up. One run is
-	 * one piece of work; the files are its detail.
-	 *
-	 * Grouped on what the page holds. Paginating by run instead would give a page of one
-	 * batch and a page of eighty, and a screen that cannot say how many rows it draws;
-	 * sorting by activity keeps a run's files together, since they were created in one
-	 * act. A transfer belonging to no run is its own batch — a single pull is exactly
-	 * that.
+	 * The queue as downloads rather than as files — the store's grouping, not a second
+	 * one. See `QueueBatch`: the lot decides, the run is its fallback for rows written
+	 * before the lot was recorded.
 	 */
-	const batches = computed(() => {
-		const grouped: { key: string; transfers: Transfer[] }[] = [];
-		const byJob = new Map<string, { key: string; transfers: Transfer[] }>();
-
-		for (const transfer of transfers.value) {
-			if (transfer.jobId === null) {
-				grouped.push({ key: transfer.id, transfers: [transfer] });
-
-				continue;
-			}
-
-			const batch = byJob.get(transfer.jobId);
-
-			if (batch === undefined) {
-				const created = { key: transfer.jobId, transfers: [transfer] };
-
-				byJob.set(transfer.jobId, created);
-				grouped.push(created);
-
-				continue;
-			}
-
-			batch.transfers.push(transfer);
-		}
-
-		return grouped;
-	});
+	const batches = computed(() => transfersStore.batches);
 
 	const pausedTransfers = computed(
 		() => transfers.value.filter(one => one.state === TransferState.PAUSED));
@@ -448,6 +423,22 @@
 		const chosen = targetFolder.value?.trim() || null;
 		const folder = chosen === targetRoot.value ? null : chosen;
 
+		// A torrent takes the same answer by a route of its own: it is not a transfer and
+		// has no row in that table, but where it lands is the very same decision.
+		if (retargetingGrab.value !== null) {
+			try {
+				await releasesStore.setDestination(
+					retargetingGrab.value.id, targetLibraryId.value, folder);
+				void notify('transfer.retarget.repointed');
+				retargeting.value = null;
+				retargetingGrab.value = null;
+			} finally {
+				retargetBusy.value = false;
+			}
+
+			return;
+		}
+
 		try {
 			/*
 			 * One request for the whole run, rather than a loop over its files.
@@ -470,9 +461,30 @@
 		}
 	});
 
-	/** Send a whole run elsewhere, from the batch's own button. */
+	/**
+	 * Send a torrent elsewhere, before it is filed.
+	 *
+	 * The same dialog as a transfer's, because it is the same question and the same
+	 * answer — a library, then a folder inside it. A second control for it would be a
+	 * second way of saying one thing, and the two would drift.
+	 */
+	function retargetGrab (grab: ReleaseGrab): void {
+		retargetingGrab.value = grab;
+		retargeting.value = { title: grab.title, jobId: null, transfers: [] };
+		targetLibraryId.value = grab.targetLibraryId;
+		targetFolder.value = grab.targetFolder;
+	}
+
+	/**
+	 * Send a whole download elsewhere, from the block's own button.
+	 *
+	 * Any run of the block will do, because the gateway widens from the run to the lots
+	 * it carried: a block spanning three nights is moved whole whichever of its nights is
+	 * named. The first row that has a run is taken rather than the first row outright,
+	 * since a block can hold a pull that belonged to no run at all.
+	 */
 	function retargetBatch (transfers: Transfer[]): void {
-		const jobId = transfers[0]?.jobId ?? null;
+		const jobId = transfers.find(one => one.jobId !== null)?.jobId ?? null;
 
 		if (jobId === null) {
 			return;
@@ -646,6 +658,20 @@
 			</EmptyState>
 
 			<div v-else class="transfers_list mt-3" data-test="transfer-list">
+				<!--
+					Torrents first, and on this screen rather than one of their own. "Where
+					are my downloads" is one question, and a household that has to look in
+					two places to answer it will eventually look in only one. Only what this
+					gateway started: the client is filtered on a category of ours, so
+					somebody's own torrents are never listed, tracked or filed.
+				-->
+				<ReleaseGrabRow
+					v-for="grab of releasesStore.grabs"
+					:key="grab.id"
+					:grab="grab"
+					@retarget="retargetGrab"
+				/>
+
 				<template v-for="batch of batches" :key="batch.key">
 					<!--
 						A run of one file is not folded: a single row inside a container
@@ -696,7 +722,7 @@
 		>
 			<p class="text-body-2 mb-1" data-test="retarget-subject">
 				{{ retargeting?.jobId
-					? $t('transfer.retarget.whole_run', { title: retargeting?.title, count: retargetCount })
+					? $t('transfer.retarget.whole_lot', { title: retargeting?.title, count: retargetCount })
 					: retargeting?.title }}
 			</p>
 
@@ -713,11 +739,13 @@
 				{{ movesBytes ? $t('transfer.retarget.hint_move') : $t('transfer.retarget.hint_repoint') }}
 				<!--
 					Said before the click, because this is the expensive half of the answer:
-					the files of the run that already landed are moved for real, and the
-					folders they leave empty behind them are removed.
+					the files of the download that already landed are moved for real, and the
+					folders they leave empty behind them are removed. It says "earlier runs"
+					as well, because the count above it is what this page holds and the
+					gateway moves the whole lot — a season pulled over three nights included.
 				-->
 				<template v-if="retargeting?.jobId && movesBytes">
-					{{ $t('transfer.retarget.hint_run_landed') }}
+					{{ $t('transfer.retarget.hint_lot_landed') }}
 				</template>
 			</p>
 

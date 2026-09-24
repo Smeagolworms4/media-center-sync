@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { MediaLanding } from '@/entities';
 
 @Injectable()
@@ -21,5 +21,18 @@ export class MediaLandingRepository extends Repository<MediaLanding> {
 
 	public findForItem(itemId: string): Promise<MediaLanding | null> {
 		return this.findOne({ where: { itemId } });
+	}
+
+	/**
+	 * The landings of these transfers, in one read.
+	 *
+	 * Bulk because the queue screen asks for a page of transfers at a time, and one
+	 * query per row is what stopped this being shown at all. An empty list is answered
+	 * without a query: `In([])` renders as `IN ()`, which SQLite rejects outright.
+	 */
+	public findForTransfers(transferIds: string[]): Promise<MediaLanding[]> {
+		return transferIds.length === 0
+			? Promise.resolve([])
+			: this.find({ where: { transferId: In(transferIds) } });
 	}
 }

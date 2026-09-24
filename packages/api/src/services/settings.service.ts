@@ -1,5 +1,6 @@
 import { isAbsolute } from 'node:path';
 import {
+	DEFAULT_RELEASE_PREFERENCES,
 	DEFAULT_NAMING_ORDER,
 	DEFAULT_PEER_MAX_DEPTH,
 	ErrorKey,
@@ -87,6 +88,17 @@ export const DEFAULT_SETTINGS: Settings = {
 	// own origin instead, where somebody can see it before accepting it.
 	publicUrl: null,
 	defaultTargetPath: null,
+	// Nothing configured, which is the honest default: an indexer is somebody else's
+	// server and a download client is somebody else's daemon, and guessing at either
+	// would be a search that fails for a reason nobody can see.
+	// Nothing ranked, so a gateway nobody configured leaves the order exactly as it
+	// arrives: seeders and size, which is what it was before anybody could say otherwise.
+	releasePreferences: DEFAULT_RELEASE_PREFERENCES,
+	indexer: null,
+	downloadClient: null,
+	// The same, and for a third reason: a gateway that guessed at a request source would
+	// be reading somebody's household's asks without having been asked to.
+	requestSource: null,
 	transferHistoryDays: 30,
 	// Six months, against thirty days for what succeeded. A failure is the only record
 	// that a file was ever attempted, and the person who needs it is looking months

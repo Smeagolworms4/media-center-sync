@@ -1,4 +1,4 @@
-import { ErrorKey } from '@mcs/shared';
+import { ErrorKey, RequestSourceType } from '@mcs/shared';
 import {
 	DEFAULT_SETTINGS,
 	type BandwidthService,
@@ -311,5 +311,79 @@ describe('SettingsManager', () => {
 		fakes.settings.view.mockResolvedValue({ ...DEFAULT_SETTINGS, pinned: ['peerMaxDepth'] });
 
 		await expect(manager.read()).resolves.toMatchObject({ pinned: ['peerMaxDepth'] });
+	});
+
+	/*
+	 * The request source's key, which is the third secret on that screen.
+	 *
+	 * The indexer's and the client's were handled and this one was added later, so it is
+	 * pinned down here rather than left to the fact that the code currently reads the
+	 * same. Both halves matter and each fails silently on its own: a key sent back would
+	 * be a key readable by anybody who can open the screen, and a blank box taken
+	 * literally would unauthenticate a working Seerr the first time somebody corrects its
+	 * address — the only symptom being a request list that goes empty.
+	 */
+	describe('the request source’s key', () => {
+		const withSource = () => {
+			const made = build();
+			const source = {
+				...DEFAULT_SETTINGS,
+				requestSource: {
+					type: RequestSourceType.SEERR,
+					baseUrl: 'http://jellyseerr:5055',
+					apiKey: 'stored',
+					enabled: true,
+				},
+			};
+
+			made.fakes.settings.get.mockResolvedValue(source);
+			made.fakes.settings.view.mockResolvedValue({ ...source, pinned: [] });
+
+			return made;
+		};
+
+		it('is never sent back, and the screen is told only that one is set', async () => {
+			const { manager } = withSource();
+
+			await expect(manager.read()).resolves.toMatchObject({
+				requestSource: { apiKey: null, hasApiKey: true },
+			});
+		});
+
+		it('survives a save that carries no key, because blank means "keep it"', async () => {
+			const { manager, fakes } = withSource();
+
+			await manager.write({
+				requestSource: {
+					type: RequestSourceType.SEERR,
+					baseUrl: 'http://seerr.local',
+					enabled: true,
+				},
+			});
+
+			expect(fakes.settings.update).toHaveBeenCalledWith({
+				requestSource: expect.objectContaining({
+					baseUrl: 'http://seerr.local',
+					apiKey: 'stored',
+				}),
+			});
+		});
+
+		it('is replaced when one was actually typed', async () => {
+			const { manager, fakes } = withSource();
+
+			await manager.write({
+				requestSource: {
+					type: RequestSourceType.SEERR,
+					baseUrl: 'http://seerr.local',
+					apiKey: 'typed',
+					enabled: true,
+				},
+			});
+
+			expect(fakes.settings.update).toHaveBeenCalledWith({
+				requestSource: expect.objectContaining({ apiKey: 'typed' }),
+			});
+		});
 	});
 });

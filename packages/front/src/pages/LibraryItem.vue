@@ -1,7 +1,13 @@
 <script lang="ts" setup>
-	import type { ItemSyncPlans, MediaGroup, MediaGroupSource, TransferProgress } from '@mcs/shared';
+	import type {
+		ItemSyncPlans,
+		MediaGroup,
+		MediaGroupSource,
+		MediaItem,
+		TransferProgress,
+	} from '@mcs/shared';
 	import { MediaKind, SyncState } from '@mcs/shared';
-	import { computed, onMounted, ref, watch } from 'vue';
+	import { computed, onMounted, provide, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
@@ -16,8 +22,11 @@
 	import MediaPoster from '@/components/media/MediaPoster.vue';
 	import OverrideDialog from '@/components/media/OverrideDialog.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
+	import ReleasePreferenceNote from '@/components/media/ReleasePreferenceNote.vue';
+	import ReleaseSearch from '@/components/media/ReleaseSearch.vue';
 	import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
 	import KeepInSyncDialog from '@/components/sync/KeepInSyncDialog.vue';
+	import { OPEN_OVERRIDE, withoutReleasePreference } from '@/composables/useMediaOverride';
 	import { useMediaTrail } from '@/composables/useMediaTrail';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useLibrariesStore } from '@/stores/libraries';
@@ -58,6 +67,19 @@
 	const { t } = useI18n();
 
 	const group = ref<MediaGroup | null>(null);
+	/**
+	 * The representative's own index row, which the group does not carry.
+	 *
+	 * A group is the merged view of a media across every server and has no corrections on
+	 * it: they belong to one service's record of the thing. The page needs that record for
+	 * one reason — a search order set on this media has to be *said* here, because this is
+	 * the only screen it can be seen from, and a preference nobody can see is the defect
+	 * the whole feature most easily reintroduces.
+	 *
+	 * Failing is ordinary and must not take the page down: what somebody came for is the
+	 * media and its copies.
+	 */
+	const item = ref<MediaItem | null>(null);
 	const children = ref<MediaGroup[]>([]);
 	const loading = ref(true);
 	const failed = ref(false);
@@ -80,6 +102,15 @@
 	const erasing = ref(false);
 	const matchesOpen = ref(false);
 	const overrideOpen = ref(false);
+	/**
+	 * Which row the correction dialog is about: this media, or one of its children.
+	 *
+	 * The children are drawn by the same card and row as the wall, and they offer the same
+	 * action for the same reason — the shelf a season belongs on is obvious from a list and
+	 * not from opening it. One dialog serves both; it is told which row by this rather than
+	 * by each card carrying one of its own. See `OPEN_OVERRIDE`.
+	 */
+	const correcting = ref<string>(props.itemId);
 	const keepOpen = ref(false);
 	/**
 	 * Which plans already speak for this media, and what a new one would be called.
@@ -95,7 +126,7 @@
 		loading.value = true;
 		failed.value = false;
 		try {
-			const [loadedGroup, loadedChildren, loadedPlans] = await Promise.all([
+			const [loadedGroup, loadedChildren, loadedPlans, loadedItem] = await Promise.all([
 				mediaStore.group(props.itemId),
 				// A group with no children below it is ordinary — a film — so a
 				// failure here must not take the page down with it.
@@ -103,10 +134,15 @@
 				// Nor must the plans: somebody who may read media and not syncs is
 				// answered 403 here, and the page they asked for is the media.
 				syncStore.itemPlans(props.itemId).catch(() => null),
+				// The corrections on this one row, for the search order note. Not worth
+				// the page: a gateway that cannot answer leaves the screen as it was
+				// before the note existed.
+				mediaStore.node(props.itemId).catch(() => null),
 			]);
 			group.value = loadedGroup;
 			children.value = loadedChildren?.items ?? [];
 			plans.value = loadedPlans;
+			item.value = loadedItem;
 		} catch {
 			failed.value = true;
 		} finally {
@@ -142,6 +178,9 @@
 
 	watch(() => props.itemId, () => {
 		removing.value = null;
+		// The dialog follows the page: left pointing at the media somebody navigated away
+		// from, it would correct the previous series from the next one's screen.
+		correcting.value = props.itemId;
 		void load();
 	});
 
@@ -256,6 +295,44 @@
 	async function onCorrected (): Promise<void> {
 		await load();
 	}
+
+	function correct (itemId: string): void {
+		correcting.value = itemId;
+		overrideOpen.value = true;
+	}
+
+	provide(OPEN_OVERRIDE, correct);
+
+	/**
+	 * Back to the category's order, in one press, from the line that says there is one.
+	 *
+	 * The whole instruction is re-sent with the preference nulled rather than only the
+	 * null: a `PUT` replaces the correction outright, so sending the null alone would
+	 * withdraw the title, the year and the reclassification along with the search order.
+	 */
+	const cancellingPreference = ref(false);
+
+	const cancelPreference = tryCallback(async () => {
+		cancellingPreference.value = true;
+		try {
+			item.value = await mediaStore.setOverride(
+				props.itemId,
+				withoutReleasePreference(item.value?.overrides),
+			);
+			void notify('media.preference.cancelled');
+		} finally {
+			cancellingPreference.value = false;
+		}
+	});
+
+	/**
+	 * Which of the two questions the card is answering: what exists, or what could.
+	 *
+	 * Not in the address, deliberately. A link to a media is a link to the media, and
+	 * carrying a tab in it would make somebody's shared URL open on a tracker search
+	 * they never ran.
+	 */
+	const sourceTab = ref<'sources' | 'search'>('sources');
 
 	/**
 	 * Where this media sits on the gateway's own disks.
@@ -404,7 +481,7 @@
 						data-test="item-override"
 						prepend-icon="mdi-pencil-outline"
 						variant="text"
-						@click="overrideOpen = true"
+						@click="correct(itemId)"
 					>
 						{{ $t('override.action') }}
 					</v-btn>
@@ -440,6 +517,21 @@
 					</v-btn>
 				</template>
 			</PageHeader>
+
+			<!--
+				Above the media rather than buried in the search tab, because somebody
+				wondering why a search on this one series answers differently from every
+				other is looking at this screen and not at that tab. It is the only place
+				this setting exists at all — it is not on the settings screen, by design —
+				so it has to be visible without being looked for.
+			-->
+			<ReleasePreferenceNote
+				v-if="item?.overrides?.releasePreference"
+				:cancelling="cancellingPreference"
+				class="mb-4"
+				:preference="item.overrides.releasePreference"
+				@cancel="cancelPreference"
+			/>
 
 			<v-card class="library-item_header">
 				<v-card-text class="library-item_headerBody">
@@ -526,8 +618,33 @@
 							</v-btn>
 						</div>
 
-						<GroupSources
+						<!--
+							Two tabs and not one list, because they answer two different
+							questions. The sources are what *exists* — our servers, a
+							friend's gateway — and every row can be acted on with certainty.
+							The search is what *could* exist: names on trackers, none of
+							which is known to be what it claims until it has been fetched.
+							Under one heading a guess would sit beside a fact.
+						-->
+						<v-tabs
+							v-model="sourceTab"
 							class="mt-4"
+							data-test="item-source-tabs"
+							density="compact"
+						>
+							<v-tab data-test="item-tab-sources" value="sources">
+								{{ $t('media.source.title') }}
+							</v-tab>
+
+							<v-tab data-test="item-tab-search" value="search">
+								{{ $t('release.title') }}
+							</v-tab>
+						</v-tabs>
+
+						<GroupSources
+							v-show="sourceTab === 'sources'"
+							class="mt-4"
+							:downloading="downloadOne.loading"
 							:peer-names="peerNames"
 							:services="servicesStore.services"
 							:sources="group.sources"
@@ -535,6 +652,21 @@
 							:versions="group.versions"
 							@download="downloadOne"
 							@remove="removing = $event"
+						/>
+
+						<!--
+							Mounted only once the tab is opened. An indexer fans a query out
+							to a dozen trackers and waits for the slowest, and the component
+							loads what has already been grabbed on mount — neither is work
+							worth doing on every media page for the once in fifty times
+							somebody wants it.
+						-->
+						<ReleaseSearch
+							v-if="sourceTab === 'search'"
+							class="mt-4"
+							:episode-number="group.episodeNumber"
+							:group="group"
+							:season-number="group.seasonNumber"
 						/>
 					</div>
 				</v-card-text>
@@ -586,7 +718,7 @@
 
 			<MatchesDialog v-model="matchesOpen" :item-id="itemId" />
 
-			<OverrideDialog v-model="overrideOpen" :item-id="itemId" @saved="onCorrected" />
+			<OverrideDialog v-model="overrideOpen" :item-id="correcting" @saved="onCorrected" />
 
 			<KeepInSyncDialog v-model="keepOpen" :group="group" @created="onKept" />
 

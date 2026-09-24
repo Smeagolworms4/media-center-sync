@@ -120,11 +120,52 @@ export interface PlacementRequest {
 	 * loss by a slower route.
 	 */
 	reserved?: Iterable<string>;
+	/**
+	 * The destination the rest of this lot already went to.
+	 *
+	 * A download is one decision, not one decision per file. Resolving every item on its
+	 * own lets the chain answer differently halfway down a season — a disk that filled, a
+	 * sibling found for one episode and not the next — and the result is a show split
+	 * across two libraries, which no media server shows as one series. So the first item
+	 * of a lot decides, and every other item is handed that answer.
+	 *
+	 * It is a pin and not a preference: the candidate list becomes this root and nothing
+	 * else, so a lot that cannot be completed where it started **fails** instead of
+	 * scattering its tail somewhere else. A refusal somebody can act on beats a run that
+	 * reports success and leaves a season in two places.
+	 */
+	pinned?: PlacementPin | null;
+}
+
+/**
+ * A lot's destination, carried from the item that decided it.
+ *
+ * The strategy and the reason travel with the root rather than being worked out again
+ * for each item, because they were not worked out again: every file of the lot is there
+ * for the reason the first one was, and recomputing would report the tail of a run as a
+ * different kind of decision from its head.
+ */
+export interface PlacementPin {
+	root: string;
+	libraryId: string;
+	libraryName: string;
+	strategy: PlacementStrategy;
+	fallback: boolean;
+	placedBy: PlacedBy;
 }
 
 export interface PlacementTarget {
 	libraryId: string;
 	libraryName: string;
+	/**
+	 * The library root this landed under.
+	 *
+	 * Exposed because `libraryId` cannot answer it: a library is commonly several
+	 * directories on several disks, so naming the library says nothing about which of
+	 * them was chosen — and pinning a lot to a library rather than to a root is what put
+	 * one season on `Series TV` and the next on `Series TV 5`.
+	 */
+	root: string;
 	/** Absolute directory the file lands in, created if needed. */
 	directory: string;
 	/** Absolute final path. */
@@ -209,20 +250,26 @@ export class PlacementService {
 				const target = {
 					libraryId: attempt.library.id,
 					libraryName: attempt.library.name,
+					root: attempt.root,
 					directory,
 					path: free.path,
 					strategy: attempt.strategy,
 					// A configured destination that had to be skipped is a fallback
 					// however well the one that answered went: the file did not land where
-					// the settings said it would.
-					fallback:
-						skipped.length > 0 ||
-						attempt.fallback ||
-						attempt.strategy !== request.settings.placement,
+					// the settings said it would. A pinned item reports what the lot
+					// reported: it made no decision of its own to fall back from.
+					fallback: request.pinned
+						? request.pinned.fallback
+						: skipped.length > 0 ||
+							attempt.fallback ||
+							attempt.strategy !== request.settings.placement,
 					reason: notes.length > 0 ? notes.join('; ') : null,
 				};
 
-				return { ...target, placedBy: placedByFor(target, request) };
+				return {
+					...target,
+					placedBy: request.pinned ? request.pinned.placedBy : placedByFor(target, request),
+				};
 			}
 
 			rejected.push(`${attempt.library.name}: ${probe.error ?? 'not writable'}`);
@@ -363,6 +410,34 @@ export class PlacementService {
 
 		const attempts: PlacementAttempt[] = [];
 		const skipped: string[] = [];
+
+		/*
+		 * Pinned: this lot already has a destination, so there is no chain left to walk.
+		 *
+		 * Returned before every other step rather than pushed in front of them, because a
+		 * candidate in front of the others is still only a preference — the next item of
+		 * the lot would quietly take the one below it the first time this root refused,
+		 * which is precisely the split the lot exists to prevent. A lot that cannot be
+		 * finished where it started fails instead.
+		 */
+		if (request.pinned) {
+			const pinned = request.pinned;
+			const host =
+				request.libraries.find((candidate) => candidate.id === pinned.libraryId) ??
+				this._syntheticLibrary(pinned.root);
+
+			return {
+				attempts: [
+					{
+						library: { ...host, name: pinned.libraryName },
+						root: pinned.root,
+						strategy: pinned.strategy,
+						fallback: pinned.fallback,
+					},
+				],
+				skipped: [],
+			};
+		}
 
 		/*
 		 * A series we already hold keeps its own folder, whatever the settings say.

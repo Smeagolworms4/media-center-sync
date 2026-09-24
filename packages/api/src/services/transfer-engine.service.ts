@@ -1050,6 +1050,16 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			targetPath: transfer.targetPath,
 			targetLibraryId: transfer.targetLibraryId,
 			placedBy: transfer.placedBy,
+			// Null, and not a lookup: the engine announces a transfer while its bytes are
+			// still moving, and a file has no landing until it has been put in a library.
+			// The queue read fills it in, and a service reaching for a landing row would
+			// be a service deciding what the queue should say — the manager's job.
+			landing: null,
+			// The lot, unlike the landing, is carried: a pushed frame that omitted it would
+			// knock the row out of the block somebody is watching it in, the instant its
+			// state changed. The store guards against that too; there is no reason for the
+			// engine to make it necessary.
+			lot: transfer.lot,
 			bytesTotal: Number(transfer.bytesTotal),
 			bytesDone: Number(transfer.bytesDone),
 			rate: publicSources.reduce((total, source) => total + source.rate, 0),

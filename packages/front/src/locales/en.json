@@ -255,7 +255,13 @@
 			"missing": "This path does not exist as the gateway sees it.",
 			"unreadable": "The gateway cannot read this path.",
 			"not_writable": "The gateway cannot write here, so no transfer can land in this library."
-		}
+		},
+		"tab": {
+			"all": "Library",
+			"followed": "Followed"
+		},
+		"followed_empty_title": "Nothing waiting",
+		"followed_empty_text": "Everything you follow is up to date. Keep a series or a season in step from its own page to see it here."
 	},
 	"category": {
 		"empty": "No category yet. Register a media service and scan it; its libraries appear here.",
@@ -309,7 +315,9 @@
 			"state": "State",
 			"sort": "Sort by",
 			"clear": "Clear filters",
-			"category": "Shelf"
+			"category": "Shelf",
+			"resolution": "Resolution",
+			"codec": "Codec"
 		},
 		"sort": {
 			"title": "Title",
@@ -375,6 +383,12 @@
 			"confirmed": "Correlation confirmed.",
 			"confirmed_at": "confirmed",
 			"removed": "Correlation removed."
+		},
+		"preference": {
+			"own": "This media has a search order of its own, so a search on it is not ordered like the rest of its shelf.",
+			"none": "Nothing ordered: seeders and size decide for this media.",
+			"cancel": "Follow the category’s order again",
+			"cancelled": "This media follows its category’s order again."
 		}
 	},
 	"override": {
@@ -412,6 +426,15 @@
 			"was_empty": "The service says nothing here.",
 			"cleared": "Cleared: this field stays empty whatever the service says.",
 			"cleared_was": "Cleared: the service says “{value}”, and this gateway ignores it."
+		},
+		"reassign": "Reassign this media’s library",
+		"library_elsewhere": "It sits on {value}, which is not a folder this gateway can write into. Choose one of yours to reassign it — this works before anything has been downloaded.",
+		"library_none": "No library of your own is writable, so there is nowhere to reassign this to. Map a media service’s folders first.",
+		"preference": {
+			"title": "Search order for this media",
+			"intro": "Which copy this one media should be offered first, when the household order or its category’s is wrong for it. It orders and never hides: everything found stays on the list.",
+			"give": "Give this media its own order",
+			"follow": "Follow the category’s order again"
 		}
 	},
 	"service": {
@@ -808,7 +831,9 @@
 			"categories": "Categories",
 			"peers": "Peers and sharing",
 			"index": "Index and cache",
-			"notifications": "Notifications"
+			"notifications": "Notifications",
+			"releases": "Search & downloads",
+			"preferences": "Search order"
 		},
 		"destination": {
 			"rule_title": "How the gateway decides where a file goes",
@@ -907,7 +932,61 @@
 		"default_share_help": "Applies the moment a scan finds a library, so a friend who links to this gateway is not met with an empty shelf.",
 		"default_share_note": "Applies to every library on a server whose sharing is switched on — including one whose files this gateway does not hold, which is then read from that server and passed on at the cost of this connection. What a peer shares with us is never passed on further.",
 		"failed_history_days": "Keep failures for",
-		"failed_history_days_help": "In days, and longer on purpose: a failed transfer is the record of why something never arrived."
+		"failed_history_days_help": "In days, and longer on purpose: a failed transfer is the record of why something never arrived.",
+		"releases": {
+			"intro": "An indexer finds copies nobody you know holds; a torrent client fetches them. Leave either blank to turn it off.",
+			"indexer_enabled": "Search an indexer",
+			"indexer_url": "Prowlarr address",
+			"indexer_key": "API key",
+			"key_set": "One is stored. Leave blank to keep it.",
+			"client_enabled": "Send to a download client",
+			"client_url": "qBittorrent address",
+			"client_username": "Username",
+			"client_username_hint": "Leave blank if the client does not ask for one on your network.",
+			"client_password": "Password",
+			"paths_help": "The download folder as a correspondence, exactly as a media server declares its disks: the prefix the client writes, and the same directory as this gateway reaches it."
+		},
+		"preference": {
+			"orders_only": "This orders search results and never hides any of them. Anything you have not ranked stays on the list, last — so the only copy of last night’s episode is still there when it comes from a group you have not named.",
+			"global_title": "For the whole household",
+			"category_title": "For {category}",
+			"category_absent": "no server is reporting this shelf right now",
+			"cancel_override": "Follow the household order again",
+			"separates_nothing": "Nothing ordered: seeders and size still decide.",
+			"dimension": {
+				"resolution": "Resolution",
+				"codec": "Codec",
+				"team": "Release group",
+				"source": "Source",
+				"language": "Language"
+			},
+			"dimension_help": {
+				"resolution": "1080p, 2160p, 720p, SD. SD covers 576p, 480p and 360p.",
+				"codec": "x265, x264, AV1. Every spelling of one codec counts as the same: HEVC and H.265 are x265.",
+				"team": "The tail of a release name, -NTb, -FLUX. A name it cannot be read from ranks last rather than being refused.",
+				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, as the name states it.",
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one."
+			},
+			"move_up": "Decides earlier",
+			"move_down": "Decides later",
+			"drop": "No opinion on this",
+			"promote": "Prefer this one more",
+			"add_value": "Add a value",
+			"no_value": "No opinion in this dimension.",
+			"unused": "Not ranked:",
+			"add_override": "Give a category its own order",
+			"override_note": "A category’s order replaces the household one whole rather than adding to it, so it starts as a copy of it and changing the household order later does not reach into it.",
+			"media_note": "One series or one film can have an order of its own, set on the media itself — where it is shown and can be cancelled."
+		},
+		"request": {
+			"title": "Where requests come from",
+			"intro": "A request source is the screen your household already types into — a Seerr, Overseerr or Jellyseerr. This gateway reads what was asked for and says whether it already holds it. It fetches nothing on its own: a copy is still fetched by hand, on the media itself. Leave the address blank to turn this off.",
+			"enabled": "Read requests from this source",
+			"url": "Seerr address",
+			"url_help": "The same address you open it at, port included. Overseerr and Jellyseerr are read the same way.",
+			"key": "API key",
+			"key_help": "In Seerr, under Settings → General. It is stored once and never shown again."
+		}
 	},
 	"sync": {
 		"subtitle": "Standing intents, and what they have actually done.",
@@ -1140,6 +1219,12 @@
 			"ok": "Verified: {count} pieces checked, all intact.",
 			"corrupt": "Verified: {count} pieces do not match and have to come back."
 		},
+		"landing": {
+			"waiting": "Filed. Waiting for the media server to index it.",
+			"stale": "Filed, but no media server has indexed it. The file is on the disk and nothing can see it.",
+			"batch_waiting": "{count} file is filed and waiting to be indexed | {count} files are filed and waiting to be indexed",
+			"batch_stale": "{count} file was never indexed by any media server | {count} files were never indexed by any media server"
+		},
 		"unconfigured": {
 			"title": "{count} file landed where nobody chose | {count} files landed where nobody chose",
 			"hint": "Their transfers succeeded, so nothing else reports them. Say where they belong, or say it once for the whole category.",
@@ -1215,15 +1300,15 @@
 		"retarget": {
 			"title": "Send it to another library",
 			"action": "Send elsewhere",
-			"whole_run": "{title} — the whole run, {count} files",
 			"hint_repoint": "Nothing has landed yet, so this only changes where it will go. The download is not interrupted and not a byte is copied.",
 			"hint_move": "This file is already in a library. Choosing another one really moves it, which takes a while on a large file — the queue shows the progress.",
-			"hint_run_landed": "The files of this run that have already landed are moved too, and the folders they leave empty are removed.",
 			"library": "Destination library",
 			"confirm": "Send it there",
 			"confirm_move": "Move it there",
 			"repointed": "It will go there instead.",
-			"moved": "Moved. The file is in that library now."
+			"moved": "Moved. The file is in that library now.",
+			"whole_lot": "{title} — the whole download, {count} files",
+			"hint_lot_landed": "The files of this download that have already landed are moved too, including the ones an earlier run brought in, and the folders they leave empty are removed."
 		},
 		"revalidation": {
 			"title": "Why this transfer changed its mind",
@@ -1280,7 +1365,8 @@
 		"settings_shares": "Shares",
 		"settings_users": "Users",
 		"not_found": "Page not found",
-		"not_found_text": "There is nothing at this address."
+		"not_found_text": "There is nothing at this address.",
+		"requests": "Requests"
 	},
 	"components": {
 		"paginate": {
@@ -1361,7 +1447,8 @@
 		"media": {
 			"not_found": "This media item no longer exists.",
 			"not_on_our_disk": "This copy is not on a disk this gateway can write to, so nothing was erased.",
-			"has_no_file": "There is no file on this entry to erase."
+			"has_no_file": "There is no file on this entry to erase.",
+			"not_identified": "This media carries no identifier a request source would recognise."
 		},
 		"peer": {
 			"not_found": "This peer no longer exists.",
@@ -1419,11 +1506,195 @@
 			"config_invalid": "This channel cannot work with these settings.",
 			"handler_unknown": "This kind of notification channel is not supported.",
 			"send_failed": "The channel did not deliver the message."
+		},
+		"indexer": {
+			"not_configured": "No indexer is configured. Set one in Settings.",
+			"unreachable": "The indexer did not answer. Check its address and key.",
+			"unknown": "This build has no implementation for that indexer."
+		},
+		"download_client": {
+			"not_configured": "No download client is configured. Set one in Settings.",
+			"unreachable": "The download client did not answer.",
+			"unknown": "This build has no implementation for that download client.",
+			"refused": "The download client would not take it.",
+			"path_unreadable": "The gateway cannot read the folder the client writes into."
+		},
+		"release": {
+			"not_found": "That release is no longer in the search results. Search again.",
+			"not_grabbable": "That row is a copy on a peer, not a release. Pull it instead."
+		},
+		"grab": {
+			"not_found": "No such download."
+		},
+		"request_source": {
+			"not_configured": "No request source is configured. Set one in Settings.",
+			"unreachable": "The request source did not answer. Check its address and key.",
+			"unknown": "This build has no implementation for that request source.",
+			"unauthorized": "The request source refused the key. Check it in Settings."
+		},
+		"request": {
+			"not_found": "No such request.",
+			"not_held": "Nothing here answers that ask yet, so saying it is done would stop anybody asking again."
 		}
 	},
 	"indications": {
 		"placement": "Where pulled media lands when nothing more specific says otherwise.",
 		"match_threshold": "Below this score a correlation is proposed rather than applied.",
 		"full_scan_cron": "A refresh only sees what a service reports as new; a full pass catches files moved or re-encoded in place."
+	},
+	"release": {
+		"title": "Search",
+		"intro": "Look for a copy nobody you know holds, on the indexer you configured. Nothing is searched until you ask.",
+		"term": "Search terms",
+		"season_pack": "Whole season",
+		"search": "Search",
+		"asked": "Asked for: {query}",
+		"failed": "{indexer} did not answer. Check its address and key in Settings.",
+		"none": "Nothing came back. Try other words — trackers know some shows under another title.",
+		"seeders": "{count} seeders",
+		"on_indexers": "on {count} trackers",
+		"held": "You have this size",
+		"grab": "Fetch",
+		"grabbed": "Handed to the download client.",
+		"downloads": "Being fetched",
+		"kind": {
+			"movie": "Film",
+			"episode": "Episode",
+			"season_pack": "Season pack",
+			"unknown": "Unread name"
+		},
+		"state": {
+			"sent": "Sent",
+			"downloading": "Downloading",
+			"fetched": "Fetched",
+			"placed": "Filed",
+			"failed": "Failed",
+			"cancelled": "Gone from the client"
+		},
+		"phase": {
+			"fetching": "Downloading from the tracker",
+			"copying": "Copying into the library"
+		},
+		"intro_peers": "Copies your own peers already hold come back in the same list, above the tracker rows: those files exist, and their quality was read off the file rather than off a name.",
+		"peer": {
+			"exists": "Already exists",
+			"fills": "fills 1 episode you are missing | fills {count} episodes you are missing"
+		},
+		"pull": "Pull",
+		"pulled": "The pull has started. Follow it on the transfers screen.",
+		"plan": {
+			"open": "Cover the gaps",
+			"summary": "{steps} steps, covering {covered} of {total} missing episodes.",
+			"close": "Close",
+			"covers": "for {episodes}",
+			"partial": "only {count} files out of this pack",
+			"empty": "Nothing on offer fills any of the gaps.",
+			"grab": "Fetch all {count} steps",
+			"uncovered": "{count} nothing on offer can fill:",
+			"uncovered_peer": "One of these is on a peer — pull it from the list above. | {count} of these are on peers — pull them from the list above.",
+			"uncovered_hint": "Try other search terms, or come back once a release appears."
+		}
+	},
+	"classification": {
+		"title": "Where this might belong",
+		"intro": "The gateway noticed a few things about this media. Nothing has been filed: accepting a suggestion reassigns it exactly as choosing the library yourself would.",
+		"current": "Filed in {value} today",
+		"current_none": "On no shelf this gateway recognises",
+		"move": "{from} → {to}",
+		"accept": "File it there",
+		"accepted": "Reassigned to {value}.",
+		"dismiss": "Leave it where it is",
+		"none": "Nothing to suggest: what is known about this media does not point at any of the shelves the gateway recognises.",
+		"confidence": "{value}% sure",
+		"evidence_title": "What made it say so",
+		"evidence_counts": "{count} signals",
+		"withheld_title": "Considered, and not suggested",
+		"withheld_intro": "Why there is nothing to accept here.",
+		"failed": "The suggestions could not be read.",
+		"reread": "Look again",
+		"category": {
+			"anime": "Anime",
+			"cartoons": "Cartoons",
+			"animated_films": "Animated films",
+			"concerts": "Concerts"
+		},
+		"signal": {
+			"anime_genre": "The genre {value} names Japanese animation outright.",
+			"animation_genre": "The genre {value} says this is animated.",
+			"animation_studio": "{value} makes animation and nothing else.",
+			"japanese_studio": "{value} is a Japanese studio.",
+			"original_language_japanese": "Its original language is Japanese ({value}).",
+			"country_japan": "It comes from Japan ({value}).",
+			"romanised_japanese_title": "The title reads as romanised Japanese ({value}). On its own this decides nothing.",
+			"fansub_group": "Released by {value}, a group that subtitles only anime.",
+			"concert_genre": "The genre {value} names a recorded performance.",
+			"music_genre": "The genre {value} is a music genre.",
+			"live_performance_phrase": "It calls itself “{value}”.",
+			"venue": "{value} is a venue or a festival.",
+			"animation_path_keyword": "A folder on the way to the file is called “{value}”, which may only say where somebody already put it.",
+			"concert_path_keyword": "A folder on the way to the file is called “{value}”, which may only say where somebody already put it.",
+			"kind_is_film": "The catalogue already holds this as a film.",
+			"kind_is_series": "The catalogue already holds this as a series.",
+			"documentary_genre": "Against: the genre {value} makes this a documentary first."
+		},
+		"source": {
+			"genre": "genre",
+			"studio": "studio",
+			"language": "language",
+			"country": "country",
+			"title": "title",
+			"original_title": "original title",
+			"kind": "catalogue",
+			"path": "folder",
+			"release_name": "release name"
+		},
+		"blocker": {
+			"no_such_category": "No library here is named anything this gateway reads as {value}, so there is nowhere to file it. Rename or alias a library, or plug a name into that category.",
+			"no_writable_library": "{value} exists only on a server whose folders this gateway cannot write into, so reassigning would move nothing.",
+			"already_filed": "It is already on that shelf."
+		},
+		"withheld": {
+			"below_threshold": "The signals did not add up to enough. Nothing is suggested on one observation.",
+			"no_decisive_signal": "Nothing said what this media actually is — only where it sits and how long it is.",
+			"ambiguous_origin": "It is animated, and nothing trustworthy says where it came from. Anime and cartoons are the same question, so guessing between them would be a coin toss.",
+			"settled_by_origin": "Its origin is known, and the other shelf is the answer to the same question."
+		}
+	},
+	"request": {
+		"subtitle": "What the household asked for, and whether this gateway already holds it.",
+		"filter_state": "State",
+		"state": {
+			"pending": "Waiting for an answer",
+			"approved": "Approved",
+			"declined": "Declined",
+			"processing": "Being worked on",
+			"partial": "Partly there",
+			"available": "Answered",
+			"unknown": "Unknown state"
+		},
+		"not_configured_title": "No request source",
+		"configure": "Open the settings",
+		"none_title": "Nothing has been asked for",
+		"none_text": "No open request. Anything somebody asks for in Overseerr or Jellyseerr appears here.",
+		"unnamed": "The source did not say what this is",
+		"from_source": "named by the source",
+		"asked_by": "Asked by {name}",
+		"asked_by_unknown": "Asked by somebody the source does not name",
+		"tmdb": "TMDB {id}",
+		"tvdb": "TVDB {id}",
+		"no_identifier": "The source gave no identifier for this.",
+		"holdings": "Held here:",
+		"seasons": "seasons {seasons}",
+		"held_none": "Nothing here answers this.",
+		"missing_seasons": "Missing here: seasons {seasons}",
+		"asked_seasons": "Asked for: seasons {seasons}",
+		"fulfil": "Mark fulfilled",
+		"fulfilled": "The source has been told the ask is answered.",
+		"search": "Search for this",
+		"no_search": "Nothing to search for",
+		"search_title": "Search for a copy",
+		"search_intro": "The search this request suggests. Nothing is searched until you press, and nothing here is fetched.",
+		"search_season": "Season",
+		"search_no_grab": "These are names on a tracker. Fetch a copy from the media page, where there is somewhere for it to land."
 	}
 }

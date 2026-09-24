@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-	import type { UpdateSettingsRequest } from '@mcs/shared';
-	import { DEFAULT_NAMING_ORDER, DEFAULT_PEER_MAX_DEPTH, MAX_PEER_MAX_DEPTH, PlacementStrategy, ShareVisibility } from '@mcs/shared';
+	import type { ReleasePreference, ReleasePreferenceSettings, RootMapping, UpdateSettingsRequest } from '@mcs/shared';
+	import { DEFAULT_NAMING_ORDER, DEFAULT_PEER_MAX_DEPTH, DEFAULT_RELEASE_PREFERENCES, DownloadClientType, IndexerType, MAX_PEER_MAX_DEPTH, PlacementStrategy, RequestSourceType, ShareVisibility } from '@mcs/shared';
 	import { computed, onMounted, reactive, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import CronHint from '@/components/common/CronHint.vue';
@@ -8,10 +8,13 @@
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import FormMainError from '@/components/FormMainError.vue';
+	import RootMappingList from '@/components/service/RootMappingList.vue';
 	import CategoryMapping from '@/components/settings/CategoryMapping.vue';
 	import DestinationLibraryField from '@/components/settings/DestinationLibraryField.vue';
 	import NamingOrderField from '@/components/settings/NamingOrderField.vue';
 	import NotificationChannels from '@/components/settings/NotificationChannels.vue';
+	import ReleasePreferences from '@/components/settings/ReleasePreferences.vue';
+	import RequestSource from '@/components/settings/RequestSource.vue';
 	import ShareRateSummary from '@/components/share/ShareRateSummary.vue';
 	import { useByteSize } from '@/composables/useByteSize';
 	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
@@ -64,6 +67,28 @@
 	const loading = ref(true);
 	const failed = ref(false);
 
+	/**
+	 * A preference the page owns outright, down to the last list of values.
+	 *
+	 * Copied for the reason the naming order and the category table are, and one level
+	 * deeper because this value is nested: the editor replaces whatever it touches, and
+	 * sharing the store's own object would make an unsaved reordering look stored
+	 * everywhere else that reads the settings — including the media screen, which reads
+	 * the household order to say which level decided an ordering.
+	 */
+	function copyPreferences (source: ReleasePreferenceSettings): ReleasePreferenceSettings {
+		const one = (preference: ReleasePreference): ReleasePreference => ({
+			ranks: preference.ranks.map(rank => ({ dimension: rank.dimension, values: [...rank.values] })),
+		});
+
+		return {
+			global: one(source.global),
+			byCategory: Object.fromEntries(
+				Object.entries(source.byCategory).map(([key, preference]) => [key, one(preference)]),
+			),
+		};
+	}
+
 	const model = reactive({
 		placement: PlacementStrategy.BESIDE_EXISTING,
 		fixedPath: '',
@@ -92,6 +117,50 @@
 		refreshIntervalMinutes: 15,
 		fullScanCron: '',
 		cacheTtlSeconds: 60,
+		/*
+		 * Flat rather than two nested objects, because the form helpers key on a field
+		 * name and a refusal has to land under the box it names. They are folded back
+		 * into the shape the API takes in `toRequest`.
+		 *
+		 * The two secrets are blank on every load and that is deliberate: the gateway
+		 * never sends them back, so a blank box means "keep what is stored" and the
+		 * switch beside it says whether there is anything to keep.
+		 */
+		indexerEnabled: false,
+		indexerUrl: '',
+		indexerApiKey: '',
+		indexerHasKey: false,
+		clientEnabled: false,
+		clientUrl: '',
+		clientUsername: '',
+		clientPassword: '',
+		clientHasPassword: false,
+		/*
+		 * The same statement a media service makes about its disks, and deliberately the
+		 * same shape: one row per folder, the client's prefix and ours. Two flat fields
+		 * were a second vocabulary for one idea, and could only describe a client writing
+		 * to two disks by mapping `/` onto `/`.
+		 */
+		clientRootMappings: [] as RootMapping[],
+		/*
+		 * The request source, flat for the reason the two above are: a refusal has to land
+		 * under the box it names, and the form helpers key on a field name.
+		 *
+		 * Its key is write-only like the other two — the gateway never sends one back — so
+		 * the box is blank on every load and `requestHasKey` is what lets the pane say
+		 * that one is nonetheless stored.
+		 */
+		requestEnabled: false,
+		requestUrl: '',
+		requestApiKey: '',
+		requestHasKey: false,
+		/*
+		 * Nested, unlike everything above, because it is one value and not a form: an
+		 * order over dimensions and an order inside each. Flattening it would mean a field
+		 * per dimension, which is precisely the shape the setting exists to avoid — three
+		 * named fields cannot say "source decides before codec".
+		 */
+		releasePreferences: copyPreferences(DEFAULT_RELEASE_PREFERENCES),
 	});
 
 	type SettingsModel = typeof model;
@@ -126,6 +195,53 @@
 			defaultShareVisibility: values.defaultShareVisibility,
 			// An emptied box is a setting being cleared, which the API spells null.
 			// Empty means "no name of my own", and the hostname stands again.
+			/*
+			 * Sent only when an address was typed, and cleared to null when it was
+			 * emptied. A half-filled object would be an indexer the gateway believes in
+			 * and cannot reach, which fails at search time rather than at save time.
+			 */
+			indexer: values.indexerUrl.trim()
+				? {
+					type: IndexerType.PROWLARR,
+					baseUrl: values.indexerUrl.trim(),
+					// Blank keeps the stored one. The gateway does the keeping, because
+					// this screen has never been told what it is.
+					...(values.indexerApiKey ? { apiKey: values.indexerApiKey } : {}),
+					enabled: values.indexerEnabled,
+				}
+				: null,
+			downloadClient: values.clientUrl.trim()
+				? {
+					type: DownloadClientType.QBITTORRENT,
+					baseUrl: values.clientUrl.trim(),
+					username: values.clientUsername || null,
+					...(values.clientPassword ? { password: values.clientPassword } : {}),
+					rootMappings: values.clientRootMappings,
+					enabled: values.clientEnabled,
+				}
+				: null,
+			/*
+			 * Sent only when an address was typed, and cleared to null when it was emptied,
+			 * exactly like the two above. A half-filled object would be a source the
+			 * gateway believes in and cannot read, which fails when somebody opens the
+			 * requests screen rather than when they saved this one.
+			 */
+			requestSource: values.requestUrl.trim()
+				? {
+					type: RequestSourceType.SEERR,
+					baseUrl: values.requestUrl.trim(),
+					// Blank keeps the stored one, and the gateway does the keeping: this
+					// screen has never been told what it is.
+					...(values.requestApiKey ? { apiKey: values.requestApiKey } : {}),
+					enabled: values.requestEnabled,
+				}
+				: null,
+			/*
+			 * Sent whole, both halves, because the row is replaced rather than merged — a
+			 * cancelled override *is* a missing key, and there is no other way to say it.
+			 * The API refuses half of this value for the same reason.
+			 */
+			releasePreferences: values.releasePreferences,
 			instanceName: values.instanceName || null,
 			publicUrl: values.publicUrl || null,
 			defaultTargetPath: values.defaultTargetPath || null,
@@ -192,6 +308,34 @@
 		model.namingOrder = [...settings.namingOrder];
 		model.pullMetadata = settings.pullMetadata;
 		model.writeNfo = settings.writeNfo;
+		model.indexerEnabled = settings.indexer?.enabled ?? false;
+		model.indexerUrl = settings.indexer?.baseUrl ?? '';
+		// Never filled from the answer: the gateway does not send it, and a box that
+		// looked filled would be a box somebody cleared by retyping the address.
+		model.indexerApiKey = '';
+		model.indexerHasKey = settings.indexer?.hasApiKey ?? false;
+		model.clientEnabled = settings.downloadClient?.enabled ?? false;
+		model.clientUrl = settings.downloadClient?.baseUrl ?? '';
+		model.clientUsername = settings.downloadClient?.username ?? '';
+		model.clientPassword = '';
+		model.clientHasPassword = settings.downloadClient?.hasPassword ?? false;
+		// Copied rather than referenced, for the reason the naming order above is: the
+		// list is replaced on every edit, and sharing the store's own would make an
+		// unsaved row look stored everywhere else that reads the settings.
+		model.clientRootMappings = [...(settings.downloadClient?.rootMappings ?? [])];
+		model.requestEnabled = settings.requestSource?.enabled ?? false;
+		model.requestUrl = settings.requestSource?.baseUrl ?? '';
+		// Never filled from the answer, for the reason the indexer's key is not: the
+		// gateway does not send it, and a box that looked filled would be a key somebody
+		// cleared by retyping the address.
+		model.requestApiKey = '';
+		model.requestHasKey = settings.requestSource?.hasApiKey ?? false;
+		// A gateway that has never been asked about this answers the default, and the
+		// default separates nothing — which is the honest starting point: seeders and size
+		// still decide until somebody says otherwise.
+		model.releasePreferences = copyPreferences(
+			settings.releasePreferences ?? DEFAULT_RELEASE_PREFERENCES,
+		);
 		model.preferSourceMetadata = settings.preferSourceMetadata;
 		model.maxParallelTransfers = settings.maxParallelTransfers;
 		model.maxConnectionsPerSource = settings.maxConnectionsPerSource;
@@ -430,6 +574,16 @@
 			key: 'index',
 			fields: ['refreshIntervalMinutes', 'cacheTtlSeconds', 'fullScanCron', 'matchThreshold'],
 		},
+		{ key: 'releases', fields: ['indexer', 'downloadClient', 'requestSource'] },
+		/*
+		 * A tab of its own, which is what was asked for and is also the only shape that
+		 * works: the household order and the per-category overrides are three levels of
+		 * one answer and belong on one pane together, and that pane is already the longest
+		 * thing on this screen. Hanging it under "Search & downloads" would put an order
+		 * over five dimensions below two addresses and a list of path mappings, where
+		 * nobody scrolling for a key would ever read it.
+		 */
+		{ key: 'preferences', fields: ['releasePreferences'] },
 	] as const;
 
 	type TabKey = (typeof TABS)[number]['key'];
@@ -1035,6 +1189,154 @@
 					</v-card-text>
 				</v-card>
 
+			</div>
+
+			<div v-show="tab === 'releases'">
+				<v-card class="settings_card">
+					<v-card-title class="text-subtitle-1">{{ $t('settings.group.releases') }}</v-card-title>
+
+					<v-card-text>
+						<p class="text-caption text-medium-emphasis mb-4">
+							{{ $t('settings.releases.intro') }}
+						</p>
+
+						<v-switch
+							v-model="model.indexerEnabled"
+							color="primary"
+							data-test="settings-indexer-enabled"
+							density="compact"
+							hide-details
+							:label="$t('settings.releases.indexer_enabled')"
+						/>
+
+						<v-text-field
+							v-model="model.indexerUrl"
+							data-test="settings-indexer-url"
+							density="compact"
+							:label="$t('settings.releases.indexer_url')"
+							placeholder="http://prowlarr:9696"
+							v-bind="form.field('indexer')"
+						/>
+
+						<!--
+							Blank means "keep the stored one". The gateway never sends a key
+							back, so a box that looked filled would be a key somebody cleared
+							by retyping the address above it.
+						-->
+						<v-text-field
+							v-model="model.indexerApiKey"
+							autocomplete="off"
+							data-test="settings-indexer-key"
+							density="compact"
+							:hint="model.indexerHasKey ? $t('settings.releases.key_set') : undefined"
+							:label="$t('settings.releases.indexer_key')"
+							persistent-hint
+							type="password"
+						/>
+
+						<v-divider class="my-6" />
+
+						<v-switch
+							v-model="model.clientEnabled"
+							color="primary"
+							data-test="settings-client-enabled"
+							density="compact"
+							hide-details
+							:label="$t('settings.releases.client_enabled')"
+						/>
+
+						<v-text-field
+							v-model="model.clientUrl"
+							data-test="settings-client-url"
+							density="compact"
+							:label="$t('settings.releases.client_url')"
+							placeholder="http://qbittorrent:8080"
+							v-bind="form.field('downloadClient')"
+						/>
+
+						<v-text-field
+							v-model="model.clientUsername"
+							autocomplete="off"
+							data-test="settings-client-username"
+							density="compact"
+							:hint="$t('settings.releases.client_username_hint')"
+							:label="$t('settings.releases.client_username')"
+							persistent-hint
+						/>
+
+						<v-text-field
+							v-model="model.clientPassword"
+							autocomplete="off"
+							class="mt-4"
+							data-test="settings-client-password"
+							density="compact"
+							:hint="model.clientHasPassword ? $t('settings.releases.key_set') : undefined"
+							:label="$t('settings.releases.client_password')"
+							persistent-hint
+							type="password"
+						/>
+
+						<!--
+							The same correspondence a media server declares, through the same
+							component: a client in its own container writes to `/downloads`
+							and the gateway reaches that directory somewhere else entirely.
+							Get it wrong and every step succeeds while the file is never
+							filed, which is why it is asked for here rather than guessed.
+						-->
+						<p class="text-caption text-medium-emphasis mt-6 mb-2">
+							{{ $t('settings.releases.paths_help') }}
+						</p>
+
+						<RootMappingList
+							v-model="model.clientRootMappings"
+							data-test="settings-client-mappings"
+							:form="form"
+						/>
+					</v-card-text>
+				</v-card>
+
+				<!--
+					Its own card on the same pane, rather than a fourth block inside the one
+					above. It sits here because it is configured exactly like the other two —
+					an address, a key, a switch — and separated because it is the one that
+					moves nothing: it reads what the household asked for and hands over no
+					bytes, which the card has to make plain or somebody will expect a request
+					to start a download.
+				-->
+				<v-card class="settings_card">
+					<v-card-title class="text-subtitle-1">{{ $t('settings.request.title') }}</v-card-title>
+
+					<v-card-text>
+						<RequestSource
+							v-model:api-key="model.requestApiKey"
+							v-model:base-url="model.requestUrl"
+							v-model:enabled="model.requestEnabled"
+							:field="form.field('requestSource')"
+							:has-api-key="model.requestHasKey"
+							:loading="loading"
+						/>
+					</v-card-text>
+				</v-card>
+			</div>
+
+			<div v-show="tab === 'preferences'">
+				<v-card class="settings_card">
+					<v-card-title class="text-subtitle-1">{{ $t('settings.group.preferences') }}</v-card-title>
+
+					<v-card-text>
+						<!--
+							The categories are every category the gateway knows, ours and a
+							peer's alike: this orders a search and never decides where a file
+							lands, so a shelf we cannot write into is still one somebody can
+							have an opinion about.
+						-->
+						<ReleasePreferences
+							v-model="model.releasePreferences"
+							:categories="librariesStore.orderedCategories"
+							:loading="loading"
+						/>
+					</v-card-text>
+				</v-card>
 			</div>
 
 			<FormMainError :form="form" />

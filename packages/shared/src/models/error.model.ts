@@ -407,6 +407,88 @@ export const ErrorKey = {
 	 */
 	NOTIFICATION_SEND_FAILED: 'error.notification.send_failed',
 
+	/**
+	 * Nobody has told this gateway where to search.
+	 *
+	 * Its own key rather than a general refusal, because the fix is one screen away and
+	 * naming it is the difference between "this is broken" and "this is not set up".
+	 */
+	INDEXER_NOT_CONFIGURED: 'error.indexer.not_configured',
+	/** Configured, and it did not answer. The address or the key, and the row says which. */
+	INDEXER_UNREACHABLE: 'error.indexer.unreachable',
+	/** A stored row names an indexer type this build has no implementation for. */
+	INDEXER_UNKNOWN: 'error.indexer.unknown',
+	DOWNLOAD_CLIENT_NOT_CONFIGURED: 'error.download_client.not_configured',
+	DOWNLOAD_CLIENT_UNREACHABLE: 'error.download_client.unreachable',
+	DOWNLOAD_CLIENT_UNKNOWN: 'error.download_client.unknown',
+	/** The client took it and then would not say what it did with it. */
+	DOWNLOAD_CLIENT_REFUSED: 'error.download_client.refused',
+	/**
+	 * The directory the client writes into is not one this gateway can read.
+	 *
+	 * The failure this whole pair of paths exists to prevent: a client in its own
+	 * container writes to `/downloads` and the gateway sees `/share/torrents`. Get it
+	 * wrong and everything succeeds — the torrent completes, the client is happy — and
+	 * the file is never filed, with nothing anywhere reporting a fault.
+	 */
+	DOWNLOAD_PATH_UNREADABLE: 'error.download_client.path_unreadable',
+	/** The release is not in the last search, which is the only place releases exist. */
+	RELEASE_NOT_FOUND: 'error.release.not_found',
+	/**
+	 * That row is a copy on a peer, and a download client cannot be given one.
+	 *
+	 * Its own key rather than "not found", because the two send somebody somewhere quite
+	 * different: a release that is gone means search again, while this one means press the
+	 * other button on the same row. Handed to the client instead, the copy would be
+	 * accepted, nothing would ever move, and every screen would say it had been taken —
+	 * the failure this whole feature keeps producing.
+	 */
+	RELEASE_NOT_GRABBABLE: 'error.release.not_grabbable',
+	/**
+	 * Nobody has told this gateway where the household asks for things.
+	 *
+	 * Its own key rather than a general refusal, for the reason the indexer's is: the
+	 * fix is one screen away, and naming it is the difference between "this is broken"
+	 * and "this is not set up".
+	 */
+	REQUEST_SOURCE_NOT_CONFIGURED: 'error.request_source.not_configured',
+	REQUEST_SOURCE_UNREACHABLE: 'error.request_source.unreachable',
+	/**
+	 * It answered, and it refused the key.
+	 *
+	 * Apart from `UNREACHABLE` because they send somebody to two different places: an
+	 * address that is wrong is a container name, a port, a reverse proxy; a key that is
+	 * wrong is one field on one screen. A wrong key reported as "unreachable" is the
+	 * commonest way to spend twenty minutes on the network when the answer was a
+	 * copy-and-paste — and Seerr answers **403** rather than 401 for it, which is why
+	 * both statuses are read as this.
+	 */
+	REQUEST_SOURCE_UNAUTHORIZED: 'error.request_source.unauthorized',
+	/** A stored row names a request source this build has no implementation for. */
+	REQUEST_SOURCE_UNKNOWN: 'error.request_source.unknown',
+	REQUEST_NOT_FOUND: 'error.request.not_found',
+	/**
+	 * Closing an ask that nothing here answers.
+	 *
+	 * Refused rather than done, because the whole value of the request screen is that
+	 * "answered" means something. Told an ask is complete, the household stops asking —
+	 * so marking one on a work no library of ours holds, or on a show we are still short
+	 * seasons of, ends the asking and delivers nothing. The interface only offers the
+	 * action when the gateway says it would be honest; this is the same rule on the route,
+	 * for everything that is not the interface.
+	 */
+	REQUEST_NOT_HELD: 'error.request.not_held',
+	/**
+	 * A media of ours that no request source could be told about.
+	 *
+	 * It carries no provider identifier, or it is not a thing anybody asks for — a
+	 * season row, a folder. Its own key rather than the general refusal because the
+	 * screen can then say which of the two it is, and both are ordinary rather than
+	 * faults.
+	 */
+	MEDIA_NOT_IDENTIFIED: 'error.media.not_identified',
+	GRAB_NOT_FOUND: 'error.grab.not_found',
+
 	GENERAL: 'error.general',
 } as const;
 

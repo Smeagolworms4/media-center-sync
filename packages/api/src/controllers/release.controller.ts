@@ -1,0 +1,279 @@
+import {
+	ReleaseSearchKind,
+	Right,
+	type CoveragePlan,
+	type EpisodeRef,
+	type ReleaseGrab,
+	type ReleaseSearchResult,
+} from '@mcs/shared';
+import {
+	Body,
+	Controller,
+	Get,
+	HttpCode,
+	HttpStatus,
+	Param,
+	ParseUUIDPipe,
+	Post,
+	Query,
+} from '@nestjs/common';
+import {
+	ApiBearerAuth,
+	ApiConflictResponse,
+	ApiNotFoundResponse,
+	ApiOkResponse,
+	ApiOperation,
+	ApiProperty,
+	ApiPropertyOptional,
+	ApiTags,
+} from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+	IsBoolean,
+	IsEnum,
+	IsInt,
+	IsOptional,
+	IsString,
+	IsUUID,
+	MaxLength,
+	Min,
+	ValidateNested,
+} from 'class-validator';
+import { Granted } from '@/decorators';
+import { ReleaseManager } from '@/managers';
+
+/** What a search asks for. Everything optional but one of `itemId` and `term`. */
+class ReleaseSearchDto {
+	@ApiPropertyOptional({ description: 'The media to search for, which builds the terms.' })
+	@IsOptional()
+	@IsUUID()
+	public itemId?: string;
+
+	@ApiPropertyOptional({
+		description:
+			'Words to search for instead of the media’s title, for a show the trackers know '
+			+ 'under another name.',
+	})
+	@IsOptional()
+	@IsString()
+	@MaxLength(200)
+	public term?: string;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	public seasonNumber?: number;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	public episodeNumber?: number;
+
+	@ApiPropertyOptional({ description: 'Ask for the whole season rather than one episode.' })
+	@IsOptional()
+	@Type(() => Boolean)
+	@IsBoolean()
+	public seasonPack?: boolean;
+
+	/**
+	 * Film or show, which picks the categories the indexer is asked for.
+	 *
+	 * Optional because a search naming a media reads it off that media, and validated
+	 * against the enum because the alternative is a free string reaching the category
+	 * table: an unknown value there is an undefined lookup, a request with no categories
+	 * at all, and a search that answers the whole tracker.
+	 */
+	@ApiPropertyOptional({
+		enum: ReleaseSearchKind,
+		description:
+			'Film or show. Read off the media when one is named. A free-text search that '
+			+ 'omits it is searched as a show, which finds nothing at all for a film.',
+	})
+	@IsOptional()
+	@IsEnum(ReleaseSearchKind)
+	public kind?: ReleaseSearchKind;
+}
+
+/** One episode a partial grab is being taken for. */
+class WantedEpisodeDto implements EpisodeRef {
+	@ApiProperty()
+	@IsUUID()
+	public itemId!: string;
+
+	// Nullable rather than optional: the coordinate is what a file is matched on, and a
+	// body that simply left it out would be a wanted episode nothing can recognise.
+	@ApiProperty({ nullable: true })
+	@IsOptional()
+	@IsInt()
+	public seasonNumber!: number | null;
+
+	@ApiProperty({ nullable: true })
+	@IsOptional()
+	@IsInt()
+	public episodeNumber!: number | null;
+
+	@ApiProperty()
+	@IsString()
+	@MaxLength(500)
+	public title!: string;
+}
+
+class GrabDto {
+	@ApiProperty({ description: 'From the last search. Releases exist nowhere else.' })
+	@IsString()
+	@MaxLength(500)
+	public releaseId!: string;
+
+	@ApiProperty({ description: 'The media it is for, and what it will be filed as.' })
+	@IsUUID()
+	public itemId!: string;
+
+	@ApiPropertyOptional({ description: 'Where it should land, when the rules are not what is wanted.' })
+	@IsOptional()
+	@IsUUID()
+	public libraryId?: string | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(1024)
+	public folder?: string | null;
+
+	@ApiPropertyOptional({
+		type: [WantedEpisodeDto],
+		description:
+			'Only these episodes, out of a release that holds more. The pack is added '
+			+ 'stopped, its file list is read, everything else is set to zero priority and '
+			+ 'only then is it started — so the disk pays for what was asked for.',
+	})
+	@IsOptional()
+	@ValidateNested({ each: true })
+	@Type(() => WantedEpisodeDto)
+	public wanted?: WantedEpisodeDto[];
+}
+
+/** Where a torrent should land. Both optional: clearing them gives it back to the rules. */
+class GrabDestinationDto {
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsUUID()
+	public libraryId?: string | null;
+
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(1024)
+	public folder?: string | null;
+}
+
+class DownloadsQueryDto {
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsUUID()
+	public itemId?: string;
+}
+
+/**
+ * Searching for a copy nobody we know holds, and fetching it.
+ *
+ * Under `MEDIA_READ` to search and `TRANSFER_MANAGE` to grab, and the split is the
+ * point: looking at what exists on a tracker is reading, while handing one to a
+ * download client spends a disk and puts a file in somebody's library. A guest may do
+ * the first and not the second.
+ */
+@ApiTags('releases')
+@ApiBearerAuth()
+@Controller('releases')
+export class ReleaseController {
+	public constructor(private readonly _releases: ReleaseManager) {}
+
+	@Get('search')
+	@Granted(Right.MEDIA_READ)
+	@ApiOperation({
+		summary: 'What could satisfy this media, from the trackers and from the peers',
+		description:
+			'Built from the media when one is named: an episode is searched for by its series’ '
+			+ 'title and coordinate, because that is what release names carry. Tracker results '
+			+ 'are folded on what each name resolves to, so one file listed by six trackers is '
+			+ 'one line — and the copies our own peers already hold come back in the same '
+			+ 'list, marked for what they are, because a file that exists beats a name on a '
+			+ 'tracker. Each row says its kind, and the kind decides what fetching it means: a '
+			+ 'release goes to the download client, a peer copy to a sync run.',
+	})
+	@ApiOkResponse({ description: 'ReleaseSearchResult' })
+	@ApiConflictResponse({ description: 'error.indexer.not_configured' })
+	public search(@Query() query: ReleaseSearchDto): Promise<ReleaseSearchResult> {
+		return this._releases.search(query);
+	}
+
+	@Post('plan')
+	@Granted(Right.MEDIA_READ)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'A way of covering every gap',
+		description:
+			'The answer to "I am short four episodes of this season". One pack covering all '
+			+ 'four beats four singles — one torrent, one connection, one thing to watch — and '
+			+ 'four singles beat a pack when no pack exists. What nothing on offer can cover is '
+			+ 'named rather than silently dropped.',
+	})
+	@ApiOkResponse({ description: 'CoveragePlan' })
+	@ApiConflictResponse({ description: 'error.indexer.not_configured' })
+	public plan(@Body() body: ReleaseSearchDto): Promise<CoveragePlan> {
+		return this._releases.plan(body);
+	}
+
+	@Post('grab')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Hand a release to the download client',
+		description:
+			'The gateway remembers which media it is for, which is the only thing that lets it '
+			+ 'be filed when it arrives — a torrent client has never heard of your catalogue. '
+			+ 'Refused before a byte moves if the folder the client writes into is not one this '
+			+ 'gateway can read.',
+	})
+	@ApiOkResponse({ description: 'ReleaseGrab' })
+	@ApiNotFoundResponse({ description: 'error.release.not_found, error.media.not_found' })
+	@ApiConflictResponse({
+		description:
+			'error.download_client.not_configured, error.download_client.path_unreadable, '
+			+ 'error.download_client.refused',
+	})
+	public grab(@Body() body: GrabDto): Promise<ReleaseGrab> {
+		return this._releases.grab(body);
+	}
+
+	@Post('downloads/:id/destination')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Send a torrent somewhere else',
+		description:
+			'The same answer a redirected transfer takes. Nothing is copied: the '
+			+ 'destination is read when the download finishes, so changing it before then '
+			+ 'costs one row write. Refused once the file is in the library.',
+	})
+	@ApiOkResponse({ description: 'ReleaseGrab' })
+	@ApiNotFoundResponse({ description: 'error.grab.not_found' })
+	@ApiConflictResponse({ description: 'error.transfer.not_resumable' })
+	public destination(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: GrabDestinationDto,
+	): Promise<ReleaseGrab> {
+		return this._releases.setDestination(id, body.libraryId ?? null, body.folder ?? null);
+	}
+
+	@Get('downloads')
+	@Granted(Right.MEDIA_READ)
+	@ApiOperation({ summary: 'What has been grabbed, and where it has got to' })
+	@ApiOkResponse({ description: 'ReleaseGrab[]' })
+	public downloads(@Query() query: DownloadsQueryDto): Promise<ReleaseGrab[]> {
+		return this._releases.downloads(query.itemId);
+	}
+}

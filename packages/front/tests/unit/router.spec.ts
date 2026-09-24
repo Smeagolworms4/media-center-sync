@@ -33,7 +33,7 @@ describe('router', () => {
 		expect(paths).toEqual([
 			'/login', '/setup', '/', '/library', '/library/:itemId',
 			'/services', '/services/:id', '/peers', '/peers/:id',
-			'/sync', '/sync/plans/:id', '/transfers',
+			'/sync', '/sync/plans/:id', '/transfers', '/requests',
 			'/settings', '/settings/shares', '/settings/users',
 			'/:pathMatch(.*)*',
 		]);
@@ -47,6 +47,9 @@ describe('router', () => {
 		expect(granted.peers).toEqual([Right.PEER_READ]);
 		expect(granted.sync).toEqual([Right.SYNC_READ]);
 		expect(granted.transfers).toEqual([Right.TRANSFER_READ]);
+		// Reading the asks is reading, and acting on one is guarded on the button: the
+		// list is worth opening by somebody who may not close a request.
+		expect(granted.requests).toEqual([Right.MEDIA_READ]);
 		expect(granted.settings).toEqual([Right.SETTINGS_MANAGE]);
 		expect(granted['settings-shares']).toEqual([Right.SHARE_MANAGE]);
 		expect(granted['settings-users']).toEqual([Right.USER_MANAGE]);

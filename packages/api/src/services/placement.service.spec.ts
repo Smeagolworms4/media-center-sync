@@ -10,7 +10,7 @@ import {
 	type Settings,
 } from '@mcs/shared';
 import { DEFAULT_SETTINGS } from './settings.service';
-import { PlacementService, type PlacementLibrary } from './placement.service';
+import { PlacementService, type PlacementLibrary, type PlacementPin } from './placement.service';
 
 describe('PlacementService', () => {
 	const service = new PlacementService();
@@ -136,6 +136,10 @@ describe('PlacementService', () => {
 
 		expect(target.libraryId).toBe('lib-movies');
 		expect(target.path.startsWith(movies)).toBe(true);
+		// The answer a later file of the same download has to be handed: `lib-movies`
+		// designates two directories, so the identifier alone cannot say which one its
+		// siblings went into.
+		expect(target.root).toBe(movies);
 	});
 
 	it('skips a path no library declares rather than writing into it', async () => {
@@ -897,5 +901,121 @@ describe('PlacementService', () => {
 		await expect(
 			import('node:fs/promises').then((fs) => fs.stat(target.directory)),
 		).resolves.toBeDefined();
+	});
+
+	/**
+	 * A download is a lot, and every file of it lands in one place.
+	 *
+	 * A film, a series, a season or an episode: somebody pressed one button, and the
+	 * chain answering per file let it answer differently halfway down a season — a disk
+	 * that filled, a sibling found for one episode and not the next. The season then sat
+	 * in two libraries, which no media server shows as one series.
+	 */
+	describe('a lot already sent somewhere', () => {
+		const pin = (overrides: Partial<PlacementPin> = {}): PlacementPin => ({
+			root: anime,
+			libraryId: 'lib-anime',
+			libraryName: 'Animes',
+			strategy: PlacementStrategy.DEFAULT_LIBRARY,
+			fallback: false,
+			placedBy: PlacedBy.DEFAULT_LIBRARY,
+			...overrides,
+		});
+
+		it('goes where the lot went, even when a better candidate exists', async () => {
+			// `existingPath` is the top of the chain and would win outright. The pin is not
+			// a preference sitting above it: it replaces the chain, or the second episode
+			// of a season would quietly take the step below it the first time this root
+			// was busy.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+				libraries: [
+					library(),
+					library({ id: 'lib-anime', name: 'Animes', localPath: anime }),
+				],
+				relativeName: 'Sonic X (2003)/Season 01/S01E02.mkv',
+				existingPath: join(shows, 'Sonic X (2003)', 'S01E01.mkv'),
+				pinned: pin(),
+			});
+
+			expect(target.root).toBe(anime);
+			expect(target.libraryId).toBe('lib-anime');
+			expect(target.path).toBe(join(anime, 'Sonic X (2003)', 'Season 01', 'S01E02.mkv'));
+		});
+
+		it('keeps the hierarchy under the root it was given', async () => {
+			// The pin fixes the root and nothing below it. The folders are still rendered
+			// per item, against that root, so a series already on the disk keeps the layout
+			// it has and a new one gets the template.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library({ id: 'lib-anime', name: 'Animes', localPath: anime })],
+				relativeName: (libraryRoot) =>
+					libraryRoot === anime ? 'Sonic X (2003)/Season 02/S02E04.mkv' : 'wrong/S02E04.mkv',
+				pinned: pin(),
+			});
+
+			expect(target.path).toBe(join(anime, 'Sonic X (2003)', 'Season 02', 'S02E04.mkv'));
+		});
+
+		it('fails the lot rather than scattering its tail somewhere else', async () => {
+			/*
+			 * The whole point of a pin over a preference. A writable library is sitting
+			 * right there and is deliberately not used: half a season in the library
+			 * somebody chose and half in one they did not is worse than a refusal, because
+			 * a refusal can be acted on and a split is discovered months later.
+			 */
+			await expect(
+				service.resolve({
+					kind: MediaKind.EPISODE,
+					settings: settings(),
+					libraries: [
+						library(),
+						library({ id: 'lib-locked', name: 'Locked', localPath: readOnly }),
+					],
+					relativeName: 'Show/S01E01.mkv',
+					pinned: pin({ root: readOnly, libraryId: 'lib-locked', libraryName: 'Locked' }),
+				}),
+			).rejects.toMatchObject({ response: { key: ErrorKey.LIBRARY_PATH_NOT_WRITABLE } });
+		});
+
+		it('reports the decision the lot made, not one derived again for this file', async () => {
+			/*
+			 * Every file of a lot is where it is for the reason the first one was. Deriving
+			 * the reason again per file would report the tail of a download as a different
+			 * kind of decision from its head — an episode landing "wherever could take it"
+			 * inside a series somebody deliberately filed, which is the one distinction the
+			 * queue screen is built on.
+			 */
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+				libraries: [library({ id: 'lib-anime', name: 'Animes', localPath: anime })],
+				relativeName: 'Sonic X (2003)/Season 02/S02E05.mkv',
+				pinned: pin({ fallback: true, placedBy: PlacedBy.EXISTING_COPY }),
+			});
+
+			expect(target.placedBy).toBe(PlacedBy.EXISTING_COPY);
+			expect(target.fallback).toBe(true);
+			expect(target.strategy).toBe(PlacementStrategy.DEFAULT_LIBRARY);
+		});
+
+		it('writes into a root no registered library claims, when that is where the lot went', async () => {
+			// A lot that started in the fallback folder or in a fixed path finishes there.
+			// The pin names a root, and a root outside every library is still a directory
+			// the first file of this download is already sitting in.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'Show/S01E02.mkv',
+				pinned: pin({ root: incoming, libraryId: '', libraryName: incoming }),
+			});
+
+			expect(target.path).toBe(join(incoming, 'Show', 'S01E02.mkv'));
+			expect(target.libraryId).toBe('');
+		});
 	});
 });

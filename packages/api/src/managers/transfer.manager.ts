@@ -631,13 +631,21 @@ export class TransferManager implements OnApplicationBootstrap {
 	 * refused whole — nothing has moved, and pressing the button again in a minute is a
 	 * complete answer.
 	 *
+	 * **The unit is the lot, not the run.** A run is one press of a button; a lot is one
+	 * thing being fetched, and a season is routinely pulled over three nights. Redirecting
+	 * by run therefore found tonight's episodes and left the ones that landed last night
+	 * where they were — the same split, arrived at from the other direction, and this time
+	 * invisible because the two runs were never on screen together. So the run names the
+	 * lots and the lots decide what moves. A run whose rows carry no lot — written before
+	 * the column existed — is still exactly the run, which is what it was before.
+	 *
 	 * Folders the run emptied on the way out are removed. See `_pruneBehind`.
 	 */
 	public async changeJobDestination(
 		jobId: string,
 		request: ChangeDestinationRequest,
 	): Promise<Transfer[]> {
-		const transfers = await this._transfers.findByJob(jobId);
+		const transfers = await this._lotsOfRun(jobId);
 
 		if (transfers.length === 0) {
 			throw new NotFoundException(ErrorKey.TRANSFER_NOT_FOUND);
@@ -673,10 +681,45 @@ export class TransferManager implements OnApplicationBootstrap {
 		}
 
 		if (planned.length > 0) {
-			this._logger.log(`Sent ${planned.length} file(s) of run ${jobId} to ${library.name}`);
+			// The count can exceed the run: it is the lots the run named that moved, and an
+			// earlier run's episodes of the same season are part of them.
+			this._logger.log(
+				`Sent ${planned.length} file(s) of the lots of run ${jobId} to ${library.name}`,
+			);
 		}
 
 		return this._present(planned.map((one) => one.transfer));
+	}
+
+	/**
+	 * Every file of every lot this run carried, the run's own files included.
+	 *
+	 * The run is only how the question arrives — the queue screen holds a block and the
+	 * block's rows name a job. What the block *is* is a lot, so the answer has to widen
+	 * from one to the other, and a run that carried three shows widens to three lots
+	 * rather than to none.
+	 *
+	 * The run's own rows stay in the list whatever their lot says, so a row written before
+	 * the column existed is still moved with the run it belongs to. Deduplicated by
+	 * identifier, because a lot's files are found twice over — once by run and once by
+	 * lot — and moving one twice would move it out from under itself.
+	 */
+	private async _lotsOfRun(jobId: string): Promise<TransferEntity[]> {
+		const run = await this._transfers.findByJob(jobId);
+		const lots = [
+			...new Set(run.map((one) => one.lot).filter((lot): lot is string => lot !== null)),
+		];
+
+		if (lots.length === 0) {
+			return run;
+		}
+
+		const seen = new Set(run.map((one) => one.id));
+		const elsewhere = (await this._transfers.findByLots(lots)).filter(
+			(one) => !seen.has(one.id),
+		);
+
+		return [...run, ...elsewhere];
 	}
 
 	/**
@@ -770,20 +813,11 @@ export class TransferManager implements OnApplicationBootstrap {
 			transfer.targetLibraryId === null
 				? null
 				: await this._libraries.findOne({ where: { id: transfer.targetLibraryId } });
-		const service =
-			library === null
-				? null
-				: await this._services.findOne({ where: { id: library.serviceId } });
 		const fallback = (await this._settings.get()).defaultTargetPath?.trim();
 
-		const roots =
-			library === null
-				? []
-				: service?.rootMappings
-					? derivedLocalRoots(library.paths ?? [], service)
-					: [library.localPath].filter((one): one is string => Boolean(one));
+		const roots = library === null ? [] : await this._localRootsOf(library);
 
-		return [...roots, ...(fallback ? [fallback] : [])].map((root) => resolve(root));
+		return [...roots, ...(fallback ? [resolve(fallback)] : [])];
 	}
 
 	/**
@@ -954,18 +988,43 @@ export class TransferManager implements OnApplicationBootstrap {
 		}
 
 		const chosen = resolve(folder.trim());
-		const service = await this._services.findOne({ where: { id: library.serviceId } });
-		// A service with no mappings declared yet answers with nothing, and the library's
-		// own path is then the only root there is — which is what it was before a library
-		// could have several.
-		const roots = service?.rootMappings ? derivedLocalRoots(library.paths ?? [], service) : [];
-		const reachable = roots.length > 0 ? roots : [library.localPath].filter(Boolean);
+		const reachable = await this._localRootsOf(library);
 
-		if (!(reachable as string[]).some((root) => isInside(chosen, resolve(root)))) {
+		if (!reachable.some((root) => isInside(chosen, root))) {
 			throw new ConflictException(ErrorKey.TRANSFER_DESTINATION_INVALID);
 		}
 
 		return chosen;
+	}
+
+	/**
+	 * Every directory of this library on our disk, resolved.
+	 *
+	 * **A library is not a place.** `Series TV` on the owner's gateway is five
+	 * directories on five disks, and `localPath` holds exactly one of them — so anything
+	 * asking "is this file inside that library" against `localPath` alone answers no for
+	 * four fifths of it.
+	 *
+	 * That is not a near-miss, because of what the callers do with the no. `_requireFolder`
+	 * refuses a perfectly good folder; `_destinationPath` reads it as "there is nothing to
+	 * preserve" and falls back to `basename()`, which is how a season redirected to
+	 * `/share/Animes2/Series` landed as fifty files flat in that directory with no show
+	 * folder and no season folder anywhere. The layout was not lost in the move: it was
+	 * never looked for, because the file was judged to be outside the library it was in.
+	 *
+	 * The derivation already existed and was already used ten lines above this, which is
+	 * the whole lesson: one caller had it right and the other did not, and nothing made
+	 * them share.
+	 */
+	private async _localRootsOf(library: LibraryEntity): Promise<string[]> {
+		const service = await this._services.findOne({ where: { id: library.serviceId } });
+		const derived = service?.rootMappings ? derivedLocalRoots(library.paths ?? [], service) : [];
+		// A service with no mappings declared yet answers with nothing, and the library's
+		// own path is then the only root there is — which is what it was before a library
+		// could have several.
+		const roots = derived.length > 0 ? derived : [library.localPath].filter(Boolean);
+
+		return (roots as string[]).map((root) => resolve(root));
 	}
 
 	private async _destinationPath(
@@ -981,9 +1040,15 @@ export class TransferManager implements OnApplicationBootstrap {
 		const fallback = (await this._settings.get()).defaultTargetPath?.trim();
 
 		const roots = [
-			previous?.localPath ? resolve(previous.localPath) : null,
-			fallback ? resolve(fallback) : null,
-		].filter((root): root is string => root !== null);
+			...(previous === null ? [] : await this._localRootsOf(previous)),
+			...(fallback ? [resolve(fallback)] : []),
+		];
+
+		// Deepest first, for the same reason `mappedLocalPath` prefers the longest
+		// prefix: nested roots are a real setup — `/share/Media` on the NAS and
+		// `/share/Media/4k` on a faster disk — and matching the shallower one would keep
+		// `4k/…` as part of the layout and recreate it under the chosen folder.
+		roots.sort((left, right) => right.length - left.length);
 
 		const root = roots.find((candidate) => isInside(current, candidate)) ?? null;
 		const inside = root === null ? basename(current) : relative(root, current);
@@ -1027,11 +1092,18 @@ export class TransferManager implements OnApplicationBootstrap {
 			where: { id: In(transfers.map((transfer) => transfer.itemId)) },
 		});
 		const kinds = new Map(items.map((item) => [item.id, item.kind as string]));
+		// Where each file has got to after its bytes. Read here rather than off the row
+		// because a landing outlives nothing: it is deleted the moment a media server
+		// indexes the file, so there is no column that could hold it in step.
+		const landings = await this._landings.statesByTransfer(
+			transfers.map((transfer) => transfer.id),
+		);
 
 		return Promise.all(
 			transfers.map(async (transfer) =>
 				toTransfer(transfer, {
 					kind: kinds.get(transfer.itemId),
+					landing: landings.get(transfer.id) ?? null,
 					chunksDone: (await this._chunks.countByState(transfer.id))[ChunkState.DONE],
 					...(this._engine.progressOf(transfer.id) ?? {}),
 				}),

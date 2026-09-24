@@ -1,8 +1,8 @@
 import type { MediaItem } from '@mcs/shared';
-import { MediaKind, SyncState } from '@mcs/shared';
+import { MediaKind, ReleasePreferenceDimension, SyncState } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import { ref } from 'vue';
-import { useMediaOverride } from '@/composables/useMediaOverride';
+import { useMediaOverride, withoutReleasePreference } from '@/composables/useMediaOverride';
 
 /**
  * The distinction the whole correction feature rests on.
@@ -228,5 +228,115 @@ describe('composables/useMediaOverride', () => {
 		expect(draft.cleared.year).toBe(false);
 		expect(draft.values.year).toBe('2001');
 		expect(payload()).toEqual({});
+	});
+
+	/**
+	 * The two fields with nothing of the service's to compare against.
+	 *
+	 * A `PUT` replaces the whole instruction rather than patching it, so a field this
+	 * form does not send is a field it withdraws. `ignored` and the search order have no
+	 * reported counterpart — no media server has an opinion about whether an episode
+	 * counts or about which copy the house prefers — so "unchanged" means "still in
+	 * force", and leaving them out is how correcting a title silently un-ignores a
+	 * special or cancels an order set from another screen.
+	 */
+	describe('the fields the service has no answer for', () => {
+		const ordered = () => item({
+			overrides: {
+				releasePreference: {
+					ranks: [{ dimension: ReleasePreferenceDimension.RESOLUTION, values: ['1080p', '2160p'] }],
+				},
+			},
+		});
+
+		it('says nothing about an order on a media that has none', () => {
+			const { payload } = useMediaOverride(ref(item()));
+
+			expect('releasePreference' in payload()).toBe(false);
+		});
+
+		it('re-sends the order in force when the correction was about something else', () => {
+			const { draft, payload } = useMediaOverride(ref(ordered()));
+
+			draft.values.title = 'Pilot, part one';
+
+			expect(payload()).toEqual({
+				title: 'Pilot, part one',
+				releasePreference: {
+					ranks: [{ dimension: ReleasePreferenceDimension.RESOLUTION, values: ['1080p', '2160p'] }],
+				},
+			});
+		});
+
+		it('sends an explicit null when the order is dropped in the form', () => {
+			const { draft, payload, preferenceChanged } = useMediaOverride(ref(ordered()));
+
+			expect(preferenceChanged.value).toBe(false);
+
+			draft.releasePreference = null;
+
+			expect(preferenceChanged.value).toBe(true);
+			expect(payload()).toEqual({ releasePreference: null });
+		});
+
+		it('keeps an order that separates nothing, because that is a decision too', () => {
+			// Empty is not absent: "order by nothing, on purpose" is how one series opts
+			// out of a household order that is wrong for it, and collapsing the two would
+			// make it unsayable.
+			const { draft, payload } = useMediaOverride(ref(item()));
+
+			draft.releasePreference = { ranks: [] };
+
+			expect(payload()).toEqual({ releasePreference: { ranks: [] } });
+		});
+
+		it('edits a copy, so the form does not change what the page still shows', () => {
+			// The note above the media reads the item's own order. A draft sharing that
+			// object would rewrite the note as somebody reordered the boxes, before
+			// anything was saved and including if they cancelled.
+			const source = ordered();
+			const { draft, releasePreference } = useMediaOverride(ref(source));
+
+			draft.releasePreference!.ranks[0].values.push('720p');
+
+			expect(releasePreference.value?.ranks[0].values).toEqual(['1080p', '2160p']);
+		});
+
+		it('carries an ignored item’s flag through a correction of its title', () => {
+			const { draft, payload } = useMediaOverride(ref(item({ overrides: { ignored: true } })));
+
+			draft.values.title = 'Convention panel';
+
+			expect(payload()).toEqual({ title: 'Convention panel', ignored: true });
+		});
+
+		it('cancels both when everything goes back to what the service reported', () => {
+			// No media server has either opinion, so their baseline is "none" — and the
+			// button that undoes everything must not be the one that quietly keeps a
+			// setting the boxes no longer show. The order travels as an explicit null
+			// rather than by omission, which is the instruction the API reads as "cancel
+			// this level" and what leaves the item with no correction at all.
+			const { fillFromReported, payload } = useMediaOverride(ref(ordered()));
+
+			fillFromReported();
+
+			expect(payload()).toEqual({ releasePreference: null });
+		});
+	});
+
+	/**
+	 * Cancelling from the media page, where there is no form to read the rest from.
+	 *
+	 * The press sends the whole instruction with the order nulled. Sending only the null
+	 * would withdraw the title, the year and the reclassification along with it — one
+	 * press undoing four corrections nobody mentioned.
+	 */
+	it('cancels an order without withdrawing the corrections beside it', () => {
+		expect(withoutReleasePreference({
+			title: 'Cosmos',
+			releasePreference: { ranks: [] },
+		})).toEqual({ title: 'Cosmos', releasePreference: null });
+
+		expect(withoutReleasePreference(null)).toEqual({ releasePreference: null });
 	});
 });

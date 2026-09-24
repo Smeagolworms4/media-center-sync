@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { Transfer, TransferProgress as TransferProgressShape } from '@mcs/shared';
-	import { TransferState, TransferTransport } from '@mcs/shared';
+	import { MediaLandingState, TransferState, TransferTransport } from '@mcs/shared';
 	import { computed, ref } from 'vue';
 	import Duration from '@/components/common/Duration.vue';
 	import Rate from '@/components/common/Rate.vue';
@@ -217,6 +217,37 @@
 				variant="tonal"
 			>
 				<strong>{{ $t(descriptor.labelKey) }}</strong> — {{ $t(descriptor.helpKey) }}
+			</v-alert>
+
+			<!--
+				The half of a transfer that used to happen off screen.
+
+				The bar reaching a hundred percent is the bytes, not the file: it still has
+				to be moved into place and then noticed by a media server, and a row that
+				said `done` through all of that read as a gateway that had stopped. A stale
+				landing gets a warning rather than a caption because it is not a step on the
+				way — the file is on the disk, no server can see it, the transfer itself
+				succeeded, and nothing else on any screen reports it.
+			-->
+			<p
+				v-if="transfer.landing === MediaLandingState.WAITING"
+				class="text-caption text-medium-emphasis mt-1 mb-0"
+				data-landing="waiting"
+				data-test="transfer-landing"
+			>
+				{{ $t('transfer.landing.waiting') }}
+			</p>
+
+			<v-alert
+				v-else-if="transfer.landing === MediaLandingState.STALE"
+				class="mt-2"
+				data-landing="stale"
+				data-test="transfer-landing"
+				density="compact"
+				type="warning"
+				variant="tonal"
+			>
+				{{ $t('transfer.landing.stale') }}
 			</v-alert>
 
 			<v-alert

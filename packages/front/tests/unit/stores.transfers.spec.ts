@@ -24,6 +24,8 @@ function transfer (overrides: Partial<Transfer> = {}): Transfer {
 		targetPath: '/media/shows/The Expanse/S01E02.mkv',
 		targetLibraryId: 'lib-shows',
 		placedBy: PlacedBy.CATEGORY,
+		lot: null,
+		landing: null,
 		bytesTotal: 1000,
 		bytesDone: 100,
 		rate: 50,
@@ -297,5 +299,109 @@ describe('stores/transfers', () => {
 
 		expect(store.chunks.t1).toHaveLength(1);
 		expect(store.revalidations.t1).toEqual([]);
+	});
+
+	/**
+	 * How the queue turns files into downloads, which is the whole of what a household
+	 * reads off that screen.
+	 *
+	 * The complaint that produced this: a season was moved, and the episodes that had
+	 * already arrived from an earlier run showed up as a separate block. They are the same
+	 * season going to the same folder, and nothing on the screen said so, because the only
+	 * thing a row carried about its origin was the run it came from.
+	 */
+	describe('grouping the queue into downloads', () => {
+		async function batchesOf (items: Transfer[]) {
+			stubFetch([{ body: { items, pagination: { page: 1, limit: 20, total: items.length, pages: 1 } } }]);
+
+			const store = useTransfersStore();
+
+			await store.load();
+
+			return store.batches;
+		}
+
+		it('keeps a season together across the runs that pulled it', async () => {
+			const batches = await batchesOf([
+				transfer({ id: 'tonight', jobId: 'job-2', lot: 'season-1' }),
+				transfer({ id: 'last-night', jobId: 'job-1', lot: 'season-1', state: TransferState.DONE }),
+			]);
+
+			expect(batches).toHaveLength(1);
+			expect(batches[0].lot).toBe('season-1');
+			expect(batches[0].transfers.map(one => one.id)).toEqual(['tonight', 'last-night']);
+		});
+
+		it('splits a run that fetched two things into the two downloads it was', async () => {
+			// The other half of the same rule. Asking for two shows at once is two
+			// downloads, and a block grouped on the run could never be taken apart again.
+			const batches = await batchesOf([
+				transfer({ id: 't1', jobId: 'job-1', lot: 'show-expanse' }),
+				transfer({ id: 't2', jobId: 'job-1', lot: 'show-scrubs' }),
+			]);
+
+			expect(batches.map(one => one.lot)).toEqual(['show-expanse', 'show-scrubs']);
+		});
+
+		it('falls back to the run for rows written before the lot existed', async () => {
+			/*
+			 * A gateway upgrading in place has a table full of transfers whose lot is null.
+			 * Grouping those on the lot would fuse every download in its history into one
+			 * nameless block — so the run, which is what the screen used before, is the
+			 * answer, and only for them.
+			 */
+			const batches = await batchesOf([
+				transfer({ id: 'old-1', jobId: 'job-old', lot: null }),
+				transfer({ id: 'old-2', jobId: 'job-old', lot: null }),
+				transfer({ id: 'other', jobId: 'job-other', lot: null }),
+				transfer({ id: 'new', jobId: 'job-new', lot: 'season-1' }),
+			]);
+
+			expect(batches).toHaveLength(3);
+			expect(batches[0].transfers.map(one => one.id)).toEqual(['old-1', 'old-2']);
+			expect(batches[0].lot).toBeNull();
+			expect(batches[1].transfers.map(one => one.id)).toEqual(['other']);
+			expect(batches[2].lot).toBe('season-1');
+		});
+
+		it('gives a pull that belongs to no run and no lot a block of its own', async () => {
+			const batches = await batchesOf([
+				transfer({ id: 'alone-1', jobId: null, lot: null }),
+				transfer({ id: 'alone-2', jobId: null, lot: null }),
+			]);
+
+			expect(batches.map(one => one.transfers.map(row => row.id))).toEqual([
+				['alone-1'],
+				['alone-2'],
+			]);
+		});
+
+		it('does not let a pushed frame knock a row out of its block', async () => {
+			// The engine announces a transfer from what it holds about bytes moving and
+			// carries no lot. A row that lost its lot on a state change would jump out of
+			// the block somebody is watching it in.
+			stubFetch([{
+				body: {
+					items: [transfer({ id: 't1', jobId: 'job-1', lot: 'season-1' })],
+					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
+				},
+			}]);
+
+			const store = useTransfersStore();
+
+			await store.load();
+			connectFakeSocket(pinia);
+
+			const { lot: _lot, ...withoutLot } = transfer({
+				id: 't1',
+				jobId: 'job-1',
+				state: TransferState.DONE,
+			});
+
+			emitServerEvent(EventName.TRANSFER_STATE, withoutLot);
+
+			expect(store.byId.t1.state).toBe(TransferState.DONE);
+			expect(store.batches[0].lot).toBe('season-1');
+		});
 	});
 });

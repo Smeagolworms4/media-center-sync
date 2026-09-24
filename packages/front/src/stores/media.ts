@@ -1,4 +1,5 @@
 import type {
+	ClassificationProposal,
 	MediaGroup,
 	MediaGroupQuery,
 	MediaItem,
@@ -197,6 +198,19 @@ export const useMediaStore = defineStore('media', () => {
 		return caller('api').get<MediaNode>(`/media/${id}`);
 	}
 
+	/**
+	 * Where the gateway thinks this media might belong, and why.
+	 *
+	 * Read-only, and there is deliberately nothing beside it: agreeing with a suggestion
+	 * is `setOverride` with the library it names, which is the same single mechanism a
+	 * person re-filing by hand uses. A second call that "applied a classification" would
+	 * be a second way for a media to have moved, and then no screen could say which one
+	 * moved it.
+	 */
+	function classification (id: string): Promise<ClassificationProposal> {
+		return caller('api').get<ClassificationProposal>(`/classification/media/${id}`);
+	}
+
 	function children (id: string, query: MediaSearchQuery = {}): Promise<ResultList<MediaItem>> {
 		return caller('api').get<ResultList<MediaItem>>(
 			`/media/${id}/children${buildMediaQuery(query)}`);
@@ -343,6 +357,7 @@ export const useMediaStore = defineStore('media', () => {
 		group,
 		groupChildren,
 		node,
+		classification,
 		children,
 		matches,
 		deleteFile,

@@ -1,3 +1,6 @@
+import type { ReleasePreferenceSettings } from './preference.model';
+import type { DownloadClientSettings, IndexerSettings } from './release.model';
+import type { RequestSourceSettings } from './request.model';
 import { ShareVisibility } from './share.model';
 /** Where pulled media goes when nothing more specific says otherwise. */
 export enum PlacementStrategy {
@@ -310,6 +313,48 @@ export interface Settings {
 	 * failing at the end of a completed download.
 	 */
 	defaultTargetPath: string | null;
+	/**
+	 * The indexer this gateway asks for releases nobody we know holds, if any.
+	 *
+	 * One rather than a list, and that is not a placeholder: Prowlarr is itself the
+	 * aggregator, so a second one would be a second aggregator. The shape is an object
+	 * rather than three flat keys so that adding another kind of indexer costs a value
+	 * in `IndexerType` and nothing here.
+	 */
+	/**
+	 * What a better copy is, so a search answers in this household's order.
+	 *
+	 * Seeders are the only order a gateway can produce on its own, and they are the
+	 * wrong one for everybody: the best-seeded release of an episode is routinely a
+	 * 720p re-encode from a group somebody would never choose. This orders and never
+	 * hides — anything unranked stays on the list, last, so the only copy of last
+	 * night's episode is still reachable when it comes from a group nobody named.
+	 *
+	 * Per category as well as globally, because the answer differs by shelf: 2160p for
+	 * films and 1080p for a series that runs to ten seasons is an ordinary opinion. A
+	 * single media's own override lives on the media rather than here — a map of media
+	 * identifier to preference in a settings row would grow for ever and keep entries
+	 * for media that no longer exist.
+	 */
+	releasePreferences: ReleasePreferenceSettings;
+	indexer: IndexerSettings | null;
+	/**
+	 * The torrent client that moves the bytes, if any.
+	 *
+	 * Kept apart from the indexer because they fail apart: a tracker that stops
+	 * answering and a client that will not accept a magnet are two different mornings,
+	 * and a single "torrents are broken" would send somebody to the wrong one.
+	 */
+	downloadClient: DownloadClientSettings | null;
+	/**
+	 * Where the household asks for things, if anywhere.
+	 *
+	 * Kept apart from the indexer and the client for the same reason those two are kept
+	 * apart from each other: it fails on its own, and it is not part of fetching
+	 * anything. A request source hands over no bytes — it is read, and somebody presses
+	 * something.
+	 */
+	requestSource: RequestSourceSettings | null;
 	/**
 	 * How long finished work that succeeded is kept, in days.
 	 *

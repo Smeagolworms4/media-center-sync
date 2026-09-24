@@ -1,4 +1,5 @@
 export * from './auth.model';
+export * from './classification.model';
 export * from './directory.model';
 export * from './error.model';
 export * from './event.model';
@@ -13,6 +14,9 @@ export * from './peer-protocol.model';
 export * from './peer-relay.model';
 export * from './peer.model';
 export * from './placement.model';
+export * from './preference.model';
+export * from './release.model';
+export * from './request.model';
 export * from './service.model';
 export * from './settings.model';
 export * from './share.model';

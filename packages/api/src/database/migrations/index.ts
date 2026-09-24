@@ -1,6 +1,8 @@
 import { InitialSchema1758240000000 } from './1758240000000-InitialSchema';
 import { AddServiceDirectory1758326400000 } from './1758326400000-AddServiceDirectory';
 import { AddSyntheticMediaItems1758412800000 } from './1758412800000-AddSyntheticMediaItems';
+import { AddReleaseGrabs1758499200000 } from './1758499200000-AddReleaseGrabs';
+import { AddTransferLot1758585600000 } from './1758585600000-AddTransferLot';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -36,8 +38,12 @@ export const MIGRATIONS = [
 	InitialSchema1758240000000,
 	AddServiceDirectory1758326400000,
 	AddSyntheticMediaItems1758412800000,
+	AddReleaseGrabs1758499200000,
+	AddTransferLot1758585600000,
 ];
 
 export * from './1758240000000-InitialSchema';
 export * from './1758326400000-AddServiceDirectory';
 export * from './1758412800000-AddSyntheticMediaItems';
+export * from './1758499200000-AddReleaseGrabs';
+export * from './1758585600000-AddTransferLot';

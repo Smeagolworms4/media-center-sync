@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, mkdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { FilesystemService, MAX_DIRECTORY_ENTRIES } from './filesystem.service';
 
 /**
@@ -251,6 +251,105 @@ describe('FilesystemService', () => {
 				season,
 				join(shelf, 'Scrubs'),
 			]);
+		});
+	});
+
+	/**
+	 * Working out which file a finished download actually meant.
+	 *
+	 * A torrent is a folder as often as it is a file, and that folder holds the video
+	 * beside a sample, a screenshot, an `.nfo` and sometimes the whole thing again in
+	 * another container. Being wrong here is not a wrong answer on a screen: it is the
+	 * sample filed into the library under the episode's name, where a media server
+	 * indexes it and somebody finds out by pressing play.
+	 */
+	describe('largestFileUnder', () => {
+		let download: string;
+
+		/** Written at a real size, because size is the entire rule being tested. */
+		async function file(path: string, bytes: number): Promise<string> {
+			await mkdir(dirname(path), { recursive: true });
+			await writeFile(path, Buffer.alloc(bytes));
+
+			return path;
+		}
+
+		beforeEach(async () => {
+			download = join(await realpath(await mkdtemp(join(tmpdir(), 'mcs-largest-'))), 'download');
+
+			await mkdir(download, { recursive: true });
+		});
+
+		it('answers a plain file with itself', async () => {
+			const only = await file(join(download, 'Show.S01E01.mkv'), 4096);
+
+			expect(await service.largestFileUnder(only)).toBe(only);
+		});
+
+		it('takes the video and leaves the sample, the artwork and the nfo', async () => {
+			// Any rule cleverer than "the biggest one" — a list of extensions, a name
+			// pattern — is a rule that is wrong on somebody's library.
+			const episode = await file(join(download, 'Show.S01E01.mkv'), 64 * 1024);
+
+			await file(join(download, 'Sample', 'sample.mkv'), 2048);
+			await file(join(download, 'Show.S01E01.nfo'), 512);
+			await file(join(download, 'poster.jpg'), 1024);
+
+			expect(await service.largestFileUnder(download)).toBe(episode);
+		});
+
+		it('reaches a file three levels down, which is what a season pack looks like', async () => {
+			const episode = await file(join(download, 'Show', 'Season 1', 'S01E01.mkv'), 32 * 1024);
+
+			await file(join(download, 'readme.txt'), 64);
+
+			expect(await service.largestFileUnder(download)).toBe(episode);
+		});
+
+		/**
+		 * The walk is bounded so that a symlink loop cannot hold a request open for as
+		 * long as it lasts. Four levels is past anything a torrent produces, and the
+		 * answer stays the best of what was actually looked at rather than nothing.
+		 */
+		it('does not go looking past three levels', async () => {
+			const shallow = await file(join(download, 'Show', 'S01E01.mkv'), 8192);
+
+			await file(join(download, 'a', 'b', 'c', 'buried.mkv'), 1024 * 1024);
+
+			expect(await service.largestFileUnder(download)).toBe(shallow);
+		});
+
+		/**
+		 * What a client that hard-links or symlinks its completed downloads produces. The
+		 * dirent says "symlink" and stops there, which would leave the real file uncounted
+		 * and file whatever happened to be second largest.
+		 */
+		it('counts a symlinked file as the file it points at', async () => {
+			const real = await file(join(download, '..', 'seeding', 'Show.S01E01.mkv'), 64 * 1024);
+			const link = join(download, 'Show.S01E01.mkv');
+
+			await file(join(download, 'other.mkv'), 4096);
+			await symlink(real, link);
+
+			expect(await service.largestFileUnder(download)).toBe(link);
+		});
+
+		it('answers nothing for a folder holding no file at all', async () => {
+			await mkdir(join(download, 'empty', 'deeper'), { recursive: true });
+
+			expect(await service.largestFileUnder(download)).toBeNull();
+		});
+
+		it('answers nothing for a path that is not there', async () => {
+			// A download the client reported and then removed. Nothing to file is an
+			// answer; throwing here would fail a placement over a torrent somebody deleted.
+			expect(await service.largestFileUnder(join(download, 'never', 'existed'))).toBeNull();
+		});
+
+		it('answers nothing rather than throwing for a link pointing at nothing', async () => {
+			await symlink(join(download, 'gone.mkv'), join(download, 'broken.mkv'));
+
+			expect(await service.largestFileUnder(download)).toBeNull();
 		});
 	});
 });

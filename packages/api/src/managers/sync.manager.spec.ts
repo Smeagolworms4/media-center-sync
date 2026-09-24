@@ -2,6 +2,7 @@ import {
 	ErrorKey,
 	MatchStrategy,
 	MediaKind,
+	DEFAULT_RELEASE_PREFERENCES,
 	NamingScheme,
 	NotificationEvent,
 	PlacedBy,
@@ -70,6 +71,10 @@ const SETTINGS: Settings = {
 	instanceName: null,
 	publicUrl: null,
 	defaultTargetPath: null,
+	releasePreferences: DEFAULT_RELEASE_PREFERENCES,
+	indexer: null,
+	downloadClient: null,
+	requestSource: null,
 	transferHistoryDays: 30,
 	failedHistoryDays: 180,
 	refreshIntervalMinutes: 15,
@@ -170,6 +175,7 @@ interface World {
 		libraryManager: {
 			librariesOfCategory: jest.Mock;
 			categoryKeysByLibrary: jest.Mock;
+			placementLibraries: jest.Mock;
 			probe: jest.Mock;
 		};
 		engine: { enqueue: jest.Mock; cancel: jest.Mock; setSourceResolver: jest.Mock; onTransferState: jest.Mock };
@@ -196,6 +202,8 @@ const build = (
 		plans?: SyncPlan[];
 		localServices?: MediaService[];
 		categoryLibraries?: string[];
+		/** The shelves a placement may choose between. Empty unless a test needs them. */
+		placementLibraries?: unknown[];
 		/** Library identifier to category key, as the library manager answers it. */
 		categoryKeys?: Record<string, string>;
 		/** Every library, as the path translation of a local sibling reads them. */
@@ -263,6 +271,9 @@ const build = (
 					Promise.resolve({
 						libraryId: 'library-local',
 						libraryName: 'Shows',
+						// The root, not just the library: a library is several directories, so
+						// the lot a run pins carries the one its first file went into.
+						root: '/media/shows',
 						directory: '/media/shows',
 						path: `/media/shows/${
 							typeof relativeName === 'function' ? relativeName('/media/shows') : relativeName
@@ -317,6 +328,10 @@ const build = (
 			categoryKeysByLibrary: jest
 				.fn()
 				.mockResolvedValue(new Map(Object.entries(world.categoryKeys ?? {}))),
+			// Empty unless a test says otherwise, which is what the repository fake behind
+			// the old private helper answered too: the placement itself is stubbed, and a
+			// list of shelves here would be a fixture nothing reads.
+			placementLibraries: jest.fn().mockResolvedValue(world.placementLibraries ?? []),
 			// Room to spare unless a test says otherwise: the space verdict has its own
 			// table-driven suite, and every other test here would otherwise be asserting
 			// about a disk it never meant to mention.
@@ -680,6 +695,283 @@ describe('SyncManager', () => {
 			expect(fakes.placement.resolve).toHaveBeenCalledWith(
 				expect.objectContaining({ requiredBytes: 2_000_000 }),
 			);
+		});
+	});
+
+	/**
+	 * A download is a lot, and a run may carry several of them.
+	 *
+	 * What somebody pressed download on is one film, one series, one season or one
+	 * episode, and every file under it belongs in one place. Resolving each file on its
+	 * own let the chain answer differently halfway down a season — a disk that filled, a
+	 * sibling found for one episode and not the next — and the season ended up split
+	 * across two libraries, which no media server shows as one series.
+	 *
+	 * Both halves are pinned down here: files reached through one root share a lot, and
+	 * roots named beside each other do not, because three shows asked for at once are
+	 * three downloads and not one.
+	 */
+	describe('a download as one lot', () => {
+		const episode = (id: string, number: number, overrides: Partial<MediaItem> = {}): MediaItem =>
+			item({
+				id,
+				externalId: `ext-${id}`,
+				// Told apart on purpose: two rows that look like the same media collapse into
+				// one planned item, and the test would then be asserting about a single lot
+				// by accident.
+				normalizedTitle: `the expanse ${number}`,
+				episodeNumber: number,
+				file: file({ path: `/source/S01E0${number}.mkv`, contentId: `q1-${id}` }),
+				...overrides,
+			});
+
+		const oneSeries = (): MediaItem[] => [
+			item({ id: 'series-1', kind: MediaKind.SERIES, title: 'The Expanse', file: null }),
+			episode('episode-1', 1, { parentId: 'series-1' }),
+			episode('episode-2', 2, { parentId: 'series-1' }),
+		];
+
+		/** One folder per episode, so a drifting root is visible in the path itself. */
+		const naming = (world: World): void => {
+			world.fakes.naming.render.mockImplementation(
+				(_order: unknown, nameable: { episodeNumber: number | null }) =>
+					`The Expanse/S01E0${nameable.episodeNumber}.mkv`,
+			);
+		};
+
+		interface FakeRequest {
+			pinned: { root: string } | null;
+			relativeName: string | ((root: string) => string);
+		}
+
+		const landing = (root: string, request: FakeRequest) => ({
+			libraryId: root === '/media/shows' ? 'library-local' : 'library-anime',
+			libraryName: root === '/media/shows' ? 'Shows' : 'Animes',
+			root,
+			directory: root,
+			path: `${root}/${
+				typeof request.relativeName === 'function'
+					? request.relativeName(root)
+					: request.relativeName
+			}`,
+			strategy: PlacementStrategy.DEFAULT_LIBRARY,
+			fallback: false,
+			reason: null,
+			placedBy: PlacedBy.DEFAULT_LIBRARY,
+		});
+
+		/**
+		 * A chain that answers a different shelf every time it is asked to decide.
+		 *
+		 * Which is what the real one does under any of a dozen ordinary conditions. A
+		 * pinned item is honoured, exactly as the placement service honours it, so what
+		 * this asserts is whether the manager hands the first answer down.
+		 */
+		const drifting = (world: World, shelves: string[]): void => {
+			let decided = 0;
+
+			world.fakes.placement.resolve.mockImplementation((request: FakeRequest) => {
+				if (request.pinned) {
+					return Promise.resolve(landing(request.pinned.root, request));
+				}
+
+				const shelf = shelves[Math.min(decided, shelves.length - 1)];
+
+				decided += 1;
+
+				return Promise.resolve(landing(shelf, request));
+			});
+		};
+
+		/**
+		 * A shelf that takes the first file of a lot and then has no room left.
+		 *
+		 * The second shelf stays writable throughout, which is the whole situation: it is
+		 * there, it would work, and a lot must refuse it rather than leave half a season
+		 * on one disk and half on another.
+		 */
+		const fillsUp = (world: World, shelves: string[]): void => {
+			let decided = 0;
+
+			world.fakes.placement.resolve.mockImplementation((request: FakeRequest) => {
+				if (request.pinned) {
+					return Promise.reject(new ConflictException(ErrorKey.TRANSFER_NO_SPACE));
+				}
+
+				const shelf = shelves[Math.min(decided, shelves.length - 1)];
+
+				decided += 1;
+
+				return Promise.resolve(landing(shelf, request));
+			});
+		};
+
+		it('is the series, for every episode reached through it', async () => {
+			const { manager } = build({ items: oneSeries() });
+
+			const planning = await manager.plan({ scope: { rootItemIds: ['series-1'] } });
+
+			expect(planning.items.map((planned) => [planned.itemId, planned.lot])).toEqual([
+				['episode-1', 'series-1'],
+				['episode-2', 'series-1'],
+			]);
+		});
+
+		/**
+		 * The hole the scope left, and the case nobody presses a button for.
+		 *
+		 * A lot is the subtree somebody named — press fetch on a series and the series is
+		 * the lot. A run naming no subtree at all, the nightly "everything missing", had
+		 * no lots whatever: every episode decided for itself and a season could still
+		 * land in two libraries. That is exactly the guarantee this mechanism exists to
+		 * give, lost in the one case nobody asked for by hand.
+		 */
+		it('takes the show as the lot when the scope named no subtree', async () => {
+			const { manager } = build({ items: oneSeries() });
+
+			const planning = await manager.plan({});
+
+			expect(planning.items.map((planned) => planned.lot)).toEqual([
+				'series-1',
+				'series-1',
+			]);
+		});
+
+		it('is the item itself, when the scope named them one by one', async () => {
+			const { manager } = build({ items: [episode('episode-1', 1), episode('episode-2', 2)] });
+
+			const planning = await manager.plan({
+				scope: { rootItemIds: ['episode-1', 'episode-2'] },
+			});
+
+			// Two downloads in one run, and that is what the plan has to be able to say.
+			expect(planning.items.map((planned) => planned.lot)).toEqual([
+				'episode-1',
+				'episode-2',
+			]);
+		});
+
+		it('sends the whole season where its first episode went', async () => {
+			const world = build({ items: oneSeries() });
+
+			naming(world);
+			drifting(world, ['/media/shows', '/media/anime']);
+
+			const planning = await world.manager.plan({ scope: { rootItemIds: ['series-1'] } });
+
+			// The second episode never gets to decide, so `/media/anime` — which the chain
+			// would have handed it — is not where it lands.
+			expect(planning.items.map((planned) => planned.targetPath)).toEqual([
+				'/media/shows/The Expanse/S01E01.mkv',
+				'/media/shows/The Expanse/S01E02.mkv',
+			]);
+		});
+
+		it('lets two episodes asked for separately decide separately', async () => {
+			// The other half of the same rule, and the proof that the drift above is real:
+			// nothing was pressed that makes these two one download, so nothing pins them
+			// together.
+			const world = build({ items: [episode('episode-1', 1), episode('episode-2', 2)] });
+
+			naming(world);
+			drifting(world, ['/media/shows', '/media/anime']);
+
+			const planning = await world.manager.plan({
+				scope: { rootItemIds: ['episode-1', 'episode-2'] },
+			});
+
+			expect(planning.items.map((planned) => planned.targetPath)).toEqual([
+				'/media/shows/The Expanse/S01E01.mkv',
+				'/media/anime/The Expanse/S01E02.mkv',
+			]);
+		});
+
+		it('fails the lot rather than scattering its tail onto the shelf next door', async () => {
+			/*
+			 * The reason the destination is a pin and not a preference. A writable shelf is
+			 * sitting right there and is deliberately not used: half a season in the library
+			 * somebody chose and half in one they did not is worse than a refusal, because a
+			 * refusal can be acted on and the split is discovered months later.
+			 */
+			const world = build({ items: oneSeries() });
+
+			naming(world);
+			fillsUp(world, ['/media/shows', '/media/anime']);
+
+			await expect(
+				world.manager.plan({ scope: { rootItemIds: ['series-1'] } }),
+			).rejects.toThrow(ErrorKey.TRANSFER_NO_SPACE);
+		});
+
+		it('still places two separate downloads when one of the shelves fills up', async () => {
+			// Same disk, same moment, and no refusal: neither of these is the tail of
+			// anything, so each may take the shelf that can hold it.
+			const world = build({ items: [episode('episode-1', 1), episode('episode-2', 2)] });
+
+			naming(world);
+			fillsUp(world, ['/media/shows', '/media/anime']);
+
+			const planning = await world.manager.plan({
+				scope: { rootItemIds: ['episode-1', 'episode-2'] },
+			});
+
+			expect(planning.items.map((planned) => planned.targetLibraryName)).toEqual([
+				'Shows',
+				'Animes',
+			]);
+		});
+
+		it('gives an episode reached through two named roots a single lot', async () => {
+			/*
+			 * The series and one of its episodes, both named. Belonging to two lots would
+			 * mean two destinations for one file, which is the outcome all of this exists to
+			 * prevent — so the first root that reaches it owns it.
+			 */
+			const { manager } = build({ items: oneSeries() });
+
+			const planning = await manager.plan({
+				scope: { rootItemIds: ['series-1', 'episode-2'] },
+			});
+
+			expect(planning.items.map((planned) => planned.lot)).toEqual([
+				'series-1',
+				'series-1',
+			]);
+		});
+
+		/**
+		 * The lot has to outlive the plan, which is the whole reason it is a column.
+		 *
+		 * Everything that reads a lot reads it months later — the queue groups on it, and
+		 * redirecting a season has to find the episodes an earlier run already landed. A
+		 * lot that only existed while `plan()` ran left both of those deriving it again
+		 * from `jobId`, which answers a different question: the same season pulled over
+		 * three nights came out as three unrelated blocks.
+		 */
+		it('reaches the transfer row the run writes', async () => {
+			const { manager, fakes } = build({ items: oneSeries() });
+
+			await manager.run({ scope: { rootItemIds: ['series-1'] } });
+
+			const rows = fakes.transfers.create.mock.calls.map(
+				([row]: [Partial<Transfer>]) => row.lot,
+			);
+
+			expect(rows).toEqual(['series-1', 'series-1']);
+		});
+
+		it('writes the show as the lot on a run that named no subtree', async () => {
+			// The nightly "everything missing" is the run nobody presses a button for, and
+			// the one whose rows would otherwise carry no lot at all.
+			const { manager, fakes } = build({ items: oneSeries() });
+
+			await manager.run({});
+
+			const rows = fakes.transfers.create.mock.calls.map(
+				([row]: [Partial<Transfer>]) => row.lot,
+			);
+
+			expect(rows).toEqual(['series-1', 'series-1']);
 		});
 	});
 

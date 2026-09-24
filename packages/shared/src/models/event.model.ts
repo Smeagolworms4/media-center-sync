@@ -1,6 +1,7 @@
 import type { Peer } from './peer.model';
+import type { ReleaseGrab } from './release.model';
 import type { MediaService } from './service.model';
-import type { SyncJob } from './sync.model';
+import type { MediaLandingState, SyncJob } from './sync.model';
 import type {
 	Revalidation,
 	Transfer,
@@ -45,6 +46,24 @@ export const EventName = {
 	TRANSFER_VERIFIED: 'transfer.verified',
 	/** The far end answered a revalidation, and what was decided as a result. */
 	TRANSFER_REVALIDATED: 'transfer.revalidated',
+	/**
+	 * A grabbed release moved, or finished, or was filed.
+	 *
+	 * Its own event rather than `TRANSFER_PROGRESS`: a torrent is not one of our
+	 * transfers — nothing about it has chunks, sources or a revalidation — and folding
+	 * it in would put rows in the queue screen that half of that screen's buttons
+	 * cannot act on.
+	 */
+	RELEASE_GRAB: 'release.grab',
+	/**
+	 * A file's landing changed, which is the one thing nothing else can announce.
+	 *
+	 * The state moves on a timer rather than in answer to anything anybody did: a file
+	 * written to a disk no media server looks at is declared lost minutes after the last
+	 * event on its transfer. Without this the queue learns it on the next reload, so the
+	 * state that most needs to arrive on its own would be the only one that never does.
+	 */
+	TRANSFER_LANDING: 'transfer.landing',
 } as const;
 
 export type EventNameValue = (typeof EventName)[keyof typeof EventName];
@@ -68,6 +87,8 @@ export interface EventPayloads {
 	[EventName.SCAN_PROGRESS]: ScanProgress;
 	[EventName.TRANSFER_VERIFIED]: TransferVerification;
 	[EventName.TRANSFER_REVALIDATED]: Revalidation;
+	[EventName.RELEASE_GRAB]: ReleaseGrab;
+	[EventName.TRANSFER_LANDING]: { transferId: string; landing: MediaLandingState };
 }
 
 export interface ServerEvent<K extends EventNameValue = EventNameValue> {

@@ -114,6 +114,73 @@ describe('TransferRepository', () => {
 		await expect(transfers.findByJob('job-2')).resolves.toEqual([]);
 	});
 
+	/**
+	 * The query the lot column exists for.
+	 *
+	 * A season is routinely pulled over several nights, so the files of one download sit
+	 * under several runs — and redirecting it by run finds the tail and leaves the head
+	 * where it was. Cancelled and failed rows are left out because there is no file behind
+	 * them: a lot pulled twice holds two rows for the same episode, both computing the
+	 * same new path, and the dead one would be refused as landing on the live one.
+	 */
+	it('finds a download across the runs that pulled it, minus what never arrived', async () => {
+		const landed = await transfers.save(
+			transfers.create({
+				jobId: 'job-1',
+				itemId: 'item-1',
+				lot: 'season-1',
+				title: 'Last night',
+				state: TransferState.DONE,
+				targetPath: '/media/a.mkv',
+				workPath: '/var/a.part',
+				createdAt: new Date('2026-01-01T00:00:00.000Z'),
+			}),
+		);
+		const coming = await transfers.save(
+			transfers.create({
+				jobId: 'job-2',
+				itemId: 'item-2',
+				lot: 'season-1',
+				title: 'Tonight',
+				state: TransferState.QUEUED,
+				targetPath: '/media/b.mkv',
+				workPath: '/var/b.part',
+				createdAt: new Date('2026-02-01T00:00:00.000Z'),
+			}),
+		);
+
+		await transfers.save(
+			transfers.create({
+				jobId: 'job-0',
+				itemId: 'item-1',
+				lot: 'season-1',
+				title: 'A first attempt that failed',
+				state: TransferState.FAILED,
+				targetPath: '/media/a.mkv',
+				workPath: '/var/a-old.part',
+			}),
+		);
+		await transfers.save(
+			transfers.create({
+				jobId: 'job-2',
+				itemId: 'item-3',
+				lot: 'season-2',
+				title: 'Another season entirely',
+				state: TransferState.QUEUED,
+				targetPath: '/media/c.mkv',
+				workPath: '/var/c.part',
+			}),
+		);
+
+		await expect(transfers.findByLots(['season-1'])).resolves.toMatchObject([
+			{ id: landed.id },
+			{ id: coming.id },
+		]);
+		// No lots, no query: a gateway upgrading in place has a table full of rows with a
+		// null lot, and gathering them would be one enormous download.
+		await expect(transfers.findByLots([])).resolves.toEqual([]);
+	});
+
 	it('finds the other transfers pulling the same file, which is how a swarm forms', async () => {
 		await transfers.save(
 			transfers.create({

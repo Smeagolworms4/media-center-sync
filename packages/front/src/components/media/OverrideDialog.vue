@@ -1,10 +1,22 @@
 <script lang="ts" setup>
-	import type { MediaItem } from '@mcs/shared';
+	import {
+		type CategoryProposal as Candidate,
+		type ClassificationProposal,
+		isEmptyReleasePreference,
+		type MediaItem,
+		RELEASE_PREFERENCE_DIMENSIONS,
+		RELEASE_PREFERENCE_SUGGESTIONS,
+		type ReleasePreferenceDimension,
+		type ReleasePreferenceRank,
+	} from '@mcs/shared';
 	import { computed, ref, watch } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import FormMainError from '@/components/FormMainError.vue';
+	import CategoryProposalBlock from '@/components/media/CategoryProposal.vue';
 	import OverrideField from '@/components/media/OverrideField.vue';
 	import Window from '@/components/Window.vue';
+	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
 	import { useForm } from '@/composables/useForm';
 	import { OVERRIDE_ID_FIELDS, useMediaOverride } from '@/composables/useMediaOverride';
 	import { useNotifier } from '@/hooks/useNotifier';
@@ -45,6 +57,7 @@
 	const servicesStore = useServicesStore();
 	const validators = useValidators();
 	const { notify, tryCallback } = useNotifier();
+	const { t } = useI18n();
 
 	const item = ref<MediaItem | null>(props.item);
 	const loading = ref(false);
@@ -57,10 +70,13 @@
 		hasOverride,
 		correctedFields,
 		libraryChanged,
+		preferenceChanged,
 		reportedValue,
 		fillFromReported,
 		payload,
 	} = useMediaOverride(item);
+
+	const { destinations } = useDestinationLibraries();
 
 	/**
 	 * Put the service's answer back into the boxes, without saving it.
@@ -90,6 +106,18 @@
 				// The library list is what reclassifying is chosen from, and it is the
 				// one thing this dialog needs that the item does not carry.
 				librariesStore.loaded ? Promise.resolve() : librariesStore.load(),
+				/*
+				 * And the services, because which libraries may be offered is a fact
+				 * about them rather than about the libraries: a library is a place a file
+				 * can land only when its service's folders are mounted here. Without this
+				 * the list comes out empty on a freshly opened tab, which reads as "there
+				 * is nowhere to reclassify into" on a gateway that has five shelves.
+				 *
+				 * Failing is survivable and must not take the dialog down: somebody
+				 * allowed to correct media may not be allowed to read services, and what
+				 * they came here for is the title and the numbers.
+				 */
+				servicesStore.loaded ? Promise.resolve() : servicesStore.load().catch(() => undefined),
 			]);
 			item.value = node;
 		} catch {
@@ -99,14 +127,48 @@
 		}
 	}
 
+	/**
+	 * Where the gateway thinks this media might belong, read once per opening.
+	 *
+	 * Beside the library field because it is an answer to that field's question, and read
+	 * here rather than on the media page for the same reason: this is the only screen from
+	 * which agreeing with it can be done, and the act of agreeing is the write this dialog
+	 * already performs. There is no apply route, no job and nothing to post to.
+	 *
+	 * It carries its own loading and failure flags rather than the dialog's. A suggestion
+	 * is the least important thing on this form — somebody came here to fix a title — so a
+	 * route that cannot answer says so in its own block and leaves the rest working.
+	 */
+	const classification = ref<ClassificationProposal | null>(null);
+	const classifying = ref(false);
+	const classificationFailed = ref(false);
+
+	/** Which suggestion is being agreed with, for its button and for what the save reports. */
+	const accepting = ref<string | null>(null);
+
+	async function loadClassification (): Promise<void> {
+		classifying.value = true;
+		classificationFailed.value = false;
+		try {
+			classification.value = await mediaStore.classification(props.itemId);
+		} catch {
+			classification.value = null;
+			classificationFailed.value = true;
+		} finally {
+			classifying.value = false;
+		}
+	}
+
 	// Immediate, because a dialog can be mounted already open — and re-read on every
 	// opening rather than once: the row may have been corrected from another tab,
-	// and a stale "was" line would be a lie about what the service says.
+	// and a stale "was" line would be a lie about what the service says. The suggestion is
+	// re-read with it, or a media somebody has just re-filed would still be offered the
+	// shelf it is now on.
 	watch(open, async isOpen => {
 		if (!isOpen) {
 			return;
 		}
-		await load();
+		await Promise.all([load(), loadClassification()]);
 	}, { immediate: true });
 
 	watch(() => props.item, next => {
@@ -116,25 +178,183 @@
 	});
 
 	/**
-	 * Every library, named as this gateway names it, and by the service holding it.
+	 * The folders of our own this media can be moved onto, listed by the path.
 	 *
-	 * The service is in the same line rather than in a subtitle because two servers
-	 * commonly have a library called `Films`, and a list of identical names is not a
-	 * choice anybody can make.
+	 * **Never a remote library.** Reclassifying decides which category the media appears
+	 * under *and* which folder a pull of it lands in, so a library on somebody else's
+	 * server is not a choice: there is nothing there this gateway can write, and picking
+	 * one would produce a transfer that succeeds and files nothing — the failure this
+	 * whole product exists to avoid. `useDestinationLibraries` already answers exactly
+	 * that question for the sync screens, and answering it twice is how the two lists end
+	 * up disagreeing. This list offered every library it knew about, a friend's included.
+	 *
+	 * **The path is the label**, because that is what the choice is about. Two servers
+	 * commonly have a library called `Films` and the name alone is then not a choice
+	 * anybody can make, while `/media/documentaires` is unambiguous and is the thing
+	 * somebody recognises from their own disk. The shelf's name and its server stay on the
+	 * second line, for the case where the path is the unfamiliar one. A library holding
+	 * several roots lists them all: it really is five directories, and naming one of them
+	 * would be picking a folder on somebody's behalf.
 	 */
-	const libraryItems = computed(() => librariesStore.libraries.map(one => {
-		const name = one.alias ?? one.name;
-		const service = servicesStore.byId[one.serviceId]?.name ?? '';
-		return { value: one.id, title: service ? `${name} — ${service}` : name };
-	}));
+	const libraryItems = computed(() => destinations.value.map(one => ({
+		value: one.id,
+		title: one.roots.length > 0 ? one.roots.join(' · ') : (one.path ?? one.name),
+		props: { subtitle: `${one.name} — ${one.serviceName}` },
+	})));
 
 	const reportedLibraryName = computed(() => {
 		const library = librariesStore.byId[reported.value?.libraryId ?? ''];
 		return library ? (library.alias ?? library.name) : '';
 	});
 
-	const changedCount = computed(
-		() => correctedFields.value.length + (libraryChanged.value ? 1 : 0));
+	/**
+	 * Where the media sits now, when that is not somewhere we could move it to.
+	 *
+	 * The ordinary case for anything worth reclassifying before it is pulled: the row
+	 * came from a friend's server or from a service whose folders nobody mapped, so the
+	 * library it is in cannot be offered and the select has nothing selected. A blank
+	 * control with no explanation reads as a list that failed to load — this says which
+	 * shelf it is on and that choosing one of ours is what moves it.
+	 */
+	const elsewhereLibraryName = computed(() => {
+		const current = item.value?.libraryId ?? null;
+
+		if (current === null || destinations.value.some(one => one.id === current)) {
+			return '';
+		}
+
+		const library = librariesStore.byId[current];
+
+		return library ? (library.alias ?? library.name) : current;
+	});
+
+	const changedCount = computed(() => {
+		const library = libraryChanged.value ? 1 : 0;
+		const preference = preferenceChanged.value ? 1 : 0;
+
+		return correctedFields.value.length + library + preference;
+	});
+
+	/**
+	 * The media's own search order, edited here because this is the dialog that writes it.
+	 *
+	 * It is one of the corrections — it lives in the same instruction blob as the title
+	 * and the reclassification, for the reason `MediaOverride` gives — so it is saved by
+	 * the same button and undone by the same "put it all back". What the media *page*
+	 * carries is the statement that an order is in force and the one press that cancels
+	 * it; reordering five dimensions is not something to do from a caption.
+	 *
+	 * `null` is "follows the category's order" and is not the same as an order with no
+	 * values, which says "order by nothing, on purpose" — see `isEmptyReleasePreference`.
+	 * The two are separate states here because a control that collapsed them would make
+	 * the second unsayable.
+	 */
+	const preferenceDrafts = ref<Record<string, string>>({});
+
+	const ranks = computed<ReleasePreferenceRank[]>(() => draft.releasePreference?.ranks ?? []);
+
+	const preferenceSeparatesNothing = computed(
+		() => isEmptyReleasePreference(draft.releasePreference));
+
+	const unusedDimensions = computed(() => RELEASE_PREFERENCE_DIMENSIONS
+		.filter(dimension => !ranks.value.some(rank => rank.dimension === dimension)));
+
+	/**
+	 * Started empty rather than as a copy of the category's order, and deliberately.
+	 *
+	 * The dialog has not read the settings and has no business doing so: a copy of an
+	 * order it had to fetch would be a copy of whatever that screen happened to say a
+	 * moment ago, presented as this media's own opinion. An empty order says exactly what
+	 * is true — nothing has been decided here yet — and the caption below says what an
+	 * empty one would mean if it were saved as it stands.
+	 */
+	function givePreference (): void {
+		draft.releasePreference = { ranks: [] };
+	}
+
+	/** Cancelled, not emptied: the media goes back to following its category's order. */
+	function dropPreference (): void {
+		draft.releasePreference = null;
+	}
+
+	/**
+	 * Replaced rather than mutated, for the reason the settings editor states.
+	 *
+	 * The draft is what `payload()` compares against what the item already carries, and
+	 * that comparison is by value: assigning into the same array would change both sides
+	 * of it at once, so the change would read as no change and the save would send
+	 * nothing. It looks exactly like a button that does not work.
+	 */
+	function setRanks (next: ReleasePreferenceRank[]): void {
+		draft.releasePreference = { ranks: next };
+	}
+
+	function rewrite (
+		dimension: ReleasePreferenceDimension,
+		values: (current: string[]) => string[],
+	): void {
+		setRanks(ranks.value.map(rank => (
+			rank.dimension === dimension ? { dimension, values: values(rank.values) } : rank
+		)));
+	}
+
+	function moveDimension (index: number, delta: number): void {
+		const next = [...ranks.value];
+
+		[next[index], next[index + delta]] = [next[index + delta], next[index]];
+		setRanks(next);
+	}
+
+	function dropDimension (dimension: ReleasePreferenceDimension): void {
+		setRanks(ranks.value.filter(rank => rank.dimension !== dimension));
+	}
+
+	/** Added last, because a dimension nobody has ranked yet cannot outrank a ranked one. */
+	function addDimension (dimension: ReleasePreferenceDimension): void {
+		setRanks([...ranks.value, { dimension, values: [] }]);
+	}
+
+	function promoteValue (dimension: ReleasePreferenceDimension, index: number): void {
+		rewrite(dimension, current => {
+			const values = [...current];
+
+			[values[index - 1], values[index]] = [values[index], values[index - 1]];
+
+			return values;
+		});
+	}
+
+	function dropValue (dimension: ReleasePreferenceDimension, value: string): void {
+		rewrite(dimension, current => current.filter(one => one !== value));
+	}
+
+	function suggestionsFor (dimension: ReleasePreferenceDimension, values: string[]): string[] {
+		return RELEASE_PREFERENCE_SUGGESTIONS[dimension]
+			.filter(one => !values.some(value => value.toLowerCase() === one.toLowerCase()));
+	}
+
+	/**
+	 * A value committed in the add field, chosen from the list or typed outright.
+	 *
+	 * `update:modelValue` on a combobox is the commit — enter, blur or choosing an item —
+	 * and never the keystroke, which is `update:search`. Listening to the wrong one would
+	 * rank a team called `N`, then `NT`, then `NTb`.
+	 */
+	function addValue (dimension: ReleasePreferenceDimension, value: string | null): void {
+		const wanted = (value ?? '').trim();
+
+		preferenceDrafts.value = { ...preferenceDrafts.value, [dimension]: '' };
+
+		if (wanted === '') {
+			return;
+		}
+
+		rewrite(dimension, current => (
+			current.some(one => one.toLowerCase() === wanted.toLowerCase())
+				? current
+				: [...current, wanted]
+		));
+	}
 
 	const form = useForm({
 		fallbackError: 'override.failed',
@@ -147,13 +367,60 @@
 			overview: { rules: [validators.maxlength({ max: 5000 })] },
 		},
 		handle: async () => {
+			const agreed = accepting.value;
 			const saved = await mediaStore.setOverride(props.itemId, payload());
 			item.value = saved;
 			emit('saved', saved);
-			void notify('override.saved');
+			/*
+			 * Which sentence the toast carries says which of two things happened.
+			 *
+			 * The same write either way, and deliberately so — but "Correction saved" is
+			 * the wrong account of having agreed with a suggestion, and somebody who
+			 * pressed "file it there" wants to be told where it went rather than that a
+			 * form was accepted.
+			 */
+			void notify(agreed === null
+				? 'override.saved'
+				: t('classification.accepted', { value: agreedName(agreed) }));
 			open.value = false;
 		},
 	});
+
+	/**
+	 * Agreeing with a suggestion is the correction this dialog already writes.
+	 *
+	 * It fills the library field and saves through the same handler the save button uses,
+	 * which is what "there is no second mechanism" has to mean in practice: one request,
+	 * one record of why the media moved, and every other correction still in force
+	 * travelling with it. Posting `{ libraryId }` on its own would have been the shorter
+	 * code and would have withdrawn the corrected title, the cleared year and the search
+	 * order on the way, because a `PUT` replaces the whole instruction rather than
+	 * patching it.
+	 *
+	 * `libraryId` is non-null exactly when `blocker` is null — that is the invariant of
+	 * `CategoryProposal` — so the guard is belt and braces against a request that would
+	 * half-work. The block offers no button on a blocked suggestion at all.
+	 */
+	async function acceptProposal (candidate: Candidate): Promise<void> {
+		if (candidate.libraryId === null) {
+			return;
+		}
+
+		accepting.value = candidate.category;
+		draft.libraryId = candidate.libraryId;
+		try {
+			await form.handle();
+		} finally {
+			accepting.value = null;
+		}
+	}
+
+	/** The shelf a suggestion named, for the sentence the save reports. */
+	function agreedName (category: string): string {
+		const candidate = classification.value?.proposals.find(one => one.category === category);
+
+		return candidate?.categoryName ?? t(`classification.category.${category}`);
+	}
 
 	const restore = tryCallback(async () => {
 		restoring.value = true;
@@ -221,11 +488,59 @@
 				:hint="libraryChanged
 					? $t('override.state.was', { value: reportedLibraryName })
 					: $t('override.library_hint')"
+				item-props
 				item-title="title"
 				item-value="value"
 				:items="libraryItems"
 				:label="$t('override.library')"
 				persistent-hint
+			/>
+
+			<!--
+				Where it sits now, when that is not somewhere we could move it to — which is
+				the ordinary case for anything worth reclassifying before it is pulled. The
+				select then has nothing selected, and a blank control with no explanation
+				reads as a list that failed to load rather than as an invitation to choose.
+			-->
+			<p
+				v-if="elsewhereLibraryName && !libraryChanged"
+				class="text-caption text-medium-emphasis mb-0"
+				data-test="override-library-elsewhere"
+			>
+				{{ $t('override.library_elsewhere', { value: elsewhereLibraryName }) }}
+			</p>
+
+			<!--
+				Said rather than left as an empty menu. A gateway nobody has mapped folders
+				for has nowhere to reclassify into, which is a real state with a real
+				remedy — and a select that opens on nothing sends somebody looking for a
+				fault in this dialog instead.
+			-->
+			<p
+				v-if="libraryItems.length === 0"
+				class="text-caption text-warning mb-0"
+				data-test="override-library-none"
+			>
+				{{ $t('override.library_none') }}
+			</p>
+
+			<!--
+				Beside the library field, because it is an answer to that field's question:
+				"where does this belong" is what somebody is being asked, and a suggestion on
+				another screen would be a suggestion about a decision made here.
+
+				Nothing here writes. Pressing its button fills the field above and saves
+				through the same handler as the save button — one request, one record of why
+				the media moved.
+			-->
+			<CategoryProposalBlock
+				:accepting="accepting"
+				class="mt-4"
+				:failed="classificationFailed"
+				:loading="classifying"
+				:proposal="classification"
+				@accept="acceptProposal"
+				@retry="loadClassification"
 			/>
 
 			<v-divider class="my-4" />
@@ -297,6 +612,196 @@
 				type="textarea"
 			/>
 
+			<v-divider class="my-4" />
+
+			<!--
+				The third level of a search order, edited where the other corrections are.
+				What the media page carries is the statement that one is in force and the
+				press that cancels it; five dimensions cannot be reordered from a caption.
+			-->
+			<div class="override_preference" data-test="override-preference">
+				<div class="override_preference-head">
+					<span class="text-subtitle-2">{{ $t('override.preference.title') }}</span>
+
+					<v-btn
+						v-if="draft.releasePreference !== null"
+						data-test="override-preference-drop"
+						prepend-icon="mdi-close"
+						size="small"
+						variant="text"
+						@click="dropPreference"
+					>
+						{{ $t('override.preference.follow') }}
+					</v-btn>
+				</div>
+
+				<p class="text-caption text-medium-emphasis mb-2">
+					{{ $t('override.preference.intro') }}
+				</p>
+
+				<v-btn
+					v-if="draft.releasePreference === null"
+					data-test="override-preference-give"
+					prepend-icon="mdi-plus"
+					size="small"
+					variant="tonal"
+					@click="givePreference"
+				>
+					{{ $t('override.preference.give') }}
+				</v-btn>
+
+				<template v-else>
+					<!--
+						An order that separates nothing says so. Empty is a decision here —
+						"order by nothing, on purpose", which is how one series opts out of
+						a household order that is wrong for it — and an unlabelled empty
+						list reads as a control that failed to load.
+					-->
+					<p
+						v-if="preferenceSeparatesNothing"
+						class="text-caption text-medium-emphasis mb-1"
+						data-test="override-preference-none"
+					>
+						{{ $t('settings.preference.separates_nothing') }}
+					</p>
+
+					<ol class="override_ranks text-body-2" data-test="override-preference-ranks">
+						<li
+							v-for="(rank, index) of ranks"
+							:key="rank.dimension"
+							:data-test="`override-preference-rank-${rank.dimension}`"
+						>
+							<div class="override_rank-head">
+								<span>{{ $t(`settings.preference.dimension.${rank.dimension}`) }}</span>
+
+								<span class="override_rank-actions">
+									<v-btn
+										:aria-label="$t('settings.preference.move_up')"
+										:data-test="`override-preference-up-${rank.dimension}`"
+										density="comfortable"
+										:disabled="index === 0"
+										icon="mdi-arrow-up"
+										size="small"
+										:title="$t('settings.preference.move_up')"
+										variant="text"
+										@click="moveDimension(index, -1)"
+									/>
+
+									<v-btn
+										:aria-label="$t('settings.preference.move_down')"
+										:data-test="`override-preference-down-${rank.dimension}`"
+										density="comfortable"
+										:disabled="index === ranks.length - 1"
+										icon="mdi-arrow-down"
+										size="small"
+										:title="$t('settings.preference.move_down')"
+										variant="text"
+										@click="moveDimension(index, 1)"
+									/>
+
+									<v-btn
+										:aria-label="$t('settings.preference.drop')"
+										:data-test="`override-preference-drop-${rank.dimension}`"
+										density="comfortable"
+										icon="mdi-close"
+										size="small"
+										:title="$t('settings.preference.drop')"
+										variant="text"
+										@click="dropDimension(rank.dimension)"
+									/>
+								</span>
+							</div>
+
+							<div class="override_values">
+								<!--
+									Numbered, because the order inside a dimension is the
+									other half of the setting: an unnumbered chip strip
+									reads as a set, and `2160p, 1080p` and `1080p, 2160p`
+									would look like the same answer.
+								-->
+								<span
+									v-for="(value, place) of rank.values"
+									:key="value"
+									class="override_value"
+								>
+									<v-btn
+										:aria-label="$t('settings.preference.promote')"
+										:data-test="`override-preference-promote-${rank.dimension}-${place}`"
+										density="compact"
+										:disabled="place === 0"
+										icon="mdi-arrow-left"
+										size="x-small"
+										:title="$t('settings.preference.promote')"
+										variant="text"
+										@click="promoteValue(rank.dimension, place)"
+									/>
+
+									<v-chip
+										closable
+										:data-test="`override-preference-value-${rank.dimension}-${value}`"
+										label
+										size="small"
+										variant="tonal"
+										@click:close="dropValue(rank.dimension, value)"
+									>
+										<span class="text-medium-emphasis mr-1">{{ place + 1 }}.</span>{{ value }}
+									</v-chip>
+								</span>
+
+								<!--
+									A combobox and not a select: it offers what a tracker
+									usually prints and still takes a tag nothing here has
+									heard of, which the release group dimension is made of.
+								-->
+								<v-combobox
+									class="override_preference-input"
+									:data-test="`override-preference-add-value-${rank.dimension}`"
+									density="compact"
+									hide-details
+									:items="suggestionsFor(rank.dimension, rank.values)"
+									:label="$t('settings.preference.add_value')"
+									:model-value="preferenceDrafts[rank.dimension] ?? ''"
+									@update:model-value="addValue(rank.dimension, $event)"
+								/>
+
+								<span
+									v-if="rank.values.length === 0"
+									class="text-caption text-medium-emphasis"
+									:data-test="`override-preference-no-value-${rank.dimension}`"
+								>
+									{{ $t('settings.preference.no_value') }}
+								</span>
+							</div>
+						</li>
+					</ol>
+
+					<!--
+						The dimensions nobody ranked are shown rather than hidden: a list
+						holding only what is in use cannot say what else there was, and a
+						setting somebody cannot see is one they conclude does not exist.
+					-->
+					<div v-if="unusedDimensions.length > 0" class="override_unused">
+						<span class="text-caption text-medium-emphasis">
+							{{ $t('settings.preference.unused') }}
+						</span>
+
+						<v-btn
+							v-for="dimension of unusedDimensions"
+							:key="dimension"
+							:data-test="`override-preference-add-${dimension}`"
+							prepend-icon="mdi-plus"
+							size="small"
+							variant="tonal"
+							@click="addDimension(dimension)"
+						>
+							{{ $t(`settings.preference.dimension.${dimension}`) }}
+						</v-btn>
+					</div>
+				</template>
+			</div>
+
+			<v-divider class="my-4" />
+
 			<p class="text-subtitle-2 mb-1">{{ $t('override.identifiers') }}</p>
 
 			<p class="text-caption text-medium-emphasis mb-2">{{ $t('override.identifiers_hint') }}</p>
@@ -359,6 +864,62 @@
 		// Left, under the note it belongs with, rather than stretched across the form.
 		&_reset {
 			display: flex;
+		}
+
+		&_preference-head {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 8px;
+		}
+
+		&_ranks {
+			padding-left: 20px;
+		}
+
+		// Tabular numbers so the list reads as an order at a glance rather than as a
+		// column of digits of different widths.
+		&_ranks li::marker {
+			font-variant-numeric: tabular-nums;
+		}
+
+		&_rank-head {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+		}
+
+		&_rank-actions {
+			display: inline-flex;
+			gap: 2px;
+			margin-left: auto;
+		}
+
+		// One wrapping strip. As blocks, five dimensions with four values each pushed the
+		// identifiers below the fold of a dialog that already holds nine fields.
+		&_values {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 4px;
+			margin: 2px 0 6px;
+		}
+
+		&_value {
+			display: inline-flex;
+			align-items: center;
+		}
+
+		&_unused {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 8px;
+			margin-top: 4px;
+		}
+
+		&_preference-input {
+			max-width: 200px;
 		}
 	}
 </style>

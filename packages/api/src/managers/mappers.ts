@@ -5,6 +5,7 @@ import type {
 	Library as LibraryModel,
 	MediaItem as MediaItemModel,
 	MediaMatch as MediaMatchModel,
+	MediaLandingState,
 	MediaNode,
 	MediaService as MediaServiceModel,
 	NotificationChannel as NotificationChannelModel,
@@ -298,6 +299,7 @@ export const toTransfer = (
 		rate?: number;
 		etaSeconds?: number | null;
 		sources?: TransferSource[];
+		landing?: MediaLandingState | null;
 	} = {},
 ): TransferModel => ({
 	id: transfer.id,
@@ -310,6 +312,8 @@ export const toTransfer = (
 	targetPath: transfer.targetPath,
 	targetLibraryId: transfer.targetLibraryId ?? null,
 	placedBy: transfer.placedBy ?? null,
+	lot: transfer.lot ?? null,
+	landing: extra.landing ?? null,
 	bytesTotal: bytes(transfer.bytesTotal),
 	bytesDone: bytes(transfer.bytesDone),
 	rate: extra.rate ?? 0,

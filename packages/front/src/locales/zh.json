@@ -255,7 +255,13 @@
 			"missing": "在网关看来此路径不存在。",
 			"unreadable": "网关无法读取此路径。",
 			"not_writable": "网关无法在此写入，因此没有传输能落进这个媒体库。"
-		}
+		},
+		"tab": {
+			"all": "媒体库",
+			"followed": "已关注"
+		},
+		"followed_empty_title": "没有待处理项",
+		"followed_empty_text": "你关注的内容都是最新的。在剧集或季的页面上开启同步，它就会出现在这里。"
 	},
 	"category": {
 		"empty": "还没有分类。注册一个媒体服务并扫描它，它的媒体库就会出现在这里。",
@@ -309,7 +315,9 @@
 			"state": "状态",
 			"sort": "排序方式",
 			"clear": "清除筛选",
-			"category": "书架"
+			"category": "书架",
+			"resolution": "分辨率",
+			"codec": "编码"
 		},
 		"sort": {
 			"title": "标题",
@@ -375,6 +383,12 @@
 			"confirmed": "关联已确认。",
 			"confirmed_at": "已确认",
 			"removed": "关联已移除。"
+		},
+		"preference": {
+			"own": "此媒体有自己的搜索排序，因此对它的搜索不会按同架位其余内容的方式排序。",
+			"none": "没有排序：此媒体由做种数和体积决定。",
+			"cancel": "重新沿用该分类的排序",
+			"cancelled": "此媒体已重新沿用其分类的排序。"
 		}
 	},
 	"override": {
@@ -412,6 +426,15 @@
 			"was_empty": "服务在这里没有给出内容。",
 			"cleared": "已清除：无论服务怎么说，此字段都保持为空。",
 			"cleared_was": "已清除：服务给出的是“{value}”，此网关忽略它。"
+		},
+		"reassign": "更改此媒体所属的媒体库",
+		"library_elsewhere": "它位于 {value}，本网关无法写入其目录。请选择您自己的一个媒体库来重新归类——在下载任何内容之前就可以这样做。",
+		"library_none": "您自己的媒体库都不可写入，所以无处重新归类。请先映射某个媒体服务的目录。",
+		"preference": {
+			"title": "此媒体的搜索排序",
+			"intro": "当全局排序或其分类的排序不适合这一个媒体时，优先提供哪个版本。它只排序，绝不隐藏：找到的一切都留在列表里。",
+			"give": "为此媒体设定自己的排序",
+			"follow": "重新沿用该分类的排序"
 		}
 	},
 	"service": {
@@ -808,7 +831,9 @@
 			"categories": "分类",
 			"peers": "对等网关与共享",
 			"index": "索引与缓存",
-			"notifications": "通知"
+			"notifications": "通知",
+			"releases": "搜索与下载",
+			"preferences": "搜索排序"
 		},
 		"destination": {
 			"rule_title": "网关如何决定文件的去向",
@@ -907,7 +932,61 @@
 		"default_share_help": "一旦扫描发现新库即生效，好友连上来时不会看到空书架。",
 		"default_share_note": "适用于共享开关已打开的服务器上的每个媒体库——包括本网关没有其文件的媒体库：那些会从该服务器读取并经由此连接转发，消耗它的带宽。对等网关与我们共享的内容永远不会再向外转发。",
 		"failed_history_days": "失败记录保留",
-		"failed_history_days_help": "单位为天，并且刻意更长：一条失败的传输记录，正是某个文件始终没有到位的原因所在。"
+		"failed_history_days_help": "单位为天，并且刻意更长：一条失败的传输记录，正是某个文件始终没有到位的原因所在。",
+		"releases": {
+			"intro": "索引器负责找到身边无人拥有的副本，torrent 客户端负责取回。留空即关闭。",
+			"indexer_enabled": "查询索引器",
+			"indexer_url": "Prowlarr 地址",
+			"indexer_key": "API 密钥",
+			"key_set": "已保存一个。留空即保留。",
+			"client_enabled": "交给下载客户端",
+			"client_url": "qBittorrent 地址",
+			"client_username": "用户名",
+			"client_username_hint": "若客户端在你的网络中不要求，可留空。",
+			"client_password": "密码",
+			"paths_help": "下载目录以对应关系声明，和媒体服务器声明磁盘的方式完全一致：客户端写入的前缀，以及本网关到达的同一目录。"
+		},
+		"preference": {
+			"orders_only": "This orders search results and never hides any of them. Anything you have not ranked stays on the list, last — so the only copy of last night’s episode is still there when it comes from a group you have not named.",
+			"global_title": "For the whole household",
+			"category_title": "For {category}",
+			"category_absent": "no server is reporting this shelf right now",
+			"cancel_override": "Follow the household order again",
+			"separates_nothing": "Nothing ordered: seeders and size still decide.",
+			"dimension": {
+				"resolution": "Resolution",
+				"codec": "Codec",
+				"team": "Release group",
+				"source": "Source",
+				"language": "Language"
+			},
+			"dimension_help": {
+				"resolution": "1080p, 2160p, 720p, SD. SD covers 576p, 480p and 360p.",
+				"codec": "x265, x264, AV1. Every spelling of one codec counts as the same: HEVC and H.265 are x265.",
+				"team": "The tail of a release name, -NTb, -FLUX. A name it cannot be read from ranks last rather than being refused.",
+				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, as the name states it.",
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one."
+			},
+			"move_up": "Decides earlier",
+			"move_down": "Decides later",
+			"drop": "No opinion on this",
+			"promote": "Prefer this one more",
+			"add_value": "Add a value",
+			"no_value": "No opinion in this dimension.",
+			"unused": "Not ranked:",
+			"add_override": "Give a category its own order",
+			"override_note": "A category’s order replaces the household one whole rather than adding to it, so it starts as a copy of it and changing the household order later does not reach into it.",
+			"media_note": "One series or one film can have an order of its own, set on the media itself — where it is shown and can be cancelled."
+		},
+		"request": {
+			"title": "请求的来源",
+			"intro": "请求来源就是您家里已经在用的那个页面——Seerr、Overseerr 或 Jellyseerr。本网关读取别人提出的请求，并说明自己是否已经持有。它自己不会下载任何东西：副本仍然要在媒体页面上手动获取。地址留空即关闭。",
+			"enabled": "从此来源读取请求",
+			"url": "Seerr 地址",
+			"url_help": "与您打开它时相同的地址，含端口。Overseerr 和 Jellyseerr 的读取方式相同。",
+			"key": "API 密钥",
+			"key_help": "在 Seerr 的「设置 → 常规」中。只保存一次，之后不再显示。"
+		}
 	},
 	"sync": {
 		"subtitle": "长期的同步意图，以及它们实际做了什么。",
@@ -1140,6 +1219,12 @@
 			"ok": "已校验：检查了 {count} 个分块，全部完好。",
 			"corrupt": "已校验：{count} 个分块不匹配，需要重新获取。"
 		},
+		"landing": {
+			"waiting": "已归位，正在等待媒体服务器将其编入索引。",
+			"stale": "已归位，但没有任何媒体服务器将其编入索引。文件就在磁盘上，却无人可见。",
+			"batch_waiting": "有 {count} 个文件已归位，正在等待编入索引",
+			"batch_stale": "有 {count} 个文件从未被任何媒体服务器编入索引"
+		},
 		"unconfigured": {
 			"title": "有 {count} 个文件落到了无人指定的位置",
 			"hint": "它们的传输都成功了，所以别处不会报告这件事。请指明它们该去哪里，或者一次性为整个分类设定。",
@@ -1215,15 +1300,15 @@
 		"retarget": {
 			"title": "发送到其他媒体库",
 			"action": "发送到别处",
-			"whole_run": "{title} — 整批，共 {count} 个文件",
 			"hint_repoint": "还没有任何文件落盘，所以这只改变去向。下载不会中断，也不会复制任何字节。",
 			"hint_move": "该文件已经在某个媒体库中。选择另一个会真的移动它，大文件需要一些时间——队列会显示进度。",
-			"hint_run_landed": "本批中已落盘的文件也会一并移动，留空的文件夹会被删除。",
 			"library": "目标媒体库",
 			"confirm": "发送到那里",
 			"confirm_move": "移动到那里",
 			"repointed": "它将改去那里。",
-			"moved": "已移动。文件现在位于该媒体库中。"
+			"moved": "已移动。文件现在位于该媒体库中。",
+			"whole_lot": "{title} — 整个下载，{count} 个文件",
+			"hint_lot_landed": "本次下载中已经归位的文件也会一起移动，包括早先那次运行带来的文件，留空的目录会被删除。"
 		},
 		"revalidation": {
 			"title": "此传输为何改变了主意",
@@ -1280,7 +1365,8 @@
 		"settings_shares": "共享",
 		"settings_users": "用户",
 		"not_found": "页面未找到",
-		"not_found_text": "此地址下没有任何内容。"
+		"not_found_text": "此地址下没有任何内容。",
+		"requests": "请求"
 	},
 	"components": {
 		"paginate": {
@@ -1361,7 +1447,8 @@
 		"media": {
 			"not_found": "此媒体项目已不存在。",
 			"not_on_our_disk": "此副本不在本网关可写入的磁盘上，因此没有删除任何内容。",
-			"has_no_file": "此条目没有可删除的文件。"
+			"has_no_file": "此条目没有可删除的文件。",
+			"not_identified": "该媒体没有请求来源能识别的标识符。"
 		},
 		"peer": {
 			"not_found": "此对等网关已不存在。",
@@ -1419,11 +1506,195 @@
 			"config_invalid": "这些设置无法让此渠道工作。",
 			"handler_unknown": "不支持这种通知渠道。",
 			"send_failed": "渠道没有送出这条消息。"
+		},
+		"indexer": {
+			"not_configured": "尚未配置索引器，请在设置中添加。",
+			"unreachable": "索引器没有响应，请检查地址和密钥。",
+			"unknown": "此版本不支持该索引器。"
+		},
+		"download_client": {
+			"not_configured": "尚未配置下载客户端。",
+			"unreachable": "下载客户端没有响应。",
+			"unknown": "此版本不支持该下载客户端。",
+			"refused": "下载客户端拒绝了该任务。",
+			"path_unreadable": "网关无法读取客户端写入的文件夹。"
+		},
+		"release": {
+			"not_found": "该资源已不在搜索结果中，请重新搜索。",
+			"not_grabbable": "那一行是对端上的一个副本，不是一个发布。请改用拉取。"
+		},
+		"grab": {
+			"not_found": "找不到该下载。"
+		},
+		"request_source": {
+			"not_configured": "尚未配置请求来源。",
+			"unreachable": "请求来源没有响应。",
+			"unknown": "此版本不支持该请求来源。",
+			"unauthorized": "请求来源拒绝了该密钥。请在设置中检查。"
+		},
+		"request": {
+			"not_found": "找不到该请求。",
+			"not_held": "这里目前没有任何内容能满足该请求；说它已完成，只会让人不再提起。"
 		}
 	},
 	"indications": {
 		"placement": "在没有更具体规定时，拉取到的媒体存放在哪里。",
 		"match_threshold": "低于此分数的关联只作为建议，不会自动应用。",
 		"full_scan_cron": "刷新只能看到服务报告为新增的内容；完整扫描能发现原地移动或重新编码的文件。"
+	},
+	"release": {
+		"title": "搜索",
+		"intro": "在已配置的索引器上寻找身边无人拥有的副本。不主动搜索，除非你要求。",
+		"term": "搜索词",
+		"season_pack": "整季",
+		"search": "搜索",
+		"asked": "已请求：{query}",
+		"failed": "{indexer} 没有响应，请在设置中检查地址和密钥。",
+		"none": "没有结果。换些词试试——有些剧集在站点上用的是另一个名字。",
+		"seeders": "{count} 个做种",
+		"on_indexers": "在 {count} 个站点",
+		"held": "你已有这个大小",
+		"grab": "获取",
+		"grabbed": "已交给下载客户端。",
+		"downloads": "正在获取",
+		"kind": {
+			"movie": "电影",
+			"episode": "单集",
+			"season_pack": "整季合集",
+			"unknown": "无法解析的名称"
+		},
+		"state": {
+			"sent": "已发送",
+			"downloading": "下载中",
+			"fetched": "已获取",
+			"placed": "已归档",
+			"failed": "失败",
+			"cancelled": "已从客户端消失"
+		},
+		"phase": {
+			"fetching": "正在从站点下载",
+			"copying": "正在复制到媒体库"
+		},
+		"intro_peers": "您的对端已经持有的副本会出现在同一个列表里，位于 tracker 行的上方：那些文件确实存在，其画质是从文件本身读出来的，而不是从名字猜的。",
+		"peer": {
+			"exists": "已经存在",
+			"fills": "可补齐您缺少的 {count} 集"
+		},
+		"pull": "拉取",
+		"pulled": "拉取已开始。可在传输页面跟踪进度。",
+		"plan": {
+			"open": "补齐缺口",
+			"summary": "{steps} 个步骤，可覆盖 {total} 集缺口中的 {covered} 集。",
+			"close": "关闭",
+			"covers": "对应 {episodes}",
+			"partial": "只取这个合集里的 {count} 个文件",
+			"empty": "现有的内容填不上任何一个缺口。",
+			"grab": "获取全部 {count} 个步骤",
+			"uncovered": "有 {count} 集是现有内容无法填补的：",
+			"uncovered_peer": "其中 {count} 集在对端手里——请从上面的列表拉取。",
+			"uncovered_hint": "试试别的搜索词，或者等有新的发布后再回来。"
+		}
+	},
+	"classification": {
+		"title": "这可能属于哪里",
+		"intro": "网关注意到了关于这个媒体的一些线索。什么都还没有归档：接受一条建议只是像您自己选择媒体库那样重新归类。",
+		"current": "目前归在 {value}",
+		"current_none": "不在本网关认得的任何架位上",
+		"move": "{from} → {to}",
+		"accept": "归到那里",
+		"accepted": "已重新归到 {value}。",
+		"dismiss": "就留在原处",
+		"none": "没有可建议的：已知的信息并不指向网关认得的任何架位。",
+		"confidence": "{value}% 确信",
+		"evidence_title": "这么判断的依据",
+		"evidence_counts": "{count} 条线索",
+		"withheld_title": "考虑过，但没有建议",
+		"withheld_intro": "这里为什么没有可接受的建议。",
+		"failed": "无法读取建议。",
+		"reread": "再看一次",
+		"category": {
+			"anime": "日本动画",
+			"cartoons": "动画片",
+			"animated_films": "动画电影",
+			"concerts": "演唱会"
+		},
+		"signal": {
+			"anime_genre": "类型 {value} 明确指的是日本动画。",
+			"animation_genre": "类型 {value} 表明这是动画。",
+			"animation_studio": "{value} 只制作动画。",
+			"japanese_studio": "{value} 是日本的制作公司。",
+			"original_language_japanese": "原始语言是日语（{value}）。",
+			"country_japan": "来自日本（{value}）。",
+			"romanised_japanese_title": "标题读起来像罗马字化的日语（{value}）。单凭这一点说明不了什么。",
+			"fansub_group": "由 {value} 发布，这个组只为日本动画制作字幕。",
+			"concert_genre": "类型 {value} 指的是演出的录影。",
+			"music_genre": "类型 {value} 是一个音乐类型。",
+			"live_performance_phrase": "它自称「{value}」。",
+			"venue": "{value} 是一个场馆或音乐节。",
+			"animation_path_keyword": "通往该文件的某个目录叫「{value}」，这可能只说明有人已经把它放在那里。",
+			"concert_path_keyword": "通往该文件的某个目录叫「{value}」，这可能只说明有人已经把它放在那里。",
+			"kind_is_film": "目录里已经把它记为电影。",
+			"kind_is_series": "目录里已经把它记为剧集。",
+			"documentary_genre": "反面证据：类型 {value} 让它首先是一部纪录片。"
+		},
+		"source": {
+			"genre": "类型",
+			"studio": "制作公司",
+			"language": "语言",
+			"country": "国家",
+			"title": "标题",
+			"original_title": "原始标题",
+			"kind": "目录",
+			"path": "目录",
+			"release_name": "发布名称"
+		},
+		"blocker": {
+			"no_such_category": "这里没有哪个媒体库的名字会被本网关读成{value}，所以无处归档。请重命名某个媒体库、给它一个别名，或把某个名字挂到该分类下。",
+			"no_writable_library": "{value} 只存在于一台本网关无法写入其目录的服务器上，因此重新归类不会移动任何东西。",
+			"already_filed": "它已经在那个架位上了。"
+		},
+		"withheld": {
+			"below_threshold": "线索还不够。只凭一条观察结果不会提出建议。",
+			"no_decisive_signal": "没有任何线索说明这个媒体究竟是什么，只说明了它放在哪里、有多长。",
+			"ambiguous_origin": "这是动画，但没有可靠线索说明它来自哪里。日本动画和动画片是同一个问题，在两者之间猜就等于抛硬币。",
+			"settled_by_origin": "它的来源是确定的，另一个架位才是同一个问题的答案。"
+		}
+	},
+	"request": {
+		"subtitle": "家里提出的请求，以及本网关是否已经持有。",
+		"filter_state": "状态",
+		"state": {
+			"pending": "等待答复",
+			"approved": "已批准",
+			"declined": "已拒绝",
+			"processing": "处理中",
+			"partial": "部分已有",
+			"available": "已满足",
+			"unknown": "状态未知"
+		},
+		"not_configured_title": "未配置请求来源",
+		"configure": "打开设置",
+		"none_title": "还没有任何请求",
+		"none_text": "没有未完成的请求。任何人在 Overseerr 或 Jellyseerr 里提出的请求都会出现在这里。",
+		"unnamed": "来源没有说明这是什么",
+		"from_source": "由来源提供名称",
+		"asked_by": "由 {name} 请求",
+		"asked_by_unknown": "由来源未指明的人请求",
+		"tmdb": "TMDB {id}",
+		"tvdb": "TVDB {id}",
+		"no_identifier": "来源没有为此提供任何标识。",
+		"holdings": "此处已有：",
+		"seasons": "第 {seasons} 季",
+		"held_none": "这里没有任何内容能满足它。",
+		"missing_seasons": "此处缺少：第 {seasons} 季",
+		"asked_seasons": "已请求：第 {seasons} 季",
+		"fulfil": "标记为已满足",
+		"fulfilled": "已告知来源该请求已满足。",
+		"search": "搜索这个",
+		"no_search": "没有可搜索的内容",
+		"search_title": "搜索副本",
+		"search_intro": "这条请求建议的搜索。在您按下之前不会搜索，这里也不会下载任何内容。",
+		"search_season": "季",
+		"search_no_grab": "这些只是 tracker 上的名字。请从媒体页面获取副本，那里才有落脚的地方。"
 	}
 }

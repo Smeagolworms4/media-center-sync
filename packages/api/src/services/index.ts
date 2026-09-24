@@ -1,6 +1,7 @@
 export * from './bandwidth.service';
 export * from './cache.service';
 export * from './chunk-planner';
+export * from './classification';
 export * from './companions';
 export * from './directories';
 export * from './episode-numbering';
@@ -52,6 +53,8 @@ export * from './service-mode';
 export * from './settings.service';
 export * from './share-visibility';
 export * from './space';
+export * from './releases';
+export * from './requests';
 export * from './title-normalizer';
 export * from './transfer-engine.service';
 export * from './transport';
@@ -70,6 +73,8 @@ import { MetadataService } from './metadata.service';
 import { NamingService } from './naming.service';
 import { PathMatchService } from './path-match.service';
 import { NOTIFICATION_HANDLER_PROVIDERS } from './notifications';
+import { RELEASE_PROVIDERS } from './releases';
+import { REQUEST_PROVIDERS } from './requests';
 import { PeerCatalogueService } from './peer-catalogue.service';
 import { PeerGatewayService } from './peer-gateway.service';
 import { PeerIntroductionService } from './peer-introduction.service';
@@ -121,4 +126,6 @@ export const SERVICE_PROVIDERS = [
 	...MEDIA_DIRECTORY_PROVIDERS,
 	...NOTIFICATION_HANDLER_PROVIDERS,
 	...TRANSPORT_PROVIDERS,
+	...RELEASE_PROVIDERS,
+	...REQUEST_PROVIDERS,
 ];

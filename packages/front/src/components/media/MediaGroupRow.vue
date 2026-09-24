@@ -1,11 +1,12 @@
 <script lang="ts" setup>
 	import type { MediaGroup } from '@mcs/shared';
 	import { SyncState } from '@mcs/shared';
-	import { computed } from 'vue';
+	import { computed, inject } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SourceMarks from '@/components/media/SourceMarks.vue';
 	import SyncStateIcon from '@/components/media/SyncStateIcon.vue';
+	import { OPEN_OVERRIDE } from '@/composables/useMediaOverride';
 
 	/**
 	 * The same grouped media as one line.
@@ -25,6 +26,20 @@
 	});
 
 	const emit = defineEmits<{ 'update:selected': [value: boolean] }>();
+
+	/**
+	 * Correcting a media without opening it, when the page around us offers that.
+	 *
+	 * Null where nothing provides it, and the action then is not drawn at all: a row is
+	 * also used on screens that own no correction dialog, and a button that opened
+	 * nothing would be worse than no button. See `OPEN_OVERRIDE` for why this is injected
+	 * rather than emitted.
+	 *
+	 * In the title cell rather than in a column of its own, because the header of this
+	 * table is written by whoever draws the table: a cell added here would shift every
+	 * row one place against a `thead` that knows nothing about it.
+	 */
+	const openOverride = inject(OPEN_OVERRIDE, null);
 
 	const missing = computed(() => props.group.sync === SyncState.MISSING);
 	const bytes = computed(() => props.group.quality?.totalBytes ?? null);
@@ -75,6 +90,19 @@
 			<span v-if="group.missingCount > 0" class="media-row_missing text-caption ml-2">
 				{{ $t('media.missing_count', { count: group.missingCount }, group.missingCount) }}
 			</span>
+
+			<v-btn
+				v-if="openOverride"
+				:aria-label="$t('override.reassign')"
+				class="media-row_override"
+				data-test="media-row-override"
+				density="comfortable"
+				icon="mdi-pencil-outline"
+				size="x-small"
+				:title="$t('override.reassign')"
+				variant="text"
+				@click="openOverride(group.id)"
+			/>
 		</td>
 
 		<td class="media-row_kind text-caption">{{ $t(`media.kind.${group.kind}`) }}</td>
@@ -100,6 +128,19 @@
 		&_missing {
 			color: rgb(var(--v-theme-state-missing));
 			font-weight: 600;
+		}
+
+		// Shown on hover and on keyboard focus, so four hundred rows are not four hundred
+		// pencils — and so it is still reachable by somebody who does not use a mouse.
+		&_override {
+			margin-left: 4px;
+			opacity: 0;
+			transition: opacity 120ms ease;
+		}
+
+		&:hover &_override,
+		&_override:focus-visible {
+			opacity: 1;
 		}
 	}
 </style>

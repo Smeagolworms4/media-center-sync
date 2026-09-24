@@ -140,7 +140,11 @@ describe('pages/LibraryItem', () => {
 			},
 		},
 		'/api/media/groups/m1': { body: mediaGroup() },
+		// The representative's own index row, which is where the corrections live: a group
+		// is the merged view and carries none of them.
+		'/api/media/m1': { body: mediaItem() },
 		'/api/media/m1/matches': { body: [] },
+		'/api/libraries': { body: [library] },
 		'/api/services': { body: [service] },
 		'/api/peers': { body: [] },
 		'/api/sync/run': { body: { id: 'j1' } },
@@ -908,6 +912,102 @@ describe('pages/LibraryItem', () => {
 		await settle();
 
 		expect(wrapper.find('.error-state').exists()).toBe(true);
+	});
+
+	/**
+	 * A search order that applies to one media, said on the media.
+	 *
+	 * It is deliberately not on the settings screen: somebody wondering why a search on
+	 * this one series answers differently from every other is looking at this page, and a
+	 * setting nothing here mentioned would be one nobody could find, let alone undo.
+	 */
+	describe('a search order of the media’s own', () => {
+		const ordered = {
+			...routes,
+			'/api/media/m1': {
+				body: mediaItem({
+					title: 'The Expanse',
+					overrides: {
+						title: 'The Expanse',
+						releasePreference: { ranks: [{ dimension: 'resolution', values: ['1080p'] }] },
+					},
+					reported: {
+						libraryId: 'l1',
+						title: 'the.expanse.2015',
+						seriesTitle: null,
+						year: 2015,
+						seasonNumber: null,
+						episodeNumber: null,
+						overview: 'Belters.',
+						externalIds: {},
+					},
+				}),
+			},
+		};
+
+		it('says nothing at all on a media that has none', async () => {
+			stubFetchRoutes(routes);
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+
+			expect(wrapper.find('[data-test="release-preference-note"]').exists()).toBe(false);
+		});
+
+		it('states it, and cancels it in one press without withdrawing the rest', async () => {
+			// The press re-sends every other correction: a `PUT` replaces the instruction
+			// outright, so sending the null alone would quietly undo the corrected title
+			// along with the order.
+			const stub = stubFetchRoutes({
+				...ordered,
+				'/api/media/m1/override': { body: mediaItem() },
+			});
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+			await settle();
+
+			expect(wrapper.find('[data-test="release-preference-note"]').exists()).toBe(true);
+
+			await wrapper.find('[data-test="release-preference-note-cancel"]').trigger('click');
+			await settle();
+
+			const put = stub.mock.calls.find(call => String(call[1]?.method).toUpperCase() === 'PUT');
+
+			expect(put?.[0]).toBe('/api/media/m1/override');
+			expect(JSON.parse(String(put?.[1]?.body)))
+				.toEqual({ title: 'The Expanse', releasePreference: null });
+		});
+	});
+
+	/**
+	 * Correcting a child without opening it, which is the same need as on the wall.
+	 *
+	 * The shelf a season belongs on, or an episode a scraper numbered wrongly, is obvious
+	 * from the list and invisible from the child's own page — and one mis-scraped folder
+	 * produces a dozen of them.
+	 */
+	it('offers the correction on every child row, and aims the dialog at that child', async () => {
+		const stub = stubFetchRoutes({ ...routes, '/api/media/m2': { body: mediaItem({ id: 'm2' }) } });
+		const { wrapper } = mountWithApp(LibraryItem, {
+			props: { itemId: 'm1' },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		const actions = wrapper.findAll('[data-test="media-row-override"]');
+
+		expect(actions).toHaveLength(2);
+
+		await actions[0].trigger('click');
+		await settle();
+
+		// The child's own row, not the page's media: the dialog corrects one index row and
+		// the one it was pointed at is the one that was pressed.
+		expect(stub.mock.calls.some(call => String(call[0]).endsWith('/api/media/m2'))).toBe(true);
 	});
 });
 

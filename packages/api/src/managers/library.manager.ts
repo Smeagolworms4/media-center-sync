@@ -35,6 +35,7 @@ import {
 } from '@/repositories';
 import {
 	derivedLocalPath,
+	derivedLocalRoots,
 	layoutExamples,
 	layoutSignals,
 	type SeasonRow,
@@ -43,6 +44,7 @@ import {
 	serviceMode,
 	SettingsService,
 	type ServiceRootMappings,
+	type PlacementLibrary,
 } from '@/services';
 import { toLibrary } from './mappers';
 
@@ -556,6 +558,47 @@ export class LibraryManager {
 	 * key a setting was stored under and the key a placement looks up can never be two
 	 * different readings of the same library name.
 	 */
+	/**
+	 * Every library a pull can land in, in the shape the placement rule reads.
+	 *
+	 * Here rather than on whichever manager happens to need it, because it is a fact
+	 * about libraries and not about syncing: a run, a redirected transfer and a finished
+	 * torrent all have to be placed by the same rule, and two readings of "which shelves
+	 * exist" would eventually disagree about one of them.
+	 *
+	 * Only services whose files this gateway holds. A library on a friend's server is
+	 * writable for them and nothing this gateway writes there would ever arrive.
+	 */
+	public async placementLibraries(): Promise<PlacementLibrary[]> {
+		const local = await this._services.findLocal();
+		const libraries = await this._libraries.findByServices(local.map((service) => service.id));
+		const byService = new Map(local.map((one) => [one.id, one]));
+		/*
+		 * The shelf each library sits on, so a media can land on the one it came from
+		 * without anybody having configured a thing. Read through the category fold
+		 * rather than recomputed here, or `Animés` would have two keys the day somebody
+		 * aliased one of them.
+		 */
+		const categoryKeys = await this.categoryKeysByLibrary();
+
+		return libraries.map((library: LibraryEntity) => {
+			const service = byService.get(library.serviceId);
+
+			return {
+				id: library.id,
+				name: library.name,
+				kind: library.kind,
+				localPath: library.localPath,
+				writable: library.writable,
+				isDefaultTarget: library.isDefaultTarget,
+				categoryKey: categoryKeys.get(library.id) ?? null,
+				// Every directory of this library on our disk, so a destination naming one
+				// of them resolves back to the library that declares it.
+				localRoots: service ? derivedLocalRoots(library.paths, service) : [],
+			};
+		});
+	}
+
 	public async categoryKeysByLibrary(): Promise<Map<string, string>> {
 		const keys = new Map<string, string>();
 

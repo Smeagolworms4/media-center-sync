@@ -454,6 +454,137 @@ describe('FileMoveService', () => {
 		expect(reads).toHaveLength(0);
 		expect(await digestOf(destination)).toBe(digest(content));
 	});
+
+	/**
+	 * Copying out from under somebody who still owns the file.
+	 *
+	 * A torrent that has finished is still seeding, and a file moved out from under its
+	 * client is a torrent that errors and a ratio that stops — which on a private tracker
+	 * is somebody's account. Both halves of this have to hold and both fail silently: a
+	 * rename would take the file while reporting a perfectly ordinary success, and an
+	 * unlink at the end would take it a second later after a copy that looked right.
+	 */
+	describe('keeping the source', () => {
+		/** Every rename the service asked for, which is how the fast path is caught. */
+		function watched(cross: boolean): { operations: FileMoveOperations; renames: [string, string][] } {
+			const renames: [string, string][] = [];
+			const rename = async (from: string, to: string): Promise<void> => {
+				renames.push([from, to]);
+
+				if (cross && from === source) {
+					throw errno('EXDEV');
+				}
+
+				await NODE_FILE_MOVE_OPERATIONS.rename(from, to);
+			};
+
+			return { operations: operations({ rename }), renames };
+		}
+
+		it('copies rather than renaming, even where a rename would have worked', async () => {
+			// The fast path *is* a move. On a same-mount deployment it is the one route
+			// this must not take, and taking it looks exactly like success.
+			const { operations: fs, renames } = watched(false);
+			const service = new FileMoveService(fs);
+
+			const result = await service.move({ source, destination, keepSource: true });
+
+			expect(result.outcome).toBe(FileMoveOutcome.COPIED);
+			expect(result.bytesCopied).toBe(TOTAL);
+			expect(reads).toHaveLength(1);
+			// The only rename is the temporary being committed into place: the source was
+			// never a party to one.
+			expect(renames).toEqual([[partial, destination]]);
+		});
+
+		it('leaves the source exactly where it was, byte for byte', async () => {
+			const service = new FileMoveService(operations());
+
+			await service.move({ source, destination, keepSource: true });
+
+			expect(await sizeOf(source)).toBe(TOTAL);
+			expect(await digestOf(source)).toBe(digest(content));
+			expect(await digestOf(destination)).toBe(digest(content));
+			// And no temporary left beside the destination for the media server to index.
+			expect(await sizeOf(partial)).toBe(-1);
+		});
+
+		it('leaves the source alone across a device boundary as well', async () => {
+			const { operations: fs, renames } = watched(true);
+			const service = new FileMoveService(fs);
+
+			const result = await service.move({ source, destination, keepSource: true });
+
+			expect(result.outcome).toBe(FileMoveOutcome.COPIED);
+			expect(await digestOf(destination)).toBe(digest(content));
+			expect(await sizeOf(source)).toBe(TOTAL);
+			// Not even attempted: the EXDEV branch was never reached, because the fast
+			// path was refused before it.
+			expect(renames).toEqual([[partial, destination]]);
+		});
+
+		it('still takes the source away when nobody asked to keep it', async () => {
+			// The other half of the rule, so that a `keepSource` left permanently on
+			// cannot pass this suite.
+			const service = new FileMoveService(crossDevice());
+
+			await service.move({ source, destination, keepSource: false });
+
+			expect(await sizeOf(source)).toBe(-1);
+		});
+
+		it('resumes a kept-source copy from its partial rather than from zero', async () => {
+			const done = COPY_CHUNK_BYTES;
+
+			await mkdir(join(root, 'library', 'Show'), { recursive: true });
+			await writeFile(partial, content.subarray(0, done));
+
+			const service = new FileMoveService(operations());
+
+			const result = await service.move({ source, destination, keepSource: true });
+
+			expect(result.bytesCopied).toBe(TOTAL - done);
+			expect(reads[0].start).toBe(done);
+			expect(await digestOf(destination)).toBe(digest(content));
+			expect(await sizeOf(source)).toBe(TOTAL);
+		});
+
+		it('keeps the source when the copy is paused, and keeps it when the copy finishes', async () => {
+			const controller = new AbortController();
+			const service = new FileMoveService(operations());
+
+			const paused = await service.move({
+				source,
+				destination,
+				keepSource: true,
+				signal: controller.signal,
+				onProgress: () => controller.abort(),
+			});
+
+			expect(paused.outcome).toBe(FileMoveOutcome.PAUSED);
+			expect(await sizeOf(source)).toBe(TOTAL);
+
+			const finished = await service.move({ source, destination, keepSource: true });
+
+			expect(finished.outcome).toBe(FileMoveOutcome.COPIED);
+			expect(await digestOf(source)).toBe(digest(content));
+			expect(await digestOf(destination)).toBe(digest(content));
+		});
+
+		it('refuses a destination that cannot hold the copy without touching the source', async () => {
+			const service = new FileMoveService(
+				operations({
+					statfs: async () => ({ bavail: 1, bsize: 4096 }),
+				}),
+			);
+
+			const failure = await service.move({ source, destination, keepSource: true }).catch((error: unknown) => error);
+
+			expect(failure).toBeInstanceOf(FileMoveError);
+			expect((failure as FileMoveError).key).toBe(ErrorKey.TRANSFER_DESTINATION_FULL);
+			expect(await sizeOf(source)).toBe(TOTAL);
+		});
+	});
 });
 
 describe('placingHoldMs', () => {
