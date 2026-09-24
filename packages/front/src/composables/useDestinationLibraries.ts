@@ -9,8 +9,16 @@ export interface DestinationLibrary {
 	id: string;
 	name: string;
 	serviceName: string;
-	/** Where the gateway writes it, so a choice is made against something real. */
+	/** Where the gateway writes it by default, so a choice is made against something real. */
 	path: string | null;
+	/**
+	 * Every directory of this library the gateway can write into.
+	 *
+	 * A library is not one folder: a shelf can be five directories on five disks. The
+	 * library stays the unit somebody chooses — it is what a media server scans and what
+	 * a category is mapped to — and the roots are what a folder is then picked inside.
+	 */
+	roots: string[];
 }
 
 /**
@@ -100,30 +108,30 @@ export function useDestinationLibraries (): DestinationLibraries {
 		.sort((a, b) => a.position - b.position || a.name.localeCompare(b.name)));
 
 	/*
-	 * One entry per *root*, not per library.
+	 * One entry per library, carrying every directory it has.
 	 *
-	 * A library is not one folder. A shelf called `Series TV` can be five directories
-	 * on five disks, and offering the library offered only the first of them — every
-	 * pull landed there and nothing said why. So each of a library's own roots is its
-	 * own answer, named by the folder it actually is.
+	 * The library is the unit somebody chooses: it is what a media server scans, and a
+	 * folder is picked inside it afterwards. A line per root instead made the shelf
+	 * disappear behind five paths and asked for both decisions at once.
 	 *
-	 * A library the gateway cannot reach has no roots and therefore no entry, which is
-	 * the same rule as before said in the data rather than in a filter: there is nothing
-	 * to offer, not a choice to grey out.
+	 * An older gateway sends no roots at all; its single path is still an answer, and
+	 * reading that as "no folders" would empty the picker on every library of a
+	 * perfectly working server.
 	 */
 	const destinations = computed<DestinationLibrary[]>(() => sorted.value
 		.filter(one => one.serviceId in ours.value && writable(one))
-		.flatMap(one => {
-			// An older gateway sends no roots at all; its single path is still an answer,
-			// and offering nothing would empty the menu on every one of its libraries.
-			const roots = one.localRoots?.length ? one.localRoots : [one.localPath].filter(Boolean);
+		.map(one => {
+			const roots = one.localRoots?.length
+				? one.localRoots
+				: ([one.localPath].filter(Boolean) as string[]);
 
-			return (roots as string[]).map(path => ({
+			return {
 				id: one.id,
 				name: one.alias ?? one.name,
 				serviceName: serviceName(one),
-				path,
-			}));
+				path: roots[0] ?? one.localPath,
+				roots,
+			};
 		}));
 
 	const rejected = computed<RejectedLibrary[]>(() => sorted.value

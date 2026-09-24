@@ -611,7 +611,9 @@ describe('pages/Settings saving', () => {
 		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
 		const body = JSON.parse(String(patch?.[1]?.body));
 
-		expect(body.categoryTargets).toEqual({ shows: 'l2' });
+		// The shelf's own folder, because that is what the placement reads: storing the
+		// library alone would put the file in whichever of its roots came first.
+		expect(body.categoryTargets).toEqual({ shows: '/media/shows' });
 		expect(body.defaultTargetLibraryId).toBe('l1');
 		// Only what moved. The API writes a row for every key a PATCH carries, and a
 		// row for a value nobody chose pins a default the gateway can never drop.

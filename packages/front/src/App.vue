@@ -7,6 +7,7 @@
 	import Notify from '@/components/Notify.vue';
 	import BandwidthControl from '@/components/transfer/BandwidthControl.vue';
 	import { useAppInit } from '@/hooks/useAppInit';
+	import { useNotifier } from '@/hooks/useNotifier';
 	import { useRouteGranted } from '@/plugins/granted';
 	import { SUPPORTED_LOCALES, type SupportedLocale } from '@/plugins/i18n';
 	import { storeTheme, type ThemeName } from '@/plugins/vuetify';
@@ -15,8 +16,30 @@
 	import { useEventsStore } from '@/stores/events';
 	import { useI18nStore } from '@/stores/i18n';
 	import { useLoaderStore } from '@/stores/loader';
+	import { useTransfersStore } from '@/stores/transfers';
 
 	const { t } = useI18n();
+	const transfersStore = useTransfersStore();
+	const { notify, tryCallback } = useNotifier();
+
+	/**
+	 * Stop everything that is moving, from wherever somebody happens to be.
+	 *
+	 * One request rather than one per row, because pausing a queue row by row cannot
+	 * work: by the time the fourth is paused the engine has started a fifth.
+	 */
+	const pausing = ref(false);
+
+	const pauseEverything = tryCallback(async () => {
+		pausing.value = true;
+		try {
+			await transfersStore.pauseAll();
+
+			void notify('transfer.paused_all');
+		} finally {
+			pausing.value = false;
+		}
+	});
 	const route = useRoute();
 	const router = useRouter();
 	const theme = useTheme();
@@ -132,6 +155,26 @@
 					only surface that is on every screen.
 				-->
 				<BandwidthControl v-if="$isGranted(Right.SETTINGS_MANAGE)" />
+
+				<!--
+					Beside the caps, and for the same reason: it is reached while looking at
+					something else. The disk is filling or the link is needed now, and
+					walking to the transfers page to stop a queue that keeps starting new
+					rows underneath is not an answer.
+				-->
+				<v-tooltip location="bottom" :text="$t('transfer.pause_all')">
+					<template #activator="{ props: tooltipProps }">
+						<v-btn
+							v-if="$isGranted(Right.TRANSFER_MANAGE)"
+							v-bind="tooltipProps"
+							data-test="app-pause-all"
+							icon="mdi-pause-octagon-outline"
+							:loading="pausing"
+							variant="text"
+							@click="pauseEverything"
+						/>
+					</template>
+				</v-tooltip>
 
 				<v-tooltip location="bottom" :text="connectionLabel">
 					<template #activator="{ props: tooltipProps }">

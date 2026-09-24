@@ -20,6 +20,39 @@ export interface NameableItem {
 }
 
 /**
+ * One media named the way a person would say it out loud.
+ *
+ * An episode's own title is the episode's — `Monstres` — and on a queue of forty
+ * transfers that is a list of words with nothing to attach them to. The owner watched
+ * a run of Spartacus go past as `Monstres`, `Mors Indecepta`, and had to read the
+ * destination path to find out which show and which season each belonged to.
+ *
+ * Built from what the row already carries rather than from the path, because the path
+ * is where the file is going and this is what the file *is* — the two disagree the
+ * moment somebody redirects a transfer, and the name must not move when the folder
+ * does.
+ *
+ * A film and a season keep their own title: there is nothing above them to say.
+ */
+export const episodeLabel = (item: NameableItem): string => {
+	if (item.kind !== MediaKind.EPISODE) {
+		return item.title;
+	}
+
+	const coordinates =
+		item.seasonNumber === null || item.seasonNumber === undefined
+			|| item.episodeNumber === null || item.episodeNumber === undefined
+			? null
+			: `S${String(item.seasonNumber).padStart(2, '0')}E${String(item.episodeNumber).padStart(2, '0')}`;
+
+	// Joined with what each part is, and skipping what the service did not say: a show
+	// with no number yet reads `Spartacus — Monstres` rather than `Spartacus — SNaNENaN`.
+	return [item.seriesTitle?.trim() || null, coordinates, item.title]
+		.filter((part): part is string => part !== null && part !== '')
+		.join(' — ');
+};
+
+/**
  * What tells two versions of one media apart, in the words a media server reads.
  *
  * Both fields are labels and neither is an identity — see `MediaVersion`. They exist

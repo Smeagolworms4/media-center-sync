@@ -1,5 +1,5 @@
 import { DEFAULT_NAMING_ORDER, MediaKind, NamingScheme } from '@mcs/shared';
-import { NamingService, type NameableItem } from './naming.service';
+import { episodeLabel, NamingService, type NameableItem } from './naming.service';
 
 /**
  * The orders these tests exercise, named after what somebody would say they want.
@@ -38,6 +38,47 @@ function movie(overrides: Partial<NameableItem> = {}): NameableItem {
 		...overrides,
 	};
 }
+
+describe('episodeLabel', () => {
+	/*
+	 * The owner watched a run of Spartacus go past his queue as `Monstres`,
+	 * `Mors Indecepta`, and had to read each destination path to find out which show
+	 * and which season they belonged to.
+	 */
+	it('says the show, the coordinates and the episode', () => {
+		expect(episodeLabel({
+			kind: MediaKind.EPISODE,
+			title: 'Monstres',
+			seriesTitle: 'Spartacus',
+			seasonNumber: 2,
+			episodeNumber: 9,
+		})).toBe('Spartacus — S02E09 — Monstres');
+	});
+
+	it('leaves out what the service did not say, rather than printing a gap', () => {
+		expect(episodeLabel({
+			kind: MediaKind.EPISODE,
+			title: 'Pilot',
+			seriesTitle: 'Scrubs',
+			seasonNumber: null,
+			episodeNumber: null,
+		})).toBe('Scrubs — Pilot');
+		expect(episodeLabel({
+			kind: MediaKind.EPISODE,
+			title: 'Pilot',
+			seriesTitle: null,
+			seasonNumber: 1,
+			episodeNumber: 1,
+		})).toBe('S01E01 — Pilot');
+	});
+
+	it('leaves a film and a season with their own title', () => {
+		// There is nothing above them to say.
+		expect(episodeLabel({ kind: MediaKind.MOVIE, title: 'Casper', year: 1995 })).toBe('Casper');
+		expect(episodeLabel({ kind: MediaKind.SEASON, title: 'Saison 2', seasonNumber: 2 }))
+			.toBe('Saison 2');
+	});
+});
 
 describe('NamingService', () => {
 	const service = new NamingService();

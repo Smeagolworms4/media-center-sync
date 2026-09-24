@@ -1,5 +1,6 @@
 import {
 	HistoryView,
+	TransferSort,
 	Right,
 	TransferState,
 	type ResultList,
@@ -67,6 +68,17 @@ class TransferQueryDto {
 	@IsOptional()
 	@IsEnum(HistoryView)
 	public view?: HistoryView;
+
+	/**
+	 * What is moving comes first unless somebody asks otherwise.
+	 *
+	 * Newest first put a queue of eighty behind whatever finished a minute ago, so the
+	 * rows being watched were on page two.
+	 */
+	@ApiPropertyOptional({ enum: TransferSort, default: TransferSort.ACTIVITY })
+	@IsOptional()
+	@IsEnum(TransferSort)
+	public sort?: TransferSort;
 }
 
 /**
@@ -167,6 +179,21 @@ export class TransferController {
 	@ApiOkResponse({ description: 'Revalidation[]' })
 	public revalidations(@Param('id', ParseUUIDPipe) id: string): Promise<Revalidation[]> {
 		return this._transfers.revalidations(id);
+	}
+
+	@Post('pause')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Stop everything that is moving',
+		description:
+			'Pausing a queue row by row cannot work: by the time the fourth is paused the engine '
+			+ 'has started a fifth. Queued transfers are paused too — one left queued starts the '
+			+ 'moment a slot frees. Answers how many were stopped.',
+	})
+	@ApiOkResponse({ description: 'How many transfers were paused' })
+	public async pauseAll(): Promise<{ paused: number }> {
+		return { paused: await this._transfers.pauseAll() };
 	}
 
 	@Post(':id/pause')

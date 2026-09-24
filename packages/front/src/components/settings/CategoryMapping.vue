@@ -148,11 +148,67 @@
 		return {
 			value: one.id,
 			title: one.name,
-			// The path, always, because that is what the answer actually means: two
-			// libraries of one service can carry the same name, and the folder is the
-			// thing somebody recognises from their own disk.
+			// The path with the name, because two libraries of one service can carry the
+			// same name and the folder is what somebody recognises from their own disk.
 			subtitle: one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
 		};
+	}
+
+	/**
+	 * Which library a category's answer names, whether it was stored as one or as a path.
+	 *
+	 * The stored answer is a folder — that is what the placement reads — but the control
+	 * asks for the shelf first, because that is the order people work in and the shelf is
+	 * what a media server scans. This maps one back to the other.
+	 */
+	function libraryOf (key: string): string | null {
+		const answer = targets.value[key] ?? null;
+
+		if (answer === null) {
+			return null;
+		}
+
+		const owner = props.destinations
+			.find(one => one.id === answer || one.roots.includes(answer));
+
+		return owner?.id ?? answer;
+	}
+
+	/** Which category's folder browser is open, since every row has one. */
+	const browsing = ref<string | null>(null);
+
+	/**
+	 * Choosing a shelf stores its default folder, not the shelf.
+	 *
+	 * What the placement reads is a directory, and storing the library alone would put
+	 * the file in whichever of its roots came first — which is exactly what nobody could
+	 * see and nobody could change. Writing the default here means the field below opens
+	 * already filled with the answer in force.
+	 */
+	function chooseLibrary (key: string, libraryId: string | null): void {
+		const library = props.destinations.find(one => one.id === libraryId) ?? null;
+
+		choose(key, library?.path ?? libraryId);
+	}
+
+	/** Refusing an emptied box would be refusing "put it back to the shelf's own root". */
+	function chooseFolder (key: string, folder: string | null): void {
+		const trimmed = folder?.trim() || null;
+
+		browsing.value = null;
+		choose(key, trimmed ?? props.destinations.find(one => one.id === libraryOf(key))?.path ?? null);
+	}
+
+	/** The folder a category's answer names, or the chosen library's default. */
+	function folderOf (key: string): string | null {
+		const answer = targets.value[key] ?? null;
+		const library = props.destinations.find(one => one.id === libraryOf(key)) ?? null;
+
+		if (answer !== null && library?.roots.includes(answer)) {
+			return answer;
+		}
+
+		return answer !== null && answer.startsWith('/') ? answer : (library?.path ?? null);
 	}
 
 	/**
@@ -188,10 +244,13 @@
 		 */
 		const chosen = targets.value[category.key] ?? null;
 		const own = new Set(category.libraryIds);
-		const keeps = (id: string): boolean => own.has(id) || id === chosen;
+		// Matched on either, because an answer may name a library or one of its folders
+		// — and a stored answer has to stay visible whichever of the two it is.
+		const keeps = (id: string, path?: string | null): boolean =>
+			own.has(id) || id === chosen || (path !== null && path !== undefined && path === chosen);
 
 		return [
-			...props.destinations.filter(one => keeps(one.id)).map(one => entryFor(one)),
+			...props.destinations.filter(one => keeps(one.id, one.path)).map(one => entryFor(one)),
 			...props.rejected.filter(one => keeps(one.id)).map(one => ({
 				value: one.id,
 				title: one.name,
@@ -590,9 +649,45 @@
 							item-value="value"
 							:items="destinationItemsFor(category)"
 							:label="$t('settings.destination.target_header')"
-							:model-value="targets[category.key] ?? null"
-							@update:model-value="choose(category.key, $event)"
+							:model-value="libraryOf(category.key)"
+							@update:model-value="chooseLibrary(category.key, $event)"
 						/>
+
+						<!--
+							The shelf first, the folder after: that is the order people work
+							in, and a shelf can be five directories on five disks. Only once
+							one is chosen, because a folder with no shelf to sit in is a box
+							nobody can fill.
+						-->
+						<div v-if="libraryOf(category.key)" class="category-mapping_folder">
+							<v-text-field
+								:data-test="`category-folder-${category.key}`"
+								density="compact"
+								:disabled="busy"
+								hide-details
+								:label="$t('settings.destination.folder')"
+								:model-value="folderOf(category.key)"
+								@update:model-value="chooseFolder(category.key, $event)"
+							>
+								<template #append-inner>
+									<v-btn
+										:data-test="`category-folder-browse-${category.key}`"
+										icon="mdi-folder-open-outline"
+										size="small"
+										:title="$t('browse.open')"
+										variant="text"
+										@click="browsing = category.key"
+									/>
+								</template>
+							</v-text-field>
+
+							<DirectoryPicker
+								:model-value="browsing === category.key"
+								:path="folderOf(category.key)"
+								@choose="chooseFolder(category.key, $event)"
+								@update:model-value="browsing = $event ? category.key : null"
+							/>
+						</div>
 
 						<!--
 							An empty select with nothing under it reads as broken. It is not

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { Transfer } from '@mcs/shared';
-	import { EventName, FINISHED_TRANSFER_STATES, HistoryView, TransferState } from '@mcs/shared';
+	import { EventName, FINISHED_TRANSFER_STATES, HistoryView, TransferSort, TransferState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import { useRouter } from 'vue-router';
@@ -11,6 +11,7 @@
 	import Rate from '@/components/common/Rate.vue';
 	import StatTile from '@/components/common/StatTile.vue';
 	import Pagination from '@/components/paginate/Pagination.vue';
+	import TransferBatch from '@/components/transfer/TransferBatch.vue';
 	import TransferRow from '@/components/transfer/TransferRow.vue';
 	import Window from '@/components/Window.vue';
 	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
@@ -89,6 +90,23 @@
 		return chosen === HistoryView.LIVE && asksForFinished ? HistoryView.ALL : chosen;
 	});
 
+	/**
+	 * What is moving comes first, unless somebody asks otherwise.
+	 *
+	 * Newest first put a queue of eighty behind whatever finished a minute ago, so the
+	 * rows being watched were on page two. In the address, so a sort survives a reload
+	 * and a link carries it.
+	 */
+	const sort = queryRef<TransferSort>('sort', queryTypes.stringEnum({
+		values: Object.values(TransferSort),
+		defaultValue: TransferSort.ACTIVITY,
+	}));
+
+	const sortItems = computed(() => Object.values(TransferSort).map(value => ({
+		value,
+		title: t(`transfer.sort.${value}`),
+	})));
+
 	const page = queryRef<number>('page', queryTypes.integer({ defaultValue: 0 }));
 	const limit = queryRef<number>('limit', queryTypes.integer({ defaultValue: 20 }));
 
@@ -148,6 +166,7 @@
 					limit: limit.value ?? 20,
 					state: state.value,
 					view: effectiveView.value,
+					sort: sort.value ?? undefined,
 				}),
 				transfersStore.loadStats(),
 			]);
@@ -165,7 +184,7 @@
 		await load();
 	});
 
-	watch([state, view, limit], () => {
+	watch([state, view, limit, sort], () => {
 		page.value = 0;
 		void load();
 	});
@@ -200,6 +219,47 @@
 	const showingLiveOnly = computed(() => viewModel.value === HistoryView.LIVE);
 
 	const transfers = computed(() => transfersStore.transfers);
+
+	/**
+	 * The queue as runs rather than as files.
+	 *
+	 * Fetching a season produced eleven rows, each with its own destination and its own
+	 * three buttons, so "how far is Spartacus" was eleven numbers to add up. One run is
+	 * one piece of work; the files are its detail.
+	 *
+	 * Grouped on what the page holds. Paginating by run instead would give a page of one
+	 * batch and a page of eighty, and a screen that cannot say how many rows it draws;
+	 * sorting by activity keeps a run's files together, since they were created in one
+	 * act. A transfer belonging to no run is its own batch — a single pull is exactly
+	 * that.
+	 */
+	const batches = computed(() => {
+		const grouped: { key: string; transfers: Transfer[] }[] = [];
+		const byJob = new Map<string, { key: string; transfers: Transfer[] }>();
+
+		for (const transfer of transfers.value) {
+			if (transfer.jobId === null) {
+				grouped.push({ key: transfer.id, transfers: [transfer] });
+
+				continue;
+			}
+
+			const batch = byJob.get(transfer.jobId);
+
+			if (batch === undefined) {
+				const created = { key: transfer.jobId, transfers: [transfer] };
+
+				byJob.set(transfer.jobId, created);
+				grouped.push(created);
+
+				continue;
+			}
+
+			batch.transfers.push(transfer);
+		}
+
+		return grouped;
+	});
 
 	const pausedTransfers = computed(
 		() => transfers.value.filter(one => one.state === TransferState.PAUSED));
@@ -357,6 +417,19 @@
 			:title="$t('pages.transfers')"
 		>
 			<template #actions>
+				<v-select
+					v-model="sort"
+					class="transfers_sort"
+					data-test="transfer-sort"
+					density="compact"
+					hide-details
+					item-title="title"
+					item-value="value"
+					:items="sortItems"
+					:label="$t('transfer.sort.label')"
+					variant="outlined"
+				/>
+
 				<v-btn-toggle
 					v-model="viewModel"
 					class="transfers_view"
@@ -497,14 +570,27 @@
 			</EmptyState>
 
 			<div v-else class="transfers_list mt-3" data-test="transfer-list">
-				<TransferRow
-					v-for="transfer of transfers"
-					:key="transfer.id"
-					:busy="busyId === transfer.id"
-					:progress="progressOf(transfer)"
-					:transfer="transfer"
-					@action="handle"
-				/>
+				<template v-for="batch of batches" :key="batch.key">
+					<!--
+						A run of one file is not folded: a single row inside a container
+						saying "one file" is a frame around nothing.
+					-->
+					<TransferRow
+						v-if="batch.transfers.length === 1"
+						:busy="busyId === batch.transfers[0].id"
+						:progress="progressOf(batch.transfers[0])"
+						:transfer="batch.transfers[0]"
+						@action="handle"
+					/>
+
+					<TransferBatch
+						v-else
+						:busy-id="busyId"
+						:progress="progressOf"
+						:transfers="batch.transfers"
+						@action="handle"
+					/>
+				</template>
 			</div>
 
 			<Pagination
@@ -601,6 +687,12 @@
 
 <style lang="scss">
 	.transfers {
+		&_sort {
+			// Narrow enough to sit beside the view toggle rather than pushing it onto a
+			// line of its own on a laptop.
+			max-width: 200px;
+		}
+
 		&_filter {
 			min-width: 180px;
 		}

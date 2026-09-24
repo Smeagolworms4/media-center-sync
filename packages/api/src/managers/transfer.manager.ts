@@ -16,6 +16,7 @@ import type {
 	Transfer,
 	TransferChunk,
 	TransferQueueStats,
+	TransferSort,
 	TransferVerification,
 	UnconfiguredPlacement,
 } from '@mcs/shared';
@@ -26,7 +27,7 @@ import {
 	NotFoundException,
 	OnApplicationBootstrap,
 } from '@nestjs/common';
-import { In } from 'typeorm';
+import { In, Not } from 'typeorm';
 import type { Library as LibraryEntity, Transfer as TransferEntity } from '@/entities';
 import {
 	LibraryRepository,
@@ -192,6 +193,7 @@ export class TransferManager implements OnApplicationBootstrap {
 		limit?: number;
 		state?: TransferState;
 		view?: HistoryView;
+		sort?: TransferSort;
 	}): Promise<ResultList<Transfer>> {
 		const { page, limit } = pageBounds(query.page, query.limit);
 		const [transfers, total] = await this._transfers.pageOf({
@@ -199,6 +201,7 @@ export class TransferManager implements OnApplicationBootstrap {
 			limit,
 			state: query.state,
 			view: query.view,
+			sort: query.sort,
 		});
 
 		return paginate(await this._present(transfers), total, page, limit);
@@ -259,6 +262,50 @@ export class TransferManager implements OnApplicationBootstrap {
 		await this._engine.pause(transfer.id);
 
 		return this.read(id);
+	}
+
+	/**
+	 * Stop everything that is moving, in one act.
+	 *
+	 * Pausing a queue row by row is not the same thing and cannot be: by the time the
+	 * fourth is paused the engine has started a fifth, so the list somebody is trying
+	 * to stop keeps refilling under their hand. The reason people reach for this is
+	 * that the disk is filling or the link is needed for something else, and both are
+	 * answered by "stop now", not by "stop these six".
+	 *
+	 * Queued rows are paused too, and that is the point rather than a detail: one left
+	 * queued starts the moment a slot frees, which is exactly what pressing pause is
+	 * trying to prevent.
+	 *
+	 * Answers how many it stopped. A failure on one is logged and the rest go on — the
+	 * intent is to stop everything that can be stopped, and refusing the lot because of
+	 * one row would leave somebody with a queue still running and an error about a
+	 * transfer they had not noticed.
+	 */
+	public async pauseAll(): Promise<number> {
+		// Everything not already over, which is the same set `_requireLive` guards one row
+		// with. A queued transfer counts: left alone it starts the moment a slot frees.
+		const live = await this._transfers.find({ where: { state: Not(In(FINISHED)) } });
+		let stopped = 0;
+
+		for (const transfer of live) {
+			if (transfer.state === TransferState.PAUSED) {
+				continue;
+			}
+
+			try {
+				await this._engine.pause(transfer.id);
+				stopped += 1;
+			} catch (error: unknown) {
+				this._logger.warn(`Could not pause ${transfer.title}: ${String(error)}`);
+			}
+		}
+
+		if (stopped > 0) {
+			this._logger.log(`Paused ${stopped} transfers at once`);
+		}
+
+		return stopped;
 	}
 
 	public async resume(id: string): Promise<Transfer> {

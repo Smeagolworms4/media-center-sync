@@ -828,7 +828,8 @@
 				"not_writable": "dieses Gateway kann nicht in seinen Ordner schreiben"
 			},
 			"fixed_path_active": "Derzeit geht alles nach {path}, ganz gleich was es ist — eine alte Einstellung, die diese ganze Seite übergeht. Nichts von oben gilt, solange sie nicht gelöscht ist.",
-			"fixed_path_clear": "Stattdessen die Regel oben verwenden"
+			"fixed_path_clear": "Stattdessen die Regel oben verwenden",
+			"folder": "Ordner darin"
 		},
 		"public_url": "Öffentliche Adresse",
 		"public_url_help": "Wie Freunde dieses Gateway von außen erreichen — nur die Adresse, etwa https://mcs.example.org. Sie ist das, was eine Einladung, ein Freigabelink und eine Ankündigung mit sich tragen; ohne sie nennt eine Einladung dieses Gateway, ohne jemandem einen Weg dorthin zu geben.",
@@ -1242,7 +1243,21 @@
 			}
 		},
 		"going_to": "Ziel: {library}",
-		"going_to_folder": "Ziel: {path}"
+		"going_to_folder": "Ziel: {path}",
+		"pause_all": "Alles pausieren",
+		"paused_all": "Alle Übertragungen sind pausiert.",
+		"sort": {
+			"label": "Sortierung",
+			"activity": "Aktive zuerst",
+			"newest": "Neueste",
+			"oldest": "Älteste",
+			"largest": "Größte",
+			"title": "Titel"
+		},
+		"batch": {
+			"files": "{done} von {total} Dateien",
+			"into": "Nach"
+		}
 	},
 	"pages": {
 		"dashboard": "Übersicht",

@@ -4,6 +4,7 @@ import type { TransferQueueStats } from '@mcs/shared';
 import {
 	FINISHED_TRANSFER_STATES,
 	HistoryView,
+	TransferSort,
 	TransferState,
 	UNCONFIGURED_PLACEMENTS,
 } from '@mcs/shared';
@@ -222,6 +223,7 @@ export class TransferRepository extends Repository<Transfer> {
 		limit: number;
 		state?: TransferState;
 		view?: HistoryView;
+		sort?: TransferSort;
 	}): Promise<[Transfer[], number]> {
 		const allowed = statesInView(options.view, options.state);
 
@@ -229,11 +231,61 @@ export class TransferRepository extends Repository<Transfer> {
 			return Promise.resolve([[], 0]);
 		}
 
-		return this.findAndCount({
-			where: allowed === null ? {} : { state: In(allowed) },
-			order: { createdAt: 'DESC' },
-			skip: (options.page - 1) * options.limit,
-			take: options.limit,
-		});
+		const query = this.createQueryBuilder('transfer')
+			.skip((options.page - 1) * options.limit)
+			.take(options.limit);
+
+		if (allowed !== null) {
+			query.where('transfer.state IN (:...allowed)', { allowed });
+		}
+
+		/*
+		 * What is moving, first — because that is the half somebody came to look at.
+		 *
+		 * Newest first put a queue of eighty behind whatever finished a minute ago, so
+		 * the rows being watched were on page two. The `CASE` is rendered by both
+		 * engines and is the only portable way to rank by a set of values; ordering on
+		 * the state column itself would sort alphabetically, which means `cancelled`
+		 * before `downloading`.
+		 *
+		 * The other orders exist because this one is a default and not a law: somebody
+		 * looking for what a run did last night wants it by date, and somebody clearing
+		 * a disk wants it by size.
+		 */
+		const live = 'CASE WHEN transfer.state IN (:...live) THEN 0 ELSE 1 END';
+
+		switch (options.sort ?? TransferSort.ACTIVITY) {
+			case TransferSort.OLDEST: {
+				query.orderBy('transfer.createdAt', 'ASC');
+
+				break;
+			}
+
+			case TransferSort.LARGEST: {
+				query.orderBy('transfer.bytesTotal', 'DESC');
+
+				break;
+			}
+
+			case TransferSort.TITLE: {
+				query.orderBy('transfer.title', 'ASC');
+
+				break;
+			}
+
+			case TransferSort.NEWEST: {
+				query.orderBy('transfer.createdAt', 'DESC');
+
+				break;
+			}
+
+			default: {
+				query.setParameter('live', LIVE_STATES)
+					.orderBy(live, 'ASC')
+					.addOrderBy('transfer.createdAt', 'DESC');
+			}
+		}
+
+		return query.getManyAndCount();
 	}
 }

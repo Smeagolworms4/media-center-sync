@@ -79,6 +79,7 @@ import {
 	applyCeilings,
 	derivedLocalRoots,
 	editionOf,
+	episodeLabel,
 	needsAcknowledgement,
 	refusesRun,
 	sameContent,
@@ -1483,7 +1484,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			items.push({
 				itemId: entry.item.id,
 				localItemId: entry.local?.id ?? null,
-				title: entry.item.title,
+				title: episodeLabel(nameable),
 				kind: entry.item.kind,
 				sourceServiceId: entry.item.serviceId,
 				sourceServiceName: services.get(entry.item.serviceId) ?? '',

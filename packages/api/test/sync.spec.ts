@@ -140,7 +140,10 @@ describe('Syncing', () => {
 		expect(preview.itemsPlanned).toBe(1);
 		expect(preview.bytesPlanned).toBe(4096);
 		expect(preview.items[0]).toMatchObject({
-			title: 'The Hunt',
+			// The coordinates with the episode's own name: a queue of forty rows reading
+			// `The Hunt`, `Monstres`, `Mors Indecepta` says nothing about which show or
+			// which season any of them belongs to.
+			title: 'S01E03 — The Hunt',
 			kind: MediaKind.EPISODE,
 			sourceServiceId: remoteServiceId,
 			sourceServiceName: 'A friend',
@@ -477,7 +480,7 @@ describe('Syncing', () => {
 			expect(page.pagination).toMatchObject({ page: 1, limit: 10, total: 1 });
 			expect(page.items[0]).toMatchObject({
 				itemId: episodeId,
-				title: 'The Hunt',
+				title: 'S01E03 — The Hunt',
 				bytes: 4096,
 				jobId: job.id,
 			});

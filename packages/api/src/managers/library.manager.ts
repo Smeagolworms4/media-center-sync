@@ -120,7 +120,43 @@ export class LibraryManager {
 		// directories rather than the one the scan happens to translate paths with.
 		const services = new Map((await this._services.find()).map((one) => [one.id, one]));
 
-		return libraries.map((library) => toLibrary(library, services.get(library.serviceId)));
+		return Promise.all(
+			libraries.map(async (library) => {
+				const mapped = toLibrary(library, services.get(library.serviceId));
+
+				return { ...mapped, localRoots: await this._reachableRoots(mapped.localRoots ?? []) };
+			}),
+		);
+	}
+
+	/**
+	 * Of the roots a mapping produces, the ones that are actually there.
+	 *
+	 * A mapping rewrites a prefix — `/media` becomes `/share` — and says nothing about
+	 * whether the result exists. A library declaring `/media/FilmsHD2` on a server whose
+	 * second disk is mounted somewhere else entirely yields `/share/FilmsHD2`, a
+	 * perfectly well-formed path with nothing behind it. Offering it as a destination is
+	 * offering a folder no file will ever reach, and the failure would be silent.
+	 *
+	 * Writable and not merely present, for the same reason every other destination check
+	 * is: a directory this gateway can read and not write into accepts a transfer it
+	 * cannot finish.
+	 *
+	 * A handful of `access` calls per library, which is what it costs to answer with
+	 * directories rather than with strings.
+	 */
+	private async _reachableRoots(roots: readonly string[]): Promise<string[]> {
+		const reachable: string[] = [];
+
+		for (const root of roots) {
+			const probe = await this.probe(root);
+
+			if (probe.exists && probe.writable) {
+				reachable.push(root);
+			}
+		}
+
+		return reachable;
 	}
 
 	public async read(id: string): Promise<Library> {

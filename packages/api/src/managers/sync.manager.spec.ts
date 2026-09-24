@@ -1445,7 +1445,8 @@ describe('SyncManager', () => {
 
 			expect(rows).toHaveLength(1);
 			expect(rows[0]).toMatchObject({
-				title: 'The Trap',
+				// The coordinates with the episode's own name — see `episodeLabel`.
+				title: 'S01E03 — The Trap',
 				state: SyncJobItemState.PENDING,
 				bytes: 2_000_000,
 				// Null until something is actually moving it: a queued line has no bytes

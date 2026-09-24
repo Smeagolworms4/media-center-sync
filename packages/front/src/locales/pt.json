@@ -828,7 +828,8 @@
 				"not_writable": "este gateway não consegue escrever na sua pasta"
 			},
 			"fixed_path_active": "Neste momento tudo vai para {path}, seja o que for — uma definição antiga que se sobrepõe a toda esta página. Nada do que está acima se aplica enquanto não for limpa.",
-			"fixed_path_clear": "Usar a regra acima"
+			"fixed_path_clear": "Usar a regra acima",
+			"folder": "Pasta dentro"
 		},
 		"public_url": "Endereço público",
 		"public_url_help": "Por onde os seus amigos chegam a este gateway a partir do exterior — apenas o endereço, por exemplo https://mcs.example.org. É o que uma convite, uma ligação de partilha e um anúncio transportam; sem ele, um convite nomeia este gateway sem dar a ninguém forma de lhe chegar.",
@@ -1242,7 +1243,21 @@
 			}
 		},
 		"going_to": "Destino: {library}",
-		"going_to_folder": "Destino: {path}"
+		"going_to_folder": "Destino: {path}",
+		"pause_all": "Pausar tudo",
+		"paused_all": "Todas as transferências estão em pausa.",
+		"sort": {
+			"label": "Ordem",
+			"activity": "Ativas primeiro",
+			"newest": "Mais recentes",
+			"oldest": "Mais antigas",
+			"largest": "Maiores",
+			"title": "Título"
+		},
+		"batch": {
+			"files": "{done} de {total} ficheiros",
+			"into": "Para"
+		}
 	},
 	"pages": {
 		"dashboard": "Painel",

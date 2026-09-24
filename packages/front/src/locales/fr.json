@@ -828,7 +828,8 @@
 				"not_writable": "cette passerelle ne peut pas écrire dans son dossier"
 			},
 			"fixed_path_active": "Tout part actuellement dans {path}, quoi que ce soit — un ancien réglage qui prime sur toute cette page. Rien de ce qui précède ne s’applique tant qu’il n’est pas effacé.",
-			"fixed_path_clear": "Utiliser la règle ci-dessus"
+			"fixed_path_clear": "Utiliser la règle ci-dessus",
+			"folder": "Dossier dedans"
 		},
 		"public_url": "Adresse publique",
 		"public_url_help": "Par où vos amis joignent cette passerelle depuis l'extérieur — l'adresse seule, par exemple https://mcs.example.org. C'est ce que transportent une invitation, un lien de partage et une annonce ; sans elle, une invitation nomme cette passerelle sans donner à personne le moyen de l'atteindre.",
@@ -1242,7 +1243,21 @@
 			}
 		},
 		"going_to": "Destination : {library}",
-		"going_to_folder": "Destination : {path}"
+		"going_to_folder": "Destination : {path}",
+		"pause_all": "Tout mettre en pause",
+		"paused_all": "Tous les transferts sont en pause.",
+		"sort": {
+			"label": "Tri",
+			"activity": "En cours d’abord",
+			"newest": "Plus récents",
+			"oldest": "Plus anciens",
+			"largest": "Plus gros",
+			"title": "Titre"
+		},
+		"batch": {
+			"files": "{done} fichiers sur {total}",
+			"into": "Dans"
+		}
 	},
 	"pages": {
 		"dashboard": "Tableau de bord",

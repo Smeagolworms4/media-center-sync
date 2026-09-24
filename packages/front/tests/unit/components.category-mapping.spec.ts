@@ -59,8 +59,22 @@ function keyword (overrides: Partial<CategoryKeyword> = {}): CategoryKeyword {
 }
 
 const DESTINATIONS = [
-	{ id: 'l1', name: 'Shows', serviceName: 'Jellyfin (mine)', path: '/media/shows' },
-	{ id: 'l2', name: 'Movies', serviceName: 'Plex (mine)', path: '/media/movies' },
+	// Two roots on the first, because a library is not one folder and the folder field
+	// exists for exactly that.
+	{
+		id: 'l1',
+		name: 'Shows',
+		serviceName: 'Jellyfin (mine)',
+		path: '/media/shows',
+		roots: ['/media/shows', '/media/shows2'],
+	},
+	{
+		id: 'l2',
+		name: 'Movies',
+		serviceName: 'Plex (mine)',
+		path: '/media/movies',
+		roots: ['/media/movies'],
+	},
 ];
 
 /** The owner's gateway, shortened: two of his, two of somebody else's. */
@@ -436,7 +450,7 @@ describe('components/settings/CategoryMapping', () => {
 		it('names the library a configured category sends its media to', () => {
 			// Pointed deliberately at the library of the other category, so the name on
 			// screen can only have come from the answer and not from the row's heading.
-			const { wrapper } = mapping({ modelValue: { shows: 'l2' } });
+			const { wrapper } = mapping({ modelValue: { shows: '/media/movies' } });
 			const row = wrapper.find('[data-category="shows"]');
 
 			expect(row.attributes('data-configured')).toBe('true');
@@ -467,9 +481,11 @@ describe('components/settings/CategoryMapping', () => {
 			const items = destinationSelect(wrapper, 'shows').props('items') as
 				{ value: string; subtitle: string }[];
 
+			// The folder is the answer and the title, because a library is not one folder
+			// and a select renders only the title once something is chosen.
 			expect(items.map(one => one.value)).toEqual(['l1']);
-			// The path with it, because that is what the answer means: two libraries of
-			// one service can carry the same name.
+			// The path with it, because two libraries of one service can carry the same
+			// name and the folder is what somebody recognises from their own disk.
 			expect(items[0].subtitle).toContain('Jellyfin (mine)');
 		});
 
@@ -514,24 +530,42 @@ describe('components/settings/CategoryMapping', () => {
 			expect(refused?.props?.disabled).toBe(true);
 		});
 
-		it('puts a chosen library into the map under its category key', async () => {
-			const { wrapper } = mapping({ modelValue: { shows: 'l1' } });
+		it('stores the shelf’s own folder, not the shelf', async () => {
+			/*
+			 * What the placement reads is a directory. Storing the library alone would
+			 * put the file in whichever of its roots came first — which is precisely what
+			 * nobody could see and nobody could change.
+			 */
+			const { wrapper } = mapping({ modelValue: { shows: '/media/shows' } });
 
 			destinationSelect(wrapper, 'movies').vm.$emit('update:modelValue', 'l2');
 			await nextTick();
 
 			// Replaced rather than mutated, and the categories already answered are kept.
 			expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0])
-				.toEqual({ shows: 'l1', movies: 'l2' });
+				.toEqual({ shows: '/media/shows', movies: '/media/movies' });
+		});
+
+		it('takes a folder inside the shelf, which is the point of having roots', async () => {
+			const { wrapper } = mapping({ modelValue: { shows: '/media/shows' } });
+
+			const field = wrapper.findAllComponents({ name: 'VTextField' })
+				.find(one => one.attributes('data-test') === 'category-folder-shows');
+
+			field?.vm.$emit('update:modelValue', '/media/shows2');
+			await nextTick();
+
+			expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0])
+				.toEqual({ shows: '/media/shows2' });
 		});
 
 		it('drops the key when a category is cleared, rather than storing an empty answer', async () => {
-			const { wrapper } = mapping({ modelValue: { shows: 'l1', movies: 'l2' } });
+			const { wrapper } = mapping({ modelValue: { shows: '/media/shows', movies: '/media/movies' } });
 
 			destinationSelect(wrapper, 'shows').vm.$emit('update:modelValue', null);
 			await nextTick();
 
-			expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ movies: 'l2' });
+			expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual({ movies: '/media/movies' });
 		});
 
 		it('says what choosing a destination will do — once, for the whole screen', () => {

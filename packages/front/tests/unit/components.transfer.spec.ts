@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import ChunkMap from '@/components/transfer/ChunkMap.vue';
 import RevalidationList from '@/components/transfer/RevalidationList.vue';
 import TransferActions from '@/components/transfer/TransferActions.vue';
+import TransferBatch from '@/components/transfer/TransferBatch.vue';
 import TransferDestination from '@/components/transfer/TransferDestination.vue';
 import TransferSources from '@/components/transfer/TransferSources.vue';
 import UnconfiguredPlacements from '@/components/transfer/UnconfiguredPlacements.vue';
@@ -483,5 +484,112 @@ describe('components/TransferDestination', () => {
 		const { wrapper } = mountWithApp(TransferDestination, { props: { destinations: [] } });
 
 		expect(wrapper.find('[data-test="transfer-destination-none"]').exists()).toBe(true);
+	});
+});
+
+describe('components/transfer/TransferBatch', () => {
+	/*
+	 * Fetching a season produced eleven rows in the queue, each with its own
+	 * destination, its own progress bar and its own three buttons — so "how far is
+	 * Spartacus" was eleven numbers to add up and stopping it was eleven clicks. One
+	 * run is one piece of work; the files are its detail.
+	 */
+	const progress = (one: Transfer) => ({
+		id: one.id,
+		state: one.state,
+		bytesDone: one.bytesDone,
+		bytesTotal: one.bytesTotal,
+		rate: one.rate,
+		etaSeconds: null,
+		chunksDone: 0,
+		chunksTotal: 0,
+		sourceCount: 1,
+	});
+
+	const season = (): Transfer[] => [
+		transfer({
+			id: 't1',
+			jobId: 'job-1',
+			title: 'Spartacus — S02E09 — Monstres',
+			targetPath: '/share/SeriesTV/Spartacus (2012)/Season 02/S02E09.mkv',
+			bytesDone: 500,
+			bytesTotal: 1000,
+		}),
+		transfer({
+			id: 't2',
+			jobId: 'job-1',
+			title: 'Spartacus — S02E10 — Mors Indecepta',
+			targetPath: '/share/SeriesTV/Spartacus (2012)/Season 02/S02E10.mkv',
+			bytesDone: 500,
+			bytesTotal: 1000,
+		}),
+	];
+
+	it('adds the files up into one percentage and one size', () => {
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers: season(), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-progress"]').attributes('aria-valuenow'))
+			.toBe('50');
+		expect(wrapper.find('[data-test="transfer-batch"]').text()).toContain('2');
+	});
+
+	it('names the folder the whole run shares, once', () => {
+		// Eleven lines saying the same folder are eleven lines nobody reads.
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers: season(), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-path"]').text())
+			.toBe('/share/SeriesTV/Spartacus (2012)/Season 02');
+	});
+
+	it('compares folders by whole components, not by letters', () => {
+		// A prefix on the raw strings would call `/share/Media2` a parent of
+		// `/share/Media`, which is how a run reports a folder it is not going to.
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: {
+				transfers: [
+					transfer({ id: 't1', jobId: 'j', targetPath: '/share/Media/a.mkv' }),
+					transfer({ id: 't2', jobId: 'j', targetPath: '/share/Media2/b.mkv' }),
+				],
+				progress,
+			},
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-path"]').text()).toBe('/share');
+	});
+
+	it('keeps the files out of sight until somebody asks for them', () => {
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers: season(), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.findAllComponents({ name: 'TransferRow' })).toHaveLength(0);
+	});
+
+	it('acts on every file the action still makes sense for', async () => {
+		/*
+		 * A finished file is skipped rather than refused: pressing pause on a season
+		 * that is half done means "stop the rest", and an error about the four that
+		 * already landed answers a question nobody asked.
+		 */
+		const transfers = [
+			...season(),
+			transfer({ id: 't3', jobId: 'job-1', state: TransferState.DONE }),
+		];
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers, progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-pause"]').trigger('click');
+
+		expect(wrapper.emitted('action')).toHaveLength(2);
 	});
 });

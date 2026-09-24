@@ -392,6 +392,24 @@ export interface UnconfiguredPlacement {
 }
 
 /** Sending a transfer somewhere else, before it lands or after. */
+/**
+ * How a queue is ordered, and `ACTIVITY` is the default for a reason.
+ *
+ * Newest first put a queue of eighty behind whatever finished a minute ago, so the rows
+ * somebody was watching were on page two. What is moving comes first; the rest is
+ * newest first underneath it.
+ *
+ * The others exist because that is a default and not a law: somebody looking for what a
+ * run did last night wants it by date, and somebody clearing a disk wants it by size.
+ */
+export enum TransferSort {
+	ACTIVITY = 'activity',
+	NEWEST = 'newest',
+	OLDEST = 'oldest',
+	LARGEST = 'largest',
+	TITLE = 'title',
+}
+
 export interface ChangeDestinationRequest {
 	/**
 	 * Which library receives it, and the answer is never a bare path.

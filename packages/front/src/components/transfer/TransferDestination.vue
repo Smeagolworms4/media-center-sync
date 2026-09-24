@@ -52,10 +52,19 @@
 	const rootOf = computed(
 		() => props.destinations.find(one => one.id === chosen.value)?.path ?? null);
 
-	// Cleared with the library, because a folder of the shelf somebody just left would
-	// be refused by the API and read as a bug here.
+	/*
+	 * Filled with where the gateway would put it, rather than left blank.
+	 *
+	 * The order is the one somebody actually works in: choose the shelf, see where that
+	 * lands the file, then change the folder if the answer is not the right one. A blank
+	 * box asks for a decision before showing what the default even is, and a placeholder
+	 * cannot be edited — so refining it meant typing the whole path from memory.
+	 *
+	 * Reset rather than kept, because a folder of the shelf somebody just left would be
+	 * refused by the API and read as a fault here.
+	 */
 	watch(chosen, () => {
-		folder.value = null;
+		folder.value = rootOf.value;
 	});
 
 	const items = computed(() => props.destinations.map(one => ({

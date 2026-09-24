@@ -828,7 +828,8 @@
 				"not_writable": "questo gateway non può scrivere nella sua cartella"
 			},
 			"fixed_path_active": "In questo momento tutto finisce in {path}, qualunque cosa sia: una vecchia impostazione che scavalca l'intera pagina. Niente di quanto sopra vale finché non viene cancellata.",
-			"fixed_path_clear": "Usa invece la regola qui sopra"
+			"fixed_path_clear": "Usa invece la regola qui sopra",
+			"folder": "Cartella al suo interno"
 		},
 		"public_url": "Indirizzo pubblico",
 		"public_url_help": "Come gli amici raggiungono questo gateway dall'esterno — solo l'indirizzo, ad esempio https://mcs.example.org. È ciò che portano con sé un invito, un collegamento di condivisione e un annuncio; senza di esso un invito nomina questo gateway senza dare a nessuno il modo di raggiungerlo.",
@@ -1242,7 +1243,21 @@
 			}
 		},
 		"going_to": "Destinazione: {library}",
-		"going_to_folder": "Destinazione: {path}"
+		"going_to_folder": "Destinazione: {path}",
+		"pause_all": "Metti tutto in pausa",
+		"paused_all": "Tutti i trasferimenti sono in pausa.",
+		"sort": {
+			"label": "Ordine",
+			"activity": "Prima gli attivi",
+			"newest": "Più recenti",
+			"oldest": "Più vecchi",
+			"largest": "Più grandi",
+			"title": "Titolo"
+		},
+		"batch": {
+			"files": "{done} file su {total}",
+			"into": "In"
+		}
 	},
 	"pages": {
 		"dashboard": "Dashboard",

@@ -828,7 +828,8 @@
 				"not_writable": "本网关无法写入它的文件夹"
 			},
 			"fixed_path_active": "目前所有内容都会进入 {path}，无论是什么——这是一项旧设置，会覆盖整个页面。在清除它之前，上面的规则都不生效。",
-			"fixed_path_clear": "改用上面的规则"
+			"fixed_path_clear": "改用上面的规则",
+			"folder": "其中的文件夹"
 		},
 		"public_url": "公开地址",
 		"public_url_help": "朋友从外部访问此网关的方式——只填地址，例如 https://mcs.example.org。邀请、分享链接和广播都携带它；没有它，邀请虽写明了这个网关，却没人知道该往哪里连。",
@@ -1242,7 +1243,21 @@
 			}
 		},
 		"going_to": "目标：{library}",
-		"going_to_folder": "目标：{path}"
+		"going_to_folder": "目标：{path}",
+		"pause_all": "全部暂停",
+		"paused_all": "所有传输均已暂停。",
+		"sort": {
+			"label": "排序",
+			"activity": "进行中优先",
+			"newest": "最新",
+			"oldest": "最早",
+			"largest": "最大",
+			"title": "标题"
+		},
+		"batch": {
+			"files": "{total} 个文件中的 {done} 个",
+			"into": "到"
+		}
 	},
 	"pages": {
 		"dashboard": "概览",

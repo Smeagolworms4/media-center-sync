@@ -7,6 +7,7 @@ import type {
 	TransferChunk,
 	TransferProgress,
 	TransferQueueStats,
+	TransferSort,
 	TransferState,
 	TransferVerification,
 	UnconfiguredPlacement,
@@ -32,6 +33,8 @@ export interface TransferQuery {
 	page?: number;
 	limit?: number;
 	state?: TransferState | null;
+	/** What is moving first, unless somebody asks otherwise. See `TransferSort`. */
+	sort?: TransferSort | null;
 	/**
 	 * Which half of the queue to ask for. Omitted means all of it.
 	 *
@@ -151,6 +154,9 @@ export const useTransfersStore = defineStore('transfers', () => {
 			if (query.view) {
 				params.set('view', query.view);
 			}
+			if (query.sort) {
+				params.set('sort', query.sort);
+			}
 			const serialized = params.toString();
 			const result = await caller('api').get<ResultList<Transfer>>(
 				`/transfers${serialized ? `?${serialized}` : ''}`,
@@ -198,6 +204,21 @@ export const useTransfersStore = defineStore('transfers', () => {
 	 * things needing attention that keeps showing what has been dealt with is one
 	 * people stop reading.
 	 */
+	/**
+	 * Stop everything that is moving, in one request.
+	 *
+	 * Not a loop over the rows on screen: the engine starts a new one as each is paused,
+	 * so a list somebody is trying to stop keeps refilling under their hand — and the
+	 * page may only be showing twenty of eighty. Answers how many were stopped.
+	 */
+	async function pauseAll (): Promise<number> {
+		const { paused } = await caller('api').post<{ paused: number }>('/transfers/pause', {});
+
+		await load(pagination.value ? { page: pagination.value.page } : {});
+
+		return paused;
+	}
+
 	async function setDestination (
 		id: string,
 		libraryId: string,
@@ -324,6 +345,7 @@ export const useTransfersStore = defineStore('transfers', () => {
 		load,
 		loadStats,
 		loadUnconfigured,
+		pauseAll,
 		setDestination,
 		get,
 		loadChunks,

@@ -33,6 +33,7 @@ import { TransferManager } from './transfer.manager';
 
 interface Fakes {
 	transfers: {
+		find: jest.Mock;
 		findOne: jest.Mock;
 		findAndCount: jest.Mock;
 		pageOf: jest.Mock;
@@ -107,6 +108,9 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 	const row = transfer({ state });
 	const fakes: Fakes = {
 		transfers: {
+			// Everything still moving, which is what a global pause asks for. Empty by
+		// default so no other test grows a queue it never mentioned.
+			find: jest.fn().mockResolvedValue([]),
 			findOne: jest.fn().mockResolvedValue(row),
 			findAndCount: jest.fn().mockResolvedValue([[row], 1]),
 			pageOf: jest.fn().mockResolvedValue([[row], 1]),
@@ -458,6 +462,51 @@ describe('TransferManager', () => {
 	 * would never offer the cheap one — which is the only one worth offering while a
 	 * forty-gigabyte season is still downloading.
 	 */
+	describe('stopping everything at once', () => {
+		/*
+		 * Pausing a queue row by row cannot work: by the time the fourth is paused the
+		 * engine has started a fifth, so the list somebody is trying to stop keeps
+		 * refilling under their hand. People reach for this because the disk is filling
+		 * or the link is needed, and both are answered by "stop now".
+		 */
+		it('pauses everything that is not already over, queued rows included', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.transfers.find.mockResolvedValue([
+				transfer({ id: 't-1', state: TransferState.DOWNLOADING }),
+				transfer({ id: 't-2', state: TransferState.QUEUED }),
+			]);
+
+			expect(await manager.pauseAll()).toBe(2);
+			expect(fakes.engine.pause).toHaveBeenCalledWith('t-1');
+			expect(fakes.engine.pause).toHaveBeenCalledWith('t-2');
+		});
+
+		it('leaves one that is already paused alone', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.transfers.find.mockResolvedValue([transfer({ id: 't-1', state: TransferState.PAUSED })]);
+
+			expect(await manager.pauseAll()).toBe(0);
+			expect(fakes.engine.pause).not.toHaveBeenCalled();
+		});
+
+		it('goes on past one it could not stop', async () => {
+			// The intent is to stop everything that can be stopped; refusing the lot over
+			// one row would leave a queue still running and an error about a transfer
+			// nobody had noticed.
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			fakes.transfers.find.mockResolvedValue([
+				transfer({ id: 't-1', state: TransferState.DOWNLOADING }),
+				transfer({ id: 't-2', state: TransferState.DOWNLOADING }),
+			]);
+			fakes.engine.pause.mockRejectedValueOnce(new Error('busy'));
+
+			expect(await manager.pauseAll()).toBe(1);
+		});
+	});
+
 	describe('changing the destination', () => {
 		it('only rewrites the path while the file is still downloading', async () => {
 			const { manager, fakes } = build(TransferState.DOWNLOADING);

@@ -828,7 +828,8 @@
 				"not_writable": "esta pasarela no puede escribir en su carpeta"
 			},
 			"fixed_path_active": "Ahora mismo todo va a {path}, sea lo que sea: un ajuste antiguo que manda por encima de toda esta página. Nada de lo anterior se aplica hasta que se borre.",
-			"fixed_path_clear": "Usar la regla de arriba"
+			"fixed_path_clear": "Usar la regla de arriba",
+			"folder": "Carpeta dentro"
 		},
 		"public_url": "Dirección pública",
 		"public_url_help": "Por dónde llegan tus amigos a esta pasarela desde fuera — solo la dirección, por ejemplo https://mcs.example.org. Es lo que llevan una invitación, un enlace de compartición y un anuncio; sin ella, una invitación nombra esta pasarela sin dar a nadie la forma de alcanzarla.",
@@ -1242,7 +1243,21 @@
 			}
 		},
 		"going_to": "Destino: {library}",
-		"going_to_folder": "Destino: {path}"
+		"going_to_folder": "Destino: {path}",
+		"pause_all": "Pausar todo",
+		"paused_all": "Todas las transferencias están en pausa.",
+		"sort": {
+			"label": "Orden",
+			"activity": "Activas primero",
+			"newest": "Más recientes",
+			"oldest": "Más antiguas",
+			"largest": "Más grandes",
+			"title": "Título"
+		},
+		"batch": {
+			"files": "{done} de {total} archivos",
+			"into": "En"
+		}
 	},
 	"pages": {
 		"dashboard": "Panel",

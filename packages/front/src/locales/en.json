@@ -828,7 +828,8 @@
 				"not_writable": "this gateway cannot write into its folder"
 			},
 			"fixed_path_active": "Everything is currently going to {path}, whatever it is — an older setting that overrules everything on this page. Nothing above applies until it is cleared.",
-			"fixed_path_clear": "Use the rule above"
+			"fixed_path_clear": "Use the rule above",
+			"folder": "Folder in it"
 		},
 		"public_url": "Public address",
 		"public_url_help": "How friends reach this gateway from outside — the address only, such as https://mcs.example.org. It is what an invitation, a share link and an announce carry; without it an invitation names this gateway and gives nobody a way to reach it.",
@@ -1242,7 +1243,21 @@
 			}
 		},
 		"going_to": "Going to {library}",
-		"going_to_folder": "Going to {path}"
+		"going_to_folder": "Going to {path}",
+		"pause_all": "Pause everything",
+		"paused_all": "Every transfer is paused.",
+		"sort": {
+			"label": "Order",
+			"activity": "Active first",
+			"newest": "Newest",
+			"oldest": "Oldest",
+			"largest": "Largest",
+			"title": "Title"
+		},
+		"batch": {
+			"files": "{done} of {total} files",
+			"into": "Into"
+		}
 	},
 	"pages": {
 		"dashboard": "Dashboard",
