@@ -1768,12 +1768,18 @@ describe('pages/Settings', () => {
 		expect(row.find('[data-test="category-target-fallback"]').text()).toContain('Movies');
 	});
 
-	it('never offers a library it cannot write into, and says why where it is chosen', async () => {
-		// Choosing one would queue transfers onto a disk this gateway cannot write to,
-		// and nothing anywhere would report it. It stays in the menu, unselectable, with
-		// the reason: a name that simply vanishes sends somebody hunting for a fault in
-		// the wrong place — and this reason, unlike a friend's server, is a mistake
-		// somebody can go and correct.
+	it('never offers a library it cannot write into', async () => {
+		/*
+		 * Choosing one would queue transfers onto a disk this gateway cannot write to,
+		 * and nothing anywhere would report it.
+		 *
+		 * It used to stay in the per-category menu, disabled, with the reason — on the
+		 * reasoning that a vanishing name sends somebody hunting for a fault. The owner
+		 * read it as an offer and said so: a file cannot be fetched into a library this
+		 * gateway cannot write to, so the line answered a question that control does not
+		 * ask. The default-library field above still names its refusals, because that one
+		 * is about the gateway as a whole.
+		 */
 		const { wrapper } = await openSettings();
 		const select = wrapper
 			.findComponent({ name: 'DestinationLibraryField' })
@@ -1784,14 +1790,9 @@ describe('pages/Settings', () => {
 		const perCategory = wrapper
 			.findAllComponents({ name: 'VSelect' })
 			.find(one => one.attributes('data-test') === 'category-target-movies');
-		const refused = (perCategory?.props('items') as {
-			title: string;
-			subtitle: string;
-			props?: { disabled?: boolean };
-		}[]).find(one => one.title === 'Movies on the other disk');
 
-		expect(refused?.props?.disabled).toBe(true);
-		expect(refused?.subtitle).toContain('cannot write into its folder');
+		expect((perCategory?.props('items') as { title: string }[])
+			.some(one => one.title === 'Movies on the other disk')).toBe(false);
 	});
 
 	it('offers the browser’s own origin when no public address has been set', async () => {

@@ -447,14 +447,16 @@ describe('components/settings/CategoryMapping', () => {
 				.toBe(true);
 		});
 
-		it('names the library a configured category sends its media to', () => {
-			// Pointed deliberately at the library of the other category, so the name on
+		it('names the folder a configured category sends its media to', () => {
+			// Pointed deliberately at the folder of the other category, so what is on
 			// screen can only have come from the answer and not from the row's heading.
 			const { wrapper } = mapping({ modelValue: { shows: '/media/movies' } });
 			const row = wrapper.find('[data-category="shows"]');
 
 			expect(row.attributes('data-configured')).toBe('true');
-			expect(row.find('.v-select__selection').text()).toBe('Movies');
+			// The path and not a library name: a library is not a place — `Series TV` is
+			// five folders on five disks — so a name leaves the question unanswered.
+			expect(row.find('.v-select__selection').text()).toBe('/media/movies');
 			// And it stops offering the fallback, because it no longer falls back.
 			expect(row.find('[data-test="category-target-fallback"]').exists()).toBe(false);
 		});
@@ -469,23 +471,25 @@ describe('components/settings/CategoryMapping', () => {
 			expect(row.find('[data-test="category-target-fallback"]').text()).toContain('Movies');
 		});
 
-		it('offers this category’s own folders and nothing else', () => {
+		it('offers one line per root folder of this category, and nothing else', () => {
 			/*
-			 * The menu used to be every writable library on the gateway, in whatever
-			 * order they arrived, for every row — so the line for `Shows` offered
-			 * `Movies`. A menu that ignores the line it sits on reads as meaningless,
-			 * and nobody wants a category filed into a different category: a shelf named
-			 * `Animes` exists precisely so that what belongs there goes there.
+			 * A library is not a place. `Shows` is two directories on two disks here, and
+			 * offering the library named the shelf while leaving the actual question
+			 * unasked — the gateway then answered it by taking whichever root came first,
+			 * which is exactly what nobody could see and nobody could change.
+			 *
+			 * The menu used to be every writable library on the gateway besides, in
+			 * arrival order, for every row — so the line for `Shows` offered `Movies`. A
+			 * menu that ignores the line it sits on is meaningless.
 			 */
 			const { wrapper } = mapping();
 			const items = destinationSelect(wrapper, 'shows').props('items') as
-				{ value: string; subtitle: string }[];
+				{ value: string; title: string; subtitle: string }[];
 
-			// The folder is the answer and the title, because a library is not one folder
-			// and a select renders only the title once something is chosen.
-			expect(items.map(one => one.value)).toEqual(['l1']);
-			// The path with it, because two libraries of one service can carry the same
-			// name and the folder is what somebody recognises from their own disk.
+			expect(items.map(one => one.value)).toEqual(['/media/shows', '/media/shows2']);
+			// The path is the title. A select renders only the title once something is
+			// chosen, and two roots of one library carry the same name.
+			expect(items.map(one => one.title)).toEqual(['/media/shows', '/media/shows2']);
 			expect(items[0].subtitle).toContain('Jellyfin (mine)');
 		});
 
@@ -493,24 +497,27 @@ describe('components/settings/CategoryMapping', () => {
 			// Narrowing the list without this would hide a setting that is still in
 			// force: the select would render blank and the screen would say "nothing
 			// chosen" about a category that does have a destination.
-			const { wrapper } = mapping({ modelValue: { shows: 'l2' } });
+			const { wrapper } = mapping({ modelValue: { shows: '/media/movies' } });
 			const items = destinationSelect(wrapper, 'shows').props('items') as
 				{ value: string }[];
 
 			// The order is the menu's own — the category's folders, then whatever else was
 			// already chosen — so it is asserted rather than sorted away.
-			expect(items.map(one => one.value)).toEqual(['l1', 'l2']);
+			expect(items.map(one => one.value))
+				.toEqual(['/media/shows', '/media/shows2', '/media/movies']);
 		});
 
-		it('keeps a library it cannot offer in the menu, unselectable, with the reason', () => {
-			// Dropping the name sends somebody hunting for a fault in the wrong place: the
-			// library is there, it simply cannot be written into. Shown in the menu, which
-			// is the one moment they are looking for it — and not under every row, which
-			// is what made the old table unreadable.
+		/**
+		 * A library on somebody else's machine is not an offer, whatever the styling.
+		 *
+		 * It used to sit in the menu, disabled, with the reason — on the reasoning that a
+		 * missing name sends somebody hunting for a fault. The owner read it as an offer
+		 * and said so plainly: a file cannot be fetched into a library this gateway
+		 * cannot write to, so the line answers a question this control does not ask. Why
+		 * a library is unreachable belongs on the libraries screen, where it can be fixed.
+		 */
+		it('never lists a library this gateway cannot write into', () => {
 			const { wrapper } = mapping({
-				// Of this category, since the menu is now the category's own folders: a
-				// library of some other shelf has no business on this line whether it is
-				// writable or not.
 				categories: [
 					category({ libraryIds: ['l1', 'l3'] }),
 					category({ key: 'movies', name: 'Movies', kind: LibraryKind.MOVIES, libraryIds: ['l2'] }),
@@ -518,27 +525,21 @@ describe('components/settings/CategoryMapping', () => {
 				rejected: [{ id: 'l3', name: 'Séries', serviceName: 'Lab (a friend)', reason: 'not_ours' }],
 			});
 			const items = destinationSelect(wrapper, 'shows').props('items') as
-				{ value: string; title: string; subtitle: string; props?: { disabled?: boolean } }[];
+				{ value: string; title: string }[];
 
-			const refused = items.find(one => one.value === 'l3');
-
-			expect(refused?.title).toBe('Séries');
-			expect(refused?.subtitle).toContain('Lab (a friend)');
-			expect(refused?.subtitle).toContain('does not reach');
-			// Unselectable: choosing it would queue transfers onto a disk this gateway
-			// cannot write to, and nothing anywhere would report it.
-			expect(refused?.props?.disabled).toBe(true);
+			expect(items.some(one => one.title === 'Séries')).toBe(false);
+			expect(items.map(one => one.value)).toEqual(['/media/shows', '/media/shows2']);
 		});
 
-		it('stores the shelf’s own folder, not the shelf', async () => {
+		it('stores the folder that was chosen, exactly as chosen', async () => {
 			/*
-			 * What the placement reads is a directory. Storing the library alone would
-			 * put the file in whichever of its roots came first — which is precisely what
+			 * What the placement reads is a directory. Storing a library instead would put
+			 * the file in whichever of its roots came first — which is precisely what
 			 * nobody could see and nobody could change.
 			 */
 			const { wrapper } = mapping({ modelValue: { shows: '/media/shows' } });
 
-			destinationSelect(wrapper, 'movies').vm.$emit('update:modelValue', 'l2');
+			destinationSelect(wrapper, 'movies').vm.$emit('update:modelValue', '/media/movies');
 			await nextTick();
 
 			// Replaced rather than mutated, and the categories already answered are kept.
@@ -546,17 +547,26 @@ describe('components/settings/CategoryMapping', () => {
 				.toEqual({ shows: '/media/shows', movies: '/media/movies' });
 		});
 
-		it('takes a folder inside the shelf, which is the point of having roots', async () => {
+		it('takes the second root of a shelf, which is the point of listing them', async () => {
 			const { wrapper } = mapping({ modelValue: { shows: '/media/shows' } });
 
-			const field = wrapper.findAllComponents({ name: 'VTextField' })
-				.find(one => one.attributes('data-test') === 'category-folder-shows');
-
-			field?.vm.$emit('update:modelValue', '/media/shows2');
+			destinationSelect(wrapper, 'shows').vm.$emit('update:modelValue', '/media/shows2');
 			await nextTick();
 
 			expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0])
 				.toEqual({ shows: '/media/shows2' });
+		});
+
+		it('has no second field under the select', async () => {
+			// The shelf, then a folder inside it, was two controls for one answer — and
+			// the folder box opened prefilled with a path nobody had typed, which reads
+			// as a decision somebody made.
+			const { wrapper } = mapping({ modelValue: { shows: '/media/shows' } });
+
+			await nextTick();
+
+			expect(wrapper.findAllComponents({ name: 'VTextField' })
+				.some(one => one.attributes('data-test') === 'category-folder-shows')).toBe(false);
 		});
 
 		it('drops the key when a category is cleared, rather than storing an empty answer', async () => {

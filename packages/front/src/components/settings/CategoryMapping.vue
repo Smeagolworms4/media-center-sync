@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { DestinationLibrary, RejectedLibrary } from '@/composables/useDestinationLibraries';
+	import type { DestinationLibrary } from '@/composables/useDestinationLibraries';
 	import type { CategoryKeyword, MediaCategory } from '@mcs/shared';
 	import { computed, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
@@ -63,22 +63,11 @@
 		keywords: CategoryKeyword[];
 		/** Libraries a pull can really land in: ours, writable, with a local path. */
 		destinations?: DestinationLibrary[];
-		/**
-		 * Libraries that cannot receive anything, with the reason.
-		 *
-		 * Offered in the menu as unselectable entries rather than dropped from it. A
-		 * name that simply goes missing sends somebody hunting for a fault in the wrong
-		 * place — the library is there, it just cannot be written into — and the menu is
-		 * the one moment they are looking for it. Printing the same list under every row
-		 * instead is what made the old table unreadable.
-		 */
-		rejected?: RejectedLibrary[];
 		/** What a category with no destination of its own does, named. Never blank. */
 		fallback?: string;
 		loading?: boolean;
 	}>(), {
 		destinations: () => [],
-		rejected: () => [],
 		fallback: '',
 		loading: false,
 	});
@@ -144,120 +133,74 @@
 	 * list somebody consults reads as a fault in the gateway rather than as a fact
 	 * about the server it sits on.
 	 */
-	function entryFor (one: DestinationLibrary) {
+	function entryFor (one: DestinationLibrary, root: string) {
 		return {
-			value: one.id,
-			title: one.name,
-			// The path with the name, because two libraries of one service can carry the
-			// same name and the folder is what somebody recognises from their own disk.
-			subtitle: one.path ? `${one.serviceName} · ${one.path}` : one.serviceName,
+			// The directory itself is the answer, because a directory is what the
+			// placement reads. A library identifier would have to be turned back into one
+			// of its folders by somebody, and that somebody was the gateway, silently
+			// picking whichever root came first.
+			value: root,
+			// The path is the title, not the subtitle. Two libraries of one service carry
+			// the same name — `Series TV` on five disks is five identical lines — and the
+			// only thing that tells them apart is the folder, which is also the thing
+			// somebody recognises from their own machine.
+			title: root,
+			subtitle: `${one.serviceName} · ${one.name}`,
 		};
 	}
 
-	/**
-	 * Which library a category's answer names, whether it was stored as one or as a path.
-	 *
-	 * The stored answer is a folder — that is what the placement reads — but the control
-	 * asks for the shelf first, because that is the order people work in and the shelf is
-	 * what a media server scans. This maps one back to the other.
-	 */
-	function libraryOf (key: string): string | null {
-		const answer = targets.value[key] ?? null;
-
-		if (answer === null) {
-			return null;
-		}
-
-		const owner = props.destinations
-			.find(one => one.id === answer || one.roots.includes(answer));
-
-		return owner?.id ?? answer;
-	}
-
-	/** Which category's folder browser is open, since every row has one. */
-	const browsing = ref<string | null>(null);
-
-	/**
-	 * Choosing a shelf stores its default folder, not the shelf.
-	 *
-	 * What the placement reads is a directory, and storing the library alone would put
-	 * the file in whichever of its roots came first — which is exactly what nobody could
-	 * see and nobody could change. Writing the default here means the field below opens
-	 * already filled with the answer in force.
-	 */
-	function chooseLibrary (key: string, libraryId: string | null): void {
-		const library = props.destinations.find(one => one.id === libraryId) ?? null;
-
-		choose(key, library?.path ?? libraryId);
-	}
-
-	/** Refusing an emptied box would be refusing "put it back to the shelf's own root". */
-	function chooseFolder (key: string, folder: string | null): void {
-		const trimmed = folder?.trim() || null;
-
-		browsing.value = null;
-		choose(key, trimmed ?? props.destinations.find(one => one.id === libraryOf(key))?.path ?? null);
-	}
-
-	/** The folder a category's answer names, or the chosen library's default. */
-	function folderOf (key: string): string | null {
-		const answer = targets.value[key] ?? null;
-		const library = props.destinations.find(one => one.id === libraryOf(key)) ?? null;
-
-		if (answer !== null && library?.roots.includes(answer)) {
-			return answer;
-		}
-
-		return answer !== null && answer.startsWith('/') ? answer : (library?.path ?? null);
+	/** What this category is set to, which is a directory and nothing else. */
+	function targetOf (key: string): string | null {
+		return targets.value[key] ?? null;
 	}
 
 	/**
-	 * The folders this category can be sent to, and only those.
+	 * The folders this category can be sent to: one line per real directory.
 	 *
-	 * The list used to be every writable library on the gateway, in whatever order they
-	 * arrived, for every row — so the line for `Animes - Films` offered `Musique` and
-	 * `Series TV`. A menu that ignores the line it sits on reads as meaningless because
-	 * it is, and nobody wants a category filed into a different category: a shelf named
-	 * `Animes` exists precisely so that what belongs there goes there.
+	 * **A root path and never a library.** A library is not a place — `Series TV` is
+	 * five directories on five disks — so naming one left the actual question unasked
+	 * and the gateway answered it by taking whichever root came first. Every root gets
+	 * its own line, spelled out, and choosing is choosing a directory.
 	 *
-	 * So the choice is narrowed to the libraries this category is made of, which is
-	 * where the question actually is — a category built from two libraries on two disks
-	 * has to say which of the two receives what arrives, and nothing else on this screen
-	 * asks that.
+	 * That is also why the second field is gone. The shelf, then a folder inside it, was
+	 * two controls for one answer, and the folder box opened prefilled with a path
+	 * nobody had typed — a decision that looked like it had been made.
 	 *
-	 * A library of this category the gateway cannot write into stays in the menu,
-	 * disabled, with the reason. Choosing one would queue transfers onto a disk nothing
-	 * can write to and nothing anywhere would report it — but dropping the name sends
-	 * somebody hunting for a fault in the gateway rather than finding a fact about their
-	 * server.
+	 * The list is narrowed to the libraries this category is made of. It used to be
+	 * every writable library on the gateway, in arrival order, for every row — so the
+	 * line for `Animes - Films` offered `Musique`. A menu that ignores the line it sits
+	 * on is meaningless, and a shelf named `Animes` exists precisely so that what
+	 * belongs there goes there.
+	 *
+	 * **Nothing this gateway cannot write into appears at all**, not even greyed out.
+	 * The entries used to include a friend's shelf, disabled, with the reason — on the
+	 * reasoning that a missing name sends somebody hunting for a fault. It reads as an
+	 * offer whatever the styling says, and there is nothing to offer: a file cannot be
+	 * fetched into a library on somebody else's machine, so the line was an answer to a
+	 * question this control does not ask. Why a library is unreachable belongs on the
+	 * libraries screen, which is where it can be fixed.
 	 */
 	function destinationItemsFor (category: MediaCategory): unknown[] {
-		/*
-		 * Whatever this category already points at stays in the menu, even when it is a
-		 * library of some other shelf.
-		 *
-		 * Narrowing the list without this would hide an answer somebody had already
-		 * given: the select would render blank over a setting that is still in force, so
-		 * the screen would say "nothing chosen" about a category that does have a
-		 * destination — and the only way to find out would be to read the database.
-		 * Offering it is also what lets them change their mind rather than only clear it.
-		 */
 		const chosen = targets.value[category.key] ?? null;
 		const own = new Set(category.libraryIds);
-		// Matched on either, because an answer may name a library or one of its folders
-		// — and a stored answer has to stay visible whichever of the two it is.
-		const keeps = (id: string, path?: string | null): boolean =>
-			own.has(id) || id === chosen || (path !== null && path !== undefined && path === chosen);
+		const entries = props.destinations
+			.filter(one => own.has(one.id))
+			.flatMap(one => one.roots.map(root => entryFor(one, root)));
 
-		return [
-			...props.destinations.filter(one => keeps(one.id, one.path)).map(one => entryFor(one)),
-			...props.rejected.filter(one => keeps(one.id)).map(one => ({
-				value: one.id,
-				title: one.name,
-				subtitle: `${one.serviceName} · ${t(`settings.destination.rejected.${one.reason}`)}`,
-				props: { disabled: true },
-			})),
-		];
+		/*
+		 * Whatever this category already points at stays in the menu, even when no
+		 * library of this category declares it any more.
+		 *
+		 * Without it the select renders blank over a setting that is still in force, so
+		 * the screen says "nothing chosen" about a category that does have a destination
+		 * — and the only way to find out would be to read the database. Keeping it is
+		 * also what lets somebody change their mind rather than only clear it.
+		 */
+		if (chosen !== null && !entries.some(one => one.value === chosen)) {
+			entries.push({ value: chosen, title: chosen, subtitle: t('settings.destination.stored') });
+		}
+
+		return entries;
 	}
 
 	/**
@@ -638,6 +581,13 @@
 					</div>
 
 					<div class="category-mapping_destination">
+						<!--
+							One control, whose options are directories. A library is not a
+							place — `Series TV` is five folders on five disks — so a menu of
+							library names left the real question unasked, and a folder box
+							under it was a second control for one answer, opening prefilled
+							with a path nobody had typed.
+						-->
 						<v-select
 							clearable
 							:data-test="`category-target-${category.key}`"
@@ -649,45 +599,9 @@
 							item-value="value"
 							:items="destinationItemsFor(category)"
 							:label="$t('settings.destination.target_header')"
-							:model-value="libraryOf(category.key)"
-							@update:model-value="chooseLibrary(category.key, $event)"
+							:model-value="targetOf(category.key)"
+							@update:model-value="choose(category.key, $event)"
 						/>
-
-						<!--
-							The shelf first, the folder after: that is the order people work
-							in, and a shelf can be five directories on five disks. Only once
-							one is chosen, because a folder with no shelf to sit in is a box
-							nobody can fill.
-						-->
-						<div v-if="libraryOf(category.key)" class="category-mapping_folder">
-							<v-text-field
-								:data-test="`category-folder-${category.key}`"
-								density="compact"
-								:disabled="busy"
-								hide-details
-								:label="$t('settings.destination.folder')"
-								:model-value="folderOf(category.key)"
-								@update:model-value="chooseFolder(category.key, $event)"
-							>
-								<template #append-inner>
-									<v-btn
-										:data-test="`category-folder-browse-${category.key}`"
-										icon="mdi-folder-open-outline"
-										size="small"
-										:title="$t('browse.open')"
-										variant="text"
-										@click="browsing = category.key"
-									/>
-								</template>
-							</v-text-field>
-
-							<DirectoryPicker
-								:model-value="browsing === category.key"
-								:path="folderOf(category.key)"
-								@choose="chooseFolder(category.key, $event)"
-								@update:model-value="browsing = $event ? category.key : null"
-							/>
-						</div>
 
 						<!--
 							An empty select with nothing under it reads as broken. It is not

@@ -601,7 +601,9 @@ describe('pages/Settings saving', () => {
 			.findAllComponents({ name: 'VSelect' })
 			.find(one => one.attributes('data-test') === 'category-target-shows');
 
-		select?.vm.$emit('update:modelValue', 'l2');
+		// A directory, because that is what the menu now offers: one line per root the
+		// category's libraries really have.
+		select?.vm.$emit('update:modelValue', '/media/shows');
 		await settle();
 
 		(wrapper.vm as any).model.defaultTargetLibraryId = 'l1';
@@ -611,8 +613,8 @@ describe('pages/Settings saving', () => {
 		const patch = stub.mock.calls.find(call => call[1]?.method === 'PATCH');
 		const body = JSON.parse(String(patch?.[1]?.body));
 
-		// The shelf's own folder, because that is what the placement reads: storing the
-		// library alone would put the file in whichever of its roots came first.
+		// The folder exactly as chosen, because that is what the placement reads: storing
+		// a library would put the file in whichever of its roots came first.
 		expect(body.categoryTargets).toEqual({ shows: '/media/shows' });
 		expect(body.defaultTargetLibraryId).toBe('l1');
 		// Only what moved. The API writes a row for every key a PATCH carries, and a

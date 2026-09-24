@@ -40,7 +40,7 @@
 	const validators = useValidators();
 	const { notify } = useNotifier();
 	const { parseByteSize, toByteSizeInput } = useByteSize();
-	const { destinations, rejected } = useDestinationLibraries();
+	const { destinations } = useDestinationLibraries();
 
 	/*
 	 * The form is not on screen until the stored values are in, rather than on
@@ -688,7 +688,6 @@
 							:fallback="fallbackTarget"
 							:keywords="librariesStore.keywords"
 							:loading="loading"
-							:rejected="rejected"
 						/>
 					</v-card-text>
 				</v-card>
