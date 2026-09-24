@@ -83,6 +83,7 @@ import {
 	needsAcknowledgement,
 	refusesRun,
 	sameContent,
+	normalizeTitle,
 	serviceMode,
 	targetSpace,
 	toLocalPath,
@@ -1410,7 +1411,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		const items: PlannedItem[] = [];
 		const planned = wanted.slice(0, MAX_PLANNED_ITEMS);
 		const shows = await this._seriesFacts(planned.map((entry) => entry.item));
-		const siblings = await this._localSiblings(planned.map((entry) => entry.item));
+		const siblings = await this._localSiblings(planned.map((entry) => entry.item), shows);
 
 		/*
 		 * Paths this plan has already handed out.
@@ -1442,7 +1443,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			// folders that library actually uses rather than in the ones a template
 			// would have invented.
 			const siblingPath =
-				entry.local?.file?.path ?? siblings.get(entry.item.normalizedTitle) ?? null;
+				entry.local?.file?.path ?? siblings.get(siblingKey(entry.item, shows)) ?? null;
 
 			// What tells this copy apart from the one already sitting where it wants to
 			// land. Both are labels — the version itself is the fingerprint — and they
@@ -2181,8 +2182,11 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 * about which show something belongs to — the display titles differ, the normalised
 	 * form is what correlation already joins on.
 	 */
-	private async _localSiblings(items: MediaItem[]): Promise<Map<string, string>> {
-		const titles = [...new Set(items.map((item) => item.normalizedTitle))].filter(
+	private async _localSiblings(
+		items: MediaItem[],
+		shows: Map<string, { title: string; year: number | null }>,
+	): Promise<Map<string, string>> {
+		const titles = [...new Set(items.map((item) => siblingKey(item, shows)))].filter(
 			(title) => title !== '',
 		);
 
@@ -2205,6 +2209,10 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			(await this._libraries.find()).map((library) => [library.id, library]),
 		);
 		const siblings = new Map<string, string>();
+		// Rows that match the show but carry no file of their own — the series row and
+		// its seasons. A show is exactly that on every server, so without walking down
+		// to an episode the lookup finds the right shelf and no path on it.
+		const containers: MediaItem[] = [];
 
 		for (const row of rows) {
 			const library = libraries.get(row.libraryId);
@@ -2216,15 +2224,109 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			// lands in a folder a template invented.
 			const path = library ? toLocalPath(library, row.file?.path ?? null) : null;
 
-			if (path && !siblings.has(row.normalizedTitle)) {
+			if (path === null) {
+				if (row.file === null) {
+					containers.push(row);
+				}
+
+				continue;
+			}
+
+			if (!siblings.has(row.normalizedTitle)) {
 				siblings.set(row.normalizedTitle, path);
+			}
+		}
+
+		for (const [title, path] of await this._fileUnder(containers, libraries)) {
+			if (!siblings.has(title)) {
+				siblings.set(title, path);
 			}
 		}
 
 		return siblings;
 	}
 
+	/**
+	 * One file from beneath each of these rows, by the title they were matched on.
+	 *
+	 * A show carries no file — nothing on the series row says where it is — so the only
+	 * way to learn how a library spells its folders is to look at an episode inside it.
+	 * Two levels deep and no further, which is the whole shape of a media tree; a walk
+	 * with no bound would follow a cycle in a corrupt parent chain for as long as the
+	 * request lasted.
+	 */
+	private async _fileUnder(
+		containers: MediaItem[],
+		libraries: Map<string, LibraryEntity>,
+	): Promise<Map<string, string>> {
+		const found = new Map<string, string>();
+
+		if (containers.length === 0) {
+			return found;
+		}
+
+		const owner = new Map<string, string>(
+			containers.map((row) => [row.id, row.normalizedTitle]),
+		);
+		let frontier = containers.map((row) => row.id);
+
+		for (let depth = 0; depth < 2 && frontier.length > 0; depth += 1) {
+			const children = await this._items.find({ where: { parentId: In(frontier) } });
+
+			frontier = [];
+
+			for (const child of children) {
+				const title = child.parentId === null ? undefined : owner.get(child.parentId);
+
+				if (title === undefined || found.has(title)) {
+					continue;
+				}
+
+				owner.set(child.id, title);
+
+				const path = toLocalPath(
+					libraries.get(child.libraryId) ?? { paths: [], localPath: null },
+					child.file?.path ?? null,
+				);
+
+				if (path === null) {
+					frontier.push(child.id);
+				} else {
+					found.set(title, path);
+				}
+			}
+		}
+
+		return found;
+	}
+
 }
+
+/**
+ * What a planned item is looked up by when hunting for a file of its own to imitate.
+ *
+ * **The show's title for an episode, not the episode's** — and getting that wrong is
+ * why one fetch of Spartacus invented four folders next to the ones the owner already
+ * had. The lookup asked for a local row normalising to `monstres`, which is the title
+ * of the very episode being fetched; the only row that could ever answer is the copy we
+ * do not have, since that is what makes it a pull. So it matched nothing, every time,
+ * and the naming fell through to the template in silence. The doc above it said "one
+ * local file per show" and the code said per episode.
+ *
+ * A film answers for itself: there is nothing above it to file it under.
+ */
+const siblingKey = (
+	item: MediaItem,
+	shows: Map<string, { title: string; year: number | null }>,
+): string => {
+	if (item.kind !== MediaKind.EPISODE) {
+		return item.normalizedTitle;
+	}
+
+	const show = shows.get(item.id)?.title ?? null;
+
+	return show === null ? '' : normalizeTitle(show);
+};
 
 /**
  * A scope made of subtrees and nothing else, which is the only kind another one can

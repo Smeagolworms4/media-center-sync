@@ -2389,16 +2389,41 @@ describe('SyncManager', () => {
 			expect(nameableOf(fakes.naming.render).seriesTitle).toBeNull();
 		});
 
+		/**
+		 * The lookup that never once matched, and the four folders it cost.
+		 *
+		 * It asked for a local row normalising to the *episode's* title — `monstres` —
+		 * and the only row that could ever answer is the copy we do not have, since not
+		 * having it is what makes this a pull. So it found nothing, every time, and the
+		 * naming fell through to the template without a word. The show's own title is
+		 * what says which shelf a file belongs beside.
+		 */
 		it('imitates our own copy of the show, as the gateway sees its path', async () => {
 			const mine = service('service-local', 3, { filesMounted: true });
 			const { manager, fakes } = build({
 				items: [
-					item(),
+					// Theirs, the one being fetched: an episode of a show we hold.
+					item({ id: 'series-1', kind: MediaKind.SERIES, title: 'Big Buck Bunny', file: null }),
+					item({ id: 'season-1', kind: MediaKind.SEASON, title: 'Season 1', file: null, parentId: 'series-1' }),
+					item({ parentId: 'season-1' }),
+					// Ours: the show, with an episode of it already on the disk. The series
+					// row carries no file — no server puts one there — so the folder
+					// spelling can only be read off what is underneath it.
+					item({
+						id: 'ours-series',
+						serviceId: 'service-local',
+						libraryId: 'library-mine',
+						externalId: 'ours-series',
+						kind: MediaKind.SERIES,
+						title: 'Big Buck Bunny',
+						file: null,
+					}),
 					item({
 						id: 'item-e1',
 						serviceId: 'service-local',
 						libraryId: 'library-mine',
 						externalId: 'ours-e1',
+						parentId: 'ours-series',
 						episodeNumber: 1,
 						file: file({ path: '/media/Shows/Big Buck Bunny/S01E01.mkv' }),
 					}),
@@ -2415,6 +2440,43 @@ describe('SyncManager', () => {
 			// The server's own path would never match the destination root, and the
 			// imitation would be skipped without a word.
 			expect(context.siblingPath).toBe('/mnt/nas/Shows/Big Buck Bunny/S01E01.mkv');
+		});
+
+		it('does not look for a sibling under the episode\'s own title', async () => {
+			/*
+			 * The shape that hid the bug for so long: a local row whose title happens to
+			 * match the episode being fetched, under a different show entirely. Matching
+			 * on it would file a Spartacus episode beside a documentary that shares a
+			 * word, which is worse than the template.
+			 */
+			const mine = service('service-local', 3, { filesMounted: true });
+			const { manager, fakes } = build({
+				items: [
+					item({ id: 'series-1', kind: MediaKind.SERIES, title: 'Big Buck Bunny', file: null }),
+					item({ id: 'season-1', kind: MediaKind.SEASON, title: 'Season 1', file: null, parentId: 'series-1' }),
+					item({ parentId: 'season-1', normalizedTitle: 'the flight' }),
+					item({
+						id: 'namesake',
+						serviceId: 'service-local',
+						libraryId: 'library-mine',
+						externalId: 'namesake',
+						kind: MediaKind.MOVIE,
+						// The same normalised title as the episode, and nothing to do with it.
+						title: 'The Flight',
+						normalizedTitle: 'the flight',
+						file: file({ path: '/media/Shows/Elsewhere/The Flight.mkv' }),
+					}),
+				],
+				services: [service('service-fast', 1), mine],
+				localServices: [mine],
+				libraries: [{ id: 'library-mine', paths: ['/media/Shows'], localPath: '/mnt/nas/Shows' }],
+			});
+
+			await manager.plan({});
+
+			const context = fakes.naming.render.mock.calls[0][2] as { siblingPath: string | null };
+
+			expect(context.siblingPath).toBeNull();
 		});
 
 		it('imitates nothing from a library the gateway has no path into', async () => {
