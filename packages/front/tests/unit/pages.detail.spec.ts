@@ -352,16 +352,19 @@ describe('pages/LibraryItem', () => {
 		expect(wrapper.find('[data-test="group-source-download"]').exists()).toBe(false);
 	});
 
-	it('fetches a whole show from the server the row names, rather than planning nothing', async () => {
+	it('fetches the gaps of a whole show from the server the row names', async () => {
 		/*
 		 * A series is a folder and the planner refuses anything carrying no file, so
 		 * pressing fetch on a show answered "a sync has started" and planned nothing —
-		 * the owner watched it happen on Spartacus.
+		 * the owner watched it happen on Spartacus. Expanding the container into its
+		 * episodes is what makes the button do anything at all.
 		 *
-		 * The whole show and not only its gaps: "what is missing" skips every episode
-		 * held in a worse version, which is what somebody fetching a show from a better
-		 * source is trying to fix. "Fetch what is missing" is its own button for the
-		 * other intent.
+		 * Only the episodes no copy is held of. This asked for the whole show for a
+		 * while, on the reasoning that naming a server names it for everything under the
+		 * folder, and it was wrong in the only way that matters: a show of six seasons
+		 * with one missing planned all six, so the queue filled with episodes already on
+		 * the disk and the gap somebody wanted came last. What arrived overnight was
+		 * season one, again.
 		 */
 		const show = mediaGroup({
 			kind: MediaKind.SERIES,
@@ -402,7 +405,7 @@ describe('pages/LibraryItem', () => {
 
 		expect(JSON.parse(String(run?.[1]?.body))).toMatchObject({
 			scope: { rootItemIds: ['m1'] },
-			filter: { includeHeld: true },
+			filter: { missingOnly: true },
 			sourceServiceIds: ['s2'],
 		});
 	});

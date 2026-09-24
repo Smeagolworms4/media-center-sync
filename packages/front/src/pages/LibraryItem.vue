@@ -271,19 +271,25 @@
 		/*
 		 * A series is a folder, and the planner refuses anything carrying no file — so
 		 * pressing fetch on a show used to answer "a sync has started" and plan nothing.
+		 * Expanding the container into its episodes is what makes the button do anything
+		 * at all.
 		 *
-		 * On a container the button means the whole thing from that server, not only the
-		 * gaps. "What is missing" skips every episode held in a worse version, which is
-		 * precisely the case somebody fetching a show from a better source is trying to
-		 * fix — and it is the same decision as on one file: naming a copy is the answer,
-		 * and both copies are kept rather than one written over the other.
+		 * **Only the episodes we hold no copy of.** This said `includeHeld` for a while,
+		 * on the reasoning that pressing fetch on a show names that server as the source
+		 * for the whole show — and it was wrong in the only way that matters: a show of
+		 * six seasons with one season missing planned all six, so the queue filled with
+		 * copies of episodes already on the disk and the one gap somebody actually wanted
+		 * came last. What arrived overnight was season one, again.
 		 *
-		 * "Fetch what is missing" stays its own button, above, for the other intent.
+		 * A version already held is a version held, whatever its quality: the run leaves
+		 * it alone. That is the opposite of the single-row button below it, and
+		 * deliberately so — naming one copy is a decision about that copy, while pressing
+		 * fetch on a folder is a decision about the gaps in it.
 		 */
 		if (group.value && CONTAINER_KINDS.has(group.value.kind)) {
 			await syncStore.run({
 				scope: { rootItemIds: [props.itemId] },
-				filter: { includeHeld: true },
+				filter: { missingOnly: true },
 				...(source ? { sourceServiceIds: [source.serviceId] } : {}),
 			});
 			void notify('library.sync_started');
