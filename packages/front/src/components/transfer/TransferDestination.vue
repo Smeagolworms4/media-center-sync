@@ -74,6 +74,20 @@
 	})));
 
 	const disabled = computed(() => props.loading || chosen.value === null);
+
+	/**
+	 * The folder to send back, or nothing when the prefilled root was left as it was.
+	 *
+	 * The field opens on where the gateway would put it, which is a display of the
+	 * default and not an answer. Sending it back would pin that exact directory — and a
+	 * library is several roots on several disks, so pinning the first of them takes away
+	 * the gateway's ability to place the file on the one with room.
+	 */
+	const chosenFolder = computed(() => {
+		const value = folder.value?.trim() || null;
+
+		return value === rootOf.value ? null : value;
+	});
 </script>
 
 <template>
@@ -131,7 +145,7 @@
 				prepend-icon="mdi-folder-move-outline"
 				size="small"
 				variant="tonal"
-				@click="chosen && emit('move', chosen, folder?.trim() || null)"
+				@click="chosen && emit('move', chosen, chosenFolder)"
 			>
 				{{ $t('transfer.unconfigured.move') }}
 			</v-btn>

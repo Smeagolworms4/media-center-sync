@@ -436,7 +436,17 @@
 		}
 		retargetBusy.value = true;
 
-		const folder = targetFolder.value?.trim() || null;
+		/*
+		 * The prefilled root is not a choice, so it is not sent as one.
+		 *
+		 * The field opens on where the gateway would put it, which is a display of the
+		 * default and not an answer. Sending it back would pin that exact directory —
+		 * and a library is several roots on several disks, so pinning the first of them
+		 * takes away the gateway's ability to place the file on the one with room. Only
+		 * a folder somebody actually changed is a folder somebody asked for.
+		 */
+		const chosen = targetFolder.value?.trim() || null;
+		const folder = chosen === targetRoot.value ? null : chosen;
 
 		try {
 			/*
