@@ -1211,8 +1211,11 @@
 		},
 		"retarget": {
 			"title": "L'envoyer dans une autre bibliothèque",
+			"action": "Envoyer ailleurs",
+			"whole_run": "{title} — tout le lot, {count} fichiers",
 			"hint_repoint": "Rien n'a encore été déposé : cela ne change que la destination. Le téléchargement n'est pas interrompu et pas un octet n'est copié.",
 			"hint_move": "Ce fichier est déjà dans une bibliothèque. En choisir une autre le déplace réellement, ce qui prend un moment sur un gros fichier — la file en montre la progression.",
+			"hint_run_landed": "Les fichiers du lot déjà déposés sont déplacés eux aussi, et les dossiers qu’ils laissent vides sont supprimés.",
 			"library": "Bibliothèque de destination",
 			"confirm": "L'envoyer là",
 			"confirm_move": "Le déplacer là",

@@ -1211,8 +1211,11 @@
 		},
 		"retarget": {
 			"title": "Enviá-lo para outra biblioteca",
+			"action": "Enviar para outro sítio",
+			"whole_run": "{title} — o lote inteiro, {count} ficheiros",
 			"hint_repoint": "Ainda nada foi arquivado, por isso isto só muda o destino. A transferência não é interrompida e não se copia um único byte.",
 			"hint_move": "Este ficheiro já está numa biblioteca. Escolher outra move-o mesmo, o que demora num ficheiro grande — a fila mostra o progresso.",
+			"hint_run_landed": "Os ficheiros do lote já arquivados também são movidos, e as pastas que ficam vazias são removidas.",
 			"library": "Biblioteca de destino",
 			"confirm": "Enviá-lo para lá",
 			"confirm_move": "Movê-lo para lá",

@@ -235,6 +235,36 @@ export const useTransfersStore = defineStore('transfers', () => {
 		return transfer;
 	}
 
+	/**
+	 * Send a whole run somewhere else, in one request.
+	 *
+	 * One call and not a loop over its files: the gateway checks every file before it
+	 * touches any of them, so a run that cannot go somewhere in full does not go there
+	 * in part. A loop from here would move four episodes and fail on the fifth, leaving
+	 * the season split across two libraries — which is the state this button exists to
+	 * repair.
+	 */
+	async function setJobDestination (
+		jobId: string,
+		libraryId: string,
+		folder: string | null = null,
+	): Promise<Transfer[]> {
+		const moved = await caller('api').post<Transfer[]>(`/transfers/jobs/${jobId}/destination`, {
+			libraryId,
+			...(folder ? { folder } : {}),
+		});
+
+		for (const one of moved) {
+			mergeTransfer(one);
+		}
+
+		const ids = new Set(moved.map(one => one.id));
+
+		unconfigured.value = unconfigured.value.filter(one => !ids.has(one.transferId));
+
+		return moved;
+	}
+
 	async function get (id: string): Promise<Transfer> {
 		const transfer = await caller('api').get<Transfer>(`/transfers/${id}`);
 		mergeTransfer(transfer);
@@ -347,6 +377,7 @@ export const useTransfersStore = defineStore('transfers', () => {
 		loadUnconfigured,
 		pauseAll,
 		setDestination,
+		setJobDestination,
 		get,
 		loadChunks,
 		loadRevalidations,

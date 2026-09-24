@@ -1107,6 +1107,76 @@ describe('pages/Transfers repairing', () => {
 		expect(wrapper.find('[data-test="retarget-confirm"]').text()).toContain('Move it there');
 	});
 
+	/**
+	 * The run redirected as a run, which is the thing a loop over its rows cannot do.
+	 *
+	 * One request, so the gateway can check every file before it touches any of them: a
+	 * loop from here would move four episodes and fail on the fifth, leaving the season
+	 * split across two libraries — which is the state somebody opened this dialog to
+	 * repair. The already-landed files go with it, and the folders they empty are
+	 * removed on the gateway's side.
+	 */
+	it('sends a whole run in one request, rather than a request per file', async () => {
+		const stub = stubFetchRoutes({
+			...base,
+			'/api/transfers': {
+				body: {
+					items: [
+						transferRow({ id: 't1', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
+						transferRow({ id: 't2', jobId: 'job-1', state: TransferState.QUEUED, error: null, errorKind: null }),
+					],
+					pagination: { page: 1, limit: 20, total: 2, pages: 1 },
+				},
+			},
+			'/api/transfers/jobs/job-1/destination': { body: [] },
+		});
+		const { wrapper } = mountWithApp(Transfers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="transfer-batch-retarget"]').trigger('click');
+		await settle(2);
+
+		(wrapper.vm as any).targetLibraryId = 'l1';
+		(wrapper.vm as any).targetFolder = '/media/shows/Spartacus';
+		await (wrapper.vm as any).confirmRetarget();
+		await settle();
+
+		const calls = stub.mock.calls.filter(one => String(one[0]).includes('/destination'));
+
+		expect(calls).toHaveLength(1);
+		expect(String(calls[0][0])).toContain('/api/transfers/jobs/job-1/destination');
+		expect(JSON.parse(String(calls[0][1]?.body)))
+			.toEqual({ libraryId: 'l1', folder: '/media/shows/Spartacus' });
+	});
+
+	it('warns that a run’s landed files are moved for real', async () => {
+		stubFetchRoutes({
+			...base,
+			'/api/transfers': {
+				body: {
+					items: [
+						transferRow({ id: 't1', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
+						transferRow({ id: 't2', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
+					],
+					pagination: { page: 1, limit: 20, total: 2, pages: 1 },
+				},
+			},
+		});
+		const { wrapper } = mountWithApp(Transfers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="transfer-batch-retarget"]').trigger('click');
+		await settle(2);
+
+		// Said before the click, because this is the expensive half of the answer.
+		expect(wrapper.find('[data-test="retarget-hint"]').text()).toContain('already landed are moved');
+		expect(wrapper.find('[data-test="retarget-subject"]').text()).toContain('whole run');
+	});
+
 	it('says the opposite while the file is still being downloaded', async () => {
 		const { wrapper } = await openQueue(
 			transferRow({ state: TransferState.DOWNLOADING, error: null, errorKind: null }));

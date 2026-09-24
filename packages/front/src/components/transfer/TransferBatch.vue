@@ -31,7 +31,11 @@
 		busyId?: string | null;
 	}>();
 
-	const emit = defineEmits<{ action: [action: TransferAction, transfer: Transfer] }>();
+	const emit = defineEmits<{
+		action: [action: TransferAction, transfer: Transfer];
+		/** Send the whole run elsewhere, files already landed included. */
+		retarget: [transfers: Transfer[]];
+	}>();
 
 	const expanded = ref(false);
 
@@ -158,8 +162,9 @@
 				<span class="transfer-batch_path" data-test="transfer-batch-path">{{ destination }}</span>
 			</p>
 
-			<div v-if="running.length > 0" class="transfer-batch_actions mt-2">
+			<div class="transfer-batch_actions mt-2">
 				<v-btn
+					v-if="running.length > 0"
 					data-test="transfer-batch-pause"
 					:disabled="busy"
 					prepend-icon="mdi-pause"
@@ -170,7 +175,27 @@
 					{{ $t('transfer.action.pause') }}
 				</v-btn>
 
+				<!--
+					On the batch and not only on each row, because a destination is a
+					property of the run: a season redirected file by file ends half in one
+					library and half in another, which is the state somebody pressing this
+					is trying to get out of. Offered whatever the run's state — a run that
+					has entirely landed is exactly the one worth moving, and the files that
+					landed are moved for real rather than left behind.
+				-->
 				<v-btn
+					data-test="transfer-batch-retarget"
+					:disabled="busy"
+					prepend-icon="mdi-folder-move-outline"
+					size="small"
+					variant="text"
+					@click="emit('retarget', transfers)"
+				>
+					{{ $t('transfer.retarget.action') }}
+				</v-btn>
+
+				<v-btn
+					v-if="running.length > 0"
 					color="error"
 					data-test="transfer-batch-cancel"
 					:disabled="busy"

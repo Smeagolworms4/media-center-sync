@@ -5,6 +5,7 @@
 	import { useI18n } from 'vue-i18n';
 	import { useRouter } from 'vue-router';
 	import ByteSize from '@/components/common/ByteSize.vue';
+	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
@@ -112,8 +113,25 @@
 
 	const failed = ref(false);
 	const busyId = ref<string | null>(null);
-	const retargeting = ref<Transfer | null>(null);
+	/**
+	 * What is being sent elsewhere: one file, or a whole run.
+	 *
+	 * The same dialog for both because it is the same question, and because a run
+	 * redirected file by file is the thing this must never become — a season that ends
+	 * half in one library and half in another, which is what somebody is here to fix.
+	 */
+	const retargeting = ref<{ title: string; jobId: string | null; transfers: Transfer[] } | null>(
+		null);
 	const targetLibraryId = ref<string | null>(null);
+	/**
+	 * The folder inside the chosen library, filled with where the gateway would put it.
+	 *
+	 * A library is not one folder — a shelf can be five directories on five disks — so
+	 * choosing the shelf chose only the first of them. Prefilled rather than blank: a
+	 * placeholder cannot be edited, so refining it meant retyping the whole path.
+	 */
+	const targetFolder = ref<string | null>(null);
+	const browsingTarget = ref(false);
 	const retargetBusy = ref(false);
 	const resumingAll = ref(false);
 
@@ -128,7 +146,23 @@
 	 * under one unqualified "move" is how somebody starts forty gigabytes of disk
 	 * traffic believing they corrected a form field.
 	 */
-	const movesBytes = computed(() => retargeting.value?.state === TransferState.DONE);
+	const movesBytes = computed(
+		() => (retargeting.value?.transfers ?? []).some(one => one.state === TransferState.DONE));
+
+	/** The run's own files, when what is being redirected is a run and not one file. */
+	const retargetCount = computed(() => retargeting.value?.transfers.length ?? 0);
+
+	const targetRoot = computed(
+		() => destinations.value.find(one => one.id === targetLibraryId.value)?.path ?? null);
+
+	/*
+	 * Reset rather than kept, because a folder of the shelf somebody just left sits
+	 * under no root of the new one, and the gateway would refuse it — which reads here
+	 * as the dialog being broken.
+	 */
+	watch(targetLibraryId, () => {
+		targetFolder.value = targetRoot.value;
+	});
 
 	// The path under the name, because a choice made against `Shows` and a choice made
 	// against `/mnt/nas/shows` are not the same choice on a gateway with two of each.
@@ -367,8 +401,9 @@
 			}
 			case TransferAction.ANOTHER_TARGET: {
 				// The target is a choice, so it is asked for rather than guessed.
-				retargeting.value = transfer;
+				retargeting.value = { title: transfer.title, jobId: null, transfers: [transfer] };
 				targetLibraryId.value = null;
+				targetFolder.value = null;
 				break;
 			}
 			case TransferAction.FIX_SERVICE: {
@@ -394,18 +429,49 @@
 	 * before it lands, a tracked move after — so that is what is asked of it.
 	 */
 	const confirmRetarget = tryCallback(async () => {
-		if (!retargeting.value || !targetLibraryId.value) {
+		const asked = retargeting.value;
+
+		if (!asked || !targetLibraryId.value) {
 			return;
 		}
 		retargetBusy.value = true;
+
+		const folder = targetFolder.value?.trim() || null;
+
 		try {
-			await transfersStore.setDestination(retargeting.value.id, targetLibraryId.value);
+			/*
+			 * One request for the whole run, rather than a loop over its files.
+			 *
+			 * The gateway checks every file before it touches any of them, so a run that
+			 * cannot go somewhere in full does not go there in part. A loop from here
+			 * would move four episodes and then report a failure on the fifth, leaving
+			 * exactly the split somebody opened this dialog to repair — and it would take
+			 * the already-landed files with it, one slow copy at a time, with no way to
+			 * stop halfway.
+			 */
+			await (asked.jobId === null
+				? transfersStore.setDestination(asked.transfers[0].id, targetLibraryId.value, folder)
+				: transfersStore.setJobDestination(asked.jobId, targetLibraryId.value, folder));
+
 			void notify(movesBytes.value ? 'transfer.retarget.moved' : 'transfer.retarget.repointed');
 			retargeting.value = null;
 		} finally {
 			retargetBusy.value = false;
 		}
 	});
+
+	/** Send a whole run elsewhere, from the batch's own button. */
+	function retargetBatch (transfers: Transfer[]): void {
+		const jobId = transfers[0]?.jobId ?? null;
+
+		if (jobId === null) {
+			return;
+		}
+
+		retargeting.value = { title: transfers[0].title, jobId, transfers };
+		targetLibraryId.value = null;
+		targetFolder.value = null;
+	}
 </script>
 
 <template>
@@ -589,6 +655,7 @@
 						:progress="progressOf"
 						:transfers="batch.transfers"
 						@action="handle"
+						@retarget="retargetBatch"
 					/>
 				</template>
 			</div>
@@ -617,7 +684,11 @@
 			:title="$t('transfer.retarget.title')"
 			@update:model-value="retargeting = null"
 		>
-			<p class="text-body-2 mb-1">{{ retargeting?.title }}</p>
+			<p class="text-body-2 mb-1" data-test="retarget-subject">
+				{{ retargeting?.jobId
+					? $t('transfer.retarget.whole_run', { title: retargeting?.title, count: retargetCount })
+					: retargeting?.title }}
+			</p>
 
 			<!--
 				Which of the two operations this is, said before the field and not after
@@ -630,6 +701,14 @@
 				data-test="retarget-hint"
 			>
 				{{ movesBytes ? $t('transfer.retarget.hint_move') : $t('transfer.retarget.hint_repoint') }}
+				<!--
+					Said before the click, because this is the expensive half of the answer:
+					the files of the run that already landed are moved for real, and the
+					folders they leave empty behind them are removed.
+				-->
+				<template v-if="retargeting?.jobId && movesBytes">
+					{{ $t('transfer.retarget.hint_run_landed') }}
+				</template>
 			</p>
 
 			<v-select
@@ -641,6 +720,40 @@
 				:items="destinationItems"
 				:label="$t('transfer.retarget.library')"
 			/>
+
+			<!--
+				Only once a shelf is chosen: a folder with no shelf to sit in is a field
+				that cannot be filled, and browsing from nowhere has nothing to show. The
+				folder need not exist — nothing is created until the bytes are written.
+			-->
+			<div v-if="targetLibraryId">
+				<v-text-field
+					v-model="targetFolder"
+					clearable
+					data-test="retarget-folder"
+					density="compact"
+					hide-details
+					:label="$t('transfer.unconfigured.folder')"
+					:placeholder="targetRoot ?? ''"
+				>
+					<template #append-inner>
+						<v-btn
+							data-test="retarget-browse"
+							icon="mdi-folder-open-outline"
+							size="small"
+							:title="$t('browse.open')"
+							variant="text"
+							@click="browsingTarget = true"
+						/>
+					</template>
+				</v-text-field>
+
+				<DirectoryPicker
+					v-model="browsingTarget"
+					:path="targetFolder ?? targetRoot"
+					@choose="targetFolder = $event"
+				/>
+			</div>
 
 			<p
 				v-if="destinations.length === 0"

@@ -22,6 +22,7 @@ import { FileMoveError, FileMoveOutcome } from '@/services';
 import type {
 	EventGatewayService,
 	FileMoveService,
+	FilesystemService,
 	SettingsService,
 	TransferEngineService,
 	VerificationService,
@@ -41,6 +42,7 @@ interface Fakes {
 		queueStats: jest.Mock;
 		findUnconfigured: jest.Mock;
 		findUnfinishedFromService: jest.Mock;
+		findByJob: jest.Mock;
 	};
 	chunks: {
 		findByTransfer: jest.Mock;
@@ -64,6 +66,7 @@ interface Fakes {
 	libraryManager: { probe: jest.Mock; categories: jest.Mock };
 	mover: { move: jest.Mock };
 	landings: { record: jest.Mock };
+	filesystem: { pruneEmptyFolders: jest.Mock };
 	/** Holds what registered with it, so a test can remove a service the way the manager would. */
 	serviceManager: { onRemoving: jest.Mock; listeners: ((serviceId: string) => Promise<void>)[] };
 }
@@ -120,6 +123,8 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				.mockResolvedValue({ active: 1, queued: 2, paused: 0, failed: 0, bytesRemaining: 600 }),
 			findUnconfigured: jest.fn().mockResolvedValue([]),
 			findUnfinishedFromService: jest.fn().mockResolvedValue([]),
+			// The run this transfer belongs to. A test about a batch says what is in it.
+			findByJob: jest.fn().mockResolvedValue([]),
 		},
 		chunks: {
 			findByTransfer: jest.fn().mockResolvedValue([
@@ -183,6 +188,10 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				.mockResolvedValue({ outcome: FileMoveOutcome.RENAMED, bytesCopied: 0, partialPath: null }),
 		},
 		landings: { record: jest.fn().mockResolvedValue(undefined) },
+		// Nothing is empty behind the file by default: the interesting case is the one
+		// where a folder is tidied, and a fake that always tidied would make every move
+		// look like it had.
+		filesystem: { pruneEmptyFolders: jest.fn().mockResolvedValue([]) },
 		serviceManager: { onRemoving: jest.fn(), listeners: [] },
 	};
 
@@ -221,6 +230,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 				.mockResolvedValue({ diskReserveBytes: 0, defaultTargetPath: '/media/incoming' }),
 		} as unknown as SettingsService,
 		fakes.mover as unknown as FileMoveService,
+		fakes.filesystem as unknown as FilesystemService,
 		fakes.engine as unknown as TransferEngineService,
 		fakes.verification as unknown as VerificationService,
 		fakes.events as unknown as EventGatewayService,
@@ -821,6 +831,173 @@ describe('TransferManager', () => {
 			// The file never left the library it was in, so the row that names it is still
 			// correct and must not be pointed at a path nothing reached.
 			expect(fakes.landings.record).not.toHaveBeenCalled();
+		});
+
+		it('tidies the folders the file has just left, within its old library', async () => {
+			const { manager, fakes } = build(TransferState.DONE);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			// The directory the file was in, and the roots it may be tidied within — the
+			// old library's and the fallback folder. Without a boundary a walk up from a
+			// path is the one version of this that could remove something above a library.
+			expect(fakes.filesystem.pruneEmptyFolders).toHaveBeenCalledWith('/media/shows', [
+				'/media/shows',
+				'/media/incoming',
+			]);
+		});
+
+		it('tidies nothing when no byte moved', async () => {
+			const { manager, fakes } = build(TransferState.DOWNLOADING);
+
+			await manager.changeDestination('transfer-1', { libraryId: 'lib-anime' });
+
+			// The file is still in the scratch directory: the old library holds nothing of
+			// this transfer, and its folders are somebody else's.
+			expect(fakes.filesystem.pruneEmptyFolders).not.toHaveBeenCalled();
+		});
+	});
+
+	/**
+	 * Redirecting a run, which is the unit the queue now draws.
+	 *
+	 * The case worth protecting is the mixed one: a season five episodes in, six still
+	 * coming. Before this, the five stayed where they were and the six went elsewhere —
+	 * one batch on screen, two folders on disk, and the series listed twice on the media
+	 * server.
+	 */
+	describe('changeJobDestination', () => {
+		/** A run of two: one file already on the disk, one still downloading. */
+		const runOfTwo = (fakes: Fakes): void => {
+			fakes.transfers.findByJob.mockResolvedValue([
+				transfer({
+					id: 'transfer-1',
+					jobId: 'job-1',
+					state: TransferState.DONE,
+					targetPath: '/media/shows/Scrubs/Season 2/S02E01.mkv',
+				}),
+				transfer({
+					id: 'transfer-2',
+					jobId: 'job-1',
+					state: TransferState.QUEUED,
+					targetPath: '/media/shows/Scrubs/Season 2/S02E02.mkv',
+				}),
+			]);
+		};
+
+		it('moves the files already landed as well as the ones still coming', async () => {
+			const { manager, fakes } = build();
+
+			runOfTwo(fakes);
+
+			await manager.changeJobDestination('job-1', { libraryId: 'lib-anime' });
+
+			// Real bytes for the one that landed, and its layout kept: the folders are what
+			// a media server groups a series by.
+			expect(fakes.mover.move).toHaveBeenCalledTimes(1);
+			expect(fakes.mover.move).toHaveBeenCalledWith(
+				expect.objectContaining({
+					source: '/media/shows/Scrubs/Season 2/S02E01.mkv',
+					destination: '/media/anime/Scrubs/Season 2/S02E01.mkv',
+				}),
+			);
+
+			// And the one still coming is simply re-aimed — no copy, nothing interrupted.
+			const paths = fakes.transfers.save.mock.calls.map(([row]: [Transfer]) => row.targetPath);
+
+			expect(paths).toContain('/media/anime/Scrubs/Season 2/S02E02.mkv');
+		});
+
+		it('tidies the folders the run emptied on its way out', async () => {
+			const { manager, fakes } = build();
+
+			runOfTwo(fakes);
+
+			await manager.changeJobDestination('job-1', { libraryId: 'lib-anime' });
+
+			// Asked for the season folder, which is where the file was. Whether it is
+			// really removed is the filesystem's answer and depends on it being empty —
+			// that is the whole safety of it, and it is tested there.
+			expect(fakes.filesystem.pruneEmptyFolders).toHaveBeenCalledWith(
+				'/media/shows/Scrubs/Season 2',
+				['/media/shows', '/media/incoming'],
+			);
+		});
+
+		/**
+		 * The refusal that keeps a run in one place.
+		 *
+		 * Moving four files and then refusing the fifth produces exactly the split this
+		 * feature exists to remove, at the moment somebody is trying to fix one. So every
+		 * file is checked before any file is touched.
+		 */
+		it('refuses the whole run rather than splitting it, when one file cannot go', async () => {
+			const { manager, fakes } = build();
+
+			runOfTwo(fakes);
+			fakes.transfers.findByJob.mockResolvedValue([
+				transfer({ id: 'transfer-1', jobId: 'job-1', state: TransferState.DONE }),
+				transfer({ id: 'transfer-2', jobId: 'job-1', state: TransferState.PLACING }),
+			]);
+
+			await expect(
+				manager.changeJobDestination('job-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_BEING_PLACED);
+
+			// Nothing moved and nothing was tidied: pressing the button again in a minute
+			// is a complete answer.
+			expect(fakes.mover.move).not.toHaveBeenCalled();
+			expect(fakes.transfers.save).not.toHaveBeenCalled();
+			expect(fakes.filesystem.pruneEmptyFolders).not.toHaveBeenCalled();
+		});
+
+		it('refuses the whole run when one file would land on somebody else\'s', async () => {
+			const { manager, fakes } = build();
+
+			runOfTwo(fakes);
+			fakes.libraryManager.probe.mockResolvedValue({
+				exists: true,
+				readable: true,
+				writable: true,
+			});
+
+			await expect(
+				manager.changeJobDestination('job-1', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(ErrorKey.TRANSFER_TARGET_OCCUPIED);
+			expect(fakes.mover.move).not.toHaveBeenCalled();
+		});
+
+		it('skips a file already in the library being asked for', async () => {
+			const { manager, fakes } = build();
+
+			fakes.transfers.findByJob.mockResolvedValue([
+				transfer({
+					id: 'transfer-1',
+					jobId: 'job-1',
+					state: TransferState.DONE,
+					targetPath: '/media/anime/Scrubs/S02E01.mkv',
+					targetLibraryId: 'lib-anime',
+				}),
+				transfer({ id: 'transfer-2', jobId: 'job-1', state: TransferState.QUEUED }),
+			]);
+
+			const moved = await manager.changeJobDestination('job-1', { libraryId: 'lib-anime' });
+
+			// Not an error and not work either, which is what makes pressing the button
+			// twice harmless — a batch half-redirected by a click that timed out is
+			// finished by clicking again.
+			expect(moved).toHaveLength(1);
+			expect(fakes.mover.move).not.toHaveBeenCalled();
+		});
+
+		it('refuses a run nobody has', async () => {
+			const { manager, fakes } = build();
+
+			fakes.transfers.findByJob.mockResolvedValue([]);
+
+			await expect(
+				manager.changeJobDestination('job-ghost', { libraryId: 'lib-anime' }),
+			).rejects.toThrow(NotFoundException);
 		});
 	});
 

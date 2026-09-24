@@ -1211,8 +1211,11 @@
 		},
 		"retarget": {
 			"title": "Mandarlo in un'altra libreria",
+			"action": "Manda altrove",
+			"whole_run": "{title} — tutto il lotto, {count} file",
 			"hint_repoint": "Non è ancora stato archiviato nulla, quindi questo cambia solo la destinazione. Il download non viene interrotto e non viene copiato un byte.",
 			"hint_move": "Questo file è già in una libreria. Sceglierne un'altra lo sposta davvero, e su un file grande ci vuole un po': la coda ne mostra l'avanzamento.",
+			"hint_run_landed": "Anche i file del lotto già archiviati vengono spostati, e le cartelle che restano vuote vengono rimosse.",
 			"library": "Libreria di destinazione",
 			"confirm": "Mandalo lì",
 			"confirm_move": "Spostalo lì",

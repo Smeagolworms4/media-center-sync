@@ -1211,8 +1211,11 @@
 		},
 		"retarget": {
 			"title": "Enviarlo a otra biblioteca",
+			"action": "Enviar a otro sitio",
+			"whole_run": "{title} — toda la tanda, {count} archivos",
 			"hint_repoint": "Todavía no se ha archivado nada, así que esto solo cambia el destino. La descarga no se interrumpe y no se copia ni un byte.",
 			"hint_move": "Este archivo ya está en una biblioteca. Elegir otra lo mueve de verdad, lo que tarda un rato con un archivo grande: la cola muestra el progreso.",
+			"hint_run_landed": "Los archivos de esta tanda que ya están archivados también se mueven, y las carpetas que quedan vacías se eliminan.",
 			"library": "Biblioteca de destino",
 			"confirm": "Enviarlo ahí",
 			"confirm_move": "Moverlo ahí",

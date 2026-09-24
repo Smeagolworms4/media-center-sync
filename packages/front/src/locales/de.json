@@ -1211,8 +1211,11 @@
 		},
 		"retarget": {
 			"title": "In eine andere Bibliothek schicken",
+			"action": "Woanders hinschicken",
+			"whole_run": "{title} — der ganze Lauf, {count} Dateien",
 			"hint_repoint": "Es ist noch nichts abgelegt worden, das ändert also nur das Ziel. Der Download läuft weiter, und es wird kein Byte kopiert.",
 			"hint_move": "Diese Datei liegt bereits in einer Bibliothek. Eine andere zu wählen verschiebt sie wirklich, was bei einer großen Datei dauert — die Warteschlange zeigt den Fortschritt.",
+			"hint_run_landed": "Die bereits abgelegten Dateien dieses Laufs werden ebenfalls verschoben, und die Ordner, die dabei leer bleiben, werden entfernt.",
 			"library": "Zielbibliothek",
 			"confirm": "Dorthin schicken",
 			"confirm_move": "Dorthin verschieben",

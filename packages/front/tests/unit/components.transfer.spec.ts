@@ -592,4 +592,35 @@ describe('components/transfer/TransferBatch', () => {
 
 		expect(wrapper.emitted('action')).toHaveLength(2);
 	});
+
+	it('asks for the whole run when the destination is changed, not one file', async () => {
+		// A season redirected file by file ends half in one library and half in another,
+		// which is the state somebody pressing this is trying to get out of.
+		const transfers = season();
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers, progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-retarget"]').trigger('click');
+
+		expect(wrapper.emitted('retarget')?.[0]).toEqual([transfers]);
+	});
+
+	it('still offers a destination for a run that has entirely landed', () => {
+		/*
+		 * The one worth moving, and the buttons around it are not: pause and cancel have
+		 * nothing left to act on. Drawing no actions at all is what hid it — a run of
+		 * eleven episodes in the wrong library, with nothing on the card to fix it.
+		 */
+		const landed = season().map(one => ({ ...one, state: TransferState.DONE }));
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { transfers: landed, progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-retarget"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="transfer-batch-pause"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="transfer-batch-cancel"]').exists()).toBe(false);
+	});
 });

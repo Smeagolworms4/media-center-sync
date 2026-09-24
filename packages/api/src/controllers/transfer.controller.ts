@@ -287,4 +287,29 @@ export class TransferController {
 	): Promise<Transfer> {
 		return this._transfers.changeDestination(id, body);
 	}
+
+	@Post('jobs/:jobId/destination')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Send a whole run somewhere else',
+		description:
+			'Every file of the run, the ones that have already landed included — those are moved '
+			+ 'for real, reported as `placing`. Folders the run leaves empty behind it are '
+			+ 'removed, and a folder that still holds anything at all is kept. Refused whole if '
+			+ 'any one file cannot go, so a run is never split across two libraries.',
+	})
+	@ApiOkResponse({ description: 'The transfers that moved' })
+	@ApiNotFoundResponse({ description: 'error.library.not_found, error.transfer.not_found' })
+	@ApiConflictResponse({
+		description:
+			'error.transfer.destination_invalid, error.library.path_not_writable, '
+			+ 'error.transfer.target_occupied, error.transfer.being_placed',
+	})
+	public jobDestination(
+		@Param('jobId', ParseUUIDPipe) jobId: string,
+		@Body() body: ChangeDestinationDto,
+	): Promise<Transfer[]> {
+		return this._transfers.changeJobDestination(jobId, body);
+	}
 }

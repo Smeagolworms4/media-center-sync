@@ -1,4 +1,4 @@
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import {
 	ChunkState,
 	ErrorKey,
@@ -42,6 +42,7 @@ import {
 	EventGatewayService,
 	FileMoveError,
 	FileMoveService,
+	FilesystemService,
 	serviceMode,
 	SettingsService,
 	TransferEngineService,
@@ -123,6 +124,14 @@ export class TransferManager implements OnApplicationBootstrap {
 		private readonly _landings: LandingManager,
 		private readonly _settings: SettingsService,
 		private readonly _mover: FileMoveService,
+		/**
+		 * Asked to remove the folders a moved file left empty behind it.
+		 *
+		 * The filesystem rather than the mover: moving bytes and tidying a directory are
+		 * two capabilities, and the mover deliberately knows nothing about libraries or
+		 * roots — which is exactly what says how far up the tidying may go.
+		 */
+		private readonly _filesystem: FilesystemService,
 		private readonly _engine: TransferEngineService,
 		private readonly _verification: VerificationService,
 		private readonly _events: EventGatewayService,
@@ -598,7 +607,95 @@ export class TransferManager implements OnApplicationBootstrap {
 			throw new ConflictException(ErrorKey.TRANSFER_TARGET_OCCUPIED);
 		}
 
+		await this._sendTo(transfer, library, path);
+
+		return this.read(id);
+	}
+
+	/**
+	 * Send a whole run somewhere else, files already landed included.
+	 *
+	 * A run is one piece of work — that is what the queue now draws — and half of it
+	 * cannot be somewhere the other half is not. Redirecting a season that was already
+	 * five episodes in used to leave those five in the old library: the screen then
+	 * showed one batch with one destination while the disk held two, and the series
+	 * appeared twice on the media server, with six episodes in one and five in the
+	 * other. So the ones that have landed are moved for real and the ones still coming
+	 * are simply re-aimed, which is the difference `changeDestination` already draws for
+	 * one file.
+	 *
+	 * **Every file is checked before any file is touched.** A batch that moved four and
+	 * then refused the fifth would produce exactly the split this is here to prevent,
+	 * and it would produce it at the moment somebody was trying to fix one. So a run
+	 * with a file being placed right now, or one file whose new path is occupied, is
+	 * refused whole — nothing has moved, and pressing the button again in a minute is a
+	 * complete answer.
+	 *
+	 * Folders the run emptied on the way out are removed. See `_pruneBehind`.
+	 */
+	public async changeJobDestination(
+		jobId: string,
+		request: ChangeDestinationRequest,
+	): Promise<Transfer[]> {
+		const transfers = await this._transfers.findByJob(jobId);
+
+		if (transfers.length === 0) {
+			throw new NotFoundException(ErrorKey.TRANSFER_NOT_FOUND);
+		}
+
+		const library = await this._requireDestination(request.libraryId);
+		const folder = await this._requireFolder(library, request.folder ?? null);
+
+		const planned: { transfer: TransferEntity; path: string }[] = [];
+
+		for (const transfer of transfers) {
+			const path = await this._destinationPath(transfer, library, folder);
+
+			if (path === resolve(transfer.targetPath) && transfer.targetLibraryId === library.id) {
+				// Already where it is being sent. Not an error and not work either — and
+				// skipping it is what makes pressing the button twice harmless.
+				continue;
+			}
+
+			if (transfer.state === TransferState.PLACING) {
+				throw new ConflictException(ErrorKey.TRANSFER_BEING_PLACED);
+			}
+
+			if ((await this._libraryManager.probe(path)).exists) {
+				throw new ConflictException(ErrorKey.TRANSFER_TARGET_OCCUPIED);
+			}
+
+			planned.push({ transfer, path });
+		}
+
+		for (const one of planned) {
+			await this._sendTo(one.transfer, library, one.path);
+		}
+
+		if (planned.length > 0) {
+			this._logger.log(`Sent ${planned.length} file(s) of run ${jobId} to ${library.name}`);
+		}
+
+		return this._present(planned.map((one) => one.transfer));
+	}
+
+	/**
+	 * Put one file where it has just been told to go, whatever state it was in.
+	 *
+	 * Shared by the single row and the whole run so that the two cannot drift: the order
+	 * of move, retarget and record is load-bearing, and a second copy of it written for
+	 * batches is a second place to get it wrong.
+	 */
+	private async _sendTo(
+		transfer: TransferEntity,
+		library: LibraryEntity,
+		path: string,
+	): Promise<void> {
 		const landed = transfer.state === TransferState.DONE;
+		// Read before the row is rewritten: afterwards `targetLibraryId` names the new
+		// library, and the roots the old folders have to be measured against are gone.
+		const from = landed ? await this._vacatedRoots(transfer) : null;
+		const previous = transfer.targetPath;
 
 		if (landed) {
 			await this._moveInPlace(transfer, path);
@@ -624,9 +721,69 @@ export class TransferManager implements OnApplicationBootstrap {
 			 * library off the row this has just saved.
 			 */
 			await this._landings.record(transfer);
+
+			await this._pruneBehind(previous, from ?? []);
+		}
+	}
+
+	/**
+	 * Remove what the file left behind, as far up as it is empty and no further.
+	 *
+	 * Fetching a season creates `<library>/Scrubs/Season 2` on the way in, and moving it
+	 * out again leaves both of those standing with nothing in them. A media server
+	 * scanning that library then shows Scrubs with no episodes — which reads as the
+	 * library being wrong rather than as leftovers, and is the state somebody redirected
+	 * the run to get away from.
+	 *
+	 * What is *not* done here matters more than what is. Nothing is removed because this
+	 * run created it: only because it is empty now. A folder that still holds another
+	 * episode, a subtitle somebody put there, artwork, an `.nfo`, or anything that was
+	 * already sitting there before the run ever ran, stops the walk where it is. And the
+	 * library root itself is never removed, empty or not.
+	 *
+	 * The roots are the old library's, so the walk cannot climb out of it.
+	 */
+	private async _pruneBehind(from: string, roots: string[]): Promise<void> {
+		if (roots.length === 0) {
+			return;
 		}
 
-		return this.read(id);
+		const removed = await this._filesystem.pruneEmptyFolders(dirname(from), roots);
+
+		if (removed.length > 0) {
+			this._logger.log(`Removed ${removed.length} empty folder(s): ${removed.join(', ')}`);
+		}
+	}
+
+	/**
+	 * The roots the folders a transfer is leaving may be tidied within.
+	 *
+	 * Its own library's, all of them — a shelf is several directories on several disks
+	 * and the file sits under one of them — plus the fallback directory, because a file
+	 * placed there belongs to no library at all and is precisely the case somebody is
+	 * redirecting. Answers nothing for a transfer whose library has since been removed:
+	 * without a root there is no boundary, and a walk up from a path with no boundary is
+	 * the one version of this that could delete something it should not.
+	 */
+	private async _vacatedRoots(transfer: TransferEntity): Promise<string[]> {
+		const library =
+			transfer.targetLibraryId === null
+				? null
+				: await this._libraries.findOne({ where: { id: transfer.targetLibraryId } });
+		const service =
+			library === null
+				? null
+				: await this._services.findOne({ where: { id: library.serviceId } });
+		const fallback = (await this._settings.get()).defaultTargetPath?.trim();
+
+		const roots =
+			library === null
+				? []
+				: service?.rootMappings
+					? derivedLocalRoots(library.paths ?? [], service)
+					: [library.localPath].filter((one): one is string => Boolean(one));
+
+		return [...roots, ...(fallback ? [fallback] : [])].map((root) => resolve(root));
 	}
 
 	/**
