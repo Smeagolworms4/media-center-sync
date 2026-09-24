@@ -366,6 +366,11 @@ export LAB_JELLYFIN_REMOTE_PORT   ## Lab Jellyfin, a friend's (default: 8097)
 export LAB_PLEX_REMOTE_PORT       ## Lab Plex, a friend's (default: 32401)
 export LAB_GATEWAY_PORT           ## Lab gateway, ours (default: 4300)
 export LAB_GATEWAY_REMOTE_PORT    ## Lab gateway, a friend's (default: 4301)
+export LAB_PROWLARR_PORT          ## Lab Prowlarr, the indexer (default: 9696)
+export LAB_QBITTORRENT_PORT       ## Lab qBittorrent, the download client (default: 8090)
+export LAB_QBITTORRENT_SEED_PORT  ## Lab qBittorrent, the seeder (default: 8091)
+export LAB_FAKE_INDEXER_PORT      ## Lab fake indexer and tracker (default: 9117)
+export LAB_SEERR_PORT             ## Lab Seerr, the request front end (default: 5055)
 
 # The project name is pinned, and that `-p` is not decoration. `.env` sets
 # `COMPOSE_PROJECT_NAME=media-center-sync` and the makefiles export every key of it
@@ -380,7 +385,13 @@ LAB_KEYS=$(PROJECT_PATH)var/lab/keys
 lab/media:
 	@./docker/lab/seed-media.sh "$(PROJECT_PATH)var/lab/media"
 
-## Start the whole lab: four servers, configured, with the generated libraries
+## Start the whole lab: four media servers, three gateways, an indexer and a seeded swarm
+##
+## One command, and afterwards everything the test suite stands on is up and configured:
+## four media servers with their libraries scanned, three gateways, Prowlarr holding the
+## lab's own Torznab indexer, and two torrent clients with the fixture really seeding
+## between them — so a search answers the same nine releases on every machine and a grab
+## of any of them completes. Nothing it starts talks to anything outside this machine.
 ##
 ## The configuration directories are created here, before Compose does. A bind mount
 ## whose source does not exist is created by the daemon, owned by root — and the
@@ -398,20 +409,32 @@ lab/up: lab/media
 		var/lab/plex-remote/config var/lab/plex-remote/transcode \
 		var/lab/gateway-local/data var/lab/gateway-local/transfer \
 		var/lab/gateway-remote/data var/lab/gateway-remote/transfer \
+		var/lab/gateway-far/data var/lab/gateway-far/transfer \
+		var/lab/prowlarr/config var/lab/qbittorrent/config var/lab/torrents \
+		var/lab/qbittorrent-seed/config var/lab/seed/content var/lab/seed/torrents \
+		var/lab/seerr/config \
 		var/lab/keys
 	USER_ID=$$(id -u) USER_GID=$$(id -g) $(LAB_COMPOSE) up -d --remove-orphans
+	@./docker/lab/ensure-databases.sh
 	@$(MAKE) --no-print-directory lab/setup
+	@$(MAKE) --no-print-directory lab/torrents
 	@$(MAKE) --no-print-directory lab/services
 
-## Link the two lab gateways to each other, and report what the link agreed on
+## Link the lab gateways to ours, and report what each link agreed on
 ##
 ## Each names the other by fingerprint and one of them dials. Nothing here is special
-## to the lab: it is the two API calls the interface makes, against two gateways that
+## to the lab: it is the two API calls the interface makes, against gateways that
 ## happen to be on one bridge.
+##
+## Three of them, because one link is symmetric and hides every question that needs a
+## third: which peer a media two of them hold is offered from, what a screen does while
+## one is down and another answers, and whether a fingerprint lookup picks the right row
+## in a list with more than one element in it.
 lab/link:
 	@./docker/lab/link-gateways.sh \
-		"http://localhost:$${LAB_GATEWAY_PORT:-4300}" \
-		"http://localhost:$${LAB_GATEWAY_REMOTE_PORT:-4301}"
+		"http://localhost:$${LAB_GATEWAY_PORT:-4300}=gateway-local:4200" \
+		"http://localhost:$${LAB_GATEWAY_REMOTE_PORT:-4301}=gateway-remote:4200" \
+		"http://localhost:$${LAB_GATEWAY_FAR_PORT:-4302}=gateway-far:4200"
 
 ## Pull one file from the other lab gateway over the peer link, and say what crossed
 lab/pull:
@@ -426,6 +449,12 @@ lab/pull:
 ## and `Films` each stand alone although all of them mean the same thing. A lab where
 ## every server named its libraries alike could not show that at all.
 ##
+##
+## The indexer and the download client come last and share nothing with the four: they
+## hold no media and no test knows they exist. Prowlarr only has to hand over the key
+## it generated for itself, and qBittorrent has to stop being the one thing in the lab
+## whose password was invented at random and printed once, into a log.
+##
 ## Re-runnable: each script skips the wizard, the library and the key it already finds.
 lab/setup:
 	@LAB_KEY_FILE=$(LAB_KEYS)/jellyfin-local.key ./docker/lab/setup-jellyfin.sh \
@@ -436,10 +465,87 @@ lab/setup:
 		"http://localhost:$${LAB_PLEX_PORT:-32400}" 'Shows:show:/media/shows' 'Movies:movie:/media/movies'
 	@./docker/lab/setup-plex.sh \
 		"http://localhost:$${LAB_PLEX_REMOTE_PORT:-32401}" 'TV:show:/media/shows' 'Movies:movie:/media/movies'
+	@LAB_KEY_FILE=$(LAB_KEYS)/prowlarr.key ./docker/lab/setup-prowlarr.sh \
+		"http://localhost:$${LAB_PROWLARR_PORT:-9696}"
+	@LAB_KEY_FILE=$(LAB_KEYS)/qbittorrent.key ./docker/lab/setup-qbittorrent.sh \
+		"http://localhost:$${LAB_QBITTORRENT_PORT:-8090}"
+	@LAB_KEY_FILE=$(LAB_KEYS)/seerr.key ./docker/lab/setup-seerr.sh \
+		"http://localhost:$${LAB_SEERR_PORT:-5055}"
+
+## Build the lab's torrents, start seeding them, and put the indexer in Prowlarr
+##
+## What you get: nine releases in Prowlarr's own search — one episode in three qualities
+## from three groups, a run of three episodes under a single info hash, a season pack, a
+## complete series in subdirectories, a title with its article at the back, and two films —
+## every one of them a real torrent whose content is really being seeded, by a second
+## qBittorrent, to the first one. So a grab in the lab downloads bytes rather than being
+## accepted and forgotten, and the release names are the ones the parser has to get right
+## (`docker/lab/fake-indexer/releases.js` says what each is for).
+##
+## Nothing leaves this machine: the tracker is the lab's own indexer, the two clients are
+## on one bridge, and both have DHT, peer exchange and local discovery switched off — the
+## torrents name no other tracker, so there is nowhere else to ask.
+##
+## Re-runnable, and stable across runs: the info hashes are a function of the fixture, so
+## a magnet written down last week still resolves. Editing `releases.js` changes the hashes
+## of what you touched, and the seeder is told to forget what the fixture no longer
+## describes.
+lab/torrents:
+	@./docker/lab/seed-torrents.sh "http://localhost:$${LAB_QBITTORRENT_SEED_PORT:-8091}"
+	@./docker/lab/fake-indexer/register-in-prowlarr.sh "http://localhost:$${LAB_PROWLARR_PORT:-9696}"
+
+## Prove the release chain: search Prowlarr, grab the magnet, download it, compare the bytes
+##
+## The one statement worth trusting about the lab's indexer and its swarm, because every
+## piece of the chain can pass alone while the chain is broken. It searches Prowlarr's own
+## API, follows the magnet Prowlarr hands back, gives it to the download client, waits for
+## the transfer to finish and compares every file that landed under `var/lab/torrents` with
+## what the seeder holds — then removes it again, so the next run proves the same thing
+## from nothing.
+##
+## RELEASE names another release to try; the default is the run of three episodes, which is
+## also the one that shows whether the files landed in the directory the torrent names.
+## `docker/lab/fake-indexer/releases.js` lists the keys.
+lab/torrents-check:
+	@./docker/lab/check-torrents.sh \
+		"http://localhost:$${LAB_PROWLARR_PORT:-9696}" \
+		"http://localhost:$${LAB_QBITTORRENT_PORT:-8090}" \
+		$(RELEASE)
+
+## Prove the request chain: Seerr's asks, read through the gateway, named and matched
+##
+## Reads only. It counts the asks in Seerr itself first — so that "no requests" can be
+## attributed to the source or to the gateway rather than being one word for both — then
+## reads them through the gateway and checks the four things that can each be wrong while
+## every call succeeds: that something named every ask, which a request row never does on
+## its own; that a row nothing of ours answers was described by the source rather than left
+## blank; that anything we are short of carries a search somebody could press; and that
+## nothing was offered as closeable while nothing here answers it.
+##
+## GATEWAY names the gateway to read, and the default is the same one `lab/register` wires:
+## your own, on the host. That is not a detail — the lab's addresses are `localhost` ones,
+## which is right from the host and means the container itself from inside one, so a
+## containerised gateway wired this way reaches nothing and says nothing about it.
+lab/requests-check:
+	@./docker/lab/check-requests.sh \
+		"$${GATEWAY:-http://localhost:$${API_PORT:-4200}}" \
+		"http://localhost:$${LAB_SEERR_PORT:-5055}"
 
 ## Reprint what is needed to register the four services in the gateway
 lab/services:
 	@./docker/lab/print-services.sh "$(LAB_KEYS)"
+
+## Register the four lab servers in a gateway, mapped and scanned
+##
+## `lab/services` prints what somebody would type; this types it. By hand it is four
+## forms, two API keys read off a screen that has scrolled, and one field — the root
+## mapping — that nothing forces anybody to fill in. Leave that out and every library is
+## unwritable, the first pull is refused, and the lab looks broken when it is unwired.
+##
+## GATEWAY names the gateway to wire, so a dev instance on another port is one variable
+## away. Re-runnable: a service already registered under the same name is updated.
+lab/register:
+	@./docker/lab/register-services.sh "$${GATEWAY:-http://localhost:$${API_PORT:-4200}}" "$(LAB_KEYS)"
 
 ## Stop the lab, keeping its configuration
 lab/stop:

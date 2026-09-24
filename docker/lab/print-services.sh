@@ -74,3 +74,60 @@ printf "  its libraries: a gateway with nothing of its own has nothing to answer
 printf "  catalogue with. Inside the lab the two reach each other by service name —\n"
 printf "  http://jellyfin-remote:8096 — and never through localhost.\n"
 printf '\n'
+
+# The release side of the lab, printed last because it shares nothing with the four media
+# servers: no test that correlates libraries knows any of this exists. It is here because
+# the addresses and the two credentials are what a hand test needs, and the alternative is
+# reading them back out of `docker compose ps` and a key file.
+printf '  %-16s %-34s %s\n' 'RELEASES' 'URL' 'WHAT IT IS'
+printf '  %-16s %-34s %s\n' \
+	'prowlarr' "http://localhost:${LAB_PROWLARR_PORT:-9696}" 'the indexer the gateway searches'
+printf '  %-16s %-34s %s\n' \
+	'fake-indexer' "http://localhost:${LAB_FAKE_INDEXER_PORT:-9117}" 'the fixture it searches, and the tracker'
+printf '  %-16s %-34s %s\n' \
+	'qbittorrent' "http://localhost:${LAB_QBITTORRENT_PORT:-8090}" 'the client the gateway drives'
+printf '  %-16s %-34s %s\n' \
+	'qbittorrent-seed' "http://localhost:${LAB_QBITTORRENT_SEED_PORT:-8091}" 'the client that holds the files'
+printf '\n'
+
+# Seerr in its own block, and not under RELEASES, because it belongs to neither half: it
+# is not a media server and it is not a place bytes come from. It is where the household
+# asks, which is a third kind of thing entirely, and filing it with the trackers is how
+# somebody ends up expecting it to download something.
+printf '  %-16s %-34s %s\n' 'REQUESTS' 'URL' 'WHAT IT IS'
+printf '  %-16s %-34s %s\n' \
+	'seerr' "http://localhost:${LAB_SEERR_PORT:-5055}" 'where the household asks for things'
+printf '\n'
+
+if [ -f "$KEYS/prowlarr.key" ]; then
+	printf '  Prowlarr API key  %s\n' "$(cat "$KEYS/prowlarr.key")"
+fi
+
+if [ -f "$KEYS/seerr.key" ]; then
+	printf '  Seerr API key     %s\n' "$(cat "$KEYS/seerr.key")"
+	printf '  Seerr sign-in     %s / %s, through Jellyfin\n' \
+		"${LAB_JELLYFIN_USER:-lab}" "${LAB_JELLYFIN_PASSWORD:-lab}"
+	printf '  Two asks are open and neither carries a title, which is what the gateway has\n'
+	printf '  to work around: a request row is identifiers and statuses, so the work is\n'
+	printf '  looked up separately to have anything to show or to search with.\n'
+fi
+
+printf '  Both clients sign in as %s / %s.\n' \
+	"${LAB_QBITTORRENT_USER:-admin}" "${LAB_QBITTORRENT_PASSWORD:-lab-password}"
+printf '\n'
+printf '  The indexer answers a fixed fixture of nine releases — the names the parser has\n'
+printf '  to get right, from three qualities of one episode to a complete series in\n'
+printf '  subdirectories — and every one of them is a real torrent that qbittorrent-seed\n'
+printf '  is really seeding to qbittorrent over the tracker in the same process. Nothing\n'
+printf '  reaches the internet: those torrents name no other tracker, and DHT, peer\n'
+printf '  exchange and local discovery are off in both clients.\n'
+printf '\n'
+printf '  make lab/torrents        builds the torrents, starts the seeding, puts the\n'
+printf '                           indexer in Prowlarr and searches it once to prove it\n'
+printf '  make lab/torrents-check  searches Prowlarr, grabs a magnet, downloads it and\n'
+printf '                           compares the bytes with what the seeder holds\n'
+printf '\n'
+printf '  Downloads land in %s, which is /downloads in the client:\n' 'var/lab/torrents'
+printf '  that correspondence is the one the download settings ask a household for, and\n'
+printf '  it is real here rather than asserted.\n'
+printf '\n'

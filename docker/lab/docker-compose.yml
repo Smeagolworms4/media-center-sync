@@ -116,6 +116,122 @@ services:
     # engine it can rely on is the one whose driver is pure JavaScript. It also means
     # the lab exercises the engine the README says is supported and nothing else
     # routinely runs against.
+    # The three services the release feature is built against, and the reason they are
+    # here rather than mocked: an indexer's search shape, a torrent client's refusal to
+    # set every file to zero priority, and the moment a magnet's file list becomes
+    # readable are all things no recorded payload can teach. Every one of them cost a
+    # branch in the code that only a real server could have asked for.
+    #
+    # They hold no media and are not part of the four-server fixture: nothing in the
+    # correlation tests knows they exist.
+    prowlarr:
+        image: ghcr.io/linuxserver/prowlarr:latest
+        ports:
+            - ${LAB_PROWLARR_PORT:-9696}:9696
+        environment:
+            - PUID=${USER_ID:-1000}
+            - PGID=${USER_GID:-1000}
+            - TZ=Etc/UTC
+        volumes:
+            - ../../var/lab/prowlarr/config:/config
+        restart: unless-stopped
+
+    qbittorrent:
+        image: ghcr.io/linuxserver/qbittorrent:latest
+        ports:
+            - ${LAB_QBITTORRENT_PORT:-8090}:8090
+        environment:
+            - PUID=${USER_ID:-1000}
+            - PGID=${USER_GID:-1000}
+            - TZ=Etc/UTC
+            - WEBUI_PORT=8090
+        volumes:
+            - ../../var/lab/qbittorrent/config:/config
+            # The downloads folder, twice over: this is the very correspondence the
+            # settings ask for, and having it real in the lab is what proves the
+            # translation rather than asserting it.
+            - ../../var/lab/torrents:/downloads
+        restart: unless-stopped
+
+    seerr:
+        image: ghcr.io/seerr-team/seerr:latest
+        ports:
+            - ${LAB_SEERR_PORT:-5055}:5055
+        environment:
+            - LOG_LEVEL=info
+            - TZ=Etc/UTC
+        volumes:
+            - ../../var/lab/seerr/config:/app/config
+        restart: unless-stopped
+
+    # The indexer the release feature is actually tested against, and a tracker in the
+    # same process.
+    #
+    # Prowlarr can talk to a real tracker, and that is exactly the problem: a public
+    # indexer answers whatever it happens to be seeding today, so the release names that
+    # break a parser — a run of episodes under one info hash, a season pack with no
+    # episode number, the show whose article moved to the back — are there on some days
+    # and gone on others, and a failing test says nothing about this repository. Here the
+    # answer is a file: `fake-indexer/releases.js` holds every case on purpose, and the
+    # search returns the same thing on every run and on every machine.
+    #
+    # It also answers `/announce`, because a search result nobody seeds proves only half
+    # of the chain. Every release points at a real torrent of real lab media, seeded by
+    # `qbittorrent-seed` below, so a grab downloads to completion — and this is the only
+    # tracker any of those torrents names, which together with DHT, peer exchange and
+    # local discovery being off in both clients keeps the whole exchange on this bridge.
+    # `make lab/torrents-check` is what proves that end to end rather than asserting it.
+    #
+    # Plain `node`, no image to build and no dependency: the script is mounted and
+    # `docker compose restart fake-indexer` is the entire edit-and-see loop. It only ever
+    # reads, which is why both its mounts are read-only — the torrents it serves are
+    # built by `seed-torrents.sh` from outside.
+    fake-indexer:
+        image: node:24-alpine
+        ports:
+            - ${LAB_FAKE_INDEXER_PORT:-9117}:9117
+        user: ${USER_ID:-1000}:${USER_GID:-1000}
+        working_dir: /srv
+        command: node server.js
+        environment:
+            - PORT=9117
+            - TORRENT_DIR=/torrents
+        volumes:
+            - ./fake-indexer:/srv:ro
+            - ../../var/lab/seed/torrents:/torrents:ro
+        restart: unless-stopped
+
+    # The other end of every magnet: a second qBittorrent that holds the files and does
+    # nothing but upload them.
+    #
+    # A seeder has to be a real client rather than a script. The far end of a download is
+    # asked for pieces in an order it does not choose, has to answer a metadata request
+    # for a magnet before any piece exists, and has to hold the connection open through a
+    # recheck; a hand-written seeder that gets any of that subtly wrong produces a
+    # download that stalls at some percentage, which is indistinguishable from a bug in
+    # the gateway. The same image as the client above, so neither side is special.
+    #
+    # It reads `seed/content` — the release-named copies of the lab media that
+    # `seed-torrents.sh` lays out — and never `media`, so nothing in the seeding path can
+    # touch the four libraries the correlation fixtures depend on.
+    #
+    # The torrents, the category and the fixed listening port are all set by
+    # `seed-torrents.sh` over the Web API: they are state, and state the script has to
+    # assert anyway before it can claim the lab is seeding.
+    qbittorrent-seed:
+        image: ghcr.io/linuxserver/qbittorrent:latest
+        ports:
+            - ${LAB_QBITTORRENT_SEED_PORT:-8091}:8091
+        environment:
+            - PUID=${USER_ID:-1000}
+            - PGID=${USER_GID:-1000}
+            - TZ=Etc/UTC
+            - WEBUI_PORT=8091
+        volumes:
+            - ../../var/lab/qbittorrent-seed/config:/config
+            - ../../var/lab/seed/content:/content
+        restart: unless-stopped
+
     gateway-db:
         image: postgres:16-alpine
         environment:
@@ -200,3 +316,33 @@ services:
             - MCS_TRANSFER_ROOT=/app/var/lab/gateway-remote/transfer
             - MCS_MEDIA_ROOT=/media
             - PEER_PUBLIC_ADDRESS=gateway-remote:4200
+
+    # A third gateway, and it is not a spare.
+    #
+    # `FRIEND_OF_FRIEND` is a trust level the code decides on — what a catalogue shows
+    # somebody, whether a relay is offered, how far a search reaches — and it cannot
+    # exist with two gateways: somebody introduced by a friend is a third party by
+    # definition. Two prove a link; three prove the rules about who is on the far end
+    # of it.
+    #
+    # It holds a friend's media server, the same one `gateway-remote` reads, because
+    # what makes it interesting is its distance rather than its catalogue.
+    gateway-far:
+        <<: *gateway
+        ports:
+            - ${LAB_GATEWAY_FAR_PORT:-4302}:4200
+        environment:
+            - API_PORT=4200
+            - DB_TYPE=postgres
+            - DB_HOST=gateway-db
+            - DB_PORT=5432
+            - DB_NAME=gateway_far
+            - DB_USER=mcs
+            - DB_PASSWORD=mcs
+            - MCS_JWT_SECRET=lab-secret
+            - MCS_ADMIN_USER=${LAB_GATEWAY_USER:-lab}
+            - MCS_ADMIN_PASSWORD=${LAB_GATEWAY_PASSWORD:-lab-password}
+            - MCS_DATA_DIR=/app/var/lab/gateway-far/data
+            - MCS_TRANSFER_ROOT=/app/var/lab/gateway-far/transfer
+            - MCS_MEDIA_ROOT=/media
+            - PEER_PUBLIC_ADDRESS=gateway-far:4200

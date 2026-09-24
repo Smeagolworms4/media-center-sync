@@ -1,31 +1,41 @@
 #!/usr/bin/env bash
 #
-# Links the two lab gateways to each other, and prints what the link agreed on.
+# Links the lab gateways to each other, and prints what each link agreed on.
 #
-#     link-gateways.sh <ours> <theirs>
+#     link-gateways.sh <ours>=<peer-address> <theirs>=<peer-address> [<more>=<address> ...]
 #
 # Nothing here is special to the lab. It is exactly what the interface does: each
 # gateway is told the other's fingerprint, and one of them dials. The only reason it
-# is a script is that doing it by hand twice, in two browser tabs, is how a lab stops
+# is a script is that doing it by hand, in several browser tabs, is how a lab stops
 # being re-created.
 #
 # Linking by fingerprint rather than by invitation on purpose: an invitation is
 # one-shot and expiring, which is right for a human and wrong for something that has
 # to be re-runnable. Both sides naming each other is what a link is, and it is the
 # form that survives being run twice.
+#
+# **Two peers is not the shape this product has to work in.** One link is symmetric, so
+# every bug that needs three gateways hides behind it: a media two peers both hold and
+# which one is offered, a peer that is down while another answers, a suggestion arriving
+# from one and not the other, a fingerprint that matches the wrong row because the list
+# had one element in it. So the first argument is ours and every other argument is
+# somebody else's, ours dials each of them, and nothing here depends on there being
+# exactly two.
+#
+# Each argument is a URL and the address that gateway hands out on the lab's bridge,
+# joined by `=`: `http://localhost:4300=gateway-local:4200`. Both halves are needed and
+# neither can be derived — the first is where this script reaches it from the host, the
+# second is where the *other gateways* reach it, and a lab that conflated them produced
+# links that connected from here and not from each other.
 set -euo pipefail
 
-OURS="${1:?usage: link-gateways.sh <ours> <theirs>}"
-THEIRS="${2:?usage: link-gateways.sh <ours> <theirs>}"
+if [ "$#" -lt 2 ]; then
+	echo "usage: link-gateways.sh <ours>=<peer-address> <theirs>=<peer-address> [...]" >&2
+	exit 1
+fi
 
 USER_NAME="${LAB_GATEWAY_USER:-lab}"
 PASSWORD="${LAB_GATEWAY_PASSWORD:-lab-password}"
-
-# Both gateways answer on the same port they serve the interface on, and a peer link
-# is a WebSocket upgrade on it. These are the addresses they hand each other; they are
-# service names because that is what resolves on the lab's bridge.
-OURS_PEER_ADDRESS="${LAB_GATEWAY_ADDRESS:-gateway-local:4200}"
-THEIRS_PEER_ADDRESS="${LAB_GATEWAY_REMOTE_ADDRESS:-gateway-remote:4200}"
 
 json() {
 	# `jq` is not assumed: a lab that needs a package installed before it runs is a
@@ -43,6 +53,11 @@ json() {
 		});
 	' "$1"
 }
+
+url_of() { printf '%s' "${1%%=*}"; }
+address_of() { printf '%s' "${1#*=}"; }
+# The service name, which is what a person reads these lines to identify.
+label_of() { printf '%s' "${1#*=}" | cut -d: -f1; }
 
 wait_for() {
 	local url="$1" name="$2" attempt=0
@@ -84,50 +99,26 @@ add_peer() {
 		-d "{\"fingerprint\":\"$3\",\"name\":\"$4\",\"address\":\"$5\"}"
 }
 
-wait_for "$OURS" 'gateway-local'
-wait_for "$THEIRS" 'gateway-remote'
-
-OURS_TOKEN="$(sign_in "$OURS")"
-THEIRS_TOKEN="$(sign_in "$THEIRS")"
-
-if [ -z "$OURS_TOKEN" ] || [ -z "$THEIRS_TOKEN" ]; then
-	printf '  could not sign in as %s. Has the first account been created?\n' "$USER_NAME"
-	exit 1
-fi
-
-OURS_FINGERPRINT="$(fingerprint_of "$OURS" "$OURS_TOKEN")"
-THEIRS_FINGERPRINT="$(fingerprint_of "$THEIRS" "$THEIRS_TOKEN")"
-
-printf '\n  gateway-local   %s\n' "$OURS_FINGERPRINT"
-printf '  gateway-remote  %s\n\n' "$THEIRS_FINGERPRINT"
-
-# Each names the other. The second one to do it settles both rows: two sides having
-# named each other is precisely what a link is.
-add_peer "$OURS" "$OURS_TOKEN" "$THEIRS_FINGERPRINT" 'Lab friend' "$THEIRS_PEER_ADDRESS" >/dev/null
-add_peer "$THEIRS" "$THEIRS_TOKEN" "$OURS_FINGERPRINT" 'Lab us' "$OURS_PEER_ADDRESS" >/dev/null
-
 # By fingerprint, never by position. A gateway whose data directory was thrown away
 # comes back with a new key, the old row stays behind, and dialling whichever peer
-# happened to be first in the list reaches a fingerprint nobody holds any more.
-PEER_ID="$(curl -sf "$OURS/api/peers" -H "Authorization: Bearer $OURS_TOKEN" \
-	| node -e '
-		let body = "";
-		process.stdin.on("data", (chunk) => (body += chunk));
-		process.stdin.on("end", () => {
-			const peers = JSON.parse(body || "[]");
-			const match = peers.find((peer) => peer.fingerprint === process.argv[1]);
-			process.stdout.write(match ? match.id : "");
-		});
-	' "$THEIRS_FINGERPRINT")"
+# happened to be first in the list reaches a fingerprint nobody holds any more. With
+# three gateways in the table this stops being a precaution and becomes the only thing
+# that picks the right row.
+peer_id_of() {
+	curl -sf "$1/api/peers" -H "Authorization: Bearer $2" \
+		| node -e '
+			let body = "";
+			process.stdin.on("data", (chunk) => (body += chunk));
+			process.stdin.on("end", () => {
+				const peers = JSON.parse(body || "[]");
+				const match = peers.find((peer) => peer.fingerprint === process.argv[1]);
+				process.stdout.write(match ? match.id : "");
+			});
+		' "$3"
+}
 
-if [ -z "$PEER_ID" ]; then
-	printf '  the peer row was not created; nothing to connect to\n'
-	exit 1
-fi
-
-printf '  dialling %s …\n\n' "$THEIRS_PEER_ADDRESS"
-curl -s -X POST "$OURS/api/peers/$PEER_ID/connect" -H "Authorization: Bearer $OURS_TOKEN" \
-	| node -e '
+report_link() {
+	node -e '
 		let body = "";
 		process.stdin.on("data", (chunk) => (body += chunk));
 		process.stdin.on("end", () => {
@@ -154,7 +145,92 @@ curl -s -X POST "$OURS/api/peers/$PEER_ID/connect" -H "Authorization: Bearer $OU
 			);
 		});
 	'
+}
 
-printf '\n  Both gateways now hold a live link on the port they serve their interface on.\n'
-printf '  There is no second port anywhere in this: it is a WebSocket upgrade on\n'
-printf '  /api/peer/link. `make lab/pull` moves a file across it.\n\n'
+OURS="$(url_of "$1")"
+OURS_ADDRESS="$(address_of "$1")"
+OURS_LABEL="$(label_of "$1")"
+shift
+THEM=("$@")
+
+wait_for "$OURS" "$OURS_LABEL"
+
+for entry in "${THEM[@]}"; do
+	wait_for "$(url_of "$entry")" "$(label_of "$entry")"
+done
+
+OURS_TOKEN="$(sign_in "$OURS")"
+
+if [ -z "$OURS_TOKEN" ]; then
+	printf '  could not sign in to %s as %s. Has the first account been created?\n' \
+		"$OURS" "$USER_NAME"
+	exit 1
+fi
+
+OURS_FINGERPRINT="$(fingerprint_of "$OURS" "$OURS_TOKEN")"
+
+printf '\n  %-15s %s\n' "$OURS_LABEL" "$OURS_FINGERPRINT"
+
+failed=0
+# Everybody's identity first, and the dialling afterwards. Interleaved, the output reads as
+# though a fingerprint belonged to the link printed above it, which with three gateways is
+# the one thing somebody comes to this listing to check.
+declare -a TOKENS=()
+
+for entry in "${THEM[@]}"; do
+	url="$(url_of "$entry")"
+	label="$(label_of "$entry")"
+	token="$(sign_in "$url")"
+
+	if [ -z "$token" ]; then
+		printf '  could not sign in to %s as %s\n' "$url" "$USER_NAME"
+		failed=1
+		TOKENS+=('')
+		continue
+	fi
+
+	TOKENS+=("$token")
+	printf '  %-15s %s\n' "$label" "$(fingerprint_of "$url" "$token")"
+done
+
+for index in "${!THEM[@]}"; do
+	entry="${THEM[$index]}"
+	token="${TOKENS[$index]}"
+
+	[ -z "$token" ] && continue
+
+	url="$(url_of "$entry")"
+	address="$(address_of "$entry")"
+	label="$(label_of "$entry")"
+	fingerprint="$(fingerprint_of "$url" "$token")"
+
+	# Each names the other. The second one to do it settles both rows: two sides having
+	# named each other is precisely what a link is.
+	add_peer "$OURS" "$OURS_TOKEN" "$fingerprint" "$label" "$address" >/dev/null
+	add_peer "$url" "$token" "$OURS_FINGERPRINT" "$OURS_LABEL" "$OURS_ADDRESS" >/dev/null
+
+	peer_id="$(peer_id_of "$OURS" "$OURS_TOKEN" "$fingerprint")"
+
+	if [ -z "$peer_id" ]; then
+		printf '\n  %s: the peer row was not created; nothing to connect to\n' "$label"
+		failed=1
+		continue
+	fi
+
+	printf '\n  dialling %s …\n\n' "$address"
+
+	# One peer refusing does not end the run: the rest of the lab is still worth linking,
+	# and a script that stopped at the first would leave the others in a half-built state
+	# that looks like a different bug.
+	if ! curl -s -X POST "$OURS/api/peers/$peer_id/connect" \
+		-H "Authorization: Bearer $OURS_TOKEN" | report_link; then
+		failed=1
+	fi
+done
+
+printf '\n  %s now holds a live link to each of the others, on the port they serve their\n' \
+	"$OURS_LABEL"
+printf '  interface on. There is no second port anywhere in this: it is a WebSocket\n'
+printf '  upgrade on /api/peer/link. `make lab/pull` moves a file across one.\n\n'
+
+exit "$failed"
