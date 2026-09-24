@@ -1409,7 +1409,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 		);
 		const items: PlannedItem[] = [];
 		const planned = wanted.slice(0, MAX_PLANNED_ITEMS);
-		const seriesTitles = await this._seriesTitles(planned.map((entry) => entry.item));
+		const shows = await this._seriesFacts(planned.map((entry) => entry.item));
 		const siblings = await this._localSiblings(planned.map((entry) => entry.item));
 
 		/*
@@ -1429,7 +1429,11 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				year: entry.item.year,
 				seasonNumber: entry.item.seasonNumber,
 				episodeNumber: entry.item.episodeNumber,
-				seriesTitle: seriesTitles.get(entry.item.id) ?? null,
+				seriesTitle: shows.get(entry.item.id)?.title ?? null,
+				// The series' year, not the episode's: a media server dates an episode by
+				// when it aired, and building the show's folder from that gives one folder
+				// per season. See `NameableItem.seriesYear`.
+				seriesYear: shows.get(entry.item.id)?.year ?? null,
 				sourcePath: entry.item.file?.path ?? null,
 			};
 
@@ -2129,7 +2133,9 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	 * Batched because the alternative is two queries per planned item, and a plan is
 	 * five hundred of them.
 	 */
-	private async _seriesTitles(items: MediaItem[]): Promise<Map<string, string>> {
+	private async _seriesFacts(
+		items: MediaItem[],
+	): Promise<Map<string, { title: string; year: number | null }>> {
 		const episodes = items.filter(
 			(item) => item.kind === MediaKind.EPISODE && item.parentId !== null,
 		);
@@ -2150,7 +2156,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			: [];
 		const seriesById = new Map(series.map((one) => [one.id, one]));
 
-		const titles = new Map<string, string>();
+		const facts = new Map<string, { title: string; year: number | null }>();
 
 		for (const episode of episodes) {
 			const season = seasonById.get(episode.parentId as string);
@@ -2158,11 +2164,14 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			const title = show?.title ?? season?.title ?? null;
 
 			if (title) {
-				titles.set(episode.id, title);
+				// The year comes from the series row alone. A season's year is the year
+				// that season aired, which is exactly the number that must not reach a
+				// folder name, so falling back to it would rebuild the bug it prevents.
+				facts.set(episode.id, { title, year: show?.year ?? null });
 			}
 		}
 
-		return titles;
+		return facts;
 	}
 
 	/**

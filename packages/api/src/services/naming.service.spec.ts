@@ -19,7 +19,11 @@ function episode(overrides: Partial<NameableItem> = {}): NameableItem {
 		kind: MediaKind.EPISODE,
 		title: 'Back to the Butcher',
 		seriesTitle: 'The Expanse',
-		year: 2015,
+		// The episode aired in 2016 and the show began in 2015, which is the whole point
+		// of keeping them apart: the folder is the show's and must not move with the
+		// season. A fixture where the two agree cannot fail the way a real library did.
+		year: 2016,
+		seriesYear: 2015,
 		seasonNumber: 1,
 		episodeNumber: 2,
 		sourcePath: '/media/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv',
@@ -277,6 +281,40 @@ describe('NamingService', () => {
 	 * of, and somebody whose library looks like this does not want one file in it
 	 * spelled with spaces.
 	 */
+	/**
+	 * The bug that quartered a show.
+	 *
+	 * A media server dates an episode by when it aired, so `year` on a Spartacus episode
+	 * is 2010 in season one and 2013 in season three. Building the series folder from it
+	 * produced `Spartacus (2010)`, `Spartacus (2011)`, `Spartacus (2012)` and
+	 * `Spartacus (2013)`, one season in each, and Jellyfin duly showed four separate
+	 * shows. The owner's verdict was that he clearly did not have everything; what he
+	 * had was the show, in quarters.
+	 */
+	describe('the year on a series folder', () => {
+		it('is the series\' own, never the year the episode aired', () => {
+			const third = episode({ year: 2013, seasonNumber: 3, episodeNumber: 8 });
+
+			expect(service.render(SPACED, third)).toContain('The Expanse (2015)/Season 03/');
+		});
+
+		it('puts every season of one show under one folder', () => {
+			const folders = [1, 2, 3].map(season => service.render(
+				SPACED,
+				episode({ year: 2014 + season, seasonNumber: season }),
+			).split('/')[0]);
+
+			expect(new Set(folders).size).toBe(1);
+		});
+
+		it('leaves the year out entirely rather than guessing at one', () => {
+			// `The Expanse/Season 01` groups correctly, which is what matters here. A
+			// wrong year does not, and the episode's is always the wrong one.
+			expect(service.render(SPACED, episode({ seriesYear: null })))
+				.toContain('The Expanse/Season 01/');
+		});
+	});
+
 	describe('the dotted convention', () => {
 		it('lays an episode out the way a scene release does', () => {
 			expect(service.render(DOTTED, episode())).toBe(

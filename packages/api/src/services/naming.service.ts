@@ -15,6 +15,22 @@ export interface NameableItem {
 	episodeNumber?: number | null;
 	/** The series title, for an episode. Its own `title` is the episode's. */
 	seriesTitle?: string | null;
+	/**
+	 * The year of the series, for an episode — never the episode's own.
+	 *
+	 * The two are different numbers and confusing them split one show across four
+	 * folders on a real library. A media server dates an episode by when it aired, so
+	 * `year` on a Spartacus episode is 2010 in season one and 2013 in season three;
+	 * building the series folder from it produced `Spartacus (2010)`,
+	 * `Spartacus (2011)`, `Spartacus (2012)` and `Spartacus (2013)`, each holding one
+	 * season, and Jellyfin duly showed four separate shows of one season each. The
+	 * owner's verdict was that he clearly did not have everything, and he was right:
+	 * what he had was the show, quartered.
+	 *
+	 * Unknown means no year at all in the folder name. `Spartacus/Season 03` groups
+	 * correctly and is what matters here; a wrong year does not.
+	 */
+	seriesYear?: number | null;
 	/** Path on the source, which carries the name the source library gave it. */
 	sourcePath?: string | null;
 }
@@ -281,7 +297,12 @@ export class NamingService {
 
 		if (item.kind === MediaKind.EPISODE) {
 			const series = this.sanitise(item.seriesTitle?.trim() || item.title);
-			const seriesFolder = this.sanitise(item.year ? `${series} (${item.year})` : series);
+			// The *series'* year, and never the episode's — see `NameableItem.seriesYear`.
+			// The episode's is the year it aired, which is a different number in every
+			// season and gave one show four folders.
+			const seriesFolder = this.sanitise(
+				item.seriesYear ? `${series} (${item.seriesYear})` : series,
+			);
 
 			return `${seriesFolder}/${this.sanitise(`Season ${this._pad(item.seasonNumber ?? 0)}`)}`;
 		}
@@ -526,8 +547,11 @@ export class NamingService {
 			const series = item.seriesTitle?.trim() || item.title;
 			const tag = `S${this._pad(item.seasonNumber ?? 0)}E${this._pad(item.episodeNumber ?? 0)}`;
 
+			// The series' year for the same reason the folder uses it: a dotted name
+			// carrying the episode's year says `Spartacus.2013.S03E08`, which every
+			// scraper reads as a show that started in 2013.
 			return this.sanitise(
-				`${this._dots([series, item.year, tag, item.title])}${extension}`,
+				`${this._dots([series, item.seriesYear, tag, item.title])}${extension}`,
 			);
 		}
 
