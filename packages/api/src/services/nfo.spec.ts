@@ -18,9 +18,35 @@ describe('renderNfo', () => {
 		const document = renderNfo(facts()) ?? '';
 
 		expect(document).toContain('<episodedetails>');
+		// Which file this is, which is a question about the disk rather than about the
+		// show — a server that gets it wrong files the episode under the wrong season
+		// whatever it goes on to fetch.
 		expect(document).toContain('<season>1</season>');
 		expect(document).toContain('<episode>1</episode>');
-		expect(document).toContain('<showtitle>The Expanse</showtitle>');
+	});
+
+	/**
+	 * The bug this file now exists to prevent.
+	 *
+	 * A media server reads a local `.nfo` as authority. Handed a document that already
+	 * names the episode, describes it and dates it, Jellyfin considers the record
+	 * complete and stops fetching from TVDB and TMDB — so artwork, cast and every later
+	 * correction upstream never arrive, and nothing reports a failure. It took a full
+	 * "replace all metadata" refresh on a real library to undo.
+	 */
+	it('writes no metadata of its own, only what identifies the file', () => {
+		const document = renderNfo(facts({ overview: 'Ceres station.' })) ?? '';
+
+		expect(document).not.toContain('<title>');
+		expect(document).not.toContain('<showtitle>');
+		expect(document).not.toContain('<year>');
+		expect(document).not.toContain('<plot>');
+	});
+
+	it('says plainly that the record is not locked', () => {
+		// Left out, a reader that assumes the default is locked would freeze exactly what
+		// this document exists to keep thawed. Saying it costs one line.
+		expect(renderNfo(facts()) ?? '').toContain('<lockdata>false</lockdata>');
 	});
 
 	it('carries the identifiers, which is the whole reason to write one', () => {
@@ -54,34 +80,34 @@ describe('renderNfo', () => {
 	});
 
 	it('escapes what would end the document early', () => {
-		// Both occur in real libraries, and an unescaped ampersand makes the file
-		// unparseable — reported by a media server as "no metadata", not as a bad file.
-		const document = renderNfo(facts({ title: "Fear & Loathing: Girls' Night <1>" })) ?? '';
+		// An unescaped ampersand makes the whole file unparseable — reported by a media
+		// server as "no metadata" rather than as a broken file — and identifiers from a
+		// server nobody controls are not guaranteed to be tidy.
+		const document = renderNfo(facts({ externalIds: { imdb: 'tt1 & <2>' } })) ?? '';
 
-		expect(document).toContain('Fear &amp; Loathing: Girls&apos; Night &lt;1&gt;');
-		expect(document).not.toMatch(/<title>[^<]*&(?!amp;|apos;|lt;|gt;|quot;)/);
+		expect(document).toContain('tt1 &amp; &lt;2&gt;');
+		expect(document).not.toMatch(/>[^<]*&(?!amp;|apos;|lt;|gt;|quot;)/);
 	});
 
-	it('leaves out what it does not know rather than writing empty elements', () => {
-		const document = renderNfo(facts({ year: null, overview: null, showTitle: null })) ?? '';
+	it('leaves out a coordinate it does not know rather than writing an empty element', () => {
+		const document = renderNfo(facts({ seasonNumber: null })) ?? '';
 
-		expect(document).not.toContain('<year>');
-		expect(document).not.toContain('<plot>');
-		expect(document).not.toContain('<showtitle>');
+		expect(document).not.toContain('<season>');
+		expect(document).toContain('<episode>1</episode>');
 	});
 
-	it('writes nothing at all when it knows nothing', () => {
-		// A document with a root and nothing in it says less than no document, and a
-		// media server that reads one stops looking for metadata elsewhere.
-		expect(renderNfo(facts({
-			title: '   ',
-			year: null,
-			seasonNumber: null,
-			episodeNumber: null,
-			overview: null,
-			showTitle: null,
-			externalIds: {},
-		}))).toBeNull();
+	/**
+	 * No identifier, no document — and this is the whole point of the file.
+	 *
+	 * What would be left is a title the server already has from the filename, written in
+	 * the one place that stops it looking any further. An identifier has the opposite
+	 * effect: it is the one fact the server cannot work out for itself, and handing it
+	 * over is what sends the server to the provider rather than away from it.
+	 */
+	it('writes nothing at all when it has no identifier to carry', () => {
+		expect(renderNfo(facts({ externalIds: {} }))).toBeNull();
+		// Not even when everything else is known.
+		expect(renderNfo(facts({ externalIds: { internal: 'abc' } }))).toBeNull();
 	});
 
 	it('has no document for a collection', () => {
@@ -99,6 +125,7 @@ describe('renderNfo', () => {
 
 		expect(document).toContain('<movie>');
 		expect(document).not.toContain('<season>');
+		expect(document).toContain('<uniqueid type="tvdb" default="true">280619</uniqueid>');
 	});
 });
 

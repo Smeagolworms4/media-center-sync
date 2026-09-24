@@ -229,7 +229,11 @@ describe('MetadataService', () => {
 			const document = await readFile(join(target, 'Show - S01E01.nfo'), 'utf8');
 
 			expect(document).toContain('<uniqueid type="tvdb" default="true">280619</uniqueid>');
-			expect(document).toContain('<showtitle>The Expanse</showtitle>');
+			// And nothing a media server would read as "this record is complete": a
+			// document that names and describes the episode stops Jellyfin fetching from
+			// TVDB and TMDB altogether — see `renderNfo`.
+			expect(document).not.toContain('<showtitle>');
+			expect(document).not.toContain('<plot>');
 		});
 
 		it('keeps a document somebody already has', async () => {

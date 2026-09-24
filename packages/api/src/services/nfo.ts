@@ -97,16 +97,35 @@ function uniqueIds(externalIds: Record<string, string>): string[] {
 }
 
 /**
- * Render an `.nfo` for one media file.
+ * Render an `.nfo` for one media file: the identifiers, and what tells the server
+ * which episode this is. Nothing else, and that is the whole design.
  *
  * Returns null for a kind that has no sensible document — there is nothing useful to
- * say about a collection in a file that sits next to a video.
+ * say about a collection in a file that sits next to a video — and null when there is
+ * no identifier to carry, because then there is nothing here worth a file.
  *
  * What makes this worth writing at all is the identifiers. A source often holds rich
  * metadata in its own database and no `.nfo` on disk: copying the companions then
  * gives us the file and none of the facts, and the local media server re-identifies
  * the episode from its filename. That is how a correctly named episode ends up filed
  * under a different series with the same name.
+ *
+ * **The title, the year and the plot used to be written here, and writing them was a
+ * bug.** A media server reads a local `.nfo` as authority: given a document that
+ * already names the film and describes it, Jellyfin considers the record complete and
+ * stops fetching from TMDB and TVDB — so artwork, cast, ratings and every later
+ * correction upstream simply never arrive, and nothing reports a failure. It took a
+ * full "replace all metadata" refresh to undo on a real library. An identifier has the
+ * opposite effect: it is the one fact the server cannot work out for itself, and
+ * handing it over is what sends the server to the provider rather than away from it.
+ *
+ * `season` and `episode` stay because they are not metadata: they say which file this
+ * is, which is a question about the disk and not about the show, and a server that
+ * gets it wrong files the episode under the wrong season whatever it fetches.
+ *
+ * `lockdata` is written false on purpose, rather than left out. Some tools write these
+ * files locked, and a reader that assumes the default is locked would freeze exactly
+ * what this change exists to keep thawed. Saying it costs one line.
  */
 export function renderNfo(facts: NfoFacts): string | null {
 	const root = ROOT[facts.kind];
@@ -115,23 +134,20 @@ export function renderNfo(facts: NfoFacts): string | null {
 		return null;
 	}
 
-	const lines: (string | null)[] = [
-		element('title', facts.title),
-		element('showtitle', facts.showTitle ?? null),
-		element('season', facts.seasonNumber),
-		element('episode', facts.episodeNumber),
-		element('year', facts.year),
-		element('plot', facts.overview),
-		...uniqueIds(facts.externalIds ?? {}),
-	];
+	const ids = uniqueIds(facts.externalIds ?? {});
 
-	const body = lines.filter((line): line is string => line !== null);
-
-	// A document with a root element and nothing inside says less than no document at
-	// all, and a media server that reads one stops looking for metadata elsewhere.
-	if (body.length === 0) {
+	// No identifier, no document. What is left would be a title the server already has
+	// from the filename, written in the one place that stops it looking any further.
+	if (ids.length === 0) {
 		return null;
 	}
+
+	const body = [
+		element('season', facts.seasonNumber),
+		element('episode', facts.episodeNumber),
+		...ids,
+		element('lockdata', 'false'),
+	].filter((line): line is string => line !== null);
 
 	return [
 		'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
