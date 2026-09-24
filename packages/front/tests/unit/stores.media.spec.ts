@@ -185,6 +185,7 @@ describe('stores/media', () => {
 						edition: null,
 						local: true,
 						path: null,
+						localPath: null,
 						sync: SyncState.IN_SYNC,
 					}],
 				})],

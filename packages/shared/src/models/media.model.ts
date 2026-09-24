@@ -353,6 +353,24 @@ export interface MediaGroupSource {
 	 */
 	path: string | null;
 	/**
+	 * The same file, spelled as this gateway reaches it.
+	 *
+	 * `path` above is the media server's spelling, which is the right thing to show
+	 * before erasing a file — it is what somebody's Jellyfin displays. It is the wrong
+	 * thing for anybody who then wants to go and look at the file: `/media/SeriesTV/…`
+	 * exists inside a container and nowhere a shell can reach. Both are answered, and
+	 * neither stands in for the other.
+	 *
+	 * Null on a copy this gateway does not hold the files of — a friend's server has
+	 * paths and none of them mean anything here — and null when nothing underneath a
+	 * folder says where it is.
+	 *
+	 * A show and a season carry no file, so theirs is the deepest directory every file
+	 * beneath them shares, which is the honest answer for both layouts a media server
+	 * produces: seasons in their own folders, or a flat show.
+	 */
+	localPath: string | null;
+	/**
 	 * This copy's own state.
 	 *
 	 * The group says the media is outdated; only this says which copy is the old one.

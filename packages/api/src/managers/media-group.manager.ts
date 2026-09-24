@@ -15,6 +15,7 @@ import {
 	type ResultList,
 } from '@mcs/shared';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { In } from 'typeorm';
 import type { MediaItem as MediaItemEntity, MediaService as MediaServiceEntity } from '@/entities';
 import {
 	MediaItemRepository,
@@ -27,6 +28,7 @@ import {
 } from '@/repositories';
 import {
 	editionOf,
+	mappedLocalPath,
 	QualityService,
 	serviceMode,
 	SettingsService,
@@ -195,6 +197,15 @@ interface GroupSkeleton {
 interface GroupContext {
 	graph: MatchGraph;
 	services: Map<string, MediaServiceEntity>;
+	/**
+	 * Where a container sits on this gateway's own disks, by item.
+	 *
+	 * Only filled for the reads that show one media — the page for a series, a season
+	 * or a file — because working it out means walking down to the files underneath, and
+	 * a wall of two hundred posters would walk the whole catalogue to answer a question
+	 * nobody asked there. Empty elsewhere, which reads as "not known" and shows nothing.
+	 */
+	folders: Map<string, string>;
 	peerNames: Map<string, string>;
 	/** Services whose libraries the gateway can write into. */
 	local: Set<string>;
@@ -294,6 +305,11 @@ export class MediaGroupManager {
 		const groups = await this._read(
 			window.map((skeleton) => skeleton.memberIds),
 			context,
+			// Only the children of one media, never the wall. Working out where a folder
+			// is means walking down to the files inside it, and doing that for two
+			// hundred posters would read the whole catalogue to answer a question that
+			// screen does not ask.
+			{ folders: query.parentId !== undefined },
 		);
 
 		return paginate(groups, matching.length, page, limit);
@@ -311,13 +327,107 @@ export class MediaGroupManager {
 
 		await this._require(id);
 
-		const [group] = await this._read([context.graph.members(id)], context);
+		const [group] = await this._read([context.graph.members(id)], context, { folders: true });
 
 		if (group === undefined) {
 			throw new NotFoundException(ErrorKey.MEDIA_NOT_FOUND);
 		}
 
 		return group;
+	}
+
+	/**
+	 * The folder each of these containers sits in, worked out from the files below it.
+	 *
+	 * A series and a season carry no file of their own — nothing in the index says where
+	 * `Spartacus` is on the disk — so the answer is the deepest directory every file
+	 * underneath shares. That is the honest definition and it survives both layouts a
+	 * media server produces: seasons in their own folders give the series folder, and a
+	 * flat show whose episodes all sit together gives that one directory.
+	 *
+	 * Compared by whole path components, never by letters: a prefix test on the raw
+	 * strings calls `/share/Media2` a parent of `/share/Media`, which would print a
+	 * folder the media is not in.
+	 *
+	 * Two levels deep and no further, because that is the whole shape of a media tree —
+	 * series, season, episode. A walk with no bound would follow a cycle in a corrupt
+	 * parent chain for as long as the request lasted.
+	 *
+	 * Copies whose files are not ours are skipped: their paths mean nothing here.
+	 */
+	private async _folders(
+		members: MediaItemEntity[],
+		context: GroupContext,
+	): Promise<Map<string, string>> {
+		const wanted = members.filter(
+			(item) => item.file === null && context.local.has(item.serviceId),
+		);
+
+		if (wanted.length === 0) {
+			return new Map();
+		}
+
+		// Which container each descendant is being counted for, so a file three levels
+		// down still lands under the series it belongs to.
+		const owner = new Map<string, string>(wanted.map((item) => [item.id, item.id]));
+		const found = new Map<string, string[][]>();
+		let frontier = wanted.map((item) => item.id);
+
+		for (let depth = 0; depth < 2 && frontier.length > 0; depth += 1) {
+			const children = await this._items.find({ where: { parentId: In(frontier) } });
+
+			frontier = [];
+
+			for (const child of children) {
+				const root = child.parentId === null ? undefined : owner.get(child.parentId);
+
+				if (root === undefined) {
+					continue;
+				}
+
+				owner.set(child.id, root);
+
+				const local = this._localPath(child, context);
+
+				if (local === null) {
+					frontier.push(child.id);
+
+					continue;
+				}
+
+				const paths = found.get(root) ?? [];
+
+				paths.push(local.split('/').slice(0, -1));
+				found.set(root, paths);
+			}
+		}
+
+		const folders = new Map<string, string>();
+
+		for (const [id, paths] of found) {
+			const [first, ...rest] = paths;
+			let shared = first;
+
+			for (const other of rest) {
+				let index = 0;
+
+				while (index < shared.length && index < other.length && shared[index] === other[index]) {
+					index += 1;
+				}
+
+				shared = shared.slice(0, index);
+			}
+
+			const folder = shared.join('/');
+
+			// A group of files with nothing in common above the root says nothing useful,
+			// and printing `/` would be worse than printing nothing.
+			if (folder !== '') {
+				folders.set(id, folder);
+			}
+		}
+
+		return folders;
 	}
 
 	/**
@@ -413,6 +523,7 @@ export class MediaGroupManager {
 		return {
 			graph: new MatchGraph(pairs),
 			services: new Map(services.map((service) => [service.id, service])),
+			folders: new Map(),
 			peerNames: new Map(peers.map((peer) => [peer.id, peer.name])),
 			friendsOfFriends: new Set(
 				peers
@@ -628,11 +739,24 @@ export class MediaGroupManager {
 	}
 
 	/** The full rows for one page of groups, and the children those groups count. */
-	private async _read(components: string[][], context: GroupContext): Promise<MediaGroup[]> {
+	private async _read(
+		components: string[][],
+		context: GroupContext,
+		options: { folders?: boolean } = {},
+	): Promise<MediaGroup[]> {
 		const memberIds = components.flat();
 		const rows = new Map(
 			(await this._items.findByIds(memberIds)).map((item) => [item.id, item]),
 		);
+
+		if (options.folders === true) {
+			// Written onto the context rather than threaded through `_group` and
+			// `_source`: those two already take it, and a second map passed beside it
+			// would be one more thing every call site has to remember to forward.
+			for (const [id, folder] of await this._folders([...rows.values()], context)) {
+				context.folders.set(id, folder);
+			}
+		}
 
 		const children = await this._children(memberIds, context);
 
@@ -900,8 +1024,43 @@ export class MediaGroupManager {
 			edition: editionOf(item.file),
 			local: context.local.has(item.serviceId),
 			path: item.file?.path ?? null,
+			localPath: this._localPath(item, context),
 			sync: item.syncState,
 		};
+	}
+
+	/**
+	 * Where this copy is on the gateway's own disks, spelled as the gateway sees it.
+	 *
+	 * `path` beside it is the *server's* spelling, which is the right thing to show
+	 * before erasing a file — it is what somebody's Jellyfin displays. It is the wrong
+	 * thing for anybody who then wants to go and look: `/media/SeriesTV/…` exists inside
+	 * a container and nowhere a shell can reach. So both are answered, and neither
+	 * stands in for the other.
+	 *
+	 * Null for a copy on a service whose files this gateway does not hold. A friend's
+	 * server has paths, and none of them mean anything here; printing one would be a
+	 * directory somebody goes looking for and never finds.
+	 *
+	 * A folder — a series, a season — has no file to translate, so it is worked out from
+	 * what is underneath it. See `_folders`.
+	 */
+	private _localPath(item: MediaItemEntity, context: GroupContext): string | null {
+		if (!context.local.has(item.serviceId)) {
+			return null;
+		}
+
+		const reported = item.file?.path ?? null;
+
+		if (reported === null) {
+			return context.folders.get(item.id) ?? null;
+		}
+
+		const service = context.services.get(item.serviceId);
+
+		return service === undefined
+			? null
+			: mappedLocalPath(reported, service.rootMappings ?? []);
 	}
 
 	/**

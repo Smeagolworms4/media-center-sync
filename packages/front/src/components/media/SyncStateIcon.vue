@@ -16,10 +16,19 @@
 		size?: string | number;
 		/** Adds the label beside the icon, for detail pages where there is room. */
 		withLabel?: boolean;
+		/**
+		 * Where this is on the gateway's own disks, said in the tooltip.
+		 *
+		 * The state answers "do I have it"; the very next question is "where". The
+		 * gateway's spelling and not the media server's, because it is what somebody
+		 * types into a shell.
+		 */
+		path?: string | null;
 	}>(), {
 		state: null,
 		size: 20,
 		withLabel: false,
+		path: null,
 	});
 
 	const descriptor = computed(() => describeSyncState(props.state));
@@ -49,6 +58,8 @@
 		<div class="sync-state-icon_tooltip">
 			<strong>{{ $t(descriptor.labelKey) }}</strong>
 			<div>{{ $t(descriptor.helpKey) }}</div>
+
+			<div v-if="path" class="sync-state-icon_path" data-test="sync-state-path">{{ path }}</div>
 		</div>
 	</v-tooltip>
 </template>
@@ -61,6 +72,16 @@
 
 		&_tooltip {
 			max-width: 280px;
+		}
+
+		&_path {
+			margin-top: 4px;
+			font-family: monospace;
+			font-size: 11px;
+			opacity: 0.85;
+			// A media path is long and has no spaces, so it has to be allowed to break
+			// anywhere or the tooltip grows past the viewport.
+			overflow-wrap: anywhere;
 		}
 	}
 </style>

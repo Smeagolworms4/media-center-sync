@@ -65,6 +65,7 @@ function source (overrides: Partial<MediaGroupSource> = {}): MediaGroupSource {
 		edition: null,
 		local: true,
 		path: null,
+		localPath: null,
 		sync: SyncState.IN_SYNC,
 		...overrides,
 	};

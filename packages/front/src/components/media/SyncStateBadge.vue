@@ -25,10 +25,21 @@
 		state?: SyncState | null;
 		/** Forces the label on, for a detail header where there is room for it. */
 		withLabel?: boolean;
+		/**
+		 * Where this is on the gateway's own disks, said in the tooltip.
+		 *
+		 * The state answers "do I have it"; the very next question is "where", and until
+		 * now the only way to find out was to open the transfer that put it there — which
+		 * does not exist for anything the gateway did not fetch itself. It is the
+		 * gateway's spelling and not the media server's, because it is what somebody
+		 * types into a shell.
+		 */
+		path?: string | null;
 		size?: string | number;
 	}>(), {
 		state: null,
 		withLabel: false,
+		path: null,
 		size: 16,
 	});
 
@@ -60,6 +71,8 @@
 		<div class="sync-state-badge_tooltip">
 			<strong>{{ $t(descriptor.labelKey) }}</strong>
 			<div>{{ $t(descriptor.helpKey) }}</div>
+
+			<div v-if="path" class="sync-state-badge_path" data-test="sync-state-path">{{ path }}</div>
 		</div>
 	</v-tooltip>
 </template>
@@ -91,6 +104,16 @@
 
 		&_tooltip {
 			max-width: 280px;
+		}
+
+		&_path {
+			margin-top: 4px;
+			font-family: monospace;
+			font-size: 11px;
+			opacity: 0.85;
+			// A media path is long and has no spaces, so it has to be allowed to break
+			// anywhere or the tooltip grows past the viewport.
+			overflow-wrap: anywhere;
 		}
 	}
 </style>

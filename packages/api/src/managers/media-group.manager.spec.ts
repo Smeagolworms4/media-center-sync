@@ -173,6 +173,17 @@ const build = (
 		findByIds: jest.fn((ids: string[]) =>
 			Promise.resolve(full.items.filter((row) => ids.includes(row.id))),
 		),
+		// The children of a set of parents, which is how a folder is worked out for a
+		// row that carries no file of its own. TypeORM's `In` is a value object here, so
+		// the fake reads the identifiers back off it rather than pretending to be a
+		// query builder.
+		find: jest.fn(({ where }: { where: { parentId: { _value: string[] } } }) =>
+			Promise.resolve(
+				full.items.filter(
+					(row) => row.parentId !== null && where.parentId._value.includes(row.parentId),
+				),
+			),
+		),
 		findOne: jest.fn(({ where }: { where: { id: string } }) =>
 			Promise.resolve(byId(where.id) ?? null),
 		),
@@ -870,6 +881,94 @@ describe('MediaGroupManager', () => {
 
 			expect(group.versions).toEqual([]);
 			expect(group.sources.map((source) => source.versionId)).toEqual([null, null]);
+		});
+	});
+
+	/**
+	 * Where a media is on this gateway's own disks, which is the next question after
+	 * "do I have it".
+	 *
+	 * `path` beside it is the media server's spelling — `/library/…` inside its
+	 * container — and until now that was the only answer on offer, which is a directory
+	 * nobody can open from a shell.
+	 */
+	describe('the local path', () => {
+		const mounted = (): MediaService[] => [
+			service({ rootMappings: [{ remoteRoot: '/library', localRoot: '/share/media' }] }),
+			service({ id: 'remote', name: 'A friend', peerId: 'peer-1', filesMounted: false }),
+		];
+
+		it('translates a file through the service that reported it', async () => {
+			const { manager } = build({ items: [item({ id: 'a' })], services: mounted() });
+
+			const group = (await manager.group('a'));
+
+			expect(group.sources[0].path).toBe('/library/Big Buck Bunny - S01E01 - 1080p.mp4');
+			expect(group.sources[0].localPath).toBe('/share/media/Big Buck Bunny - S01E01 - 1080p.mp4');
+		});
+
+		it('says nothing for a copy whose files this gateway does not hold', async () => {
+			const { manager } = build({
+				items: [item({ id: 'a', serviceId: 'remote' })],
+				services: mounted(),
+			});
+
+			// A friend's server has paths and none of them mean anything here. Printing
+			// one is a directory somebody goes looking for and never finds.
+			expect((await manager.group('a')).sources[0].localPath).toBeNull();
+		});
+
+		it('answers a season the folder its episodes share', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'season', kind: MediaKind.SEASON, file: null, title: 'Season 1' }),
+					item({ id: 'e1', parentId: 'season', file: file({ path: '/library/Show/Season 1/E1.mkv' }) }),
+					item({ id: 'e2', parentId: 'season', file: file({ path: '/library/Show/Season 1/E2.mkv' }) }),
+				],
+				services: mounted(),
+			});
+
+			expect((await manager.group('season')).sources[0].localPath)
+				.toBe('/share/media/Show/Season 1');
+		});
+
+		it('answers a series the folder every season of it is under', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'show', kind: MediaKind.SERIES, file: null, title: 'Show' }),
+					item({ id: 's1', parentId: 'show', kind: MediaKind.SEASON, file: null }),
+					item({ id: 's2', parentId: 'show', kind: MediaKind.SEASON, file: null }),
+					item({ id: 'e1', parentId: 's1', file: file({ path: '/library/Show/Season 1/E1.mkv' }) }),
+					item({ id: 'e2', parentId: 's2', file: file({ path: '/library/Show/Season 2/E1.mkv' }) }),
+				],
+				services: mounted(),
+			});
+
+			expect((await manager.group('show')).sources[0].localPath).toBe('/share/media/Show');
+		});
+
+		it('compares folders by whole components, never by letters', async () => {
+			const { manager } = build({
+				items: [
+					item({ id: 'show', kind: MediaKind.SERIES, file: null }),
+					item({ id: 'e1', parentId: 'show', file: file({ path: '/library/Show/E1.mkv' }) }),
+					item({ id: 'e2', parentId: 'show', file: file({ path: '/library/Show2/E1.mkv' }) }),
+				],
+				services: mounted(),
+			});
+
+			// A prefix test on the raw strings calls `/library/Show2` a child of
+			// `/library/Show`, and the page would name a folder the media is not in.
+			expect((await manager.group('show')).sources[0].localPath).toBe('/share/media');
+		});
+
+		it('says nothing for a folder with no file anywhere beneath it', async () => {
+			const { manager } = build({
+				items: [item({ id: 'empty', kind: MediaKind.SERIES, file: null })],
+				services: mounted(),
+			});
+
+			expect((await manager.group('empty')).sources[0].localPath).toBeNull();
 		});
 	});
 

@@ -29,6 +29,16 @@
 	const missing = computed(() => props.group.sync === SyncState.MISSING);
 	const bytes = computed(() => props.group.quality?.totalBytes ?? null);
 	const to = computed(() => ({ name: 'library-item', params: { itemId: props.group.id } }));
+
+	/**
+	 * Where a row's media sits on the gateway's own disks, for its tooltip.
+	 *
+	 * A function and not a computed because this component draws one row: the same
+	 * question asked of the group it was handed, once.
+	 */
+	function localPathOf (group: MediaGroup): string | null {
+		return group.sources.find(one => one.localPath)?.localPath ?? null;
+	}
 </script>
 
 <template>
@@ -49,7 +59,7 @@
 		</td>
 
 		<td class="media-row_state">
-			<SyncStateIcon :state="group.sync" />
+			<SyncStateIcon :path="localPathOf(group)" :state="group.sync" />
 		</td>
 
 		<td class="media-row_title">
