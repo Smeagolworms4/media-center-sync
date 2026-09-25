@@ -460,6 +460,19 @@ export const useTransfersStore = defineStore('transfers', () => {
 		revalidations.value = { ...revalidations.value, [revalidation.transferId]: next };
 	});
 
+	/**
+	 * Take a row off the queue and out of the list, without touching its file.
+	 *
+	 * Removed here as well as on the gateway, rather than reloading the page: the row is
+	 * gone, and a list that kept showing it until the next fetch would offer buttons for
+	 * something the gateway no longer has.
+	 */
+	async function archive (id: string): Promise<void> {
+		await caller('api').delete(`/transfers/${id}`);
+
+		transfers.value = transfers.value.filter(one => one.id !== id);
+	}
+
 	return {
 		transfers,
 		progress,
@@ -486,6 +499,7 @@ export const useTransfersStore = defineStore('transfers', () => {
 		loadRevalidations,
 		pause,
 		resume,
+		archive,
 		cancel,
 		retry,
 		verify,

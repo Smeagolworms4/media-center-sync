@@ -1084,9 +1084,15 @@ describe('pages/Transfers repairing', () => {
 
 		expect((wrapper.vm as any).destinationItems.map((one: { value: string }) => one.value))
 			.toEqual(['l1']);
-		expect(wrapper.find('[data-test="retarget-rejected"]').text()).toContain('Their shows');
-		expect(wrapper.find('[data-test="retarget-rejected"]').text())
-			.toContain('does not reach that server');
+		/*
+		 * And the ones it cannot offer are not listed at all.
+		 *
+		 * They were, one line each with the reason, and on a household with a friend's
+		 * server that is four lines of "you cannot pick this" under a field holding two
+		 * choices — noise in front of the decision. The settings screen is where a shelf
+		 * that should be writable and is not gets explained; this dialog asks one question.
+		 */
+		expect(wrapper.find('[data-test="retarget-rejected"]').exists()).toBe(false);
 	});
 
 	/**
@@ -1190,7 +1196,15 @@ describe('pages/Transfers repairing', () => {
 		await settle(2);
 
 		expect((wrapper.vm as any).movesBytes).toBe(false);
-		expect(wrapper.find('[data-test="retarget-hint"]').text()).toContain('not a byte is copied');
+		/*
+		 * Nothing is said when nothing surprising is about to happen.
+		 *
+		 * The dialog used to explain, in three lines, that changing a destination copies
+		 * no bytes — which is what anybody would expect of a destination field. The line
+		 * is kept for the case that *is* surprising, which the test below covers: a file
+		 * already in a library is about to be moved between two filesystems.
+		 */
+		expect(wrapper.find('[data-test="retarget-hint"]').exists()).toBe(false);
 		expect(wrapper.find('[data-test="retarget-confirm"]').text()).toContain('Send it there');
 	});
 

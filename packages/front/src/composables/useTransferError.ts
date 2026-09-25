@@ -10,6 +10,15 @@ import { TransferErrorKind } from '@mcs/shared';
  */
 export enum TransferAction {
 	PAUSE = 'pause',
+	/**
+	 * Take the row off the queue, whatever state it is in.
+	 *
+	 * Never the file: a placed transfer's copy is in the library and stays there. One
+	 * still running is cancelled on the way out, which drops its partial. It exists
+	 * because a queue nobody can take anything off stops being read — every download a
+	 * gateway has ever made, with the twelve rows somebody cares about on page four.
+	 */
+	ARCHIVE = 'archive',
 	RESUME = 'resume',
 	/** Ask the queue to try again as it is. Only for failures that pass. */
 	RETRY = 'retry',

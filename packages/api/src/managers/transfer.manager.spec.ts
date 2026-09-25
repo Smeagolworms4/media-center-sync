@@ -44,6 +44,7 @@ interface Fakes {
 		findUnfinishedFromService: jest.Mock;
 		findByJob: jest.Mock;
 		findByLots: jest.Mock;
+		delete: jest.Mock;
 	};
 	chunks: {
 		findByTransfer: jest.Mock;
@@ -135,6 +136,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 			// The rest of the lots the run named — another night's episodes of the same
 			// season. Empty by default, so a test that never mentions a lot gets a run.
 			findByLots: jest.fn().mockResolvedValue([]),
+			delete: jest.fn().mockResolvedValue({ affected: 1 }),
 		},
 		chunks: {
 			findByTransfer: jest.fn().mockResolvedValue([
@@ -374,6 +376,64 @@ describe('TransferManager', () => {
 
 			await expect(manager.cancelFromService('service-gone')).resolves.toBe(1);
 			expect(fakes.engine.cancel).toHaveBeenLastCalledWith('fine', TransferErrorKind.SERVICE_REMOVED);
+		});
+	});
+
+	describe('archive', () => {
+		/*
+		 * A queue nobody can take anything off stops being read: a gateway running for
+		 * months carries every download it has ever made, and the dozen rows somebody cares
+		 * about are on page four. Retention sweeps the finished ones on a window measured
+		 * in months, which is no answer to "I do not want to look at this any more".
+		 */
+		it('takes a finished row off the queue and leaves its file alone', async () => {
+			const { manager, fakes } = build();
+
+			fakes.transfers.findOne.mockResolvedValue(transfer({ state: TransferState.DONE }));
+
+			await manager.archive('transfer-1');
+
+			expect(fakes.transfers.delete).toHaveBeenCalledWith({ id: 'transfer-1' });
+			// Never the file: the copy is in the library and this forgets the row.
+			expect(fakes.engine.cancel).not.toHaveBeenCalled();
+		});
+
+		it('stops a running one before removing it, which is what drops its partial', async () => {
+			// A row deleted under a running worker is a worker writing into a transfer
+			// nothing describes any more.
+			const { manager, fakes } = build();
+
+			fakes.transfers.findOne.mockResolvedValue(transfer({ state: TransferState.DOWNLOADING }));
+
+			await manager.archive('transfer-1');
+
+			expect(fakes.engine.cancel).toHaveBeenCalledWith('transfer-1');
+			expect(fakes.transfers.delete).toHaveBeenCalledWith({ id: 'transfer-1' });
+		});
+
+		it('takes its pieces with it', async () => {
+			// Rows about a row that no longer exists. A chunk table outliving its transfers
+			// is what makes a queue query slow for reasons nobody can see.
+			const { manager, fakes } = build();
+
+			fakes.transfers.findOne.mockResolvedValue(transfer({ state: TransferState.FAILED }));
+
+			await manager.archive('transfer-1');
+
+			expect(fakes.chunks.deleteForTransfer).toHaveBeenCalledWith('transfer-1');
+		});
+
+		it('says so on the stream, because a row that is gone has no state to announce', async () => {
+			const { manager, fakes } = build();
+
+			fakes.transfers.findOne.mockResolvedValue(transfer({ state: TransferState.CANCELLED }));
+
+			await manager.archive('transfer-1');
+
+			expect(fakes.events.emit).toHaveBeenCalledWith(
+				EventName.TRANSFER_REMOVED,
+				{ id: 'transfer-1' },
+			);
 		});
 	});
 

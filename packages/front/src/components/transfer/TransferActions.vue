@@ -84,6 +84,7 @@
 		[TransferAction.ANOTHER_TARGET]: 'mdi-folder-move-outline',
 		[TransferAction.FIX_SERVICE]: 'mdi-key-outline',
 		[TransferAction.CANCEL]: 'mdi-close',
+		[TransferAction.ARCHIVE]: 'mdi-archive-outline',
 	};
 </script>
 
@@ -118,6 +119,25 @@
 			@click="emit('action', TransferAction.RESUME)"
 		>
 			<template v-if="!compact">{{ $t('transfer.action.resume') }}</template>
+		</v-btn>
+
+		<!--
+			Offered on every row, in every state, because that is the point: a queue nobody
+			can take anything off stops being read. It is last and quiet — text, no colour —
+			since it is the one action here that is about the list rather than about the
+			download.
+		-->
+		<v-btn
+			data-test="transfer-archive"
+			:disabled="busy"
+			:icon="compact ? ICONS[TransferAction.ARCHIVE] : undefined"
+			:prepend-icon="compact ? undefined : ICONS[TransferAction.ARCHIVE]"
+			size="small"
+			:title="$t('transfer.action.archive')"
+			variant="text"
+			@click="emit('action', TransferAction.ARCHIVE)"
+		>
+			<template v-if="!compact">{{ $t('transfer.action.archive') }}</template>
 		</v-btn>
 
 		<v-btn

@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 	import type { ReleaseGrab, Transfer } from '@mcs/shared';
-	import { EventName, FINISHED_TRANSFER_STATES, HistoryView, TransferSort, TransferState } from '@mcs/shared';
+	import { EventName, FINISHED_TRANSFER_STATES, GrabState, HistoryView, TransferSort, TransferState } from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import { useRouter } from 'vue-router';
@@ -61,7 +61,7 @@
 	 * watch. Saying why a name is missing matters as much as leaving it out — a list
 	 * somebody's own shelf has silently vanished from reads as a bug.
 	 */
-	const { destinations, rejected } = useDestinationLibraries();
+	const { destinations } = useDestinationLibraries();
 
 	const state = queryRef<TransferState>('state', queryTypes.stringEnum({
 		values: Object.values(TransferState),
@@ -263,6 +263,58 @@
 
 	const transfers = computed(() => transfersStore.transfers);
 
+	/** The grab states that are still going to move on their own. */
+	const LIVE_GRAB_STATES: Set<GrabState> = new Set([GrabState.SENT, GrabState.DOWNLOADING, GrabState.FETCHED]);
+
+	/**
+	 * A torrent's states, in the vocabulary the filter above is written in.
+	 *
+	 * The two vocabularies are genuinely different — a torrent is `sent` and then
+	 * `fetched`, a transfer is `pending` and then `placing` — and this is the one place
+	 * they meet. Mapped rather than merged: they are different things with different
+	 * lifecycles, and the screen only has to agree on what somebody means when they ask
+	 * for "failed".
+	 */
+	const GRABS_BY_TRANSFER_STATE: Partial<Record<TransferState, GrabState[]>> = {
+		[TransferState.QUEUED]: [GrabState.SENT],
+		[TransferState.DOWNLOADING]: [GrabState.DOWNLOADING],
+		// A torrent the client has finished is waiting to be copied into the library,
+		// which is what a transfer calls `placing`.
+		[TransferState.PLACING]: [GrabState.FETCHED],
+		[TransferState.DONE]: [GrabState.PLACED],
+		[TransferState.FAILED]: [GrabState.FAILED],
+		[TransferState.CANCELLED]: [GrabState.CANCELLED],
+	};
+
+	/**
+	 * The torrents this view is about.
+	 *
+	 * They used to be listed whatever was being asked for, which read as a list that
+	 * ignored its own filters — and, worse, they vanished entirely whenever no *transfer*
+	 * matched, because the empty state above them was decided on transfers alone. A
+	 * torrent that failed was then invisible on the one screen somebody goes to when a
+	 * download has failed, which is exactly where its own row was written.
+	 */
+	const grabs = computed(() => {
+		const wanted = state.value === null || state.value === undefined
+			? null
+			: (GRABS_BY_TRANSFER_STATE[state.value] ?? []);
+
+		if (wanted !== null) {
+			return releasesStore.grabs.filter(one => wanted.includes(one.state));
+		}
+
+		if (viewModel.value === HistoryView.LIVE) {
+			return releasesStore.grabs.filter(one => LIVE_GRAB_STATES.has(one.state));
+		}
+
+		if (viewModel.value === HistoryView.FINISHED) {
+			return releasesStore.grabs.filter(one => !LIVE_GRAB_STATES.has(one.state));
+		}
+
+		return releasesStore.grabs;
+	});
+
 	/**
 	 * The queue as downloads rather than as files — the store's grouping, not a second
 	 * one. See `QueueBatch`: the lot decides, the run is its fallback for rows written
@@ -356,6 +408,11 @@
 				await transfersStore.cancel(transfer.id);
 				break;
 			}
+			case TransferAction.ARCHIVE: {
+				await transfersStore.archive(transfer.id);
+				void notify('transfer.archived');
+				break;
+			}
 			case TransferAction.RETRY: {
 				await transfersStore.retry(transfer.id);
 				break;
@@ -403,6 +460,60 @@
 	 * The gateway knows how to re-point a transfer where it stands — one row write
 	 * before it lands, a tracked move after — so that is what is asked of it.
 	 */
+	/**
+	 * Where what is being redirected goes today, named before anything is chosen.
+	 *
+	 * The dialog asked "which library instead?" without ever saying instead of what. On a
+	 * gateway with four shelves and a rule nobody remembers, that is a question somebody
+	 * cannot answer — and the answer is already in hand: the path once it is filed, the
+	 * folder somebody pinned, the destination worked out when the download was sent, or
+	 * failing all three the library's name.
+	 *
+	 * Null when genuinely nothing is known, and then the line is not drawn: an
+	 * "Actuellement:" with nothing after it is worse than the silence it replaces.
+	 */
+	const currentDestination = computed<string | null>(() => {
+		const grab = retargetingGrab.value;
+		const source = grab ?? retargeting.value?.transfers[0] ?? null;
+
+		if (source === null) {
+			return null;
+		}
+
+		const planned = grab?.plannedPath ?? null;
+		const pinned = 'targetFolder' in source ? source.targetFolder : null;
+		const named = source.targetPath ?? pinned ?? planned;
+
+		if (named) {
+			return named;
+		}
+
+		const library = source.targetLibraryId === null
+			? null
+			: librariesStore.libraries.find(one => one.id === source.targetLibraryId);
+
+		return library ? (library.alias ?? library.name) : null;
+	});
+
+	/**
+	 * Look again at a torrent that failed, after the repair that made it fail was made.
+	 *
+	 * The whole gesture: a root mapping that named a folder the client could not write
+	 * failed every download, and once it was corrected there was nothing to press — the
+	 * torrents were still in the client, most of them finished, and the only way back was
+	 * to search for the same release and grab it again.
+	 */
+	const retryGrab = tryCallback(async (grab: ReleaseGrab) => {
+		busyId.value = grab.id;
+
+		try {
+			await releasesStore.retry(grab.id);
+			void notify('release.retried');
+		} finally {
+			busyId.value = null;
+		}
+	});
+
 	const confirmRetarget = tryCallback(async () => {
 		const asked = retargeting.value;
 
@@ -642,7 +753,7 @@
 
 		<template v-else>
 			<EmptyState
-				v-if="!transfersStore.loading && transfers.length === 0"
+				v-if="!transfersStore.loading && transfers.length === 0 && grabs.length === 0"
 				icon="mdi-download-off-outline"
 				:text="showingLiveOnly ? $t('history.empty_live_text') : $t('transfer.empty_text')"
 				:title="showingLiveOnly ? $t('history.empty_live_title') : $t('transfer.empty_title')"
@@ -666,10 +777,12 @@
 					somebody's own torrents are never listed, tracked or filed.
 				-->
 				<ReleaseGrabRow
-					v-for="grab of releasesStore.grabs"
+					v-for="grab of grabs"
 					:key="grab.id"
+					:busy="busyId === grab.id"
 					:grab="grab"
 					@retarget="retargetGrab"
+					@retry="retryGrab"
 				/>
 
 				<template v-for="batch of batches" :key="batch.key">
@@ -727,16 +840,29 @@
 			</p>
 
 			<!--
-				Which of the two operations this is, said before the field and not after
-				the click. The wording is the confirmation: a transfer still downloading
-				is being re-pointed and nothing is copied, while a file already in a
-				library is about to be moved between two filesystems.
+				Where it goes today, which is what "another library" is being asked against.
+				The dialog used to open on the question alone.
 			-->
 			<p
+				v-if="currentDestination"
+				class="text-body-2 text-medium-emphasis mb-1 transfers_path"
+				data-test="retarget-current"
+			>
+				{{ $t('transfer.retarget.current', { path: currentDestination }) }}
+			</p>
+
+			<!--
+				Said only when bytes are about to move. The other half of this used to
+				explain that re-pointing a download copies nothing — which is what anybody
+				would expect of a destination field, so it was three lines saying that
+				nothing surprising was about to happen.
+			-->
+			<p
+				v-if="movesBytes"
 				class="text-body-2 text-medium-emphasis mb-4"
 				data-test="retarget-hint"
 			>
-				{{ movesBytes ? $t('transfer.retarget.hint_move') : $t('transfer.retarget.hint_repoint') }}
+				{{ $t('transfer.retarget.hint_move') }}
 				<!--
 					Said before the click, because this is the expensive half of the answer:
 					the files of the download that already landed are moved for real, and the
@@ -802,20 +928,14 @@
 			</p>
 
 			<!--
-				A shelf somebody expects to see and cannot is a bug until it is explained.
-				Listing the ones that were left out, with which of the two reasons applies,
-				is the difference between "the gateway is broken" and "that disk is on a
-				friend's machine".
+				The shelves this gateway cannot write into are not listed here. They were,
+				one line each with the reason, and on a household with a friend's server
+				that is four lines of "you cannot pick this" under a field with two
+				choices in it — noise in front of the decision. The warning above still
+				answers the case that matters, which is when there is nothing to pick at
+				all; the settings screen is where a shelf that should be writable and is
+				not gets explained.
 			-->
-			<p
-				v-for="one of rejected"
-				:key="one.id"
-				class="text-caption text-medium-emphasis mb-0 mt-1"
-				data-test="retarget-rejected"
-			>
-				{{ one.name }} ({{ one.serviceName }}) —
-				{{ $t(`settings.destination.rejected.${one.reason}`) }}
-			</p>
 
 			<template #actions>
 				<v-spacer />

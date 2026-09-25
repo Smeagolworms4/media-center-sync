@@ -64,6 +64,14 @@ export const EventName = {
 	 * state that most needs to arrive on its own would be the only one that never does.
 	 */
 	TRANSFER_LANDING: 'transfer.landing',
+	/**
+	 * A row was taken off the queue, and every screen showing it has to drop it.
+	 *
+	 * Its own event because it is the one change no state can carry: a transfer that is
+	 * gone cannot be announced as a transfer in some new state, and a queue that learnt it
+	 * on the next reload would go on offering buttons for a row the gateway no longer has.
+	 */
+	TRANSFER_REMOVED: 'transfer.removed',
 } as const;
 
 export type EventNameValue = (typeof EventName)[keyof typeof EventName];
@@ -86,6 +94,7 @@ export interface EventPayloads {
 	[EventName.PEER_STATUS]: Pick<Peer, 'id' | 'status' | 'linkMode' | 'lastSeenAt'>;
 	[EventName.SCAN_PROGRESS]: ScanProgress;
 	[EventName.TRANSFER_VERIFIED]: TransferVerification;
+	[EventName.TRANSFER_REMOVED]: { id: string };
 	[EventName.TRANSFER_REVALIDATED]: Revalidation;
 	[EventName.RELEASE_GRAB]: ReleaseGrab;
 	[EventName.TRANSFER_LANDING]: { transferId: string; landing: MediaLandingState };

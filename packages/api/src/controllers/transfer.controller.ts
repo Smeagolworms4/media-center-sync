@@ -14,6 +14,7 @@ import {
 import {
 	Body,
 	Controller,
+	Delete,
 	Get,
 	HttpCode,
 	HttpStatus,
@@ -25,6 +26,7 @@ import {
 import {
 	ApiBearerAuth,
 	ApiConflictResponse,
+	ApiNoContentResponse,
 	ApiNotFoundResponse,
 	ApiOkResponse,
 	ApiOperation,
@@ -228,6 +230,22 @@ export class TransferController {
 	@ApiOkResponse({ description: 'Transfer' })
 	public cancel(@Param('id', ParseUUIDPipe) id: string): Promise<Transfer> {
 		return this._transfers.cancel(id);
+	}
+
+	@Delete(':id')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({
+		summary: 'Take it off the queue',
+		description:
+			'Whatever state it is in. The file is never touched: a placed transfer\'s copy '
+			+ 'stays in the library and this forgets the row. One still running is cancelled '
+			+ 'first, which is what drops its partial file.',
+	})
+	@ApiNoContentResponse({ description: 'Archived' })
+	@ApiNotFoundResponse({ description: 'error.transfer.not_found' })
+	public archive(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+		return this._transfers.archive(id);
 	}
 
 	@Post(':id/retry')

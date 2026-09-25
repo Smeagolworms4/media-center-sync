@@ -350,6 +350,41 @@ export class TransferManager implements OnApplicationBootstrap {
 	}
 
 	/**
+	 * Take a row off the queue, whatever state it is in.
+	 *
+	 * The queue is a working list, and a working list nobody can take anything off stops
+	 * being read: a gateway that has been running for months carries every download it has
+	 * ever made, and the twelve rows somebody actually cares about are on page four.
+	 * Retention eventually sweeps the finished ones, on a window measured in months — too
+	 * slow to be an answer to "I do not want to look at this any more".
+	 *
+	 * **The file is never touched.** A placed transfer's copy is in the library and stays
+	 * there; this forgets the row, not the media. One still running is cancelled first,
+	 * because a row deleted under a running worker is a worker writing into a transfer
+	 * nothing describes any more — and cancelling is what drops its partial file, which is
+	 * the one piece of disk this does remove.
+	 *
+	 * Its pieces and revalidations go with it. They are rows about a row that no longer
+	 * exists, and a chunk table that outlives its transfers is what makes a queue query
+	 * slow for reasons nobody can see.
+	 */
+	public async archive(id: string): Promise<void> {
+		const transfer = await this._require(id);
+
+		if (!FINISHED.includes(transfer.state)) {
+			// Stops the worker and drops the partial. Its own method rather than a second
+			// copy of that decision — see `cancel`.
+			await this._engine.cancel(transfer.id);
+		}
+
+		await this._chunks.deleteForTransfer(transfer.id);
+		await this._transfers.delete({ id: transfer.id });
+
+		this._logger.log(`Archived ${transfer.title}, which was ${transfer.state}`);
+		this._events.emit(EventName.TRANSFER_REMOVED, { id: transfer.id });
+	}
+
+	/**
 	 * Start a finished-badly transfer over.
 	 *
 	 * Only from `failed` or `cancelled`. Retrying a running one would have two workers
