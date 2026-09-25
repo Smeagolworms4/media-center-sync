@@ -488,6 +488,14 @@ export const ErrorKey = {
 	 */
 	MEDIA_NOT_IDENTIFIED: 'error.media.not_identified',
 	GRAB_NOT_FOUND: 'error.grab.not_found',
+	/**
+	 * Asked to resume a download that has nothing to resume.
+	 *
+	 * Either it has not failed — a running download is already doing the thing the retry
+	 * would ask for — or the client never took it, which needs a new grab rather than a
+	 * second look at one that never started.
+	 */
+	GRAB_NOT_RETRYABLE: 'error.grab.not_retryable',
 
 	GENERAL: 'error.general',
 } as const;

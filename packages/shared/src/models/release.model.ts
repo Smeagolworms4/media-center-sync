@@ -524,6 +524,17 @@ export interface ReleaseGrab {
 	/** A folder inside it, when somebody chose one. */
 	targetFolder: string | null;
 	/**
+	 * Where this download is expected to land, worked out when it was sent.
+	 *
+	 * A prediction: the placement chain runs again with the bytes in hand, and the disk it
+	 * answered against may have filled since. It is here because the queue had nothing to
+	 * say for the whole length of a download — `targetPath` arrives at the end and
+	 * `targetFolder` only when somebody chose one — and "where will this end up" is asked
+	 * while it is still running. Null when it could not be worked out, and the interface
+	 * then says nothing rather than drawing an empty path.
+	 */
+	plannedPath: string | null;
+	/**
 	 * The episodes this grab was taken for, and where each one landed.
 	 *
 	 * A pack brings several files and each is filed against its own episode, so one path

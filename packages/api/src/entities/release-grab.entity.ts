@@ -82,6 +82,22 @@ export class ReleaseGrab extends Timestampable {
 	public targetFolder!: string | null;
 
 	/**
+	 * Where this download is expected to land, worked out when it was sent.
+	 *
+	 * A prediction and never a decision: the placement chain is run again when the bytes
+	 * are actually there, because the disk it answered against may have filled in the
+	 * meantime and a series may have moved. Nothing reads this to place anything.
+	 *
+	 * It exists because the queue had nothing to say for the whole length of a download.
+	 * `targetPath` is written at the end, `targetFolder` only when somebody chose one, so
+	 * a torrent running for six hours showed a library name at best and usually nothing —
+	 * and "where is this going to end up" is the question somebody asks precisely while
+	 * it is still running.
+	 */
+	@Column({ type: 'varchar', nullable: true })
+	public plannedPath!: string | null;
+
+	/**
 	 * Whether only part of this release was asked for.
 	 *
 	 * A column and not a deduction. It was inferred from "every placement has no file

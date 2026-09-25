@@ -32,7 +32,7 @@
 		busy: false,
 	});
 
-	const emit = defineEmits<{ retarget: [grab: ReleaseGrab] }>();
+	const emit = defineEmits<{ retarget: [grab: ReleaseGrab]; retry: [grab: ReleaseGrab] }>();
 
 	const librariesStore = useLibrariesStore();
 
@@ -40,6 +40,19 @@
 	const LIVE: Set<GrabState> = new Set([GrabState.SENT, GrabState.DOWNLOADING, GrabState.FETCHED]);
 
 	const live = computed(() => LIVE.has(props.grab.state));
+
+	/**
+	 * A row that can be looked at again, which is a row that stopped for a reason outside
+	 * the download itself.
+	 *
+	 * The torrent is still in the client when this is offered, so pressing it re-opens the
+	 * row rather than fetching anything a second time — which is what makes it the right
+	 * answer to "I have corrected the mapping": the file is already there, and all that
+	 * was ever wrong was where the gateway was looking for it.
+	 */
+	const retryable = computed(() =>
+		props.grab.clientId !== null
+		&& (props.grab.state === GrabState.FAILED || props.grab.state === GrabState.CANCELLED));
 
 	/** Which of the two things the bytes are counting, said rather than implied. */
 	const phase = computed(() =>
@@ -64,6 +77,18 @@
 
 		if (props.grab.targetFolder) {
 			return props.grab.targetFolder;
+		}
+
+		/*
+		 * Where the gateway worked out it would go, which is the only answer that exists
+		 * while it is still downloading.
+		 *
+		 * Below the two above because both of those are decisions and this is a
+		 * prediction: once a file is filed, or somebody has named a folder, the prediction
+		 * is history. Above the library's name because a folder says more than a shelf.
+		 */
+		if (props.grab.plannedPath) {
+			return props.grab.plannedPath;
 		}
 
 		return props.grab.targetLibraryId === null
@@ -150,6 +175,22 @@
 			</p>
 
 			<div class="release-grab-row_actions mt-2">
+				<!--
+					Offered only where it means something: the client still holds the torrent,
+					so this is a second look rather than a second download.
+				-->
+				<v-btn
+					v-if="retryable"
+					data-test="release-grab-row-retry"
+					:disabled="busy"
+					prepend-icon="mdi-restart"
+					size="small"
+					variant="text"
+					@click="emit('retry', grab)"
+				>
+					{{ $t('release.retry') }}
+				</v-btn>
+
 				<!--
 					Offered until it is filed, and not afterwards: once the copy is in the
 					library it is a file like any other, and moving it is the media's own

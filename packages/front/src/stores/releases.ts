@@ -255,6 +255,38 @@ export const useReleasesStore = defineStore('releases', () => {
 	const peerSuggestions = computed<PeerCopy[]>(
 		() => suggestions.value.filter(one => isPeerSuggestion(one)).map(one => one.copy));
 
+	/**
+	 * Look again at a download that failed, once whatever failed it has been repaired.
+	 *
+	 * Nothing is re-sent: the client still holds the torrent, so the row is re-opened and
+	 * the gateway carries on from whatever the client reports. The answer replaces the row
+	 * in place, so the list says what happened without a reload.
+	 */
+	async function retry (id: string): Promise<ReleaseGrab> {
+		const row = await caller('api').post<ReleaseGrab>(`/releases/downloads/${id}/retry`, {});
+
+		grabs.value = grabs.value.map(one => (one.id === row.id ? row : one));
+
+		return row;
+	}
+
+	/**
+	 * Where the gateway would file something for this media, for a field that has to open
+	 * on an answer rather than on a blank.
+	 *
+	 * The rule has four steps and the first of them — a series we already hold keeps its
+	 * folder — is the one somebody wants and the one the interface cannot work out on its
+	 * own. Null is a real answer: nothing could be worked out, so the field opens empty
+	 * and the rule decides at placement as it always did.
+	 */
+	async function plannedFolder (itemId: string, libraryId: string | null): Promise<string | null> {
+		const answer = await caller('api').get<{ folder: string | null }>(
+			`/releases/placement/${itemId}${queryString({ libraryId: libraryId ?? undefined })}`,
+		);
+
+		return answer?.folder ?? null;
+	}
+
 	return {
 		result,
 		grabs,
@@ -274,6 +306,8 @@ export const useReleasesStore = defineStore('releases', () => {
 		trackers,
 		loadTrackers,
 		loadGrabs,
+		plannedFolder,
+		retry,
 		setDestination,
 	};
 });

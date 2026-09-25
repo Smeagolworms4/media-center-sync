@@ -170,6 +170,13 @@ class GrabDestinationDto {
 	public folder?: string | null;
 }
 
+class PlacementQueryDto {
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsUUID()
+	public libraryId?: string;
+}
+
 class DownloadsQueryDto {
 	@ApiPropertyOptional()
 	@IsOptional()
@@ -267,6 +274,44 @@ export class ReleaseController {
 		@Body() body: GrabDestinationDto,
 	): Promise<ReleaseGrab> {
 		return this._releases.setDestination(id, body.libraryId ?? null, body.folder ?? null);
+	}
+
+	@Get('placement/:itemId')
+	@Granted(Right.MEDIA_READ)
+	@ApiOperation({
+		summary: 'Where a file for this media would be filed',
+		description:
+			'Runs the placement rule without placing anything, so a screen can open its '
+			+ 'folder field on the answer the gateway would give — a series already held '
+			+ 'keeps its folder, then the category, then the default. Answers null when '
+			+ 'nothing can be worked out, which is a folder nobody has chosen yet rather '
+			+ 'than a fault.',
+	})
+	@ApiOkResponse({ description: 'PlannedFolder' })
+	@ApiNotFoundResponse({ description: 'error.media.not_found' })
+	public async placement(
+		@Param('itemId', ParseUUIDPipe) itemId: string,
+		@Query() query: PlacementQueryDto,
+	): Promise<{ folder: string | null }> {
+		return { folder: await this._releases.plannedFolderFor(itemId, query.libraryId ?? null) };
+	}
+
+	@Post('downloads/:id/retry')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Look again at a download that failed',
+		description:
+			'Nothing is re-sent: the client still holds the torrent, so the row is re-opened '
+			+ 'and the next poll carries on from whatever state the client reports. What this '
+			+ 'is for is the repair somebody has just made — a root mapping corrected, a '
+			+ 'folder made writable — after which there was otherwise nothing to press.',
+	})
+	@ApiOkResponse({ description: 'ReleaseGrab' })
+	@ApiNotFoundResponse({ description: 'error.grab.not_found' })
+	@ApiConflictResponse({ description: 'error.grab.not_retryable' })
+	public retry(@Param('id', ParseUUIDPipe) id: string): Promise<ReleaseGrab> {
+		return this._releases.retry(id);
 	}
 
 	@Get('trackers')
