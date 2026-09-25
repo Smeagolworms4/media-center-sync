@@ -749,9 +749,26 @@ export class MediaManager {
 	 * Answers how many rows it created, which is what the interface says back.
 	 */
 	public async discoverEpisodes(id: string): Promise<number> {
-		const series = await this._require(id);
+		const asked = await this._require(id);
 
-		if (series.kind !== MediaKind.SERIES) {
+		if (asked.kind !== MediaKind.SERIES && asked.kind !== MediaKind.SEASON) {
+			throw new ConflictException(ErrorKey.MEDIA_NOT_IDENTIFIED);
+		}
+
+		/*
+		 * Asked of a season as readily as of a show, because that is where the question
+		 * gets asked: somebody looking at season one and wondering where the rest of it is
+		 * is standing on the page the answer belongs to. It costs one call instead of one
+		 * per season, which is the better bargain of the two.
+		 *
+		 * The identifier still comes from the series — a season carries none of its own —
+		 * so the walk up happens either way and only the list of seasons narrows.
+		 */
+		const series = asked.kind === MediaKind.SERIES
+			? asked
+			: (asked.parentId === null ? null : await this._items.findOne({ where: { id: asked.parentId } }));
+
+		if (series === null) {
 			throw new ConflictException(ErrorKey.MEDIA_NOT_IDENTIFIED);
 		}
 
@@ -771,7 +788,7 @@ export class MediaManager {
 		}
 
 		const source = this._sources.get(configured.type);
-		const seasons = (await this._items.findChildren(series.id))
+		const seasons = (asked.kind === MediaKind.SEASON ? [asked] : await this._items.findChildren(series.id))
 			// Season zero is specials, and nobody is missing a behind-the-scenes clip.
 			.filter((season) => (season.seasonNumber ?? 0) > 0);
 		let created = 0;

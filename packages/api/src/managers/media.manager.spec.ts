@@ -1378,6 +1378,46 @@ describe('MediaManager', () => {
 			expect(fakes.requestSource.episodes).toHaveBeenCalledWith(expect.anything(), '1234', 1);
 		});
 
+		/*
+		 * Asked from the season, which is where somebody stands when they wonder where the
+		 * rest of it is. The identifier still comes from the series — a season carries
+		 * none — so only the list of seasons narrows.
+		 */
+		it('answers from a season, and asks about that season alone', async () => {
+			const { manager, fakes } = build({
+				items: [
+					...show(),
+					item({
+						id: 'season-2',
+						externalId: 'jf-season-2',
+						kind: MediaKind.SEASON,
+						parentId: 'series-1',
+						seasonNumber: 2,
+						episodeNumber: null,
+						file: null,
+					}),
+				],
+			});
+
+			fakes.requestSource.episodes.mockResolvedValue([
+				{ seasonNumber: 1, episodeNumber: 10, title: 'Ten', airDate: '2026-09-18' },
+			]);
+
+			expect(await manager.discoverEpisodes('season-1')).toBe(1);
+			expect(fakes.requestSource.episodes).toHaveBeenCalledTimes(1);
+			expect(fakes.requestSource.episodes).toHaveBeenCalledWith(expect.anything(), '1234', 1);
+		});
+
+		it('refuses a season whose series is gone, because the identifier lives there', async () => {
+			const { manager } = build({
+				items: show().filter(one => one.id !== 'series-1'),
+			});
+
+			await expect(manager.discoverEpisodes('season-1')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_IDENTIFIED,
+			);
+		});
+
 		it('refuses a show nothing has matched to a provider', async () => {
 			// A fixable state rather than a silent zero: the screen can say which of the
 			// two nothings this is.

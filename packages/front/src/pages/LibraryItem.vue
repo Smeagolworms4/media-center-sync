@@ -478,8 +478,15 @@
 	 * will find nothing every night, and offering it would teach people that plans do
 	 * nothing.
 	 */
-	/** A show, and nothing else: only a series carries the provider identifier to ask with. */
-	const isSeries = computed(() => group.value?.kind === MediaKind.SERIES);
+	/**
+	 * A show or one of its seasons, which are the two places the question means something.
+	 *
+	 * The season is where somebody actually stands when they wonder where the rest of it
+	 * is — and asking from there costs one call instead of one per season. The identifier
+	 * still comes from the series, which the gateway walks up to on its own.
+	 */
+	const askable = computed(() =>
+		group.value?.kind === MediaKind.SERIES || group.value?.kind === MediaKind.SEASON);
 
 	const keepable = computed(() => group.value !== null && [
 		MediaKind.SERIES,
@@ -531,11 +538,12 @@
 					</v-btn>
 
 					<!--
-						Only on a show: a film has no episodes and a season is asked through
-						its series, which is where the provider's identifier lives.
+						On a show and on a season, and nowhere else: a film has no episodes,
+						and an episode is the thing being looked for rather than the thing
+						to ask about.
 					-->
 					<v-btn
-						v-if="isSeries"
+						v-if="askable"
 						data-test="item-discover-episodes"
 						:loading="discovering"
 						prepend-icon="mdi-playlist-plus"
