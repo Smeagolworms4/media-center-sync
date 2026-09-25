@@ -48,6 +48,7 @@ import {
 	groupReleases,
 	IndexerRegistry,
 	NamingService,
+	type NameableItem,
 	orderGroupsByPreference,
 	orderSuggestions,
 	parseReleaseName,
@@ -153,6 +154,27 @@ const resolveMagnet = async (
 export class ReleaseManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(ReleaseManager.name);
 	private _polling: NodeJS.Timeout | null = null;
+	/**
+	 * Whether a pass is already running, because two of them must never overlap.
+	 *
+	 * The timer fires every five seconds and a placement takes as long as copying tens of
+	 * gigabytes takes. Without this, the second tick found the same torrent complete and
+	 * started **the same copy again**, and the third did it again five seconds later: half
+	 * a dozen writers on one destination file, a progress bar reporting whichever of them
+	 * answered last — three hundred megabytes, then one hundred — and, at the end, a file
+	 * shorter than its source. That last one is the only reason it was ever noticed: the
+	 * size check refused the copy, and the grab failed with a length nobody could explain.
+	 */
+	private _passing = false;
+	/**
+	 * The grabs being filed right now, so no two copies of one download run at once.
+	 *
+	 * The pass guard above is not enough on its own: `poll` is called from a route as well
+	 * as from the timer, and a restart leaves a row on `fetched` that the next pass picks
+	 * up quite correctly. This is about one grab rather than about the loop, and it is
+	 * what makes a second placement of the same row impossible however it was reached.
+	 */
+	private readonly _placing = new Set<string>();
 
 	public constructor(
 		private readonly _grabs: ReleaseGrabRepository,
@@ -853,6 +875,27 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * poll loop that costs more than the download.
 	 */
 	public async poll(): Promise<void> {
+		/*
+		 * One pass at a time. See `_passing`: a placement outlasts the timer's interval by
+		 * minutes, and the passes that piled up behind it each started the same copy over.
+		 *
+		 * Skipped rather than queued: the next tick is five seconds away and asks the same
+		 * question, so a pass that cannot run now has nothing to say that will be missed.
+		 */
+		if (this._passing) {
+			return;
+		}
+
+		this._passing = true;
+
+		try {
+			await this._pass();
+		} finally {
+			this._passing = false;
+		}
+	}
+
+	private async _pass(): Promise<void> {
 		const live = await this._grabs.findLive();
 
 		if (live.length === 0) {
@@ -1057,6 +1100,15 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * conventions in it.
 	 */
 	private async _place(grab: GrabEntity, settings: Settings): Promise<void> {
+		// Already being filed. See `_placing`: a second copy of one download into one
+		// destination is two writers on one file, and what comes out is shorter than what
+		// went in.
+		if (this._placing.has(grab.id)) {
+			return;
+		}
+
+		this._placing.add(grab.id);
+
 		try {
 			const item = await this._items.findOne({ where: { id: grab.itemId } });
 
@@ -1095,7 +1147,6 @@ export class ReleaseManager implements OnApplicationBootstrap {
 
 			const libraries = await this._libraries.placementLibraries();
 			const categoryKeys = await this._libraries.categoryKeysByLibrary();
-			const show = await this._showFacts(item);
 			/*
 			 * This download's folder, and failing that the one pinned on the media itself.
 			 *
@@ -1105,16 +1156,20 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			 * a standing one, and both win over the rule.
 			 */
 			const folder = grab.targetFolder ?? await this._pinnedFolder(item);
+			// What this file actually is, which the row it was grabbed against often
+			// cannot say: a grab made from a series page carries the series, and a series
+			// is not something that can be filed. See `_nameableOf`.
+			const { nameable, siblingPath } = await this._nameableOf(item, basename(source));
 			const target = await this._placement.resolve({
-				kind: item.kind as MediaKind,
+				kind: nameable.kind,
 				categoryKey: categoryKeys.get(item.libraryId) ?? null,
-				settings: folder
-					// A folder somebody named outranks every rule, which is what naming one
-					// means. Expressed through the fixed-path strategy rather than a branch
-					// of its own, so a chosen folder and a configured one are placed by one
-					// code path and cannot disagree.
-					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: folder }
-					: settings,
+				settings,
+				// A folder somebody named, above every rule — see `PlacementRequest.pinnedPath`.
+				// This used to be said by rewriting the settings into the fixed-path strategy,
+				// which placed it *below* the library the very same dialog had just chosen:
+				// the library answered first, the file landed in its root, and the folder
+				// somebody typed was never reached.
+				pinnedPath: folder,
 				libraries,
 				// Consulted after an existing copy and before the category, exactly as a
 				// run's preferred library is: it decides where something new goes and
@@ -1124,20 +1179,15 @@ export class ReleaseManager implements OnApplicationBootstrap {
 					this._naming.render(
 						settings.namingOrder,
 						{
-							kind: item.kind as MediaKind,
-							title: item.title,
-							year: item.year,
-							seasonNumber: item.seasonNumber,
-							episodeNumber: item.episodeNumber,
-							// The show, not the episode — see `_showFacts`. Null here filed
-							// an episode in a folder named after the episode.
-							seriesTitle: show?.title ?? null,
-							seriesYear: show?.year ?? null,
+							...nameable,
 							// The release's own name, so `SOURCE` keeps what the tracker
 							// called it — which is what a library full of scene names wants.
 							sourcePath: source,
 						},
-						{ libraryRoot: root, siblingPath: null },
+						// A file of this show we already hold, so the folders this library
+						// really uses are imitated rather than invented: `Saison 1` where
+						// that is what it says, instead of a second `Season 01` beside it.
+						{ libraryRoot: root, siblingPath },
 					),
 				requiredBytes: 0,
 			});
@@ -1181,6 +1231,8 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// recoverable by hand — which is the whole reason the failure is recorded
 			// rather than retried for ever.
 			await this._settle(grab, GrabState.FAILED, reasonOf(error));
+		} finally {
+			this._placing.delete(grab.id);
 		}
 	}
 
@@ -1246,9 +1298,10 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			const target = await this._placement.resolve({
 				kind: episode.kind as MediaKind,
 				categoryKey: categoryKeys.get(episode.libraryId) ?? null,
-				settings: folder
-					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: folder }
-					: settings,
+				settings,
+				// See the single-file placement: a named folder is a decision about one
+				// thing, and it outranks every rule including the library beside it.
+				pinnedPath: folder,
 				libraries,
 				preferredLibraryId: grab.targetLibraryId,
 				relativeName: (libraryRoot: string) =>
@@ -1357,6 +1410,128 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		} catch (error: unknown) {
 			this._logger.warn(`${grab.title} was placed but could not be announced: ${reasonOf(error)}`);
 		}
+	}
+
+	/**
+	 * What a downloaded file is, when the row it was grabbed against cannot say.
+	 *
+	 * A grab made from a series page — or from a season's — carries that row as its item,
+	 * and a series is not a thing that can be filed: `NamingService` builds folders for an
+	 * episode and for a film and answers nothing for anything else, so the copy landed
+	 * **at the library root**, named after the release. On the gateway this was found on,
+	 * that is `/share/SeriesTV5/Stuart.Fails.to.Save.the.Universe.S01E10.…mkv` sitting
+	 * beside the show's own folder, which no media server groups into anything.
+	 *
+	 * It is also the ordinary case rather than an edge, and that is the point: the episode
+	 * somebody grabs is usually the one nothing here reports yet — a show that is still
+	 * running puts out an episode no server knows about, so there is no episode row to
+	 * grab it against and the series is the only thing there is to press.
+	 *
+	 * The name knows. `parseReleaseName` reads `S01E10` off it, the series comes from the
+	 * row the grab was made from, and between them the file is an episode of that show
+	 * with a season and a number — everything the folders are built from. Nothing is
+	 * invented: a name that spells out no numbers leaves the item as it was, and the file
+	 * lands where it would have landed before.
+	 */
+	private async _nameableOf(
+		item: MediaItemEntity,
+		fileName: string,
+	): Promise<{ nameable: NameableItem; siblingPath: string | null }> {
+		if (item.kind === MediaKind.EPISODE) {
+			const show = await this._showFacts(item);
+
+			return {
+				nameable: {
+					kind: MediaKind.EPISODE,
+					title: item.title,
+					year: item.year,
+					seasonNumber: item.seasonNumber,
+					episodeNumber: item.episodeNumber,
+					// The show, not the episode — see `_showFacts`. Null here filed an
+					// episode in a folder named after the episode.
+					seriesTitle: show?.title ?? null,
+					seriesYear: show?.year ?? null,
+				},
+				siblingPath: await this._siblingPath(item),
+			};
+		}
+
+		if (item.kind !== MediaKind.SERIES && item.kind !== MediaKind.SEASON) {
+			return {
+				nameable: {
+					kind: item.kind as MediaKind,
+					title: item.title,
+					year: item.year,
+					seasonNumber: item.seasonNumber,
+					episodeNumber: item.episodeNumber,
+				},
+				siblingPath: null,
+			};
+		}
+
+		const series = item.kind === MediaKind.SERIES
+			? item
+			: (item.parentId === null
+				? null
+				: await this._items.findOne({ where: { id: item.parentId } }));
+		const parsed = parseReleaseName(fileName);
+		// The name first and the row second: a file that says `S02E03` is season two
+		// whatever page somebody pressed download on, and a season row is only the answer
+		// when the name carries no season of its own.
+		const seasonNumber = parsed.seasonNumber
+			?? (item.kind === MediaKind.SEASON ? item.seasonNumber : null);
+
+		if (parsed.episodeNumber === null && seasonNumber === null) {
+			// Nothing to read. Left exactly as it was, which is the behaviour this had
+			// before — a file at the root is bad, and a file filed under a guess is worse.
+			return {
+				nameable: { kind: item.kind as MediaKind, title: item.title, year: item.year },
+				siblingPath: null,
+			};
+		}
+
+		return {
+			nameable: {
+				kind: MediaKind.EPISODE,
+				// The episode's own title is unknown — nothing here reports it, which is
+				// why the grab was made against the show. The naming order decides the file
+				// name anyway, and `SOURCE` leads it: the release keeps its name.
+				title: item.title,
+				year: null,
+				seasonNumber,
+				episodeNumber: parsed.episodeNumber,
+				seriesTitle: series?.title ?? item.title,
+				seriesYear: series?.year ?? null,
+			},
+			siblingPath: await this._siblingPath(series ?? item),
+		};
+	}
+
+	/**
+	 * A file of this show we already hold, so the library's own spelling is imitated.
+	 *
+	 * Without it a torrent lands in `Season 01` beside the `Saison 1` folders the library
+	 * has used for years — one show in two folders, which no media server shows as one.
+	 * A pull from a peer has always passed this; a grab never did.
+	 *
+	 * The path is the one the media server reports, which is what the naming service
+	 * compares against the destination root: a spelling that does not match it is
+	 * discarded there rather than followed out of the library.
+	 */
+	private async _siblingPath(root: MediaItemEntity): Promise<string | null> {
+		const seasons = root.kind === MediaKind.SERIES
+			? await this._items.findChildren(root.id)
+			: [root];
+
+		for (const season of seasons) {
+			for (const episode of await this._items.findChildren(season.id)) {
+				if (episode.file?.path) {
+					return episode.file.path;
+				}
+			}
+		}
+
+		return null;
 	}
 
 	/**

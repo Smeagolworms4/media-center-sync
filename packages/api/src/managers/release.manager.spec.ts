@@ -54,7 +54,7 @@ interface Fakes {
 		findRecent: jest.Mock;
 		findForItem: jest.Mock;
 	};
-	items: { findOne: jest.Mock; find: jest.Mock; topAncestor: jest.Mock };
+	items: { findOne: jest.Mock; find: jest.Mock; findChildren: jest.Mock; topAncestor: jest.Mock };
 	/** What the registry hands back, so a test can make the tracker fail on its own. */
 	indexer: { search: jest.Mock; trackers: jest.Mock };
 	indexers: { get: jest.Mock };
@@ -394,6 +394,12 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 			),
 			find: jest.fn(({ where }: { where: { parentId: string } }) =>
 				Promise.resolve(WORLD.filter((one) => one.parentId === where.parentId)),
+			),
+			// Walked to find a file of this show we already hold, which is what the naming
+			// service imitates: without one a torrent lands in `Season 01` beside the
+			// `Saison 1` folders a library has used for years.
+			findChildren: jest.fn((parentId: string) =>
+				Promise.resolve(WORLD.filter((one) => one.parentId === parentId)),
 			),
 			// The walk the real repository does, over the same little world: up to the row
 			// with no parent, which is where a pinned folder is written.
@@ -1939,7 +1945,7 @@ describe('ReleaseManager', () => {
 				expect(row.state).toBe(GrabState.FAILED);
 			});
 
-			it('places a chosen folder through the fixed-path strategy', async () => {
+			it('sends a chosen folder as a pin, above every rule', async () => {
 				const { manager, fakes } = build();
 				const row = grab({ state: GrabState.DOWNLOADING, targetFolder: '/media/anime/Spartacus', targetLibraryId: 'lib-anime' });
 
@@ -1948,13 +1954,19 @@ describe('ReleaseManager', () => {
 
 				await manager.poll();
 
+				/*
+				 * A pin rather than a rewritten strategy, and that is the whole fix.
+				 *
+				 * Said through `settings.placement = fixed_path`, the folder was consulted
+				 * *after* the library the same dialog had chosen one line above: the library
+				 * answered first, the file landed in its root, and the folder somebody typed
+				 * was never reached. `pinnedPath` is a decision about one thing and outranks
+				 * every rule, the chosen library included.
+				 */
 				expect(fakes.placement.resolve).toHaveBeenCalledWith(
 					expect.objectContaining({
 						preferredLibraryId: 'lib-anime',
-						settings: expect.objectContaining({
-							placement: PlacementStrategy.FIXED_PATH,
-							fixedPath: '/media/anime/Spartacus',
-						}),
+						pinnedPath: '/media/anime/Spartacus',
 					}),
 				);
 			});
@@ -2059,6 +2071,145 @@ describe('ReleaseManager', () => {
 				await manager.poll();
 
 				expect(row.state).toBe(GrabState.PLACED);
+			});
+
+			/*
+			 * The download somebody starts from a show's page, which is most of them.
+			 *
+			 * The episode being grabbed is usually the one nothing here reports yet — a
+			 * running show puts out an episode no server knows about — so there is no
+			 * episode row to grab it against and the series is the only thing there is to
+			 * press. The row is then a series, a series is not something that can be filed,
+			 * and the copy landed at the **library root** named after the release:
+			 * `/share/SeriesTV5/Stuart.Fails.to.Save.the.Universe.S01E10.…mkv` sitting
+			 * beside the show's own folder, which no media server groups into anything.
+			 *
+			 * The name knows what the row does not.
+			 */
+			it('files a download grabbed from a series under the show, reading the name', async () => {
+				const { manager, fakes } = build();
+				const row = grab({
+					itemId: 'series-1',
+					state: GrabState.DOWNLOADING,
+					sourcePath: '/share/torrents/Spartacus.S01E07.1080p.WEB-DL-GRP',
+				});
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.filesystem.largestFileUnder.mockResolvedValue(
+					'/share/torrents/Spartacus.S01E07.1080p.WEB-DL-GRP/Spartacus.S01E07.1080p.WEB-DL-GRP.mkv',
+				);
+
+				await manager.poll();
+
+				expect(fakes.naming.render).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({
+						// An episode, which is the only kind the naming service builds
+						// folders for: a series answers nothing and lands flat.
+						kind: MediaKind.EPISODE,
+						seasonNumber: 1,
+						episodeNumber: 7,
+						seriesTitle: 'Spartacus',
+					}),
+					expect.anything(),
+				);
+			});
+
+			it('imitates the folders this library already uses, which a grab never did', async () => {
+				// Without a sibling a torrent lands in `Season 01` beside the `Saison 1`
+				// folders a library has used for years — one show in two folders, which no
+				// media server shows as one. A pull from a peer has always passed this.
+				const { manager, fakes } = build();
+				const row = grab({ itemId: 'series-1', state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.filesystem.largestFileUnder.mockResolvedValue(
+					'/share/torrents/Spartacus.S01E07/Spartacus.S01E07.1080p.WEB-DL-GRP.mkv',
+				);
+
+				await manager.poll();
+
+				expect(fakes.naming.render).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.anything(),
+					expect.objectContaining({ siblingPath: '/media/shows/S01E02.mkv' }),
+				);
+			});
+
+			it('leaves a name that spells out nothing exactly as it was', async () => {
+				// A file at the library root is bad; a file filed under a guess is worse.
+				const { manager, fakes } = build();
+				const row = grab({
+					itemId: 'series-1',
+					state: GrabState.DOWNLOADING,
+					sourcePath: '/share/torrents/whatever',
+				});
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.filesystem.largestFileUnder.mockResolvedValue('/share/torrents/whatever/file.mkv');
+
+				await manager.poll();
+
+				expect(fakes.naming.render).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ kind: MediaKind.SERIES }),
+					expect.anything(),
+				);
+			});
+
+			/*
+			 * Two passes must never file one download.
+			 *
+			 * The timer fires every five seconds and a placement takes as long as copying
+			 * tens of gigabytes takes, so the passes piled up behind it each found the same
+			 * torrent complete and started **the same copy again**: half a dozen writers on
+			 * one destination file, a progress bar reporting whichever of them answered
+			 * last — three hundred megabytes, then one hundred — and a file shorter than its
+			 * source at the end of it. The size check refusing that copy is the only reason
+			 * any of it was ever noticed.
+			 */
+			it('never copies one download twice, however many passes overlap', async () => {
+				const { manager, fakes } = build();
+				const row = fetched();
+				const finished: { resolve: () => void } = { resolve: () => undefined };
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				// A copy that does not finish until this test says so, which is what a
+				// twenty-gigabyte season is to a five-second timer.
+				fakes.mover.move.mockImplementation(() => new Promise<void>((resolve) => {
+					finished.resolve = resolve;
+				}));
+
+				const first = manager.poll();
+
+				// Let the first pass get as far as the copy, which is several awaits in.
+				await new Promise((resolve) => setImmediate(resolve));
+
+				await manager.poll();
+				await manager.poll();
+
+				expect(fakes.mover.move).toHaveBeenCalledTimes(1);
+
+				finished.resolve();
+				await first;
+			});
+
+			it('files it on a later pass once the first one has finished', async () => {
+				// The guard is about overlapping, not about refusing: a row still on
+				// `fetched` after a restart is exactly what the next pass is for.
+				const { manager, fakes } = build();
+
+				fakes.grabs.findLive.mockResolvedValue([fetched()]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+				await manager.poll();
+
+				expect(fakes.mover.move).toHaveBeenCalledTimes(2);
 			});
 
 			it('fails the grab when the copy itself fails', async () => {
