@@ -292,6 +292,11 @@ export class PeerHandler implements MediaServiceHandler {
 	 * is different: one is a permanent property of this service type and the other is
 	 * worth retrying.
 	 */
+	/** A peer's own gateway looks after its metadata; there is nothing to ask it for. */
+	public refreshItem(): Promise<boolean> {
+		return Promise.resolve(false);
+	}
+
 	public async requestRescan(): Promise<RescanOutcome> {
 		return RescanOutcome.UNSUPPORTED;
 	}

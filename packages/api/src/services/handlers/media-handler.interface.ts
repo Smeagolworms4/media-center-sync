@@ -263,6 +263,22 @@ export interface MediaServiceHandler {
 	 * asleep is an ordinary thing for this call to meet, and the landing it was asked
 	 * about is recorded either way.
 	 */
+	/**
+	 * Ask the server for the metadata and the artwork of one item it already knows.
+	 *
+	 * The precise half of `requestRescan`. A file that has just been indexed is a row
+	 * carrying a name and nothing else, because a scan looks at the disk and not at the
+	 * metadata providers — and the one moment anybody would have asked for the rest has
+	 * gone by. This asks, for that item and no other.
+	 *
+	 * False when the server has nothing of the kind, which is an answer and not a failure:
+	 * Plex fetches metadata itself the moment it identifies a new item, so there is
+	 * nothing to ask it for. Asking a whole library instead of one item is what this
+	 * exists to avoid — recursive over thirty thousand rows it is hours of provider
+	 * traffic, restarted by every file that lands.
+	 */
+	refreshItem(connection: ServiceConnection, externalId: string): Promise<boolean>;
+
 	requestRescan(
 		connection: ServiceConnection,
 		library: NormalisedLibrary | null,

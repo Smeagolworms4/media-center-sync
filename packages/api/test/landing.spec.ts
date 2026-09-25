@@ -49,6 +49,15 @@ class FakeHandler implements MediaServiceHandler {
 
 	public readonly rescans: (string | null)[] = [];
 
+	/**
+	 * The items the gateway asked for metadata about, once each was indexed.
+	 *
+	 * A scan looks at the disk and not at the providers, so a file that has just landed
+	 * is a row with a name and nothing else. Asking is the whole point; asking about the
+	 * *library* instead of the item is what must never come back.
+	 */
+	public readonly refreshed: string[] = [];
+
 	public probe(): never {
 		throw new Error('not part of this test');
 	}
@@ -79,6 +88,12 @@ class FakeHandler implements MediaServiceHandler {
 
 	public refreshLibrary(): Promise<LibraryRefresh> {
 		return Promise.resolve({ items: this.items, cursor: null });
+	}
+
+	public refreshItem(_connection: unknown, externalId: string): Promise<boolean> {
+		this.refreshed.push(externalId);
+
+		return Promise.resolve(true);
 	}
 
 	public requestRescan(
@@ -365,6 +380,21 @@ describe('A media whose file has landed but which nothing has indexed', () => {
 
 		expect(await untilLanded(0)).toHaveLength(0);
 		expect(await context.app.get(MediaLandingRepository).findOpen()).toHaveLength(0);
+
+		/*
+		 * And the metadata is asked for, on that item and on nothing else.
+		 *
+		 * A scan looks at the disk, not at the providers: the row it writes for a file
+		 * that has just landed carries a name and nothing else — no overview, no poster —
+		 * and nothing ever went back for the rest, because the moment anybody would have
+		 * asked had gone by.
+		 *
+		 * On the item and never on the library: the same question asked of a shelf of
+		 * thirty thousand rows is hours of provider traffic, restarted by every file that
+		 * lands. `rescans` above is the library call, and it stays the cheap one.
+		 */
+		// Nobody asked for the metadata of what just landed, before this.
+		expect(handler.refreshed).toEqual(['jf-99']);
 	});
 
 	it('does not fall back to missing once the file is genuinely held', async () => {

@@ -316,6 +316,8 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 				await this._landings.delete({ id: landing.id });
 				this._logger.log(`${landing.path} was indexed as ${indexed.title}`);
 
+				await this._completeMetadata(indexed);
+
 				continue;
 			}
 
@@ -353,6 +355,44 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 		}
 
 		await this._paint(surviving);
+	}
+
+	/**
+	 * Ask the server for what it did not fetch when it indexed this file.
+	 *
+	 * A scan looks at the disk, not at the metadata providers: the row it writes for a
+	 * file that has just landed carries a name and nothing else — no overview, no poster —
+	 * and nothing ever goes back for the rest, because the moment anybody would have asked
+	 * has gone by. That is the whole of "the metadata does not come with it".
+	 *
+	 * Asked here because this is the first instant the question can be asked at all: the
+	 * item did not exist until the server indexed it, and this is where the gateway learns
+	 * which item the file became.
+	 *
+	 * **One item.** The same question asked of the library is the same answer at a cost
+	 * nobody can pay — recursive over thirty thousand rows it is hours of provider
+	 * traffic, restarted by every file that lands, which is exactly what the owner said
+	 * must not happen.
+	 *
+	 * Swallowed on failure: the file is in the library and indexed, which is what the
+	 * landing was about. A server that will not answer this is worth a line in the log and
+	 * nothing more.
+	 */
+	private async _completeMetadata(item: MediaItemEntity): Promise<void> {
+		try {
+			const service = await this._services.findWithSecrets(item.serviceId);
+			const handler = service === null ? null : this._handlers.find(service.type);
+
+			if (service === null || handler === null) {
+				return;
+			}
+
+			if (await handler.refreshItem(toConnection(service), item.externalId)) {
+				this._logger.log(`Asked ${service.name} for the metadata of ${item.title}`);
+			}
+		} catch (error: unknown) {
+			this._logger.warn(`Could not ask for the metadata of ${item.title}: ${String(error)}`);
+		}
 	}
 
 	/**

@@ -456,6 +456,40 @@ export class JellyfinHandler implements MediaServiceHandler {
 	 * the ordinary case for a landing in the fallback folder that belongs to no library
 	 * at all.
 	 */
+	/**
+	 * Ask the server for the metadata and the artwork of **one** item.
+	 *
+	 * The precise half of a refresh. A file that has just been indexed is a row with a
+	 * name and nothing else — no overview, no poster — because the scan that found it
+	 * does not go to the providers, and the one moment anybody would have asked for it
+	 * has gone by. This asks, for that item and no other.
+	 *
+	 * Not recursive, and replacing nothing: an item that already has what it needs keeps
+	 * it, corrections included. The cost is one call about one row, which is what makes it
+	 * safe to do on every file that lands — unlike the same question asked of a whole
+	 * library, which is hours of provider traffic.
+	 */
+	public async refreshItem(connection: ServiceConnection, externalId: string): Promise<boolean> {
+		if (externalId === '') {
+			return false;
+		}
+
+		await requestJson<Payload>(connection.baseUrl, `/Items/${externalId}/Refresh`, {
+			method: 'POST',
+			headers: this._headers(connection),
+			query: {
+				Recursive: false,
+				ImageRefreshMode: 'FullRefresh',
+				MetadataRefreshMode: 'FullRefresh',
+				ReplaceAllImages: false,
+				ReplaceAllMetadata: false,
+			},
+			timeoutMs: connection.timeoutMs,
+		});
+
+		return true;
+	}
+
 	public async requestRescan(
 		connection: ServiceConnection,
 		library: NormalisedLibrary | null,
@@ -465,25 +499,24 @@ export class JellyfinHandler implements MediaServiceHandler {
 				method: 'POST',
 				headers: this._headers(connection),
 				/*
-				 * Fetch what is missing, and replace nothing.
+				 * Cheap on purpose, because this is the **whole library**.
 				 *
-				 * The four values are one sentence and have to be read together.
-				 * `FullRefresh` means "ask the metadata providers", and `ReplaceAll*: false`
-				 * means "only where we have nothing" — so an item that is complete is left
-				 * exactly as it is, corrections included, and one that arrived a minute ago
-				 * gets its title, its overview and its poster.
+				 * `Default` indexes what is new or changed and asks the metadata providers
+				 * nothing; the images are left alone for the same reason. Asking for a full
+				 * refresh here reads well and is unusable: recursive over a shelf of thirty
+				 * thousand rows, it walks every one of them and queries a provider for
+				 * everything incomplete — hours of work, started again by every file that
+				 * lands. The owner's warning, the first time it went out: do not refresh the
+				 * whole library, it is far too long.
 				 *
-				 * It used to say `ImageRefreshMode: 'None'` and `MetadataRefreshMode:
-				 * 'Default'`, which is the pair that indexes new files and asks for nothing
-				 * else: a torrent filed into a library appeared there as a bare file name
-				 * with no artwork, for ever, because the one moment anybody would have asked
-				 * for it had gone by. The owner's report was that refreshing did not bring
-				 * the missing data in — it was not asking for it.
+				 * What was missing is asked for where it costs nothing — see `refreshItem`,
+				 * which the gateway calls on the one item this file turned out to be, once
+				 * the scan below has indexed it.
 				 */
 				query: {
 					Recursive: true,
-					ImageRefreshMode: 'FullRefresh',
-					MetadataRefreshMode: 'FullRefresh',
+					ImageRefreshMode: 'None',
+					MetadataRefreshMode: 'Default',
 					ReplaceAllImages: false,
 					ReplaceAllMetadata: false,
 				},

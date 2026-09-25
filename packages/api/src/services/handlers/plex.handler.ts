@@ -543,6 +543,17 @@ export class PlexHandler implements MediaServiceHandler {
 	 * something no section contains. Saying the refresh could not be aimed is the more
 	 * useful answer, and the landing simply waits.
 	 */
+	/**
+	 * Nothing to ask for: Plex queries its own agents the moment it identifies an item.
+	 *
+	 * An answer rather than a failure — see `refreshItem` on the interface. Its `force`
+	 * refresh is a different and much heavier operation, over a whole section, which is
+	 * exactly what asking per file must not become.
+	 */
+	public refreshItem(): Promise<boolean> {
+		return Promise.resolve(false);
+	}
+
 	public async requestRescan(
 		connection: ServiceConnection,
 		library: NormalisedLibrary | null,

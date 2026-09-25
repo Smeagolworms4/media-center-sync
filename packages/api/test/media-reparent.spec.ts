@@ -76,6 +76,11 @@ class CatalogueHandler implements MediaServiceHandler {
 	 * at the end of every pass and may ask the service to re-read itself, and throwing
 	 * would fail a test about filing with a message about a rescan.
 	 */
+	/** Nothing to ask a fixture for: what it reports is what the test put in it. */
+	public refreshItem(): Promise<boolean> {
+		return Promise.resolve(false);
+	}
+
 	public requestRescan(): Promise<RescanOutcome> {
 		return Promise.resolve(RescanOutcome.UNSUPPORTED);
 	}

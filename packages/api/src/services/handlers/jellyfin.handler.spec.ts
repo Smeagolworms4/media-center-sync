@@ -690,26 +690,57 @@ describe('JellyfinHandler', () => {
 		});
 
 		/*
-		 * The four values are one sentence: ask the providers, replace nothing.
+		 * Cheap, because this is the whole library.
 		 *
-		 * It used to say `ImageRefreshMode=None` and `MetadataRefreshMode=Default`, which
-		 * indexes new files and asks for nothing else — so a torrent filed into a library
-		 * appeared there as a bare file name with no artwork, for ever, because the one
-		 * moment anybody would have asked for it had gone by.
+		 * Asking the providers here reads well and is unusable: recursive over a shelf of
+		 * thirty thousand rows it walks every one of them, and every file that lands starts
+		 * it again. The owner's warning the first time it went out was exactly that — do
+		 * not refresh the whole library, it is far too long. What is missing is asked for
+		 * on the one item, which `refreshItem` covers below.
 		 */
-		it('asks for the metadata and the images it does not have, and replaces neither', async () => {
+		it('asks the library only to look at its files, not at the metadata providers', async () => {
 			const fetchMock = stubFetch(() => ({}));
 
 			await handler.requestRescan(connection, library);
 
 			const url = String(fetchMock.mock.calls[0][0]);
 
+			expect(url).toContain('MetadataRefreshMode=Default');
+			expect(url).toContain('ImageRefreshMode=None');
+		});
+
+		/*
+		 * And the precise half, on one item.
+		 *
+		 * A scan looks at the disk and not at the providers, so a file that has just been
+		 * indexed is a row with a name and nothing else — no overview, no poster — and
+		 * nothing ever went back for the rest. This asks, for that item and no other, which
+		 * is what makes it safe to do on every file that lands.
+		 */
+		it('asks for one item metadata and artwork, replacing neither', async () => {
+			const fetchMock = stubFetch(() => ({}));
+
+			await expect(handler.refreshItem(connection, 'jf-99')).resolves.toBe(true);
+
+			const url = String(fetchMock.mock.calls[0][0]);
+
+			expect(url).toContain('/Items/jf-99/Refresh');
 			expect(url).toContain('MetadataRefreshMode=FullRefresh');
 			expect(url).toContain('ImageRefreshMode=FullRefresh');
-			// Replacing is what would undo somebody's own corrections and re-download
-			// artwork that is already right.
+			// Never recursive: one item is the whole point, and a library node asked this
+			// way is the traffic this exists to avoid.
+			expect(url).toContain('Recursive=false');
+			// Replacing would undo somebody's own corrections and re-download artwork that
+			// is already right.
 			expect(url).toContain('ReplaceAllMetadata=false');
 			expect(url).toContain('ReplaceAllImages=false');
+		});
+
+		it('asks nothing for an item the server never named', async () => {
+			const fetchMock = stubFetch(() => ({}));
+
+			await expect(handler.refreshItem(connection, '')).resolves.toBe(false);
+			expect(fetchMock).not.toHaveBeenCalled();
 		});
 
 		it('falls back to the whole server when no library can be named', async () => {

@@ -119,6 +119,11 @@ class StructureHandler implements MediaServiceHandler {
 		throw new Error('not part of this test');
 	}
 
+	/** Nothing to ask a fixture for: what it reports is what the test put in it. */
+	public refreshItem(): Promise<boolean> {
+		return Promise.resolve(false);
+	}
+
 	public requestRescan(): never {
 		throw new Error('not part of this test');
 	}

@@ -82,6 +82,11 @@ class OrderedHandler implements MediaServiceHandler {
 	 * itself; throwing here would make a test about enumeration order fail with a
 	 * message about a rescan.
 	 */
+	/** Nothing to ask a fixture for: what it reports is what the test put in it. */
+	public refreshItem(): Promise<boolean> {
+		return Promise.resolve(false);
+	}
+
 	public requestRescan(): Promise<RescanOutcome> {
 		return Promise.resolve(RescanOutcome.UNSUPPORTED);
 	}

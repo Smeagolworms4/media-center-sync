@@ -75,6 +75,11 @@ class FakePlex implements MediaServiceHandler {
 		return Promise.resolve({ items: [], cursor: null });
 	}
 
+	/** Nothing to ask a fixture for: what it reports is what the test put in it. */
+	public refreshItem(): Promise<boolean> {
+		return Promise.resolve(false);
+	}
+
 	public requestRescan(): Promise<RescanOutcome> {
 		return Promise.resolve(RescanOutcome.UNSUPPORTED);
 	}
