@@ -10,6 +10,22 @@ import 'unfonts.css';
 import '@mdi/font/css/materialdesignicons.css';
 import '@/styles/index.scss';
 
+/*
+ * Which build this is, said once where anybody can read it.
+ *
+ * A browser keeps a tab open across a deploy, and a stale bundle against a new gateway
+ * is the one fault nobody thinks to check: the screen looks right, one call answers
+ * something the interface does not expect, and the person reporting it is describing a
+ * version nobody is running any more. The gateway's own version is printed beside it as
+ * soon as it answers — see `stores/auth` — so the two can be compared without asking
+ * anybody to open the network tab.
+ */
+console.info(
+	`%cMedia Center Sync%c interface ${import.meta.env.VITE_APP_VERSION || 'dev'}`,
+	'font-weight:600',
+	'color:inherit',
+);
+
 const app = createApp(App);
 
 registerPlugins(app);

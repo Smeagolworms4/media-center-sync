@@ -13,6 +13,37 @@ import { useCaller } from '@/hooks/useCaller';
 import { useTokenStore } from '@/stores/token';
 
 /**
+ * The gateway's version beside this bundle's, once, and louder when they differ.
+ *
+ * A tab left open across a deploy runs code the gateway no longer serves, and every
+ * symptom of that looks like a bug in something else. Printed rather than shown: it is
+ * for the two minutes somebody spends looking for why a screen misbehaves, not for the
+ * screen itself.
+ */
+let announced = false;
+
+function announceVersions (gateway: string | null): void {
+	if (announced || gateway === null) {
+		return;
+	}
+
+	announced = true;
+
+	const bundle = import.meta.env.VITE_APP_VERSION || 'dev';
+
+	if (bundle !== 'dev' && bundle !== gateway) {
+		console.warn(
+			`Media Center Sync: this page was built from ${bundle} and the gateway is running `
+			+ `${gateway}. Reload it before believing anything odd it does.`,
+		);
+
+		return;
+	}
+
+	console.info(`Media Center Sync: gateway ${gateway}`);
+}
+
+/**
  * The session, as the rest of the interface sees it.
  *
  * `stores/token` owns the credentials; this store owns who is signed in and what
@@ -89,6 +120,8 @@ export const useAuthStore = defineStore('auth', () => {
 			});
 			setupRequired.value = state?.required === true;
 			setupVersion.value = state?.version ?? null;
+			announceVersions(state?.version ?? null);
+
 			return state;
 		} catch {
 			setupRequired.value = false;
