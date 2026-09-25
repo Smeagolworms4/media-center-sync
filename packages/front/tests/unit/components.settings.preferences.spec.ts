@@ -60,11 +60,23 @@ const ORDERED: ReleasePreferenceSettings = {
 	byCategory: {},
 };
 
-function mountPane (settings: ReleasePreferenceSettings = ORDERED) {
+function mountPane (settings: ReleasePreferenceSettings = ORDERED, trackers: string[] = []) {
 	return mountWithApp(ReleasePreferences, {
-		props: { modelValue: settings, categories: CATEGORIES },
+		props: { modelValue: settings, categories: CATEGORIES, trackers },
 		global: { stubs: { ...tooltipStub, ...dialogStub } },
 	});
+}
+
+/** What the add field under one dimension offers beside whatever somebody types. */
+function suggestionsUnder (
+	wrapper: ReturnType<typeof mountPane>['wrapper'],
+	dimension: ReleasePreferenceDimension,
+): string[] {
+	const field = wrapper.findAllComponents({ name: 'VCombobox' }).find(
+		one => one.attributes('data-test') === `release-preferences-add-value-global-${dimension}`,
+	);
+
+	return ((field?.props('items') ?? []) as string[]);
 }
 
 /** The last order the pane handed back, which is what the page would save. */
@@ -421,5 +433,52 @@ describe('pages/Settings: the request source', () => {
 		await settle();
 
 		expect(saved(stub).requestSource).toBeNull();
+	});
+
+	/*
+	 * The one dimension whose values cannot be shipped in a table.
+	 *
+	 * A tracker's name belongs to the household, and typing it is a guess: `Generation-Free`
+	 * written for `Generation-Free (API)` matches nothing, orders nothing, and no screen
+	 * says so. They are read from the indexer this gateway searches and offered.
+	 */
+	it('offers the trackers the gateway actually reaches', () => {
+		const ranked: ReleasePreferenceSettings = {
+			global: { ranks: [{ dimension: ReleasePreferenceDimension.INDEXER, values: [] }] },
+			byCategory: {},
+		};
+		const { wrapper } = mountPane(ranked, ['C411', 'Generation-Free (API)']);
+
+		expect(suggestionsUnder(wrapper, ReleasePreferenceDimension.INDEXER))
+			.toEqual(['C411', 'Generation-Free (API)']);
+	});
+
+	it('offers none when no indexer is configured, and still takes a typed one', () => {
+		const ranked: ReleasePreferenceSettings = {
+			global: { ranks: [{ dimension: ReleasePreferenceDimension.INDEXER, values: [] }] },
+			byCategory: {},
+		};
+		const { wrapper } = mountPane(ranked, []);
+
+		expect(suggestionsUnder(wrapper, ReleasePreferenceDimension.INDEXER)).toEqual([]);
+		// Still a combobox and not a select: a household with no indexer configured yet can
+		// write the order it intends to use.
+		const hook = `release-preferences-add-value-global-${ReleasePreferenceDimension.INDEXER}`;
+
+		expect(wrapper.findAllComponents({ name: 'VCombobox' })
+			.some(one => one.attributes('data-test') === hook)).toBe(true);
+	});
+
+	it('does not offer a tracker already in the order', () => {
+		const ranked: ReleasePreferenceSettings = {
+			global: {
+				ranks: [{ dimension: ReleasePreferenceDimension.INDEXER, values: ['C411'] }],
+			},
+			byCategory: {},
+		};
+		const { wrapper } = mountPane(ranked, ['C411', 'Generation-Free (API)']);
+
+		expect(suggestionsUnder(wrapper, ReleasePreferenceDimension.INDEXER))
+			.toEqual(['Generation-Free (API)']);
 	});
 });

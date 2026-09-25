@@ -5,7 +5,7 @@
 		RELEASE_PREFERENCE_DIMENSIONS,
 		RELEASE_PREFERENCE_SUGGESTIONS,
 		type ReleasePreference,
-		type ReleasePreferenceDimension,
+		ReleasePreferenceDimension,
 		type ReleasePreferenceSettings,
 	} from '@mcs/shared';
 	import { computed, ref } from 'vue';
@@ -48,8 +48,17 @@
 	const props = withDefaults(defineProps<{
 		/** Every category, ours and a peer's alike: this orders searches, not files. */
 		categories: MediaCategory[];
+		/**
+		 * The trackers the configured indexer reaches, offered under the tracker dimension.
+		 *
+		 * Typed by hand they are a guess, and a wrong guess is silent: `Generation-Free`
+		 * written for `Generation-Free (API)` matches nothing and orders nothing, with no
+		 * screen to say so. Empty when nothing is configured, which is the ordinary case on
+		 * a gateway that searches no tracker.
+		 */
+		trackers?: string[];
 		loading?: boolean;
-	}>(), { loading: false });
+	}>(), { loading: false, trackers: () => [] });
 
 	/**
 	 * One editable order on the screen: the household's, or one category's.
@@ -132,7 +141,13 @@
 	 * household trusts are its own business and no list we ship would be theirs.
 	 */
 	function suggestionsFor (dimension: ReleasePreferenceDimension, values: string[]): string[] {
-		return RELEASE_PREFERENCE_SUGGESTIONS[dimension]
+		// The trackers are the household's own, so they cannot be shipped in a table — they
+		// are read from the indexer this gateway searches.
+		const offered = dimension === ReleasePreferenceDimension.INDEXER
+			? props.trackers
+			: RELEASE_PREFERENCE_SUGGESTIONS[dimension];
+
+		return offered
 			.filter(one => !values.some(value => value.toLowerCase() === one.toLowerCase()));
 	}
 

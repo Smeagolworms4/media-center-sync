@@ -176,6 +176,23 @@ export const useReleasesStore = defineStore('releases', () => {
 		});
 	}
 
+	/**
+	 * The trackers the configured indexer reaches, for the search-order screen.
+	 *
+	 * Suggestions and nothing more: any value can still be written, because a tracker this
+	 * gateway has never searched is still one somebody may prefer. What they prevent is the
+	 * silent miss — a name typed one character off orders nothing and says nothing.
+	 */
+	const trackers = ref<string[]>([]);
+
+	async function loadTrackers (): Promise<string[]> {
+		const rows = await caller('api').get<string[]>('/releases/trackers');
+
+		trackers.value = Array.isArray(rows) ? rows : [];
+
+		return trackers.value;
+	}
+
 	async function loadGrabs (itemId?: string): Promise<ReleaseGrab[]> {
 		const rows = await caller('api').get<ReleaseGrab[]>(
 			`/releases/downloads${queryString({ itemId })}`,
@@ -254,6 +271,8 @@ export const useReleasesStore = defineStore('releases', () => {
 		clearPlan,
 		grab,
 		pull,
+		trackers,
+		loadTrackers,
 		loadGrabs,
 		setDestination,
 	};

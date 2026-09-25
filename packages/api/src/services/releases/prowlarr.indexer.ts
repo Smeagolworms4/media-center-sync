@@ -9,7 +9,7 @@ import { Injectable } from '@nestjs/common';
 import { ErrorKey } from '@mcs/shared';
 import { ReleaseIndexerFor } from './indexer.decorator';
 import { parseReleaseName } from './release-name';
-import { INDEXER_TIMEOUT_MS, releaseJson } from './release-http';
+import { CLIENT_TIMEOUT_MS, INDEXER_TIMEOUT_MS, releaseJson } from './release-http';
 import type { IndexerQuery, ReleaseIndexer } from './indexer.interface';
 
 /**
@@ -130,6 +130,29 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 		}
 
 		return parts.filter((part) => part !== '').join(' ');
+	}
+
+	public async trackers(settings: IndexerSettings): Promise<string[]> {
+		try {
+			const rows = await releaseJson<{ name?: unknown; enable?: unknown }[]>(
+				settings.baseUrl,
+				'/api/v1/indexer',
+				{
+					headers: { 'X-Api-Key': settings.apiKey ?? '' },
+					timeoutMs: CLIENT_TIMEOUT_MS,
+					unreachable: ErrorKey.INDEXER_UNREACHABLE,
+				},
+			);
+
+			return (Array.isArray(rows) ? rows : [])
+				// Only the ones that can actually answer a search: offering a disabled
+				// tracker as a value to prefer would be offering an order that cannot fire.
+				.filter((row) => row.enable !== false)
+				.map((row) => (typeof row.name === 'string' ? row.name.trim() : ''))
+				.filter((name) => name !== '');
+		} catch {
+			return [];
+		}
 	}
 
 	private _toRelease(row: ProwlarrRelease, query: IndexerQuery): Release | null {

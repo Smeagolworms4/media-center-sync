@@ -269,6 +269,21 @@ export class ReleaseController {
 		return this._releases.setDestination(id, body.libraryId ?? null, body.folder ?? null);
 	}
 
+	@Get('trackers')
+	@Granted(Right.MEDIA_READ)
+	@ApiOperation({
+		summary: 'The trackers behind the configured indexer',
+		description:
+			'For the search-order screen, which has to name a tracker without having searched. '
+			+ 'Suggestions only — any value can be written — and an empty list when nothing is '
+			+ 'configured or the indexer will not answer, because a settings screen that refused '
+			+ 'to open over a tracker list would be worse than one offering none.',
+	})
+	@ApiOkResponse({ description: 'string[]' })
+	public trackers(): Promise<string[]> {
+		return this._releases.trackers();
+	}
+
 	@Get('downloads')
 	@Granted(Right.MEDIA_READ)
 	@ApiOperation({ summary: 'What has been grabbed, and where it has got to' })

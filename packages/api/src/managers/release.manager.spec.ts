@@ -55,7 +55,7 @@ interface Fakes {
 	};
 	items: { findOne: jest.Mock; find: jest.Mock };
 	/** What the registry hands back, so a test can make the tracker fail on its own. */
-	indexer: { search: jest.Mock };
+	indexer: { search: jest.Mock; trackers: jest.Mock };
 	indexers: { get: jest.Mock };
 	client: {
 		grab: jest.Mock;
@@ -357,7 +357,10 @@ const namedBy = (
 };
 
 const build = (): { manager: ReleaseManager; fakes: Fakes } => {
-	const indexer = { search: jest.fn().mockResolvedValue([]) };
+	const indexer = {
+		search: jest.fn().mockResolvedValue([]),
+		trackers: jest.fn().mockResolvedValue(['YGG', 'Sharewood']),
+	};
 	const client = {
 		grab: jest.fn().mockResolvedValue('hash-1'),
 		statuses: jest.fn().mockResolvedValue([]),
@@ -1385,6 +1388,41 @@ describe('ReleaseManager', () => {
 
 			expect(rows[0].id).toBe('grab-2');
 			expect(fakes.grabs.findForItem).toHaveBeenCalledWith('ep-2');
+		});
+	});
+
+	/*
+	 * The names a search order has to be written with.
+	 *
+	 * Typed by hand they are a guess, and a wrong guess is silent: `Generation-Free` for
+	 * `Generation-Free (API)` matches nothing, orders nothing, and no screen says so. The
+	 * list is suggestions and never a closed set — a tracker this gateway has not seen is
+	 * still one somebody may prefer.
+	 */
+	describe('naming the trackers', () => {
+		it('asks the configured indexer what it reaches', async () => {
+			const { manager, fakes } = build();
+
+			await expect(manager.trackers()).resolves.toEqual(['YGG', 'Sharewood']);
+			expect(fakes.indexer.trackers).toHaveBeenCalled();
+		});
+
+		it('answers none when nothing is configured, rather than refusing', async () => {
+			const { manager, fakes } = build();
+
+			fakes.settings.get.mockResolvedValue(settingsWith({ indexer: null }));
+
+			await expect(manager.trackers()).resolves.toEqual([]);
+		});
+
+		it('answers none when the indexer will not say', async () => {
+			// A settings screen that would not open because a tracker list could not be
+			// fetched is worse than one offering no suggestions.
+			const { manager, fakes } = build();
+
+			fakes.indexer.trackers.mockRejectedValue(new Error('down'));
+
+			await expect(manager.trackers()).resolves.toEqual([]);
 		});
 	});
 

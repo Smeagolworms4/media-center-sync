@@ -453,6 +453,32 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * about the world our catalogue has not caught up with, and those are different
 	 * sentences on the screen.
 	 */
+	/**
+	 * The trackers the configured indexer knows, for a screen that has to name one.
+	 *
+	 * Suggestions and nothing else: the order somebody writes accepts any value, because a
+	 * tracker this gateway has never heard of is still a tracker they may prefer. What it
+	 * prevents is the quiet failure — `Generation-Free` typed for `Generation-Free (API)`
+	 * is a preference that matches nothing and orders nothing, and no screen would say so.
+	 *
+	 * An empty list when nothing is configured or the indexer will not answer, never a
+	 * refusal: this feeds a settings screen that has plenty else to show.
+	 */
+	public async trackers(): Promise<string[]> {
+		const settings = await this._settings.get();
+		const indexer = settings.indexer;
+
+		if (indexer === null || indexer.enabled === false) {
+			return [];
+		}
+
+		try {
+			return await this._indexers.get(indexer.type).trackers(indexer);
+		} catch {
+			return [];
+		}
+	}
+
 	private async _coverageOf(
 		itemId: string,
 	): Promise<{ missing: EpisodeRef[]; known: Set<string>; holdings: SuggestionHolding[] }> {

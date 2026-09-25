@@ -22,6 +22,7 @@
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useValidators } from '@/plugins/validators';
 	import { useLibrariesStore } from '@/stores/libraries';
+	import { useReleasesStore } from '@/stores/releases';
 	import { useServicesStore } from '@/stores/services';
 	import { useSettingsStore } from '@/stores/settings';
 	import { useSharesStore } from '@/stores/shares';
@@ -38,6 +39,7 @@
 	const { t } = useI18n();
 	const settingsStore = useSettingsStore();
 	const librariesStore = useLibrariesStore();
+	const releasesStore = useReleasesStore();
 	const servicesStore = useServicesStore();
 	const sharesStore = useSharesStore();
 	const validators = useValidators();
@@ -390,6 +392,11 @@
 				// neither fact is on the category.
 				librariesStore.load().catch(() => undefined),
 				servicesStore.load().catch(() => undefined),
+				// The trackers the search order can name. A gateway with no indexer
+				// configured has none, which is ordinary, and an indexer that will not
+				// answer leaves the field with no suggestions rather than this page unable
+				// to open.
+				releasesStore.loadTrackers().catch(() => undefined),
 				sharesStore.load().catch(() => undefined),
 			]);
 			apply();
@@ -1334,6 +1341,7 @@
 							v-model="model.releasePreferences"
 							:categories="librariesStore.orderedCategories"
 							:loading="loading"
+							:trackers="releasesStore.trackers"
 						/>
 					</v-card-text>
 				</v-card>

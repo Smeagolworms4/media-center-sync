@@ -45,4 +45,20 @@ export interface ReleaseIndexer {
 
 	/** Whether the address and key work, for the settings screen to say so. */
 	probe(settings: IndexerSettings): Promise<boolean>;
+
+	/**
+	 * The trackers behind this indexer, by the names its results carry.
+	 *
+	 * For the one screen that has to name a tracker without having searched: the order
+	 * a household writes says "this one before that one", and the values it is written
+	 * with are matched against what a result reports. Typed by hand they are a guess —
+	 * `Generation-Free` is not `Generation-Free (API)`, and a preference naming the
+	 * first silently orders nothing at all, which is the failure this whole product
+	 * keeps producing.
+	 *
+	 * An empty list where the indexer cannot say, never a throw: this feeds suggestions
+	 * on a settings screen, and a screen that refused to open because a tracker list
+	 * could not be fetched would be worse than one offering none.
+	 */
+	trackers(settings: IndexerSettings): Promise<string[]>;
 }
