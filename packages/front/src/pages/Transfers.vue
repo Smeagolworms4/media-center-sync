@@ -157,6 +157,13 @@
 	/** The run's own files, when what is being redirected is a run and not one file. */
 	const retargetCount = computed(() => retargeting.value?.transfers.length ?? 0);
 
+	/** Every directory of the chosen shelf, which is as far as browsing may go. */
+	const chosenRoots = computed<string[]>(() => {
+		const chosen = destinations.value.find(one => one.id === targetLibraryId.value);
+
+		return chosen ? (chosen.roots.length > 0 ? chosen.roots : [chosen.path ?? '']) : [];
+	});
+
 	const targetRoot = computed(
 		() => destinations.value.find(one => one.id === targetLibraryId.value)?.path ?? null);
 
@@ -912,9 +919,15 @@
 					</template>
 				</v-text-field>
 
+				<!--
+					Bounded by the chosen shelf's own directories, for the same reason the
+					correction dialog is: a folder picked outside the library is a
+					destination that library will never scan.
+				-->
 				<DirectoryPicker
 					v-model="browsingTarget"
 					:path="targetFolder ?? targetRoot"
+					:roots="chosenRoots"
 					@choose="targetFolder = $event"
 				/>
 			</div>

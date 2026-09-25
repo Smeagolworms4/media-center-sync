@@ -26,6 +26,18 @@ import { isInside, resolveRoots } from './path-containment';
  */
 export const MAX_DIRECTORY_ENTRIES = 500;
 
+/**
+ * How many entries of a directory are examined at once.
+ *
+ * Every one of them costs a `stat`, a `realpath` and two access checks, and doing that
+ * in series is what made the browser hang on a NAS: a folder of four hundred shows on a
+ * network mount is sixteen hundred round trips, one after another. Thirty-two at a time
+ * turns that into tens of round trips' worth of waiting without opening a handle per
+ * name, which on a directory of thirty thousand would be `EMFILE` — the same failure
+ * from the other side.
+ */
+const ENTRY_CONCURRENCY = 32;
+
 export interface ListOptions {
 	/**
 	 * Roots the answer may not leave, already resolved — `resolveRoots` gives them.
@@ -87,19 +99,49 @@ export class FilesystemService {
 
 		const entries: DirectoryEntry[] = [];
 		let seen = 0;
+		let index = 0;
+		let dropped = false;
 
-		for (const name of names) {
-			if (entries.length >= limit) {
-				break;
-			}
+		/*
+		 * A batch at a time, and not one entry at a time.
+		 *
+		 * Every entry costs four calls — `stat`, `realpath` and two access checks — and
+		 * this walked them in series. On a local disk nobody notices; on the network mount
+		 * a NAS library actually lives on, a folder holding four hundred shows is sixteen
+		 * hundred round trips end to end, and the browser simply never answers. The owner's
+		 * word for it was that the picker hangs, and the request was still pending minutes
+		 * later.
+		 *
+		 * Bounded rather than unbounded: `Promise.all` over the whole listing would open a
+		 * file handle per entry and turn a thirty-thousand-name directory into an `EMFILE`,
+		 * which is the same failure wearing a different hat. Batches keep the order the
+		 * names were sorted into, stop as soon as the page is full, and leave the rest
+		 * unexamined — which is exactly what `truncated` is for.
+		 */
+		while (entries.length < limit && index < names.length) {
+			const batch = names.slice(index, index + ENTRY_CONCURRENCY);
 
-			seen += 1;
+			index += batch.length;
+			seen += batch.length;
 
-			const path = join(directory, name);
-			const entry = await this._directoryEntry(path, name, options.roots);
+			const resolved = await Promise.all(
+				batch.map((name) => this._directoryEntry(join(directory, name), name, options.roots)),
+			);
 
-			if (entry !== null) {
-				entries.push(entry);
+			for (const entry of resolved) {
+				if (entry === null) {
+					continue;
+				}
+
+				if (entries.length < limit) {
+					entries.push(entry);
+				} else {
+					// Resolved and thrown away, because the page filled inside this batch.
+					// It still counts as "there is more", which is the whole point of the
+					// flag: examining in batches must not make a shortened list look
+					// complete.
+					dropped = true;
+				}
 			}
 		}
 
@@ -109,7 +151,7 @@ export class FilesystemService {
 			// unexamined may well have held no directory at all, and "there may be more"
 			// costs a line of interface while "that is all of it" costs somebody the
 			// folder they were looking for.
-			truncated: seen < names.length,
+			truncated: dropped || seen < names.length,
 			limit,
 		};
 	}

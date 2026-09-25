@@ -55,12 +55,27 @@
 		 * a registration to ask through.
 		 */
 		reportedRoots?: readonly string[];
+		/**
+		 * The folders this choice may be made inside, narrower than the gateway's own.
+		 *
+		 * Given, the dialog behaves as though these were the roots: the breadcrumb stops
+		 * at them and the way up stops with it. A field that is about one library has no
+		 * business offering the whole disk — somebody choosing where a show goes in
+		 * `SeriesTV5` was shown `SeedBox`, `Scanner` and `Synology` beside it, and a
+		 * folder picked out there is a destination the library will never scan.
+		 *
+		 * A boundary and not a filter: the gateway still refuses anything outside its own
+		 * roots, which this cannot widen. Empty means the gateway's boundary, which is
+		 * what every field that is not about one library wants.
+		 */
+		roots?: readonly string[];
 	}>(), {
 		path: null,
 		serviceId: null,
 		libraryExternalId: null,
 		serverOnly: false,
 		reportedRoots: () => [],
+		roots: () => [],
 	});
 
 	const emit = defineEmits<{ choose: [path: string] }>();
@@ -115,6 +130,45 @@
 	 * route answers 403 for them, and a breadcrumb that offers a step somebody is
 	 * told off for reads as a bug rather than as the boundary it is.
 	 */
+	/**
+	 * The boundary this dialog is showing: the caller's when it named one, ours otherwise.
+	 *
+	 * Only ever narrower. The gateway refuses anything outside its own roots whatever is
+	 * passed here, so this cannot open a door — it can only close one.
+	 */
+	const bounds = computed<readonly string[]>(() => {
+		const asked = props.roots.filter(one => one.trim() !== '');
+		const allowed = listing.value?.roots ?? [];
+
+		if (asked.length === 0) {
+			return allowed;
+		}
+
+		return allowed.length === 0
+			? asked
+			: asked.filter(one => allowed.some(root => one === root || one.startsWith(`${root}/`)));
+	});
+
+	/**
+	 * Where the arrow goes, which is never above the boundary.
+	 *
+	 * The gateway answers a parent as far as *its* roots go; when the caller has named a
+	 * narrower one, the step out of it has to be refused here — an arrow that walks out of
+	 * the library somebody is choosing inside is the whole of the problem this boundary
+	 * exists for.
+	 */
+	const upwards = computed<string | null>(() => {
+		const parent = listing.value?.parent ?? null;
+
+		if (parent === null) {
+			return null;
+		}
+
+		return bounds.value.some(one => parent === one || parent.startsWith(`${one}/`))
+			? parent
+			: null;
+	});
+
 	const crumbs = computed(() => {
 		const current = listing.value;
 
@@ -122,7 +176,7 @@
 			return [];
 		}
 
-		const root = current.roots.reduce<string | null>((best, one) => {
+		const root = bounds.value.reduce<string | null>((best, one) => {
 			const inside = current.path === one || current.path.startsWith(one.endsWith('/') ? one : `${one}/`);
 			// The deepest matching root wins: with a transfer root nested under the
 			// media root, the shallower one would hide half the breadcrumb.
@@ -427,12 +481,12 @@
 			<div class="directory-picker_bar">
 				<v-btn
 					data-test="browse-up"
-					:disabled="!listing?.parent"
+					:disabled="!upwards"
 					icon="mdi-arrow-up"
 					size="small"
 					:title="$t('browse.up')"
 					variant="text"
-					@click="load(listing?.parent)"
+					@click="load(upwards)"
 				/>
 
 				<div class="directory-picker_crumbs" data-test="browse-crumbs">

@@ -292,6 +292,13 @@
 		void suggestFolder();
 	});
 
+	/** Every directory of the chosen shelf, which is as far as browsing may go. */
+	const chosenRoots = computed<string[]>(() => {
+		const chosen = destinations.value.find(one => one.id === draft.libraryId);
+
+		return chosen ? (chosen.roots.length > 0 ? chosen.roots : [chosen.path ?? '']) : [];
+	});
+
 	const reportedLibraryName = computed(() => {
 		const library = librariesStore.byId[reported.value?.libraryId ?? ''];
 		return library ? (library.alias ?? library.name) : '';
@@ -619,9 +626,15 @@
 					</template>
 				</v-text-field>
 
+				<!--
+					Bounded by the chosen shelf's own directories: a field about one library
+					has no business offering the whole disk, and a folder picked outside it
+					is a destination that library will never scan.
+				-->
 				<DirectoryPicker
 					v-model="browsingFolder"
 					:path="draft.targetFolder ?? suggestedFolder"
+					:roots="chosenRoots"
 					@choose="draft.targetFolder = $event"
 				/>
 			</div>
