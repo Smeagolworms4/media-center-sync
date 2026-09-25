@@ -54,6 +54,7 @@ import {
 	parseReleaseName,
 	PeerSuggestionService,
 	pinnedFolderOf,
+	toLocalPath,
 	PlacementService,
 	resolveReleasePreference,
 	SettingsService,
@@ -98,6 +99,13 @@ const reasonOf = (error: unknown): string => {
 };
 
 const CATEGORY = 'media-center-sync';
+
+/** The states a download can still be stopped or started in. */
+const LIVE_GRAB_STATES: GrabState[] = [
+	GrabState.SENT,
+	GrabState.DOWNLOADING,
+	GrabState.PAUSED,
+];
 
 /** How long a search stays grabbable. A release has no identity outside its search. */
 const SEARCH_TTL_SECONDS = 1_800;
@@ -858,6 +866,79 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		return toGrabView(grab);
 	}
 
+	/**
+	 * Stop a download without giving it up, and let it go again.
+	 *
+	 * The other half of a queue: somebody wanting their line back for an evening had to
+	 * open the download client's own interface and find the torrent there, which is the
+	 * errand this screen exists to spare them. The bytes are kept — that is what makes it
+	 * a pause — and the row stays live, so the moment it is started again the gateway is
+	 * watching and will file it.
+	 *
+	 * Written here as well as asked of the client, because the client is polled every five
+	 * seconds and a button that does nothing visible for five seconds is a button people
+	 * press twice.
+	 */
+	public async pause(id: string): Promise<ReleaseGrabView> {
+		return this._suspend(id, true);
+	}
+
+	public async resume(id: string): Promise<ReleaseGrabView> {
+		return this._suspend(id, false);
+	}
+
+	private async _suspend(id: string, paused: boolean): Promise<ReleaseGrabView> {
+		const grab = await this._grabs.findOne({ where: { id } });
+
+		if (grab === null) {
+			throw new NotFoundException(ErrorKey.GRAB_NOT_FOUND);
+		}
+
+		if (grab.clientId === null || !LIVE_GRAB_STATES.includes(grab.state)) {
+			// Nothing to stop: it was never taken by the client, or it is already filed.
+			throw new ConflictException(ErrorKey.GRAB_NOT_RETRYABLE);
+		}
+
+		const settings = await this._settings.get();
+		const client = settings.downloadClient;
+
+		if (client === null || !client.enabled) {
+			throw new ConflictException(ErrorKey.DOWNLOAD_CLIENT_NOT_CONFIGURED);
+		}
+
+		const driver = this._clients.get(client.type);
+
+		await (paused ? driver.pause(client, grab.clientId) : driver.start(client, grab.clientId));
+
+		grab.state = paused ? GrabState.PAUSED : GrabState.DOWNLOADING;
+		grab.error = null;
+		await this._grabs.save(grab);
+		this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab));
+
+		return toGrabView(grab);
+	}
+
+	/**
+	 * Take a download off the queue, whatever state it is in.
+	 *
+	 * The row and nothing else: the torrent stays in the client, seeding or paused as it
+	 * was, and a file already filed stays in its library. A queue nobody can take anything
+	 * off stops being read, and a torrent that failed for a reason somebody has dealt with
+	 * has nothing left to say.
+	 */
+	public async archive(id: string): Promise<void> {
+		const grab = await this._grabs.findOne({ where: { id } });
+
+		if (grab === null) {
+			throw new NotFoundException(ErrorKey.GRAB_NOT_FOUND);
+		}
+
+		await this._grabs.delete({ id: grab.id });
+
+		this._logger.log(`Archived ${grab.title}, which was ${grab.state}`);
+		this._events.emit(EventName.RELEASE_GRAB_REMOVED, { id: grab.id });
+	}
+
 	/** What has been grabbed, newest first — or only what belongs to one media. */
 	public async downloads(itemId?: string): Promise<ReleaseGrabView[]> {
 		const rows = itemId === undefined
@@ -989,7 +1070,9 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			grab.bytesTotal = status.bytesTotal || grab.bytesTotal;
 
 			if (!status.complete) {
-				grab.state = GrabState.DOWNLOADING;
+				// Stopped by somebody rather than stalled: opposite news, and a row that
+				// said "downloading" at a standstill is one people look into for nothing.
+				grab.state = status.paused ? GrabState.PAUSED : GrabState.DOWNLOADING;
 				await this._grabs.save(grab);
 				this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab, status.rate));
 
@@ -1112,8 +1195,40 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		try {
 			const item = await this._items.findOne({ where: { id: grab.itemId } });
 
-			if (item === null || grab.sourcePath === null) {
-				throw new Error('the media or the downloaded file is gone');
+			/*
+			 * Two different failures wearing one sentence, which is how "the media or the
+			 * downloaded file is gone" reached a screen: it names neither which of the two
+			 * happened nor anything to go and look at, and the two are repaired in opposite
+			 * places.
+			 */
+			if (grab.sourcePath === null) {
+				throw new Error(
+					'the client did not say where it wrote this download, so there is nothing to copy',
+				);
+			}
+
+			if (item === null) {
+				/*
+				 * The media this was grabbed for no longer exists — a scan dropped the row
+				 * a friend's server stopped reporting, somebody deleted it, a library was
+				 * removed. The bytes are on the disk and complete, so throwing them away
+				 * because a row went missing is the worst of the answers available.
+				 *
+				 * The destination worked out when the download was sent is used instead:
+				 * it was decided when the media *did* exist, and the file keeps the name
+				 * the tracker gave it, which is what the default naming order would have
+				 * kept anyway.
+				 */
+				if (grab.plannedPath === null) {
+					throw new Error(
+						`the media ${grab.itemId} this was grabbed for no longer exists, `
+						+ 'and no destination was worked out when it was sent',
+					);
+				}
+
+				await this._placeOrphan(grab, settings);
+
+				return;
 			}
 
 			/*
@@ -1164,6 +1279,15 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				kind: nameable.kind,
 				categoryKey: categoryKeys.get(item.libraryId) ?? null,
 				settings,
+				/*
+				 * Where a copy of this show already sits, which keeps a show together.
+				 *
+				 * The rule has always existed and a torrent never fed it: an episode of a
+				 * show living in one library was filed into whichever the category or the
+				 * default named, beside nothing, and no media server shows the two folders
+				 * as one series. A pull from a peer has passed this from the start.
+				 */
+				existingPath: siblingPath,
 				// A folder somebody named, above every rule — see `PlacementRequest.pinnedPath`.
 				// This used to be said by rewriting the settings into the fixed-path strategy,
 				// which placed it *below* the library the very same dialog had just chosen:
@@ -1237,6 +1361,53 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	}
 
 	/**
+	 * File a download whose media has since disappeared, where it was always going to go.
+	 *
+	 * Not a guess: `plannedPath` was resolved by the placement chain when the grab was
+	 * made, against the libraries as they were and the media as it was. The alternative is
+	 * to fail a complete download because a row went missing, leaving the bytes in the
+	 * client's folder with nothing pointing at them.
+	 *
+	 * The file keeps the name it arrived with, which is what `SOURCE` — the first step of
+	 * the default naming order — would have kept in any case. Nothing else could be built
+	 * anyway: every template here reads the media that is gone.
+	 */
+	private async _placeOrphan(grab: GrabEntity, settings: Settings): Promise<void> {
+		const source = await this._largestFile(grab.sourcePath as string);
+
+		if (source === null) {
+			throw new Error(`nothing playable under ${grab.sourcePath}`);
+		}
+
+		const destination = join(grab.plannedPath as string, basename(source));
+
+		grab.bytesDone = 0;
+		grab.bytesTotal = 0;
+		grab.targetPath = destination;
+
+		await this._mover.move({
+			source,
+			destination,
+			reserveBytes: settings.diskReserveBytes,
+			// A copy, as everywhere here: the torrent is still seeding.
+			keepSource: true,
+			onProgress: (progress) => {
+				grab.bytesDone = progress.bytesDone;
+				grab.bytesTotal = progress.bytesTotal;
+
+				this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab, progress.rate));
+			},
+		});
+
+		grab.state = GrabState.PLACED;
+		grab.error = `the media it was grabbed for is gone; filed at ${destination} by the name it arrived with`;
+		await this._grabs.save(grab);
+
+		this._logger.warn(`Filed ${grab.title} at ${destination}: its media no longer exists`);
+		this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab));
+	}
+
+	/**
 	 * One copy per episode the pack was taken for, each filed as that episode.
 	 *
 	 * Filed against the episode's own row rather than the row the grab was made from, so
@@ -1291,14 +1462,17 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				continue;
 			}
 
-			const show = await this._showFacts(episode);
-			// See the single-file placement above: this download's folder first, then the
-			// one pinned on the media, then the rule.
+			// What this file is, and where a copy of its show already sits. See
+			// `_nameableOf` and `_existingCopy`.
+			const { nameable, siblingPath } = await this._nameableOf(episode, basename(source));
 			const folder = grab.targetFolder ?? await this._pinnedFolder(episode);
 			const target = await this._placement.resolve({
 				kind: episode.kind as MediaKind,
 				categoryKey: categoryKeys.get(episode.libraryId) ?? null,
 				settings,
+				// See the single-file placement: a copy we already hold decides the library,
+				// and the folders that library uses decide their own spelling.
+				existingPath: siblingPath,
 				// See the single-file placement: a named folder is a decision about one
 				// thing, and it outranks every rule including the library beside it.
 				pinnedPath: folder,
@@ -1307,17 +1481,10 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				relativeName: (libraryRoot: string) =>
 					this._naming.render(
 						settings.namingOrder,
-						{
-							kind: episode.kind as MediaKind,
-							title: episode.title,
-							year: episode.year,
-							seasonNumber: episode.seasonNumber,
-							episodeNumber: episode.episodeNumber,
-							seriesTitle: show?.title ?? null,
-							seriesYear: show?.year ?? null,
-							sourcePath: source,
-						},
-						{ libraryRoot, siblingPath: null },
+						{ ...nameable, sourcePath: source },
+						// The folders this library really uses, imitated rather than
+						// invented — the other half of keeping a show in one place.
+						{ libraryRoot, siblingPath },
 					),
 				requiredBytes: 0,
 			});
@@ -1452,7 +1619,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 					seriesTitle: show?.title ?? null,
 					seriesYear: show?.year ?? null,
 				},
-				siblingPath: await this._siblingPath(item),
+				siblingPath: await this._existingCopy(item),
 			};
 		}
 
@@ -1503,30 +1670,47 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				seriesTitle: series?.title ?? item.title,
 				seriesYear: series?.year ?? null,
 			},
-			siblingPath: await this._siblingPath(series ?? item),
+			siblingPath: await this._existingCopy(series ?? item),
 		};
 	}
 
 	/**
-	 * A file of this show we already hold, so the library's own spelling is imitated.
+	 * Where a copy of this show already sits on **our** disk.
 	 *
-	 * Without it a torrent lands in `Season 01` beside the `Saison 1` folders the library
-	 * has used for years — one show in two folders, which no media server shows as one.
-	 * A pull from a peer has always passed this; a grab never did.
+	 * Two questions are answered by this one path, and both were being answered wrongly.
 	 *
-	 * The path is the one the media server reports, which is what the naming service
-	 * compares against the destination root: a spelling that does not match it is
-	 * discarded there rather than followed out of the library.
+	 * The placement chain uses it as `existingPath`, which is the rule that keeps a show
+	 * together: a new episode lands in the library the others are in, whatever the
+	 * category or the default would have said. A pull from a peer has always passed it and
+	 * a grab never did — so a torrent of an episode of a show sitting in `SeriesTV2` was
+	 * filed into `SeriesTV5`, beside nothing, and no media server shows the two as one
+	 * series. The owner's report, in his words: it should have seen.
+	 *
+	 * The naming service uses it to imitate the folders that library really uses —
+	 * `Saison 4` where that is what it says, rather than a second `Season 04` beside it.
+	 *
+	 * **In our spelling, not the server's.** `file.path` is the path the media server
+	 * reports, and both consumers compare against a local root: handed the server's
+	 * spelling, the placement finds no library holding it and the naming discards it as
+	 * being outside the destination. Translating it is what makes either of them work, and
+	 * it is the same translation every other local path goes through.
 	 */
-	private async _siblingPath(root: MediaItemEntity): Promise<string | null> {
+	private async _existingCopy(root: MediaItemEntity): Promise<string | null> {
 		const seasons = root.kind === MediaKind.SERIES
 			? await this._items.findChildren(root.id)
 			: [root];
 
 		for (const season of seasons) {
 			for (const episode of await this._items.findChildren(season.id)) {
-				if (episode.file?.path) {
-					return episode.file.path;
+				if (!episode.file?.path) {
+					continue;
+				}
+
+				const library = await this._libraries.read(episode.libraryId).catch(() => null);
+				const local = library === null ? null : toLocalPath(library, episode.file.path);
+
+				if (local !== null) {
+					return local;
 				}
 			}
 		}

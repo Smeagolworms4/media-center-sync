@@ -686,8 +686,30 @@ describe('JellyfinHandler', () => {
 
 			expect(String(url)).toContain('/Items/folder-1/Refresh');
 			expect(String(url)).toContain('Recursive=true');
-			expect(String(url)).toContain('ImageRefreshMode=None');
 			expect((init as RequestInit).method).toBe('POST');
+		});
+
+		/*
+		 * The four values are one sentence: ask the providers, replace nothing.
+		 *
+		 * It used to say `ImageRefreshMode=None` and `MetadataRefreshMode=Default`, which
+		 * indexes new files and asks for nothing else — so a torrent filed into a library
+		 * appeared there as a bare file name with no artwork, for ever, because the one
+		 * moment anybody would have asked for it had gone by.
+		 */
+		it('asks for the metadata and the images it does not have, and replaces neither', async () => {
+			const fetchMock = stubFetch(() => ({}));
+
+			await handler.requestRescan(connection, library);
+
+			const url = String(fetchMock.mock.calls[0][0]);
+
+			expect(url).toContain('MetadataRefreshMode=FullRefresh');
+			expect(url).toContain('ImageRefreshMode=FullRefresh');
+			// Replacing is what would undo somebody's own corrections and re-download
+			// artwork that is already right.
+			expect(url).toContain('ReplaceAllMetadata=false');
+			expect(url).toContain('ReplaceAllImages=false');
 		});
 
 		it('falls back to the whole server when no library can be named', async () => {

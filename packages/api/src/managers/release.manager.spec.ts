@@ -53,6 +53,7 @@ interface Fakes {
 		findLive: jest.Mock;
 		findRecent: jest.Mock;
 		findForItem: jest.Mock;
+		delete: jest.Mock;
 	};
 	items: { findOne: jest.Mock; find: jest.Mock; findChildren: jest.Mock; topAncestor: jest.Mock };
 	/** What the registry hands back, so a test can make the tracker fail on its own. */
@@ -64,6 +65,7 @@ interface Fakes {
 		files: jest.Mock;
 		selectFiles: jest.Mock;
 		start: jest.Mock;
+		pause: jest.Mock;
 		defaultSavePath: jest.Mock;
 	};
 	clients: { get: jest.Mock };
@@ -71,7 +73,7 @@ interface Fakes {
 	cache: { get: jest.Mock; set: jest.Mock };
 	naming: { render: jest.Mock };
 	placement: { resolve: jest.Mock; prepare: jest.Mock };
-	libraries: { placementLibraries: jest.Mock; categoryKeysByLibrary: jest.Mock };
+	libraries: { placementLibraries: jest.Mock; categoryKeysByLibrary: jest.Mock; read: jest.Mock };
 	groups: { group: jest.Mock; groupChildren: jest.Mock };
 	filesystem: { rights: jest.Mock; largestFileUnder: jest.Mock };
 	mover: { move: jest.Mock };
@@ -323,6 +325,7 @@ const status = (overrides: Record<string, unknown> = {}) => ({
 	rate: 42,
 	complete: false,
 	state: 'downloading',
+	paused: false,
 	failed: false,
 	failedReason: null,
 	savePath: '/downloads',
@@ -372,6 +375,7 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 		files: jest.fn().mockResolvedValue([]),
 		selectFiles: jest.fn().mockResolvedValue(undefined),
 		start: jest.fn().mockResolvedValue(undefined),
+		pause: jest.fn().mockResolvedValue(undefined),
 		// Null by default: a client that does not say where it writes is the case the
 		// fallback exists for, and it keeps every older test on the path it was written
 		// against.
@@ -387,6 +391,7 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 			findLive: jest.fn().mockResolvedValue([]),
 			findRecent: jest.fn().mockResolvedValue([grab()]),
 			findForItem: jest.fn().mockResolvedValue([grab({ id: 'grab-2' })]),
+			delete: jest.fn().mockResolvedValue({ affected: 1 }),
 		},
 		items: {
 			findOne: jest.fn(({ where }: { where: { id: string } }) =>
@@ -445,6 +450,19 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 		libraries: {
 			placementLibraries: jest.fn().mockResolvedValue([]),
 			categoryKeysByLibrary: jest.fn().mockResolvedValue(new Map([['lib-shows', 'shows']])),
+			/*
+			 * The shelf a held copy sits on, with both spellings of its paths.
+			 *
+			 * Both, because that is the whole difficulty: `file.path` is what the media
+			 * server reports and everything downstream compares against what this gateway
+			 * sees. Here they are the same directory under two names, as they are on a real
+			 * gateway.
+			 */
+			read: jest.fn().mockResolvedValue({
+				id: 'lib-shows',
+				paths: ['/media/shows'],
+				localPath: '/media/shows',
+			}),
 		},
 		groups: {
 			group: jest.fn((id: string) => Promise.resolve(GROUPS[id] ?? GROUPS['series-1'])),
@@ -1483,6 +1501,83 @@ describe('ReleaseManager', () => {
 			fakes.grabs.findOne.mockResolvedValue(null);
 
 			await expect(manager.retry('grab-1')).rejects.toThrow(ErrorKey.GRAB_NOT_FOUND);
+		});
+	});
+
+	describe('pausing and archiving a download', () => {
+		/*
+		 * The other half of a queue. Somebody wanting their line back for an evening had to
+		 * open the download client's own interface and find the torrent there, which is the
+		 * errand this screen exists to spare them.
+		 */
+		it('stops a running download and keeps watching it', async () => {
+			const { manager, fakes } = build();
+			const row = grab({ state: GrabState.DOWNLOADING, clientId: 'hash-1' });
+
+			fakes.grabs.findOne.mockResolvedValue(row);
+
+			expect((await manager.pause('grab-1')).state).toBe(GrabState.PAUSED);
+			expect(fakes.client.pause).toHaveBeenCalledWith(SETTINGS.downloadClient, 'hash-1');
+		});
+
+		it('lets a stopped one go again', async () => {
+			const { manager, fakes } = build();
+			const row = grab({ state: GrabState.PAUSED, clientId: 'hash-1' });
+
+			fakes.grabs.findOne.mockResolvedValue(row);
+
+			expect((await manager.resume('grab-1')).state).toBe(GrabState.DOWNLOADING);
+			expect(fakes.client.start).toHaveBeenCalledWith(SETTINGS.downloadClient, 'hash-1');
+		});
+
+		it('refuses to stop one that is already filed', async () => {
+			const { manager, fakes } = build();
+
+			fakes.grabs.findOne.mockResolvedValue(grab({ state: GrabState.PLACED, clientId: 'hash-1' }));
+
+			await expect(manager.pause('grab-1')).rejects.toThrow(ErrorKey.GRAB_NOT_RETRYABLE);
+			expect(fakes.client.pause).not.toHaveBeenCalled();
+		});
+
+		it('writes the state here as well as asking the client', async () => {
+			// The client is polled every five seconds, and a button that does nothing
+			// visible for five seconds is a button people press twice.
+			const { manager, fakes } = build();
+			const row = grab({ state: GrabState.DOWNLOADING, clientId: 'hash-1' });
+
+			fakes.grabs.findOne.mockResolvedValue(row);
+
+			await manager.pause('grab-1');
+
+			expect(fakes.grabs.save).toHaveBeenCalledWith(row);
+			expect(fakes.events.emit).toHaveBeenCalledWith(
+				EventName.RELEASE_GRAB,
+				expect.objectContaining({ state: GrabState.PAUSED }),
+			);
+		});
+
+		it('takes a row off the queue and leaves the torrent alone', async () => {
+			// The row and nothing else: the torrent stays in the client, seeding or stopped
+			// as it was, and a file already filed stays in its library.
+			const { manager, fakes } = build();
+
+			fakes.grabs.findOne.mockResolvedValue(grab({ state: GrabState.FAILED }));
+
+			await manager.archive('grab-1');
+
+			expect(fakes.grabs.delete).toHaveBeenCalledWith({ id: 'grab-1' });
+			expect(fakes.events.emit).toHaveBeenCalledWith(
+				EventName.RELEASE_GRAB_REMOVED,
+				{ id: 'grab-1' },
+			);
+		});
+
+		it('says so when there is no such download to archive', async () => {
+			const { manager, fakes } = build();
+
+			fakes.grabs.findOne.mockResolvedValue(null);
+
+			await expect(manager.archive('grab-1')).rejects.toThrow(ErrorKey.GRAB_NOT_FOUND);
 		});
 	});
 

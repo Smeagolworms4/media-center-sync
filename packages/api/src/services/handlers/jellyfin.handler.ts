@@ -464,10 +464,26 @@ export class JellyfinHandler implements MediaServiceHandler {
 			await requestJson<Payload>(connection.baseUrl, `/Items/${library.externalId}/Refresh`, {
 				method: 'POST',
 				headers: this._headers(connection),
+				/*
+				 * Fetch what is missing, and replace nothing.
+				 *
+				 * The four values are one sentence and have to be read together.
+				 * `FullRefresh` means "ask the metadata providers", and `ReplaceAll*: false`
+				 * means "only where we have nothing" — so an item that is complete is left
+				 * exactly as it is, corrections included, and one that arrived a minute ago
+				 * gets its title, its overview and its poster.
+				 *
+				 * It used to say `ImageRefreshMode: 'None'` and `MetadataRefreshMode:
+				 * 'Default'`, which is the pair that indexes new files and asks for nothing
+				 * else: a torrent filed into a library appeared there as a bare file name
+				 * with no artwork, for ever, because the one moment anybody would have asked
+				 * for it had gone by. The owner's report was that refreshing did not bring
+				 * the missing data in — it was not asking for it.
+				 */
 				query: {
 					Recursive: true,
-					ImageRefreshMode: 'None',
-					MetadataRefreshMode: 'Default',
+					ImageRefreshMode: 'FullRefresh',
+					MetadataRefreshMode: 'FullRefresh',
 					ReplaceAllImages: false,
 					ReplaceAllMetadata: false,
 				},
