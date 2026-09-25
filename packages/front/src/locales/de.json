@@ -389,6 +389,11 @@
 			"none": "Keine Sortierung: für dieses Medium entscheiden Seeder und Größe.",
 			"cancel": "Wieder der Reihenfolge der Kategorie folgen",
 			"cancelled": "Dieses Medium folgt wieder der Reihenfolge seiner Kategorie."
+		},
+		"episodes": {
+			"action": "Ausgestrahlte Folgen suchen",
+			"added": "{count} ausgestrahlte Folge hinzugefügt. | {count} ausgestrahlte Folgen hinzugefügt.",
+			"none": "Nichts Neues: Die Quelle kennt dieselben Folgen wie Sie."
 		}
 	},
 	"override": {
@@ -435,7 +440,9 @@
 			"intro": "Welche Kopie für dieses eine Medium zuerst angeboten wird, wenn die Reihenfolge des Haushalts oder die seiner Kategorie hier falsch ist. Es sortiert und verbirgt nie: alles Gefundene bleibt in der Liste.",
 			"give": "Diesem Medium eine eigene Reihenfolge geben",
 			"follow": "Wieder der Reihenfolge der Kategorie folgen"
-		}
+		},
+		"folder": "Ordner",
+		"folder_hint": "Wo seine Dateien in dieser Bibliothek landen. Vorbelegt mit dem, was die Schnittstelle wählen würde — der Ordner der Serie, wenn Sie sie bereits haben. Leeren Sie ihn, damit die Regel entscheidet."
 	},
 	"service": {
 		"subtitle": "Die Medienserver, aus denen dieses Gateway liest und in die es schreibt.",
@@ -1299,7 +1306,8 @@
 			"another_source": "Andere Quelle suchen",
 			"another_target": "Andere Bibliothek wählen",
 			"fix_service": "Dienst in Ordnung bringen",
-			"cancel": "Abbrechen"
+			"cancel": "Abbrechen",
+			"archive": "Archivieren"
 		},
 		"retarget": {
 			"title": "In eine andere Bibliothek schicken",
@@ -1312,7 +1320,8 @@
 			"repointed": "Sie geht stattdessen dorthin.",
 			"moved": "Verschoben. Die Datei liegt jetzt in dieser Bibliothek.",
 			"whole_lot": "{title} — der ganze Download, {count} Dateien",
-			"hint_lot_landed": "Die Dateien dieses Downloads, die schon gelandet sind, werden mitverschoben — auch die aus einem früheren Lauf — und die Ordner, die dadurch leer bleiben, werden entfernt."
+			"hint_lot_landed": "Die Dateien dieses Downloads, die schon gelandet sind, werden mitverschoben — auch die aus einem früheren Lauf — und die Ordner, die dadurch leer bleiben, werden entfernt.",
+			"current": "Derzeit: {path}"
 		},
 		"revalidation": {
 			"title": "Warum diese Übertragung es sich anders überlegt hat",
@@ -1352,7 +1361,8 @@
 		"batch": {
 			"files": "{done} von {total} Dateien",
 			"into": "Nach"
-		}
+		},
+		"archived": "Aus der Warteschlange entfernt. Die Datei wurde nicht bewegt."
 	},
 	"pages": {
 		"dashboard": "Übersicht",
@@ -1528,7 +1538,8 @@
 			"not_grabbable": "Diese Zeile ist eine Kopie bei einem Peer, kein Release. Holen Sie sie stattdessen."
 		},
 		"grab": {
-			"not_found": "Download nicht gefunden."
+			"not_found": "Download nicht gefunden.",
+			"not_retryable": "Bei diesem Download gibt es nichts fortzusetzen: Entweder ist er nicht fehlgeschlagen, oder der Client hat ihn nie übernommen — starten Sie ihn dann erneut über die Suche."
 		},
 		"request_source": {
 			"not_configured": "Keine Anfragequelle eingerichtet.",
@@ -1617,7 +1628,9 @@
 			"ptp_approved": "freigegeben"
 		},
 		"from": "Tracker",
-		"choose_indexer": "Tracker wählen"
+		"choose_indexer": "Tracker wählen",
+		"retry": "Neu starten",
+		"retried": "Fortgesetzt. Die Schnittstelle sieht erneut nach, was der Client dazu sagt."
 	},
 	"classification": {
 		"title": "Wohin das gehören könnte",

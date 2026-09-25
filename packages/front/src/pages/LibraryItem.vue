@@ -423,6 +423,38 @@
 		}
 	});
 
+	/**
+	 * Ask the metadata source which episodes exist, and take the ones nothing here has.
+	 *
+	 * Offered on a show and nowhere else, because that is the only place the question
+	 * means anything — and asked for rather than run on its own: it costs one call per
+	 * season against somebody else's metadata server, and a gateway doing that over thirty
+	 * thousand rows is a morning of requests.
+	 *
+	 * The count is said even when it is zero. "Nothing new" is an answer somebody pressed
+	 * a button for, and a screen that stayed silent would read as a button that did not
+	 * work.
+	 */
+	const discovering = ref(false);
+
+	const discoverEpisodes = tryCallback(async () => {
+		discovering.value = true;
+
+		try {
+			const added = await mediaStore.discoverEpisodes(props.itemId);
+
+			// Translated here rather than by the notifier, which takes a key and no values:
+			// the count is the whole of what this sentence says.
+			void notify(added > 0 ? t('media.episodes.added', { count: added }, added) : t('media.episodes.none'));
+
+			if (added > 0) {
+				await load();
+			}
+		} finally {
+			discovering.value = false;
+		}
+	});
+
 	const syncMissing = tryCallback(async () => {
 		running.value = true;
 		try {
@@ -446,6 +478,9 @@
 	 * will find nothing every night, and offering it would teach people that plans do
 	 * nothing.
 	 */
+	/** A show, and nothing else: only a series carries the provider identifier to ask with. */
+	const isSeries = computed(() => group.value?.kind === MediaKind.SERIES);
+
 	const keepable = computed(() => group.value !== null && [
 		MediaKind.SERIES,
 		MediaKind.SEASON,
@@ -493,6 +528,21 @@
 						@click="matchesOpen = true"
 					>
 						{{ $t('media.match.action') }}
+					</v-btn>
+
+					<!--
+						Only on a show: a film has no episodes and a season is asked through
+						its series, which is where the provider's identifier lives.
+					-->
+					<v-btn
+						v-if="isSeries"
+						data-test="item-discover-episodes"
+						:loading="discovering"
+						prepend-icon="mdi-playlist-plus"
+						variant="text"
+						@click="discoverEpisodes"
+					>
+						{{ $t('media.episodes.action') }}
 					</v-btn>
 
 					<v-btn

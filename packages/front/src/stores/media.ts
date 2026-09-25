@@ -341,6 +341,20 @@ export const useMediaStore = defineStore('media', () => {
 		}
 	});
 
+	/**
+	 * Add the episodes a metadata source knows about and no server here reports.
+	 *
+	 * The half of a catalogue the servers cannot supply: an episode that aired last night
+	 * and that nobody holds exists on no server, so it has no row and nothing counts it as
+	 * missing. Answers how many were added, which is what the screen says back — including
+	 * when the answer is none, because "nothing new" is an answer somebody asked for.
+	 */
+	async function discoverEpisodes (itemId: string): Promise<number> {
+		const answer = await caller('api').post<{ added: number }>(`/media/${itemId}/episodes`, {});
+
+		return answer?.added ?? 0;
+	}
+
 	return {
 		items,
 		pagination,
@@ -358,6 +372,7 @@ export const useMediaStore = defineStore('media', () => {
 		groupChildren,
 		node,
 		classification,
+		discoverEpisodes,
 		children,
 		matches,
 		deleteFile,

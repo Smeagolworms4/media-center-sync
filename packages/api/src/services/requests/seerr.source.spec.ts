@@ -309,6 +309,65 @@ describe('SeerrRequestSource', () => {
 		});
 	});
 
+	/*
+	 * The half of a catalogue no media server can supply.
+	 *
+	 * The show lookup already reads this provider and only ever took the season numbers
+	 * off it, which is why an episode that aired last night appeared nowhere in this
+	 * product — no row, nothing counting it as missing, and a season three short reading
+	 * as complete.
+	 */
+	describe('episodes', () => {
+		it('lists a season from the route the source already proxies', async () => {
+			answer({
+				episodes: [
+					{ episodeNumber: 1, name: 'First', airDate: '2026-09-04' },
+					{ episodeNumber: 2, name: 'Second', airDate: '2026-09-11' },
+				],
+			});
+
+			await expect(source.episodes(SETTINGS, '95396', 2)).resolves.toEqual([
+				{ seasonNumber: 2, episodeNumber: 1, title: 'First', airDate: '2026-09-04' },
+				{ seasonNumber: 2, episodeNumber: 2, title: 'Second', airDate: '2026-09-11' },
+			]);
+			expect(calls[0]?.url.pathname).toBe('/api/v1/tv/95396/season/2');
+		});
+
+		it('carries the date through untouched, because deciding what aired is not its job', async () => {
+			// The source states a fact; whether a date in the future means "do not offer a
+			// search for this" is the manager's decision, in one place.
+			answer({ episodes: [{ episodeNumber: 10, name: 'Ten', airDate: '2099-01-01' }] });
+
+			await expect(source.episodes(SETTINGS, '95396', 1)).resolves.toEqual([
+				{ seasonNumber: 1, episodeNumber: 10, title: 'Ten', airDate: '2099-01-01' },
+			]);
+		});
+
+		it('drops a row with no usable number and keeps one with no title', async () => {
+			// An episode with no number cannot be filed against anything; one with no title
+			// is ordinary, and the manager names it after its number.
+			answer({
+				episodes: [
+					{ name: 'Nameless' },
+					{ episodeNumber: 0, name: 'Special' },
+					{ episodeNumber: 4, airDate: '2026-01-01' },
+				],
+			});
+
+			await expect(source.episodes(SETTINGS, '95396', 1)).resolves.toEqual([
+				{ seasonNumber: 1, episodeNumber: 4, title: null, airDate: '2026-01-01' },
+			]);
+		});
+
+		it('answers an empty list when the source will not, rather than raising', async () => {
+			// This fills a catalogue in. A metadata provider having a bad afternoon must
+			// not turn a media page into an error.
+			answer({ message: 'nope' }, 500);
+
+			await expect(source.episodes(SETTINGS, '95396', 1)).resolves.toEqual([]);
+		});
+	});
+
 	describe('details', () => {
 		it('reads a film under title and a show under name, as the source really answers', async () => {
 			answer({

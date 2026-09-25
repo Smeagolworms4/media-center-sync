@@ -389,6 +389,11 @@
 			"none": "Aucun tri : les sources et la taille décident pour ce média.",
 			"cancel": "Suivre à nouveau l’ordre de la catégorie",
 			"cancelled": "Ce média suit à nouveau l’ordre de sa catégorie."
+		},
+		"episodes": {
+			"action": "Chercher les épisodes parus",
+			"added": "{count} épisode paru ajouté. | {count} épisodes parus ajoutés.",
+			"none": "Rien de nouveau : la source connaît les mêmes épisodes que vous."
 		}
 	},
 	"override": {
@@ -435,7 +440,9 @@
 			"intro": "Quelle copie proposer en premier pour ce seul média, quand l’ordre du foyer ou celui de sa catégorie ne lui convient pas. Cela trie et ne cache jamais : tout ce qui est trouvé reste dans la liste.",
 			"give": "Donner à ce média son propre ordre",
 			"follow": "Suivre à nouveau l’ordre de la catégorie"
-		}
+		},
+		"folder": "Dossier",
+		"folder_hint": "Où ses fichiers se posent dans cette bibliothèque. Prérempli avec ce que la passerelle choisirait — le dossier de la série si vous la détenez déjà. Videz-le pour laisser la règle décider."
 	},
 	"service": {
 		"subtitle": "Les serveurs média que cette passerelle lit et alimente.",
@@ -1299,7 +1306,8 @@
 			"another_source": "Chercher une autre source",
 			"another_target": "Choisir une autre bibliothèque",
 			"fix_service": "Corriger le service",
-			"cancel": "Annuler"
+			"cancel": "Annuler",
+			"archive": "Archiver"
 		},
 		"retarget": {
 			"title": "L'envoyer dans une autre bibliothèque",
@@ -1312,7 +1320,8 @@
 			"repointed": "Il ira là à la place.",
 			"moved": "Déplacé. Le fichier est maintenant dans cette bibliothèque.",
 			"whole_lot": "{title} — tout le téléchargement, {count} fichiers",
-			"hint_lot_landed": "Les fichiers de ce téléchargement déjà déposés sont déplacés eux aussi, y compris ceux qu’une exécution antérieure a apportés, et les dossiers qu’ils laissent vides sont supprimés."
+			"hint_lot_landed": "Les fichiers de ce téléchargement déjà déposés sont déplacés eux aussi, y compris ceux qu’une exécution antérieure a apportés, et les dossiers qu’ils laissent vides sont supprimés.",
+			"current": "Actuellement : {path}"
 		},
 		"revalidation": {
 			"title": "Pourquoi ce transfert a changé d'avis",
@@ -1352,7 +1361,8 @@
 		"batch": {
 			"files": "{done} fichiers sur {total}",
 			"into": "Dans"
-		}
+		},
+		"archived": "Retiré de la file. Le fichier n'a pas bougé."
 	},
 	"pages": {
 		"dashboard": "Tableau de bord",
@@ -1528,7 +1538,8 @@
 			"not_grabbable": "Cette ligne est une copie chez un pair, pas une release. Rapatriez-la à la place."
 		},
 		"grab": {
-			"not_found": "Téléchargement introuvable."
+			"not_found": "Téléchargement introuvable.",
+			"not_retryable": "Ce téléchargement n'a rien à reprendre : soit il n'a pas échoué, soit le client ne l'a jamais pris — dans ce cas, relancez-le depuis la recherche."
 		},
 		"request_source": {
 			"not_configured": "Aucune source de demandes configurée. Renseignez-en une dans les réglages.",
@@ -1617,7 +1628,9 @@
 			"ptp_approved": "approuvée"
 		},
 		"from": "Tracker",
-		"choose_indexer": "Choisir le tracker"
+		"choose_indexer": "Choisir le tracker",
+		"retry": "Recommencer",
+		"retried": "Repris. La passerelle regarde à nouveau ce que le client en dit."
 	},
 	"classification": {
 		"title": "Où ceci pourrait aller",

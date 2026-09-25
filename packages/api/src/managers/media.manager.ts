@@ -12,6 +12,7 @@ import {
 	type MediaOverride,
 	type MediaNode,
 	type MediaSearchQuery,
+	type RequestEpisode,
 	type ResultList,
 } from '@mcs/shared';
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -44,6 +45,7 @@ import {
 	type MatchCandidate,
 	type MatchProposal,
 } from '@/services';
+import { RequestSourceRegistry } from '@/services/requests';
 import {
 	pageBounds,
 	paginate,
@@ -171,6 +173,28 @@ const MAX_ARTWORK_BYTES = 8 * 1024 * 1024;
  */
 const SYNTHETIC_PREFIX = 'mcs:synthetic:';
 
+/**
+ * Whether a date a metadata provider states has already happened.
+ *
+ * Absent is read as "not aired", which is the cautious half of the answer: a row that
+ * proposes a search for an episode nobody can have yet sends somebody looking for
+ * something that does not exist, and the cost of the opposite mistake is one episode
+ * appearing a day late.
+ *
+ * Compared as calendar days rather than as instants, because that is what a provider
+ * states: `2026-09-25` with no zone is the day it airs somewhere, and a gateway an hour
+ * on the wrong side of midnight should not disagree with the household's own screen.
+ */
+const hasAired = (airDate: string | null): boolean => {
+	if (airDate === null) {
+		return false;
+	}
+
+	const day = airDate.slice(0, 10);
+
+	return day !== '' && day <= new Date().toISOString().slice(0, 10);
+};
+
 /** A trailing number, which is what a season's title almost always ends with. */
 const TRAILING_NUMBER = /(\d+)\s*$/;
 
@@ -266,6 +290,14 @@ export class MediaManager {
 		private readonly _libraries: LibraryRepository,
 		/** Identifies a copy on a server whose files this gateway has no mount for. */
 		private readonly _remote: RemoteFingerprintService,
+		/**
+		 * Asked which episodes exist, which no media server here can answer.
+		 *
+		 * The registry rather than `RequestManager`: the whole of the question is one call
+		 * on one source, and pulling in the manager that owns requests, their fulfilment
+		 * and their holdings would couple a media page to all of it.
+		 */
+		private readonly _sources: RequestSourceRegistry,
 	) {}
 
 	/**
@@ -686,6 +718,133 @@ export class MediaManager {
 		await this.correlateService(saved.serviceId);
 
 		return toMediaItem(await this._require(id));
+	}
+
+	/**
+	 * Fill in the episodes a metadata source knows about and no server here has.
+	 *
+	 * The gap this closes, in the owner's words: an episode that has just aired does not
+	 * appear anywhere. Our index is a mirror of what the media servers declare — that is
+	 * the one structural rule of this product — so an episode nobody holds exists on no
+	 * server, has no row, is counted by nothing, and a season that is three short reads as
+	 * complete. Seerr has known all along: it sits on the metadata provider the household
+	 * browses, and the gateway only ever asked it which *seasons* exist.
+	 *
+	 * The rows it writes are `synthetic`, which is the mechanism a correction already uses
+	 * to create a season no service reports: they survive the stale pass at the end of a
+	 * scan, they are ordinary rows everywhere else, and everything that makes an episode
+	 * useful therefore comes for free — it can be hidden with the same `ignored`
+	 * correction as a special, corrected in the same dialog as anything else, and searched
+	 * for on the indexer from its own page.
+	 *
+	 * **Only what has aired.** An episode nobody can have yet is not missing from a
+	 * library; it is missing from the world, and a row proposing a search for it sends
+	 * somebody looking for something that does not exist. A provider that states no date
+	 * is read as "not aired", which is the cautious half of that answer.
+	 *
+	 * **Only a series, and only one.** This costs one call per season against somebody
+	 * else's metadata server, so it is asked for rather than run over a library: thirty
+	 * thousand rows would be a morning of requests and a provider that stops answering.
+	 *
+	 * Answers how many rows it created, which is what the interface says back.
+	 */
+	public async discoverEpisodes(id: string): Promise<number> {
+		const series = await this._require(id);
+
+		if (series.kind !== MediaKind.SERIES) {
+			throw new ConflictException(ErrorKey.MEDIA_NOT_IDENTIFIED);
+		}
+
+		const providerId = series.externalIds?.tmdb;
+
+		if (!providerId) {
+			// No identifier, nothing to ask about. Its own answer rather than a silent
+			// zero: a show nobody has matched to a provider is a fixable state, and the
+			// screen can say which of the two nothings this is.
+			throw new ConflictException(ErrorKey.MEDIA_NOT_IDENTIFIED);
+		}
+
+		const configured = (await this._settings.get()).requestSource ?? null;
+
+		if (configured === null || !configured.enabled) {
+			throw new ConflictException(ErrorKey.REQUEST_SOURCE_NOT_CONFIGURED);
+		}
+
+		const source = this._sources.get(configured.type);
+		const seasons = (await this._items.findChildren(series.id))
+			// Season zero is specials, and nobody is missing a behind-the-scenes clip.
+			.filter((season) => (season.seasonNumber ?? 0) > 0);
+		let created = 0;
+
+		for (const season of seasons) {
+			const known = await this._items.findChildren(season.id);
+			const held = new Set(
+				known.map((episode) => episode.episodeNumber).filter((number) => number !== null),
+			);
+			const listed = await source.episodes(configured, providerId, season.seasonNumber as number);
+
+			for (const episode of listed) {
+				if (held.has(episode.episodeNumber) || !hasAired(episode.airDate)) {
+					continue;
+				}
+
+				await this._createEpisode(series, season, episode);
+				created += 1;
+			}
+		}
+
+		if (created > 0) {
+			this._logger.log(`Added ${created} aired episode(s) of ${series.title} nothing here reports`);
+
+			await this._settle(series.id);
+		}
+
+		return created;
+	}
+
+	/**
+	 * One episode nobody here reports, hung under the season it belongs to.
+	 *
+	 * Synthetic and minted the same way a synthetic season is — see `_createSeason` for
+	 * why the identifier carries a prefix and a UUID — so the stale pass at the end of a
+	 * scan keeps it and no server's own identifier can ever collide with it.
+	 *
+	 * It holds no file, which is the entire point: it reads as `missing` wherever an
+	 * episode's state is read, which is what makes it appear in a season's missing count
+	 * and in what a search offers to fill.
+	 */
+	private async _createEpisode(
+		series: MediaItemEntity,
+		season: MediaItemEntity,
+		episode: RequestEpisode,
+	): Promise<void> {
+		await this._items.save(
+			this._items.create({
+				serviceId: series.serviceId,
+				libraryId: series.libraryId,
+				externalId: `${SYNTHETIC_PREFIX}${randomUUID()}`,
+				synthetic: true,
+				parentId: season.id,
+				parentExternalId: season.externalId,
+				kind: MediaKind.EPISODE,
+				title: episode.title ?? `Episode ${episode.episodeNumber}`,
+				// Under the show's name, exactly as the handlers normalise an episode: two
+				// libraries agree about the name of a show far more often than about the
+				// name of anything under it.
+				normalizedTitle: series.normalizedTitle,
+				year: null,
+				seasonNumber: season.seasonNumber,
+				episodeNumber: episode.episodeNumber,
+				externalIds: {},
+				overview: null,
+				artworkUrl: null,
+				file: null,
+				syncState: SyncState.UNKNOWN,
+				addedAt: null,
+				ignored: false,
+				childCount: 0,
+			}),
+		);
 	}
 
 	/**

@@ -1,5 +1,6 @@
 import {
 	type RequestDetails,
+	type RequestEpisode,
 	ErrorKey,
 	MediaKind,
 	MediaRequestState,
@@ -10,7 +11,7 @@ import {
 	type RequestSourceSettings,
 	type RequestedSeason,
 } from '@mcs/shared';
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { CLIENT_TIMEOUT_MS, releaseJson } from '../releases/release-http';
 import { RequestSourceFor } from './request-source.decorator';
 import type { RequestSource } from './request-source.interface';
@@ -341,6 +342,60 @@ export class SeerrRequestSource implements RequestSource {
 			}
 
 			throw cause;
+		}
+	}
+
+	/**
+	 * The episodes of one season, from the same metadata the household browses.
+	 *
+	 * `/api/v1/tv/{tmdbId}/season/{n}` — one call, no second API key, and the answer is in
+	 * the language the source's own screens use. It was there the whole time: the show
+	 * lookup above already reads this provider and only ever took the *season numbers* off
+	 * it, which is why an episode that aired last night appeared nowhere in this product.
+	 *
+	 * Everything the provider lists, dates included. Deciding what has aired is the
+	 * caller's, not this class's: the source states a fact and the manager decides what to
+	 * do about a date in the future.
+	 *
+	 * Empty on every failure rather than a throw: this fills a catalogue in, and a metadata
+	 * provider having a bad afternoon must not turn a media page into an error.
+	 */
+	public async episodes(
+		settings: RequestSourceSettings,
+		providerId: string,
+		seasonNumber: number,
+	): Promise<RequestEpisode[]> {
+		try {
+			const row = await releaseJson<{
+				episodes?: {
+					episodeNumber?: number;
+					name?: string;
+					airDate?: string;
+				}[];
+			}>(settings.baseUrl, `/api/v1/tv/${providerId}/season/${seasonNumber}`, {
+				headers: { 'X-Api-Key': settings.apiKey ?? '' },
+				timeoutMs: CLIENT_TIMEOUT_MS,
+				unreachable: ErrorKey.REQUEST_SOURCE_UNREACHABLE,
+				unauthorized: ErrorKey.REQUEST_SOURCE_UNAUTHORIZED,
+			});
+
+			return (row.episodes ?? [])
+				.filter(
+					(episode): episode is { episodeNumber: number; name?: string; airDate?: string } =>
+						typeof episode.episodeNumber === 'number' && episode.episodeNumber > 0,
+				)
+				.map((episode) => ({
+					seasonNumber,
+					episodeNumber: episode.episodeNumber,
+					title: episode.name?.trim() || null,
+					airDate: episode.airDate?.trim() || null,
+				}));
+		} catch (error: unknown) {
+			new Logger(SeerrRequestSource.name).warn(
+				`${settings.baseUrl} would not list season ${seasonNumber} of ${providerId}: ${String(error)}`,
+			);
+
+			return [];
 		}
 	}
 

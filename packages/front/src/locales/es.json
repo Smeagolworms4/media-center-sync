@@ -389,6 +389,11 @@
 			"none": "Sin orden: para este medio deciden las fuentes y el tamaño.",
 			"cancel": "Seguir de nuevo el orden de la categoría",
 			"cancelled": "Este medio sigue de nuevo el orden de su categoría."
+		},
+		"episodes": {
+			"action": "Buscar episodios emitidos",
+			"added": "{count} episodio emitido añadido. | {count} episodios emitidos añadidos.",
+			"none": "Nada nuevo: la fuente conoce los mismos episodios que usted."
 		}
 	},
 	"override": {
@@ -435,7 +440,9 @@
 			"intro": "Qué copia ofrecer primero para este único medio, cuando el orden del hogar o el de su categoría no le conviene. Ordena y nunca oculta: todo lo encontrado permanece en la lista.",
 			"give": "Dar a este medio su propio orden",
 			"follow": "Seguir de nuevo el orden de la categoría"
-		}
+		},
+		"folder": "Carpeta",
+		"folder_hint": "Dónde aterrizan sus archivos en esa biblioteca. Rellenado con lo que elegiría la pasarela: la carpeta de la serie si ya la tiene. Vacíelo para dejar decidir a la regla."
 	},
 	"service": {
 		"subtitle": "Los servidores multimedia que esta pasarela lee y alimenta.",
@@ -1299,7 +1306,8 @@
 			"another_source": "Buscar otra fuente",
 			"another_target": "Elegir otra biblioteca",
 			"fix_service": "Arreglar el servicio",
-			"cancel": "Cancelar"
+			"cancel": "Cancelar",
+			"archive": "Archivar"
 		},
 		"retarget": {
 			"title": "Enviarlo a otra biblioteca",
@@ -1312,7 +1320,8 @@
 			"repointed": "Irá ahí en su lugar.",
 			"moved": "Movido. El archivo ya está en esa biblioteca.",
 			"whole_lot": "{title} — toda la descarga, {count} archivos",
-			"hint_lot_landed": "Los archivos de esta descarga que ya han aterrizado se mueven también, incluidos los que trajo una ejecución anterior, y las carpetas que dejan vacías se eliminan."
+			"hint_lot_landed": "Los archivos de esta descarga que ya han aterrizado se mueven también, incluidos los que trajo una ejecución anterior, y las carpetas que dejan vacías se eliminan.",
+			"current": "Actualmente: {path}"
 		},
 		"revalidation": {
 			"title": "Por qué esta transferencia ha cambiado de idea",
@@ -1352,7 +1361,8 @@
 		"batch": {
 			"files": "{done} de {total} archivos",
 			"into": "En"
-		}
+		},
+		"archived": "Retirado de la cola. El archivo no se ha movido."
 	},
 	"pages": {
 		"dashboard": "Panel",
@@ -1528,7 +1538,8 @@
 			"not_grabbable": "Esa fila es una copia en un par, no una release. Tráigala en su lugar."
 		},
 		"grab": {
-			"not_found": "Descarga no encontrada."
+			"not_found": "Descarga no encontrada.",
+			"not_retryable": "No hay nada que reanudar en esta descarga: o no ha fallado, o el cliente nunca la aceptó; en ese caso, vuelva a lanzarla desde la búsqueda."
 		},
 		"request_source": {
 			"not_configured": "No hay ninguna fuente de solicitudes configurada.",
@@ -1617,7 +1628,9 @@
 			"ptp_approved": "aprobada"
 		},
 		"from": "Tracker",
-		"choose_indexer": "Elegir el tracker"
+		"choose_indexer": "Elegir el tracker",
+		"retry": "Empezar de nuevo",
+		"retried": "Reanudada. La pasarela vuelve a mirar lo que dice el cliente."
 	},
 	"classification": {
 		"title": "Dónde podría ir esto",

@@ -1,6 +1,7 @@
 import type {
 	MediaKind,
 	RequestDetails,
+	RequestEpisode,
 	MediaRequest,
 	RequestOrder,
 	RequestQuery,
@@ -74,6 +75,25 @@ export interface RequestSource {
 		kind: MediaKind.MOVIE | MediaKind.SERIES,
 		providerId: string,
 	): Promise<RequestDetails | null>;
+
+	/**
+	 * Which episodes one season of a show has, as the source's metadata provider knows it.
+	 *
+	 * The one thing no media server here can answer. Our index is a mirror of what the
+	 * servers declare, so an episode that aired last night and that nobody holds exists
+	 * nowhere — no row, nothing counting it as missing, and a season screen that reads as
+	 * complete. The source is already sitting on the metadata provider the household
+	 * browses, and it was only ever asked which *seasons* exist.
+	 *
+	 * An empty list when the season is unknown, and an empty list rather than a throw when
+	 * the source will not answer: this fills a catalogue in, and a metadata provider having
+	 * a bad afternoon must not turn a media page into an error.
+	 */
+	episodes(
+		settings: RequestSourceSettings,
+		providerId: string,
+		seasonNumber: number,
+	): Promise<RequestEpisode[]>;
 
 	/** Whether the address and key work, for the settings screen to say so. */
 	probe(settings: RequestSourceSettings): Promise<boolean>;

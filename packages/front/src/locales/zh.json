@@ -389,6 +389,11 @@
 			"none": "没有排序：此媒体由做种数和体积决定。",
 			"cancel": "重新沿用该分类的排序",
 			"cancelled": "此媒体已重新沿用其分类的排序。"
+		},
+		"episodes": {
+			"action": "查找已播出的剧集",
+			"added": "已添加 {count} 集已播出的剧集。",
+			"none": "没有新内容：来源知道的剧集和你一样。"
 		}
 	},
 	"override": {
@@ -435,7 +440,9 @@
 			"intro": "当全局排序或其分类的排序不适合这一个媒体时，优先提供哪个版本。它只排序，绝不隐藏：找到的一切都留在列表里。",
 			"give": "为此媒体设定自己的排序",
 			"follow": "重新沿用该分类的排序"
-		}
+		},
+		"folder": "文件夹",
+		"folder_hint": "它的文件在该库中的落点。已预填网关会选择的位置——如果你已经有这部剧集，就是它自己的文件夹。清空则交由规则决定。"
 	},
 	"service": {
 		"subtitle": "此网关读取和写入的媒体服务器。",
@@ -1299,7 +1306,8 @@
 			"another_source": "另找一个来源",
 			"another_target": "换一个媒体库",
 			"fix_service": "修复该服务",
-			"cancel": "取消"
+			"cancel": "取消",
+			"archive": "归档"
 		},
 		"retarget": {
 			"title": "发送到其他媒体库",
@@ -1312,7 +1320,8 @@
 			"repointed": "它将改去那里。",
 			"moved": "已移动。文件现在位于该媒体库中。",
 			"whole_lot": "{title} — 整个下载，{count} 个文件",
-			"hint_lot_landed": "本次下载中已经归位的文件也会一起移动，包括早先那次运行带来的文件，留空的目录会被删除。"
+			"hint_lot_landed": "本次下载中已经归位的文件也会一起移动，包括早先那次运行带来的文件，留空的目录会被删除。",
+			"current": "当前：{path}"
 		},
 		"revalidation": {
 			"title": "此传输为何改变了主意",
@@ -1352,7 +1361,8 @@
 		"batch": {
 			"files": "{total} 个文件中的 {done} 个",
 			"into": "到"
-		}
+		},
+		"archived": "已从队列移除。文件没有动。"
 	},
 	"pages": {
 		"dashboard": "概览",
@@ -1528,7 +1538,8 @@
 			"not_grabbable": "那一行是对端上的一个副本，不是一个发布。请改用拉取。"
 		},
 		"grab": {
-			"not_found": "找不到该下载。"
+			"not_found": "找不到该下载。",
+			"not_retryable": "这个下载没有可恢复的内容：要么它没有失败，要么客户端从未接收它——那种情况请从搜索重新获取。"
 		},
 		"request_source": {
 			"not_configured": "尚未配置请求来源。",
@@ -1617,7 +1628,9 @@
 			"ptp_approved": "已认可"
 		},
 		"from": "Tracker",
-		"choose_indexer": "选择 tracker"
+		"choose_indexer": "选择 tracker",
+		"retry": "重新开始",
+		"retried": "已恢复。网关正在重新查看客户端的说法。"
 	},
 	"classification": {
 		"title": "这可能属于哪里",

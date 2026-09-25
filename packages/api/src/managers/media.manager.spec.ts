@@ -15,6 +15,7 @@ import {
 	ErrorKey,
 	MatchStrategy,
 	MediaKind,
+	RequestSourceType,
 	MediaLandingState,
 	MediaServiceType,
 	ReleasePreferenceDimension,
@@ -37,6 +38,7 @@ import {
 	type HandlerRegistry,
 	type SettingsService,
 } from '@/services';
+import type { RequestSourceRegistry } from '@/services/requests';
 import { MediaManager } from './media.manager';
 
 const file = (overrides: Partial<MediaFileInfo> = {}): MediaFileInfo => ({
@@ -113,6 +115,9 @@ const mediaService = (overrides: Partial<MediaServiceEntity> = {}): MediaService
 	}) as MediaServiceEntity;
 
 interface Fakes {
+	/** Asked which episodes exist, which no media server here can answer. */
+	requestSource: { episodes: jest.Mock };
+	settings: { getValue: jest.Mock; get: jest.Mock };
 	items: {
 		find: jest.Mock;
 		findOne: jest.Mock;
@@ -153,6 +158,17 @@ const build = (
 	// finds already there rather than about the rows it writes.
 	const pairs = world.matches ?? [];
 	const fakes: Fakes = {
+		// Nothing to add by default: a test that never mentions a metadata source gets a
+		// catalogue with no news in it, which is what every other test here is about.
+		requestSource: { episodes: jest.fn().mockResolvedValue([]) },
+		settings: {
+			getValue: jest.fn().mockResolvedValue(0.8),
+			// A source configured and answering, because the tests that are about it say
+			// what it answers and the rest never reach it.
+			get: jest.fn().mockResolvedValue({
+				requestSource: { type: RequestSourceType.SEERR, baseUrl: 'http://seerr', enabled: true },
+			}),
+		},
 		/*
 		 * The index, small enough to hold in an array.
 		 *
@@ -280,7 +296,7 @@ const build = (
 		// proposal, and a fake that produced one would prove nothing about the pair the
 		// lab fixture is built around.
 		new MatchingService(new QualityService()),
-		{ getValue: jest.fn().mockResolvedValue(0.8) } as unknown as SettingsService,
+		fakes.settings as unknown as SettingsService,
 		fakes.cache as unknown as CacheService,
 		{ get: jest.fn(() => ({ openArtwork: fakes.openArtwork })) } as unknown as HandlerRegistry,
 		fakes.libraries as unknown as LibraryRepository,
@@ -288,6 +304,10 @@ const build = (
 		// server is the one thing here that leaves the machine, and a fake that answered
 		// by default would hide a pass that started doing it for every copy.
 		{ fingerprint: fakes.remoteFingerprint } as unknown as RemoteFingerprintService,
+		// The metadata source, which is the only thing that knows an episode nobody holds
+		// exists. Empty by default: a test that never mentions it gets a catalogue with
+		// nothing to add, which is what every other test is about.
+		{ get: jest.fn(() => fakes.requestSource) } as unknown as RequestSourceRegistry,
 	);
 
 	return { manager, fakes };
@@ -1242,6 +1262,153 @@ describe('MediaManager', () => {
 	 * season one. "It doesn't show up under season 2" and "it disappeared" are the same
 	 * missing write, described from two ends.
 	 */
+	/*
+	 * The half of a catalogue no media server can supply.
+	 *
+	 * Our index mirrors what the servers declare, so an episode that aired last night and
+	 * that nobody holds exists nowhere: no row, nothing counting it as missing, and a
+	 * season three short reading as complete. The owner's words for it: "l'épisode 10 qui
+	 * est sorti ne remonte pas". The metadata source has known all along.
+	 */
+	describe('the episodes only a metadata source knows about', () => {
+		const show = (): MediaItem[] => [
+			item({
+				id: 'series-1',
+				externalId: 'jf-series',
+				kind: MediaKind.SERIES,
+				title: 'Stuart Fails to Save the Universe',
+				normalizedTitle: 'stuart fails to save the universe',
+				externalIds: { tmdb: '1234' },
+				seasonNumber: null,
+				episodeNumber: null,
+				file: null,
+				childCount: 1,
+			}),
+			item({
+				id: 'season-1',
+				externalId: 'jf-season-1',
+				kind: MediaKind.SEASON,
+				title: 'Season 1',
+				parentId: 'series-1',
+				parentExternalId: 'jf-series',
+				seasonNumber: 1,
+				episodeNumber: null,
+				file: null,
+				childCount: 1,
+			}),
+			item({
+				id: 'episode-9',
+				externalId: 'jf-episode-9',
+				parentId: 'season-1',
+				parentExternalId: 'jf-season-1',
+				seasonNumber: 1,
+				episodeNumber: 9,
+			}),
+		];
+
+		it('writes a row for an aired episode no server here reports', async () => {
+			const { manager, fakes } = build({ items: show() });
+
+			fakes.requestSource.episodes.mockResolvedValue([
+				{ seasonNumber: 1, episodeNumber: 9, title: 'Nine', airDate: '2026-09-11' },
+				{ seasonNumber: 1, episodeNumber: 10, title: 'Ten', airDate: '2026-09-18' },
+			]);
+
+			expect(await manager.discoverEpisodes('series-1')).toBe(1);
+			// Ours and not a server's, which is what the stale pass at the end of a scan
+			// reads to know it must not delete it.
+			expect(fakes.items.save).toHaveBeenCalledWith(expect.objectContaining({
+				synthetic: true,
+				kind: MediaKind.EPISODE,
+				parentId: 'season-1',
+				seasonNumber: 1,
+				episodeNumber: 10,
+				title: 'Ten',
+				// No file, which is the entire point: it reads as missing everywhere an
+				// episode's state is read, so a search offers to fill it.
+				file: null,
+			}));
+		});
+
+		it('leaves an episode that has not aired alone', async () => {
+			// It is not missing from a library; it is missing from the world. A row
+			// proposing a search for it sends somebody looking for something that does not
+			// exist yet.
+			const { manager, fakes } = build({ items: show() });
+
+			fakes.requestSource.episodes.mockResolvedValue([
+				{ seasonNumber: 1, episodeNumber: 11, title: 'Eleven', airDate: '2099-01-01' },
+			]);
+
+			expect(await manager.discoverEpisodes('series-1')).toBe(0);
+			expect(fakes.items.save).not.toHaveBeenCalled();
+		});
+
+		it('reads a missing date as not aired, which is the cautious half of the answer', async () => {
+			const { manager, fakes } = build({ items: show() });
+
+			fakes.requestSource.episodes.mockResolvedValue([
+				{ seasonNumber: 1, episodeNumber: 12, title: 'Twelve', airDate: null },
+			]);
+
+			expect(await manager.discoverEpisodes('series-1')).toBe(0);
+		});
+
+		it('never asks about season zero, which is specials', async () => {
+			// Nobody is missing a behind-the-scenes clip, and "the whole show" should not
+			// mean a folder of them.
+			const { manager, fakes } = build({
+				items: [
+					...show(),
+					item({
+						id: 'season-0',
+						externalId: 'jf-season-0',
+						kind: MediaKind.SEASON,
+						parentId: 'series-1',
+						seasonNumber: 0,
+						episodeNumber: null,
+						file: null,
+					}),
+				],
+			});
+
+			await manager.discoverEpisodes('series-1');
+
+			expect(fakes.requestSource.episodes).toHaveBeenCalledTimes(1);
+			expect(fakes.requestSource.episodes).toHaveBeenCalledWith(expect.anything(), '1234', 1);
+		});
+
+		it('refuses a show nothing has matched to a provider', async () => {
+			// A fixable state rather than a silent zero: the screen can say which of the
+			// two nothings this is.
+			const { manager } = build({
+				items: show().map(one => (one.id === 'series-1' ? { ...one, externalIds: {} } : one)),
+			});
+
+			await expect(manager.discoverEpisodes('series-1')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_IDENTIFIED,
+			);
+		});
+
+		it('refuses when no request source is configured', async () => {
+			const { manager, fakes } = build({ items: show() });
+
+			fakes.settings.get.mockResolvedValue({ requestSource: null });
+
+			await expect(manager.discoverEpisodes('series-1')).rejects.toThrow(
+				ErrorKey.REQUEST_SOURCE_NOT_CONFIGURED,
+			);
+		});
+
+		it('refuses on anything that is not a show', async () => {
+			const { manager } = build({ items: show() });
+
+			await expect(manager.discoverEpisodes('episode-9')).rejects.toThrow(
+				ErrorKey.MEDIA_NOT_IDENTIFIED,
+			);
+		});
+	});
+
 	describe('re-filing a corrected episode', () => {
 		const show = (): { series: MediaItem; seasonOne: MediaItem; episode: MediaItem } => {
 			const series = item({

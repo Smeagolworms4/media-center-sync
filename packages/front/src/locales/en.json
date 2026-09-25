@@ -389,6 +389,11 @@
 			"none": "Nothing ordered: seeders and size decide for this media.",
 			"cancel": "Follow the category’s order again",
 			"cancelled": "This media follows its category’s order again."
+		},
+		"episodes": {
+			"action": "Look for aired episodes",
+			"added": "{count} aired episode added. | {count} aired episodes added.",
+			"none": "Nothing new: the source knows the same episodes you do."
 		}
 	},
 	"override": {
@@ -435,7 +440,9 @@
 			"intro": "Which copy this one media should be offered first, when the household order or its category’s is wrong for it. It orders and never hides: everything found stays on the list.",
 			"give": "Give this media its own order",
 			"follow": "Follow the category’s order again"
-		}
+		},
+		"folder": "Folder",
+		"folder_hint": "Where its files land inside that library. Prefilled with what the gateway would choose — the series' own folder when you already hold it. Empty it to let the rule decide."
 	},
 	"service": {
 		"subtitle": "The media servers this gateway reads from and writes to.",
@@ -1299,7 +1306,8 @@
 			"another_source": "Look for another source",
 			"another_target": "Choose another library",
 			"fix_service": "Fix the service",
-			"cancel": "Cancel"
+			"cancel": "Cancel",
+			"archive": "Archive"
 		},
 		"retarget": {
 			"title": "Send it to another library",
@@ -1312,7 +1320,8 @@
 			"repointed": "It will go there instead.",
 			"moved": "Moved. The file is in that library now.",
 			"whole_lot": "{title} — the whole download, {count} files",
-			"hint_lot_landed": "The files of this download that have already landed are moved too, including the ones an earlier run brought in, and the folders they leave empty are removed."
+			"hint_lot_landed": "The files of this download that have already landed are moved too, including the ones an earlier run brought in, and the folders they leave empty are removed.",
+			"current": "Currently: {path}"
 		},
 		"revalidation": {
 			"title": "Why this transfer changed its mind",
@@ -1352,7 +1361,8 @@
 		"batch": {
 			"files": "{done} of {total} files",
 			"into": "Into"
-		}
+		},
+		"archived": "Taken off the queue. The file has not moved."
 	},
 	"pages": {
 		"dashboard": "Dashboard",
@@ -1528,7 +1538,8 @@
 			"not_grabbable": "That row is a copy on a peer, not a release. Pull it instead."
 		},
 		"grab": {
-			"not_found": "No such download."
+			"not_found": "No such download.",
+			"not_retryable": "There is nothing to resume on this download: either it has not failed, or the client never took it — grab it again from the search in that case."
 		},
 		"request_source": {
 			"not_configured": "No request source is configured. Set one in Settings.",
@@ -1617,7 +1628,9 @@
 			"ptp_approved": "approved"
 		},
 		"from": "Tracker",
-		"choose_indexer": "Choose the tracker"
+		"choose_indexer": "Choose the tracker",
+		"retry": "Start over",
+		"retried": "Resumed. The gateway is looking again at what the client says about it."
 	},
 	"classification": {
 		"title": "Where this might belong",

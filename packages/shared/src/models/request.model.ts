@@ -218,6 +218,31 @@ export interface RequestDetails {
 	seasonNumbers: number[];
 }
 
+/**
+ * One episode a metadata source knows about, whether or not anybody holds it.
+ *
+ * This is the half of the catalogue no media server can supply. Our index mirrors what
+ * the servers declare, so an episode that aired last night and that nobody has exists
+ * nowhere: there is no row, nothing counts it as missing, and the one screen somebody
+ * would look at says the season is complete. The request source is already sitting on a
+ * metadata provider the household browses — it knows the number, the title and the day it
+ * aired — and until now the gateway only ever asked it which *seasons* exist.
+ */
+export interface RequestEpisode {
+	seasonNumber: number;
+	episodeNumber: number;
+	title: string | null;
+	/**
+	 * The day it aired, as the source states it, or null when it does not.
+	 *
+	 * Load-bearing rather than decorative: an episode that has not aired is not missing
+	 * from a library, it is missing from the world, and proposing a search for it is how
+	 * somebody spends an evening looking for something that does not exist. Null is read
+	 * as "not aired", which is the cautious half of the answer.
+	 */
+	airDate: string | null;
+}
+
 export interface RequestSourceSettings {
 	type: RequestSourceType;
 	baseUrl: string;

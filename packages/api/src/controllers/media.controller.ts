@@ -23,7 +23,9 @@ import {
 } from '@nestjs/common';
 import {
 	ApiBearerAuth,
+	ApiConflictResponse,
 	ApiNoContentResponse,
+	ApiNotFoundResponse,
 	ApiOkResponse,
 	ApiOperation,
 	ApiProduces,
@@ -179,6 +181,27 @@ export class MediaController {
 		@Body() body: MediaOverrideDto,
 	): Promise<MediaItem> {
 		return this._media.setOverride(id, body);
+	}
+
+	@Post(':id/episodes')
+	@Granted(Right.MEDIA_WRITE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Add the aired episodes nothing here reports',
+		description:
+			'Asks the configured request source which episodes each season of this show has, '
+			+ 'and writes a row for every one that has aired and that no server here lists. '
+			+ 'Those rows are ours rather than a server\'s: they read as missing, they can be '
+			+ 'hidden like a special, corrected like anything else, and searched for on the '
+			+ 'indexer. Answers how many were added.',
+	})
+	@ApiOkResponse({ description: 'How many episodes were added' })
+	@ApiNotFoundResponse({ description: 'error.media.not_found' })
+	@ApiConflictResponse({
+		description: 'error.media.not_identified, error.request_source.not_configured',
+	})
+	public async episodes(@Param('id', ParseUUIDPipe) id: string): Promise<{ added: number }> {
+		return { added: await this._media.discoverEpisodes(id) };
 	}
 
 	@Delete(':id/override')
