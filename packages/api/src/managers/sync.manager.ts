@@ -17,7 +17,6 @@ import {
 	TransferTransport,
 	UNCONFIGURED_PLACEMENTS,
 	type CompanionPullResult,
-	PlacementStrategy,
 	type CreateSyncPlanForItemRequest,
 	type CreateSyncPlanRequest,
 	type EstimateSyncRequest,
@@ -1505,11 +1504,9 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				pinned: pin,
 				kind: entry.item.kind,
 				categoryKey: categoryKeys.get(entry.item.libraryId) ?? null,
-				// A folder somebody named outranks the rule, said through the fixed-path
-				// strategy so a chosen folder and a configured one take one code path.
-				settings: folder === null
-					? settings
-					: { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: folder },
+				settings,
+				// A folder somebody named, above every rule — see `PlacementRequest.pinnedPath`.
+				pinnedPath: folder,
 				libraries,
 				relativeName: (libraryRoot) =>
 					this._naming.render(settings.namingOrder, nameable, { libraryRoot, siblingPath }),

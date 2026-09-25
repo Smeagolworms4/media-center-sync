@@ -80,6 +80,24 @@ export interface PlacementRequest {
 	 * table, which is most of them, and a preference nothing ever honours is a field that
 	 * lies. So: it decides where genuinely new things go, and never splits a show.
 	 */
+	/**
+	 * A folder somebody named for this download, which outranks every rule.
+	 *
+	 * Distinct from `settings.placement === FIXED_PATH`, and the difference is the whole
+	 * reason this exists. That setting is a *configuration* — "everything this gateway
+	 * fetches goes here" — and it sits below the rules that keep a show together, on
+	 * purpose. This is a *decision about one thing*, made in the dialog that asks where it
+	 * should go, and nothing may outrank it: not a copy of the show we already hold, not
+	 * the library the same dialog chose one line above.
+	 *
+	 * Sharing the setting was how the two got confused, and it produced exactly the
+	 * failure somebody would report as "it ignored me": choosing a library *and* a folder
+	 * meant the library was tried first, answered, and the file landed in its root while
+	 * the typed folder was never reached.
+	 *
+	 * Trailing slashes are somebody's typing, not a different directory.
+	 */
+	pinnedPath?: string | null;
 	preferredLibraryId?: string | null;
 	/**
 	 * Which kind of decision that preference was, for the record on the transfer.
@@ -254,15 +272,24 @@ export class PlacementService {
 					directory,
 					path: free.path,
 					strategy: attempt.strategy,
-					// A configured destination that had to be skipped is a fallback
-					// however well the one that answered went: the file did not land where
-					// the settings said it would. A pinned item reports what the lot
-					// reported: it made no decision of its own to fall back from.
+					/*
+					 * A configured destination that had to be skipped is a fallback however
+					 * well the one that answered went: the file did not land where the
+					 * settings said it would. A pinned item reports what the lot reported —
+					 * it made no decision of its own to fall back from.
+					 *
+					 * A folder somebody named is never a fallback. The settings not being
+					 * honoured is the *point* of naming one, and reporting it as a fallback
+					 * would put "we could not do what you configured" on a screen next to
+					 * the folder that person had just typed.
+					 */
 					fallback: request.pinned
 						? request.pinned.fallback
-						: skipped.length > 0 ||
-							attempt.fallback ||
-							attempt.strategy !== request.settings.placement,
+						: attempt.strategy === PlacementStrategy.FIXED_PATH && Boolean(request.pinnedPath)
+							? false
+							: skipped.length > 0 ||
+								attempt.fallback ||
+								attempt.strategy !== request.settings.placement,
 					reason: notes.length > 0 ? notes.join('; ') : null,
 				};
 
@@ -437,6 +464,25 @@ export class PlacementService {
 				],
 				skipped: [],
 			};
+		}
+
+		/*
+		 * The folder somebody named for this one thing, above everything.
+		 *
+		 * Above `existingPath` as well, which is otherwise unconditional: keeping a show
+		 * together is the right default precisely because nobody said anything, and here
+		 * somebody did. A person who types a folder and is then filed somewhere else has
+		 * been ignored by the one control that exists to answer the question.
+		 */
+		const named = request.pinnedPath?.trim().replace(/\/+$/, '');
+
+		if (named && isAbsolute(named)) {
+			attempts.push({
+				library: this._libraryHolding(usable, named) ?? this._syntheticLibrary(named),
+				root: named,
+				strategy: PlacementStrategy.FIXED_PATH,
+				fallback: false,
+			});
 		}
 
 		/*

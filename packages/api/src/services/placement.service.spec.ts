@@ -73,6 +73,86 @@ describe('PlacementService', () => {
 		expect(target.path).toBe(join(shows, 'The Expanse', 'S01E02.mkv'));
 	});
 
+	/*
+	 * A folder somebody typed, against every rule that would have answered otherwise.
+	 *
+	 * The failure this comes from, in the owner's words: "j'avais prérempli un dossier
+	 * particulier et il a remis /share/SeriesTV5". Choosing a library *and* a folder in
+	 * one dialog meant the library was tried first, answered, and the file landed in its
+	 * root — the folder was never reached, and nothing said so.
+	 */
+	describe('a folder somebody named', () => {
+		it('outranks the library chosen in the same dialog', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library(), library({ id: 'lib-movies', kind: LibraryKind.MOVIES, localPath: movies })],
+				relativeName: 'S01E02.mkv',
+				pinnedPath: join(shows, 'The Expanse', 'Saison 1'),
+				preferredLibraryId: 'lib-movies',
+			});
+
+			expect(target.path).toBe(join(shows, 'The Expanse', 'Saison 1', 'S01E02.mkv'));
+			expect(target.strategy).toBe(PlacementStrategy.FIXED_PATH);
+			expect(target.fallback).toBe(false);
+		});
+
+		it('outranks a copy of the show we already hold', async () => {
+			// Keeping a show together is the right default precisely because nobody said
+			// anything. Here somebody did.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+				libraries: [library()],
+				relativeName: 'S01E02.mkv',
+				pinnedPath: join(shows, 'Elsewhere'),
+				existingPath: join(shows, 'The Expanse', 'S01E01.mkv'),
+			});
+
+			expect(target.path).toBe(join(shows, 'Elsewhere', 'S01E02.mkv'));
+		});
+
+		it('reads a trailing slash as somebody typing, not as another directory', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'S01E02.mkv',
+				pinnedPath: `${join(shows, 'The Expanse')}/`,
+			});
+
+			expect(target.path).toBe(join(shows, 'The Expanse', 'S01E02.mkv'));
+		});
+
+		it('ignores a relative one, which means nothing to a service running elsewhere', async () => {
+			// Resolved against the gateway's working directory it would put media inside
+			// the container, which is a place nothing scans and nobody looks.
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings(),
+				libraries: [library()],
+				relativeName: 'S01E02.mkv',
+				pinnedPath: 'somewhere/relative',
+			});
+
+			expect(target.libraryId).toBe('lib-shows');
+			expect(target.strategy).not.toBe(PlacementStrategy.FIXED_PATH);
+		});
+
+		it('leaves the rules alone when nobody named anything', async () => {
+			const target = await service.resolve({
+				kind: MediaKind.EPISODE,
+				settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+				libraries: [library()],
+				relativeName: 'S01E02.mkv',
+				pinnedPath: null,
+				existingPath: join(shows, 'The Expanse', 'S01E01.mkv'),
+			});
+
+			expect(target.strategy).toBe(PlacementStrategy.BESIDE_EXISTING);
+		});
+	});
+
 	it('falls back to the default library when we hold no local copy', async () => {
 		// The common case on a first sync, and not a fault: there is simply nothing to
 		// sit beside yet.
