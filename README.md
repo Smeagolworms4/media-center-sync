@@ -109,6 +109,7 @@ to. See [what one port does not solve](#what-one-port-does-not-solve).
 | `MCS_CACHE_MAXMEMORY` | `128mb` | Ceiling of the embedded cache. Past it, the least recently used keys go. |
 | `MCS_CACHE_SOCKET` | `/data/cache.sock` | Where the embedded cache listens. Worth moving only if `/data` is a filesystem that has no sockets. |
 | `MCS_TRANSFER_ROOT` | `/data/transfer` | Where pieces accumulate before a file is placed. |
+| `MCS_DATA_DIR` | `/data` | Where this gateway's own key pair and node id live. Somewhere persistent, or its fingerprint changes on every restart and every peer link with it. |
 | `MCS_CORS_ORIGINS` | *(empty)* | Comma-separated. Not needed when the interface is served by the API. |
 | `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | *(none)* | An unattended first account. Unset, the interface asks for one. |
 | `DB_MIGRATE_ON_START` | `true` | Bring the schema up to date at startup. Turn it off where a deployment applies migrations itself. |

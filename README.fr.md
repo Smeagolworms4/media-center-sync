@@ -106,6 +106,7 @@ les octets que s'il le propose. Voir
 | `MCS_CACHE_MAXMEMORY` | `128mb` | Plafond du cache embarqué. Au-delà, les clés les moins récemment utilisées partent. |
 | `MCS_CACHE_SOCKET` | `/data/cache.sock` | Où écoute le cache embarqué. À déplacer seulement si `/data` est un système de fichiers sans sockets. |
 | `MCS_TRANSFER_ROOT` | `/data/transfer` | Où les pièces s'accumulent avant qu'un fichier ne soit placé. |
+| `MCS_DATA_DIR` | `/data` | Où vivent la paire de clés de cette passerelle et son identifiant de nœud. Quelque part de persistant, sinon son empreinte change à chaque redémarrage — et tous ses liens de pair avec elle. |
 | `MCS_CORS_ORIGINS` | *(vide)* | Séparées par des virgules. Inutile quand l'interface est servie par l'API. |
 | `MCS_ADMIN_USER` `MCS_ADMIN_PASSWORD` | `admin` / `admin` | Le premier compte, créé au premier démarrage. |
 

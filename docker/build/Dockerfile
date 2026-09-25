@@ -145,6 +145,16 @@ ENV DB_FILE=/data/media-center-sync.db
 ENV MCS_TRANSFER_ROOT=/data/transfer
 ENV MCS_MEDIA_ROOT=/media
 
+# Where this gateway keeps the one thing it cannot be given again: its own key pair.
+#
+# Unset, the default is `./data` relative to the working directory, which the image runs
+# as `node` and cannot create — so the peer identity and the node id were written nowhere
+# and **regenerated on every start**. A gateway whose fingerprint changes on restart is a
+# gateway whose every peer link breaks on restart, and what it says about it is two lines
+# in a log nobody reads: "it will change on restart". Every other path in this image is
+# already under `/data`; this is the one that was missing.
+ENV MCS_DATA_DIR=/data
+
 USER node
 
 ENV API_PORT=4200
