@@ -1362,7 +1362,9 @@
 			"files": "{done} von {total} Dateien",
 			"into": "Nach"
 		},
-		"archived": "Aus der Warteschlange entfernt. Die Datei wurde nicht bewegt."
+		"archived": "Aus der Warteschlange entfernt. Die Datei wurde nicht bewegt.",
+		"paused": "Angehalten. Der Client behält, was er bereits geholt hat.",
+		"resumed": "Läuft wieder."
 	},
 	"pages": {
 		"dashboard": "Übersicht",

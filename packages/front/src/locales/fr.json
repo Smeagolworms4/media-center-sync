@@ -1362,7 +1362,9 @@
 			"files": "{done} fichiers sur {total}",
 			"into": "Dans"
 		},
-		"archived": "Retiré de la file. Le fichier n'a pas bougé."
+		"archived": "Retiré de la file. Le fichier n'a pas bougé.",
+		"paused": "Mis en pause. Le client garde ce qu'il a déjà récupéré.",
+		"resumed": "Reparti."
 	},
 	"pages": {
 		"dashboard": "Tableau de bord",

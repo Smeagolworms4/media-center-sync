@@ -1362,7 +1362,9 @@
 			"files": "{done} of {total} files",
 			"into": "Into"
 		},
-		"archived": "Taken off the queue. The file has not moved."
+		"archived": "Taken off the queue. The file has not moved.",
+		"paused": "Paused. The client keeps what it has already fetched.",
+		"resumed": "Running again."
 	},
 	"pages": {
 		"dashboard": "Dashboard",

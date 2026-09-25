@@ -398,6 +398,21 @@ describe('components/media/OverrideDialog', () => {
 		 * select has nothing selected — and a blank control with no explanation reads as
 		 * a list that failed to load rather than as an invitation to choose a shelf.
 		 */
+		/*
+		 * A media whose shelf cannot be written into is the ordinary case for anything
+		 * worth reclassifying — a film on a friend's server, a library nobody mounted here
+		 * — and the select has no option matching it. Vuetify then prints the value it was
+		 * given, so the field read `876cf493-3c7f-4975-bff8-24c553ffc13c` where a library
+		 * name belongs. Empty is the honest reading, and the line underneath says where the
+		 * media really is.
+		 */
+		it('shows nothing rather than a raw identifier for a shelf it cannot offer', async () => {
+			const { wrapper } = mountDialog(item({ libraryId: 'l3' }));
+			await settle();
+
+			expect(wrapper.findComponent({ name: 'VSelect' }).props('modelValue')).toBeNull();
+		});
+
 		it('says where a media we hold no copy of currently sits, and reclassifies it', async () => {
 			const { wrapper, stub } = mountDialog(item({ libraryId: 'l3' }));
 			await settle();

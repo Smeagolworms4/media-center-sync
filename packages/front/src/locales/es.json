@@ -1362,7 +1362,9 @@
 			"files": "{done} de {total} archivos",
 			"into": "En"
 		},
-		"archived": "Retirado de la cola. El archivo no se ha movido."
+		"archived": "Retirado de la cola. El archivo no se ha movido.",
+		"paused": "En pausa. El cliente conserva lo que ya ha descargado.",
+		"resumed": "En marcha de nuevo."
 	},
 	"pages": {
 		"dashboard": "Panel",

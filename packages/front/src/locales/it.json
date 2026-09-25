@@ -1362,7 +1362,9 @@
 			"files": "{done} file su {total}",
 			"into": "In"
 		},
-		"archived": "Tolto dalla coda. Il file non si è mosso."
+		"archived": "Tolto dalla coda. Il file non si è mosso.",
+		"paused": "In pausa. Il client conserva ciò che ha già scaricato.",
+		"resumed": "Riavviato."
 	},
 	"pages": {
 		"dashboard": "Dashboard",

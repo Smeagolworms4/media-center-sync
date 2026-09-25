@@ -1362,7 +1362,9 @@
 			"files": "{done} de {total} ficheiros",
 			"into": "Para"
 		},
-		"archived": "Retirado da fila. O ficheiro não se moveu."
+		"archived": "Retirado da fila. O ficheiro não se moveu.",
+		"paused": "Em pausa. O cliente mantém o que já obteve.",
+		"resumed": "A correr de novo."
 	},
 	"pages": {
 		"dashboard": "Painel",

@@ -299,6 +299,29 @@
 		return chosen ? (chosen.roots.length > 0 ? chosen.roots : [chosen.path ?? '']) : [];
 	});
 
+	/**
+	 * What the select shows, which is nothing when it cannot show a name.
+	 *
+	 * The list only offers shelves this gateway can write into, and the media's own is
+	 * very often not one of them — a film on a friend's server, a library whose folders
+	 * are not mounted here. Bound straight to `draft.libraryId`, the control was handed a
+	 * value matching none of its options and did what Vuetify does with one: it printed
+	 * the raw identifier, `876cf493-3c7f-4975-bff8-24c553ffc13c`, where a library name
+	 * belongs.
+	 *
+	 * Empty is the honest reading — nothing is selected, because nothing selectable is
+	 * where this media currently is — and the line under the field says where it really
+	 * sits. Writing still goes to the draft, so choosing a shelf works exactly as before.
+	 */
+	const librarySelection = computed<string | null>({
+		get: () => (libraryItems.value.some(one => one.value === draft.libraryId)
+			? draft.libraryId
+			: null),
+		set: value => {
+			draft.libraryId = value;
+		},
+	});
+
 	const reportedLibraryName = computed(() => {
 		const library = librariesStore.byId[reported.value?.libraryId ?? ''];
 		return library ? (library.alias ?? library.name) : '';
@@ -580,7 +603,7 @@
 			</div>
 
 			<v-select
-				v-model="draft.libraryId"
+				v-model="librarySelection"
 				data-test="override-library"
 				:hint="libraryChanged
 					? $t('override.state.was', { value: reportedLibraryName })
