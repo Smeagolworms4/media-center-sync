@@ -28,6 +28,7 @@ import {
 import {
 	BadRequestException,
 	ConflictException,
+	HttpException,
 	Injectable,
 	Logger,
 	NotFoundException,
@@ -69,6 +70,30 @@ import { MediaGroupManager } from './media-group.manager';
  * listing is filtered on this category, so nothing else is ever tracked, reported, or —
  * far worse — copied into a media library.
  */
+/**
+ * A failure as somebody reading the row will understand it.
+ *
+ * `String(error)` on a Nest exception yields its class name twice — a row that failed a
+ * duplicate add read `ConflictException: Conflict Exception`, which says neither what
+ * was refused nor by whom, and the reason had to be reproduced in a lab to be learnt.
+ * The key and the detail are already in the payload; this is only putting them where the
+ * row is read.
+ */
+const reasonOf = (error: unknown): string => {
+	if (error instanceof HttpException) {
+		const payload = error.getResponse();
+
+		if (typeof payload === 'object' && payload !== null && 'key' in payload) {
+			const held = payload as { key?: unknown; detail?: unknown };
+			const detail = typeof held.detail === 'string' ? ` (${held.detail})` : '';
+
+			return `${String(held.key)}${detail}`;
+		}
+	}
+
+	return error instanceof Error && error.message !== '' ? error.message : String(error);
+};
+
 const CATEGORY = 'media-center-sync';
 
 /** How long a search stays grabbable. A release has no identity outside its search. */
@@ -759,8 +784,25 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			return;
 		}
 
+		/*
+		 * The rows this poll is about, asked for by name.
+		 *
+		 * By hash rather than by our category, because a torrent the client already held
+		 * when it was grabbed is filed under the category its owner gave it — and a poll
+		 * that asked only about ours never saw it. The grab then sat on `sent` while the
+		 * download it was following ran to completion and nothing was ever filed. The
+		 * category is still what a grab is *made* under; it is not what identifies one.
+		 */
+		const tracked = live
+			.map((grab) => grab.clientId)
+			.filter((id): id is string => id !== null);
+
+		if (tracked.length === 0) {
+			return;
+		}
+
 		const statuses = new Map(
-			(await this._clients.get(client.type).statuses(client, CATEGORY)).map((one) => [
+			(await this._clients.get(client.type).statuses(client, CATEGORY, tracked)).map((one) => [
 				one.clientId,
 				one,
 			]),
@@ -791,6 +833,29 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// status — a torrent with no bytes yet is not a torrent that has failed.
 			if (grab.state === GrabState.SENT && this._awaitsChoice(grab)) {
 				await this._choose(grab, client);
+
+				continue;
+			}
+
+			/*
+			 * The client has given up on it, and says so in its own words.
+			 *
+			 * Without this the row stays on `downloading` at zero bytes for ever, which is
+			 * what a production gateway did: qBittorrent had the torrent in `error` because
+			 * the save path it was handed was not one it could write into, every screen said
+			 * the download was in progress, and the only place the truth existed was the
+			 * client's own log. A failure nobody is told about is the same defect as an
+			 * operation that succeeds while doing nothing.
+			 *
+			 * After the choice branch on purpose: a stopped torrent waiting for its files
+			 * has no bytes yet, and that is not a failure.
+			 */
+			if (status.failed) {
+				await this._settle(
+					grab,
+					GrabState.FAILED,
+					status.failedReason ?? `the download client reports ${status.state}`,
+				);
 
 				continue;
 			}
@@ -1022,7 +1087,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// The bytes are still on the disk and the row says where, so this is
 			// recoverable by hand — which is the whole reason the failure is recorded
 			// rather than retried for ever.
-			await this._settle(grab, GrabState.FAILED, String(error));
+			await this._settle(grab, GrabState.FAILED, reasonOf(error));
 		}
 	}
 

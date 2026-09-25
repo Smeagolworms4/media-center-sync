@@ -1,4 +1,5 @@
-import { DownloadClientType, type DownloadClientSettings } from '@mcs/shared';
+import { createHash } from 'node:crypto';
+import { DownloadClientType, ErrorKey, type DownloadClientSettings } from '@mcs/shared';
 import { QbittorrentClient } from './qbittorrent.client';
 import type { GrabOrder } from './download-client.interface';
 
@@ -47,6 +48,9 @@ interface Call {
 }
 
 type Route = Answer | ((call: Call, index: number) => Answer);
+
+/** A real info hash: forty hex characters, which is what both ends speak. */
+const HASH = 'bb3e6aa5863c22eb623bb32684d5a73dd377c49a';
 
 describe('QbittorrentClient', () => {
 	const originalFetch = global.fetch;
@@ -250,6 +254,87 @@ describe('QbittorrentClient', () => {
 				.toBe('MetadataReceived');
 		});
 
+		/*
+		 * A torrent the client already holds, which it answers 409 to.
+		 *
+		 * Reported for a week as "your download client is unreachable", on a client that
+		 * was answering perfectly: 409 means the torrent is already there, which is a
+		 * success with nothing left to do. The row this grab writes then follows the
+		 * download that exists rather than refusing to look at it.
+		 */
+		it('follows a torrent the client already holds rather than calling it unreachable', async () => {
+			serve({
+				// Empty when asked beforehand and there when asked after: two grabs made at
+				// once, which is the case the 409 is still the only signal for.
+				'/api/v2/torrents/info': (_call, index) => ({ body: index === 0 ? [] : [torrent({ hash: HASH })] }),
+				'/api/v2/torrents/add': { status: 409, body: 'Torrent is already in the session' },
+			});
+
+			// Upper case on the wire and lower case in the client's answer, which is what
+			// both really do.
+			await expect(client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: `magnet:?xt=urn:btih:${HASH.toUpperCase()}`,
+			})).resolves.toBe(HASH);
+		});
+
+		it('still refuses a duplicate it cannot name, because it cannot follow one', async () => {
+			// No magnet and no file: nothing says which torrent the client already has, and
+			// adopting whatever it happens to be doing is worse than saying so.
+			serve({
+				'/api/v2/torrents/info': { body: [] },
+				'/api/v2/torrents/add': { status: 409, body: 'Torrent is already in the session' },
+			});
+
+			await expect(client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: null,
+				downloadUrl: 'http://tracker.example/one.torrent',
+			})).rejects.toMatchObject({
+				response: { key: ErrorKey.DOWNLOAD_CLIENT_UNREACHABLE },
+			});
+		});
+
+		/*
+		 * The identifier is the torrent's own, not a row that appeared in our category.
+		 *
+		 * A client that files it under another category — somebody's own rule, a default
+		 * changed once — showed no new row in ours, and the grab was refused for a
+		 * download that had started. By hash there is nothing to miss.
+		 */
+		it('finds the torrent by its hash, wherever the client filed it', async () => {
+			serve({
+				'/api/v2/torrents/info': (call) => ({
+					// Nothing in our category, ever: this is the client that files elsewhere.
+					body: call.query.get('category') !== null ? [] : [torrent({ hash: HASH })],
+				}),
+				'/api/v2/torrents/add': {},
+			});
+
+			await expect(client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: `magnet:?xt=urn:btih:${HASH}`,
+			})).resolves.toBe(HASH);
+		});
+
+		it('reads the hash out of a torrent file when there is no magnet', async () => {
+			// `d4:infod4:name2:hi6:lengthi1eee` — the info value is what is hashed, exactly
+			// as written, which is the only way two parties agree on a torrent's name.
+			const bytes = new TextEncoder().encode('d4:infod6:lengthi1e4:name2:hiee');
+			const hash = createHash('sha1').update(Buffer.from('d6:lengthi1e4:name2:hie')).digest('hex');
+
+			serve({
+				'/api/v2/torrents/info': { body: [torrent({ hash })] },
+				'/api/v2/torrents/add': {},
+			});
+
+			await expect(client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: null,
+				torrentFile: bytes,
+			})).resolves.toBe(hash);
+		});
+
 		it('says nothing about stopping when the torrent is meant to run', async () => {
 			serve({
 				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),
@@ -312,6 +397,58 @@ describe('QbittorrentClient', () => {
 			expect(await client.grab(SETTINGS, ORDER)).toBe('hash-new');
 		});
 
+		/*
+		 * The state of the torrent on the server, read before anything is handed over.
+		 *
+		 * Asking first is what makes "it is already downloading" and "it is already
+		 * finished" ordinary answers rather than errors: the add is not made at all, and the
+		 * grab starts on the download that exists. Relying on the 409 instead means the
+		 * client's objection is the only evidence, and it carries no hash and no reason.
+		 */
+		it('follows a torrent it already holds without adding it a second time', async () => {
+			serve({
+				'/api/v2/torrents/info': { body: [torrent({ hash: HASH, state: 'downloading', progress: 0.3 })] },
+				'/api/v2/torrents/add': {},
+			});
+
+			await expect(client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: `magnet:?xt=urn:btih:${HASH}`,
+			})).resolves.toBe(HASH);
+
+			expect(callsTo('/api/v2/torrents/add')).toHaveLength(0);
+			// By hash, so a torrent the client filed under another category is found.
+			expect(callsTo('/api/v2/torrents/info')[0].query.get('hashes')).toBe(HASH);
+		});
+
+		it('follows one it already holds complete, which is a grab with only the filing left', async () => {
+			serve({
+				'/api/v2/torrents/info': { body: [torrent({ hash: HASH, state: 'uploading', progress: 1 })] },
+				'/api/v2/torrents/add': {},
+			});
+
+			await expect(client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: `magnet:?xt=urn:btih:${HASH}`,
+			})).resolves.toBe(HASH);
+
+			expect(callsTo('/api/v2/torrents/add')).toHaveLength(0);
+		});
+
+		it('does not list the category when the hash already names the torrent', async () => {
+			// One question rather than two: the listing exists only for the torrent whose
+			// hash could not be worked out, and asking for it otherwise is a call per grab
+			// on a client holding everything anybody ever downloaded.
+			serve({
+				'/api/v2/torrents/info': (_call, index) => ({ body: index === 0 ? [] : [torrent({ hash: HASH })] }),
+				'/api/v2/torrents/add': {},
+			});
+
+			await client.grab(SETTINGS, { ...ORDER, magnetUrl: `magnet:?xt=urn:btih:${HASH}` });
+
+			expect(callsTo('/api/v2/torrents/info').every((call) => call.query.get('hashes') === HASH)).toBe(true);
+		});
+
 		it('reads a list of the wrong shape as an empty one rather than throwing', async () => {
 			// A reverse proxy in front of the client answers HTML, and a search screen
 			// that throws on it reads as this gateway being broken.
@@ -351,9 +488,46 @@ describe('QbittorrentClient', () => {
 				rate: 125,
 				complete: false,
 				state: 'downloading',
+				failed: false,
+				failedReason: null,
 				savePath: '/downloads/shows',
 				contentPath: '/downloads/shows/Show.S01E01.mkv',
 			});
+		});
+
+		/*
+		 * A torrent the client has given up on, which nothing used to report.
+		 *
+		 * A production gateway handed qBittorrent a save path it could not write into. The
+		 * client put the torrent in `error` at zero bytes, every screen said the download
+		 * was in progress, and the only account of it was in the client's own log. The state
+		 * is the client's to interpret, so it is the client that says it failed.
+		 */
+		it.each(['error', 'missingFiles'])('reports a torrent the client gave up on: %s', async (state) => {
+			serve({
+				'/api/v2/torrents/info': { body: [torrent({ hash: 'h1', state, progress: 0, completed: 0 })] },
+			});
+
+			const [status] = await client.statuses(SETTINGS, 'mcs');
+
+			expect(status.failed).toBe(true);
+			// Where it was writing, because that is what the reason nearly always is and
+			// qBittorrent's listing carries no message of its own.
+			expect(status.failedReason).toContain(state);
+			expect(status.failedReason).toContain('/downloads/shows');
+		});
+
+		it('does not call a stalled download a failure', async () => {
+			// No peers is not the same as given up on: it downloads the moment one appears,
+			// and failing the row would throw away a grab that is merely waiting.
+			serve({
+				'/api/v2/torrents/info': { body: [torrent({ hash: 'h1', state: 'stalledDL', progress: 0 })] },
+			});
+
+			const [status] = await client.statuses(SETTINGS, 'mcs');
+
+			expect(status.failed).toBe(false);
+			expect(status.failedReason).toBeNull();
 		});
 
 		/**
@@ -421,6 +595,32 @@ describe('QbittorrentClient', () => {
 			serve({ '/api/v2/torrents/info': { body: [] } });
 
 			expect(await client.statuses(SETTINGS, 'mcs')).toEqual([]);
+		});
+
+		/*
+		 * A torrent filed under somebody else's category is still one of ours to follow.
+		 *
+		 * The hash is the identifier; the category is only how a grab is made. A poll that
+		 * asked by category never saw an adopted torrent at all, and its row sat on `sent`
+		 * while the download finished.
+		 */
+		it('asks about named torrents by hash rather than by category', async () => {
+			serve({ '/api/v2/torrents/info': { body: [torrent({ hash: 'h1', category: 'somebody-else' })] } });
+
+			const [status] = await client.statuses(SETTINGS, 'mcs', ['h1', 'h2']);
+
+			expect(status.clientId).toBe('h1');
+			expect(callsTo('/api/v2/torrents/info')[0].query.get('hashes')).toBe('h1|h2');
+			expect(callsTo('/api/v2/torrents/info')[0].query.get('category')).toBeNull();
+		});
+
+		it('asks nothing at all when named no torrents', async () => {
+			// An empty list is not "everything you have": answering the whole client would
+			// report on somebody else's downloads and file them into a library.
+			serve({ '/api/v2/torrents/info': { body: [torrent()] } });
+
+			expect(await client.statuses(SETTINGS, 'mcs', [])).toEqual([]);
+			expect(callsTo('/api/v2/torrents/info')).toHaveLength(0);
 		});
 	});
 

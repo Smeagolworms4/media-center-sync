@@ -320,6 +320,8 @@ const status = (overrides: Record<string, unknown> = {}) => ({
 	rate: 42,
 	complete: false,
 	state: 'downloading',
+	failed: false,
+	failedReason: null,
 	savePath: '/downloads',
 	contentPath: '/downloads/Spartacus.S01E02.1080p.WEB-DL-GRP',
 	...overrides,
@@ -1447,14 +1449,39 @@ describe('ReleaseManager', () => {
 			expect(fakes.client.statuses).not.toHaveBeenCalled();
 		});
 
-		it('asks only about our own category', async () => {
+		/*
+		 * By hash, and our category alongside it.
+		 *
+		 * A torrent this gateway adopted — one the client already held when it was grabbed —
+		 * carries the category its owner gave it, and a poll that asked only about ours
+		 * never saw it: the row stayed on `sent` while the download it was following
+		 * finished, and nothing was filed. The hashes are ours either way, so nobody else's
+		 * torrent can be reported on.
+		 */
+		it('asks about the rows it is following, by name', async () => {
 			const { manager, fakes } = build();
 
 			fakes.grabs.findLive.mockResolvedValue([grab({ state: GrabState.DOWNLOADING })]);
 
 			await manager.poll();
 
-			expect(fakes.client.statuses).toHaveBeenCalledWith(SETTINGS.downloadClient, 'media-center-sync');
+			expect(fakes.client.statuses).toHaveBeenCalledWith(
+				SETTINGS.downloadClient,
+				'media-center-sync',
+				['hash-1'],
+			);
+		});
+
+		it('asks nothing when no live row has been given an identifier yet', async () => {
+			// Asking with an empty list is how "tell me about nothing" becomes "tell me
+			// about every torrent you have", which is somebody else's downloads.
+			const { manager, fakes } = build();
+
+			fakes.grabs.findLive.mockResolvedValue([grab({ state: GrabState.SENT, clientId: null })]);
+
+			await manager.poll();
+
+			expect(fakes.client.statuses).not.toHaveBeenCalled();
 		});
 
 		it('cancels a download the client has never heard of', async () => {
@@ -1490,6 +1517,49 @@ describe('ReleaseManager', () => {
 			await manager.poll();
 
 			expect(row.state).toBe(GrabState.SENT);
+		});
+
+		/*
+		 * A download the client has given up on, which used to be invisible.
+		 *
+		 * The row said `downloading` at zero bytes for as long as anybody cared to look,
+		 * because the client's state word was read for the log and never for a decision —
+		 * so the one gateway where it mattered had a torrent qBittorrent could not write and
+		 * a screen reporting a download in progress. The client's own reason is what is
+		 * recorded, because it is the only account of why.
+		 */
+		it('fails a download the client gave up on, with the reason the client gave', async () => {
+			const { manager, fakes } = build();
+			const row = grab({ state: GrabState.DOWNLOADING });
+
+			fakes.grabs.findLive.mockResolvedValue([row]);
+			fakes.client.statuses.mockResolvedValue([
+				status({
+					bytesDone: 0,
+					failed: true,
+					state: 'error',
+					failedReason: 'the client reports error for this torrent, writing into /home/elewendyl',
+				}),
+			]);
+
+			await manager.poll();
+
+			expect(row.state).toBe(GrabState.FAILED);
+			expect(row.error).toContain('/home/elewendyl');
+			expect(fakes.grabs.save).toHaveBeenCalledWith(row);
+		});
+
+		it('says so on its own when the client gives no reason', async () => {
+			const { manager, fakes } = build();
+			const row = grab({ state: GrabState.DOWNLOADING });
+
+			fakes.grabs.findLive.mockResolvedValue([row]);
+			fakes.client.statuses.mockResolvedValue([status({ failed: true, state: 'missingFiles', failedReason: null })]);
+
+			await manager.poll();
+
+			expect(row.state).toBe(GrabState.FAILED);
+			expect(row.error).toContain('missingFiles');
 		});
 
 		it('reports progress on a download that is still running', async () => {
@@ -1820,6 +1890,30 @@ describe('ReleaseManager', () => {
 
 				expect(row.state).toBe(GrabState.FAILED);
 				expect(row.error).toContain('no space left on device');
+			});
+
+			/*
+			 * The reason as somebody reading the row will understand it.
+			 *
+			 * `String(error)` on a Nest exception yields its class name twice: a row read
+			 * `ConflictException: Conflict Exception`, which names neither what was refused
+			 * nor by whom, and the cause had to be reproduced in a lab to be learnt. The key
+			 * and the detail were in the payload the whole time.
+			 */
+			it('records the key and the detail of a failure that carries them', async () => {
+				const { manager, fakes } = build();
+				const row = fetched();
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.mover.move.mockRejectedValue(new ConflictException({
+					key: ErrorKey.LIBRARY_PATH_NOT_WRITABLE,
+					detail: '/share/torrents is not under any library',
+				}));
+
+				await manager.poll();
+
+				expect(row.error).toBe(`${ErrorKey.LIBRARY_PATH_NOT_WRITABLE} (/share/torrents is not under any library)`);
 			});
 		});
 	});

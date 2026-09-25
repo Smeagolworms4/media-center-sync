@@ -59,6 +59,22 @@ export interface DownloadStatus {
 	complete: boolean;
 	/** The client's own state word, kept for the log rather than for a decision. */
 	state: string;
+	/**
+	 * The client has given up on this one, in its own judgement.
+	 *
+	 * Decided by the client rather than here, because the words are its own: qBittorrent
+	 * says `error` and `missingFiles`, another will say something else, and a manager that
+	 * knew those words would have to learn every client's.
+	 *
+	 * It matters because the failure is otherwise invisible. A torrent the client cannot
+	 * write — the save path it was given is not one it may write into, which is a
+	 * configuration nobody validates — sits at zero bytes for ever, and the row says
+	 * "downloading" for as long as anybody cares to look. The reason is the client's own
+	 * and is put in front of somebody rather than left in its log.
+	 */
+	failed: boolean;
+	/** What the client says about it, when it says anything. */
+	failedReason: string | null;
 	/** Where the files are, in the client's spelling. */
 	savePath: string | null;
 	/** The one file, or the folder, the torrent produced. Relative to `savePath`. */
@@ -83,8 +99,21 @@ export interface DownloadClient {
 	 */
 	grab(settings: DownloadClientSettings, order: GrabOrder): Promise<string>;
 
-	/** Where every download of ours has got to, in one request rather than one each. */
-	statuses(settings: DownloadClientSettings, category: string): Promise<DownloadStatus[]>;
+	/**
+	 * Where every download of ours has got to, in one request rather than one each.
+	 *
+	 * `hashes`, when given, is asked for **instead of** the category and not on top of it.
+	 * A torrent this gateway adopted rather than added — one the client already held — is
+	 * filed under whatever category its owner chose, and a poll that only ever asked about
+	 * ours never saw it: the row stayed on `sent` for ever while the download it was
+	 * following finished. The category remains the question to ask when the caller wants
+	 * the list of what is ours rather than the state of rows it already knows.
+	 */
+	statuses(
+		settings: DownloadClientSettings,
+		category: string,
+		hashes?: string[],
+	): Promise<DownloadStatus[]>;
 
 	/**
 	 * What is inside one download.
