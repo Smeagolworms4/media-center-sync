@@ -947,36 +947,40 @@
 			"paths_help": "Папка загрузок как соответствие — ровно так же, как медиасервер объявляет свои диски: префикс, в который пишет клиент, и та же папка глазами шлюза."
 		},
 		"preference": {
-			"orders_only": "This orders search results and never hides any of them. Anything you have not ranked stays on the list, last — so the only copy of last night’s episode is still there when it comes from a group you have not named.",
-			"global_title": "For the whole household",
-			"category_title": "For {category}",
-			"category_absent": "no server is reporting this shelf right now",
-			"cancel_override": "Follow the household order again",
-			"separates_nothing": "Nothing ordered: seeders and size still decide.",
+			"orders_only": "Это упорядочивает результаты поиска и никогда ничего не скрывает. То, что вы не ранжировали, остаётся в списке — последним, — так что единственная копия вчерашней серии никуда не денется, даже если она от группы, которую вы не называли.",
+			"global_title": "Для всего дома",
+			"category_title": "Для «{category}»",
+			"category_absent": "сейчас эту полку не сообщает ни один сервер",
+			"cancel_override": "Снова следовать порядку дома",
+			"separates_nothing": "Ничего не упорядочено: решают сиды и размер.",
 			"dimension": {
-				"resolution": "Resolution",
-				"codec": "Codec",
-				"team": "Release group",
-				"source": "Source",
-				"language": "Language"
+				"resolution": "Разрешение",
+				"codec": "Кодек",
+				"team": "Релиз-группа",
+				"source": "Источник",
+				"language": "Язык",
+				"cost": "Цена на трекере",
+				"indexer": "Трекер"
 			},
 			"dimension_help": {
-				"resolution": "1080p, 2160p, 720p, SD. SD covers 576p, 480p and 360p.",
-				"codec": "x265, x264, AV1. Every spelling of one codec counts as the same: HEVC and H.265 are x265.",
-				"team": "The tail of a release name, -NTb, -FLUX. A name it cannot be read from ranks last rather than being refused.",
-				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, as the name states it.",
-				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one."
+				"resolution": "1080p, 2160p, 720p, SD. SD охватывает 576p, 480p и 360p.",
+				"codec": "x265, x264, AV1. Все написания одного кодека считаются одним: HEVC и H.265 — это x265.",
+				"team": "Хвост имени релиза, -NTb, -FLUX. Имя, из которого её не прочесть, уходит в конец, а не отвергается.",
+				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD — так, как это указано в имени.",
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. Релиз с несколькими оценивается по лучшему из них.",
+				"cost": "бесплатно, половина. Читается из того, что сообщает трекер, поэтому известно только там, где он говорит, — большинство публичных молчат, и релиз без пометки встаёт к неупорядоченным, а не последним.",
+				"indexer": "Трекеры, которые вы предпочитаете, лучший первым, как они названы в строке. Этот порядок решает и внутри строки: релиз, найденный на трёх трекерах, — это одна строка, и берётся та копия, которую он поставит первой."
 			},
-			"move_up": "Decides earlier",
-			"move_down": "Decides later",
-			"drop": "No opinion on this",
-			"promote": "Prefer this one more",
-			"add_value": "Add a value",
-			"no_value": "No opinion in this dimension.",
-			"unused": "Not ranked:",
-			"add_override": "Give a category its own order",
-			"override_note": "A category’s order replaces the household one whole rather than adding to it, so it starts as a copy of it and changing the household order later does not reach into it.",
-			"media_note": "One series or one film can have an order of its own, set on the media itself — where it is shown and can be cancelled."
+			"move_up": "Решает раньше",
+			"move_down": "Решает позже",
+			"drop": "Нет мнения об этом",
+			"promote": "Предпочитать сильнее",
+			"add_value": "Добавить значение",
+			"no_value": "По этому критерию мнения нет.",
+			"unused": "Не упорядочено:",
+			"add_override": "Задать категории свой порядок",
+			"override_note": "Порядок категории целиком заменяет домашний, а не дополняет его: он начинается как копия, и последующее изменение домашнего порядка его уже не касается.",
+			"media_note": "У сериала или фильма может быть свой порядок, заданный на самом медиа, — там он и показан, и отменяется."
 		},
 		"request": {
 			"title": "Откуда приходят запросы",
@@ -1612,7 +1616,8 @@
 			"ptp_golden": "golden popcorn",
 			"ptp_approved": "одобрен"
 		},
-		"from": "Трекер"
+		"from": "Трекер",
+		"choose_indexer": "Выбрать трекер"
 	},
 	"classification": {
 		"title": "Куда это может относиться",

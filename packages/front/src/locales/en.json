@@ -958,14 +958,18 @@
 				"codec": "Codec",
 				"team": "Release group",
 				"source": "Source",
-				"language": "Language"
+				"language": "Language",
+				"cost": "Cost on the tracker",
+				"indexer": "Tracker"
 			},
 			"dimension_help": {
 				"resolution": "1080p, 2160p, 720p, SD. SD covers 576p, 480p and 360p.",
 				"codec": "x265, x264, AV1. Every spelling of one codec counts as the same: HEVC and H.265 are x265.",
 				"team": "The tail of a release name, -NTb, -FLUX. A name it cannot be read from ranks last rather than being refused.",
 				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, as the name states it.",
-				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one."
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one.",
+				"cost": "free, half. Read from what the tracker reports, so it is only known where one says — most public trackers say nothing, and a release that said nothing ranks with the unlisted rather than last.",
+				"indexer": "The trackers you prefer, best first, as they are named on a row. This one also decides within a line: a release found on three trackers is one row, and the copy a grab takes is the first of them this order puts."
 			},
 			"move_up": "Decides earlier",
 			"move_down": "Decides later",
@@ -1612,7 +1616,8 @@
 			"ptp_golden": "golden popcorn",
 			"ptp_approved": "approved"
 		},
-		"from": "Tracker"
+		"from": "Tracker",
+		"choose_indexer": "Choose the tracker"
 	},
 	"classification": {
 		"title": "Where this might belong",

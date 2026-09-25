@@ -958,14 +958,18 @@
 				"codec": "Codec",
 				"team": "Équipe de release",
 				"source": "Source",
-				"language": "Langue"
+				"language": "Langue",
+				"cost": "Coût sur le tracker",
+				"indexer": "Tracker"
 			},
 			"dimension_help": {
 				"resolution": "1080p, 2160p, 720p, SD. SD couvre le 576p, le 480p et le 360p.",
 				"codec": "x265, x264, AV1. Toutes les orthographes d'un codec comptent pour une : HEVC et H.265, c'est x265.",
 				"team": "La fin d'un nom de release, -NTb, -FLUX. Un nom illisible passe en dernier au lieu d'être refusé.",
 				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, tel que le nom l'indique.",
-				"language": "MULTI, VF, FRENCH, VOSTFR, VO. Une release qui en porte plusieurs est classée sur la meilleure."
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. Une release qui en porte plusieurs est classée sur la meilleure.",
+				"cost": "gratuit, demi-ratio. Lu sur ce que le tracker signale, donc connu seulement là où il le dit — la plupart des trackers publics ne disent rien, et une release muette se classe avec les non classés plutôt qu’en dernier.",
+				"indexer": "Les trackers que vous préférez, le meilleur d’abord, tels qu’ils sont nommés sur une ligne. Celui-ci décide aussi à l’intérieur d’une ligne : une release trouvée sur trois trackers ne fait qu’une ligne, et la copie que prend un grab est celle que cet ordre met en premier."
 			},
 			"move_up": "Décide plus tôt",
 			"move_down": "Décide plus tard",
@@ -1612,7 +1616,8 @@
 			"ptp_golden": "golden popcorn",
 			"ptp_approved": "approuvée"
 		},
-		"from": "Tracker"
+		"from": "Tracker",
+		"choose_indexer": "Choisir le tracker"
 	},
 	"classification": {
 		"title": "Où ceci pourrait aller",

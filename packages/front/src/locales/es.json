@@ -947,36 +947,40 @@
 			"paths_help": "La carpeta de descargas como correspondencia, igual que un servidor multimedia declara sus discos: el prefijo que escribe el cliente y la misma carpeta tal como la alcanza esta pasarela."
 		},
 		"preference": {
-			"orders_only": "This orders search results and never hides any of them. Anything you have not ranked stays on the list, last — so the only copy of last night’s episode is still there when it comes from a group you have not named.",
-			"global_title": "For the whole household",
-			"category_title": "For {category}",
-			"category_absent": "no server is reporting this shelf right now",
-			"cancel_override": "Follow the household order again",
-			"separates_nothing": "Nothing ordered: seeders and size still decide.",
+			"orders_only": "Esto ordena los resultados de búsqueda y no oculta ninguno. Lo que no haya clasificado permanece en la lista, al final — así que la única copia del episodio de anoche sigue ahí aunque venga de un grupo que no ha nombrado.",
+			"global_title": "Para toda la casa",
+			"category_title": "Para {category}",
+			"category_absent": "ningún servidor informa de este estante ahora mismo",
+			"cancel_override": "Volver al orden de la casa",
+			"separates_nothing": "Nada ordenado: las fuentes y el tamaño siguen decidiendo.",
 			"dimension": {
-				"resolution": "Resolution",
-				"codec": "Codec",
-				"team": "Release group",
-				"source": "Source",
-				"language": "Language"
+				"resolution": "Resolución",
+				"codec": "Códec",
+				"team": "Grupo de release",
+				"source": "Fuente",
+				"language": "Idioma",
+				"cost": "Coste en el tracker",
+				"indexer": "Tracker"
 			},
 			"dimension_help": {
-				"resolution": "1080p, 2160p, 720p, SD. SD covers 576p, 480p and 360p.",
-				"codec": "x265, x264, AV1. Every spelling of one codec counts as the same: HEVC and H.265 are x265.",
-				"team": "The tail of a release name, -NTb, -FLUX. A name it cannot be read from ranks last rather than being refused.",
-				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, as the name states it.",
-				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one."
+				"resolution": "1080p, 2160p, 720p, SD. SD cubre 576p, 480p y 360p.",
+				"codec": "x265, x264, AV1. Todas las grafías de un códec cuentan igual: HEVC y H.265 son x265.",
+				"team": "El final de un nombre de release, -NTb, -FLUX. Un nombre del que no se puede leer va al final en vez de ser rechazado.",
+				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, tal como lo indica el nombre.",
+				"language": "MULTI, VF, FRENCH, VOSTFR, VO. Una release que lleve varios se ordena por el mejor.",
+				"cost": "gratis, medio. Leído de lo que informa el tracker, así que solo se conoce donde alguno lo dice — la mayoría de los públicos no dicen nada, y una release que no dijo nada se ordena con las no clasificadas en vez de la última.",
+				"indexer": "Los trackers que prefiere, el mejor primero, tal como se nombran en una fila. Este también decide dentro de una línea: una release encontrada en tres trackers es una sola fila, y la copia que toma una descarga es la primera que pone este orden."
 			},
-			"move_up": "Decides earlier",
-			"move_down": "Decides later",
-			"drop": "No opinion on this",
-			"promote": "Prefer this one more",
-			"add_value": "Add a value",
-			"no_value": "No opinion in this dimension.",
-			"unused": "Not ranked:",
-			"add_override": "Give a category its own order",
-			"override_note": "A category’s order replaces the household one whole rather than adding to it, so it starts as a copy of it and changing the household order later does not reach into it.",
-			"media_note": "One series or one film can have an order of its own, set on the media itself — where it is shown and can be cancelled."
+			"move_up": "Decide antes",
+			"move_down": "Decide después",
+			"drop": "Sin opinión sobre esto",
+			"promote": "Preferir más este",
+			"add_value": "Añadir un valor",
+			"no_value": "Sin opinión en este criterio.",
+			"unused": "Sin clasificar:",
+			"add_override": "Dar a una categoría su propio orden",
+			"override_note": "El orden de una categoría sustituye por completo al de la casa en vez de sumarse a él: empieza como una copia, y cambiar después el orden de la casa no lo toca.",
+			"media_note": "Una serie o una película puede tener su propio orden, definido en el propio medio — donde se muestra y se puede cancelar."
 		},
 		"request": {
 			"title": "De dónde vienen las solicitudes",
@@ -1612,7 +1616,8 @@
 			"ptp_golden": "golden popcorn",
 			"ptp_approved": "aprobada"
 		},
-		"from": "Tracker"
+		"from": "Tracker",
+		"choose_indexer": "Elegir el tracker"
 	},
 	"classification": {
 		"title": "Dónde podría ir esto",

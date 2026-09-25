@@ -947,36 +947,40 @@
 			"paths_help": "下载目录以对应关系声明，和媒体服务器声明磁盘的方式完全一致：客户端写入的前缀，以及本网关到达的同一目录。"
 		},
 		"preference": {
-			"orders_only": "This orders search results and never hides any of them. Anything you have not ranked stays on the list, last — so the only copy of last night’s episode is still there when it comes from a group you have not named.",
-			"global_title": "For the whole household",
-			"category_title": "For {category}",
-			"category_absent": "no server is reporting this shelf right now",
-			"cancel_override": "Follow the household order again",
-			"separates_nothing": "Nothing ordered: seeders and size still decide.",
+			"orders_only": "这只对搜索结果排序，绝不隐藏任何一条。您没有排过的仍留在列表里、排在最后——所以昨晚那集唯一的一份即便来自您没点名的组，也还在。",
+			"global_title": "对全家生效",
+			"category_title": "对 {category}",
+			"category_absent": "目前没有服务器报告这个架位",
+			"cancel_override": "重新沿用全家的排序",
+			"separates_nothing": "没有任何排序：仍由做种数和体积决定。",
 			"dimension": {
-				"resolution": "Resolution",
-				"codec": "Codec",
-				"team": "Release group",
-				"source": "Source",
-				"language": "Language"
+				"resolution": "分辨率",
+				"codec": "编码",
+				"team": "发布组",
+				"source": "片源",
+				"language": "语言",
+				"cost": "在 tracker 上的代价",
+				"indexer": "Tracker"
 			},
 			"dimension_help": {
-				"resolution": "1080p, 2160p, 720p, SD. SD covers 576p, 480p and 360p.",
-				"codec": "x265, x264, AV1. Every spelling of one codec counts as the same: HEVC and H.265 are x265.",
-				"team": "The tail of a release name, -NTb, -FLUX. A name it cannot be read from ranks last rather than being refused.",
-				"source": "BluRay, WEB-DL, WEBRip, HDTV, DVD, as the name states it.",
-				"language": "MULTI, VF, FRENCH, VOSTFR, VO. A release carrying several is ranked on its best one."
+				"resolution": "1080p、2160p、720p、SD。SD 涵盖 576p、480p 和 360p。",
+				"codec": "x265、x264、AV1。同一编码的各种写法算作同一个：HEVC 和 H.265 就是 x265。",
+				"team": "发布名结尾的部分，-NTb、-FLUX。读不出来的名字排到最后，而不是被拒绝。",
+				"source": "BluRay、WEB-DL、WEBRip、HDTV、DVD，以名字里写的为准。",
+				"language": "MULTI、VF、FRENCH、VOSTFR、VO。带多个标记的发布按其中最好的一个排序。",
+				"cost": "免费、半计量。取自 tracker 自己的标记，因此只有它说了才知道——多数公开 tracker 什么也不说，没有标记的发布与未排序的并列，而不是排到最后。",
+				"indexer": "您偏好的 tracker，最好的排在前面，名字与行上显示的一致。这一项还会在行内起作用：同一个发布在三个 tracker 上只占一行，抓取时取的是这个顺序排在最前的那份。"
 			},
-			"move_up": "Decides earlier",
-			"move_down": "Decides later",
-			"drop": "No opinion on this",
-			"promote": "Prefer this one more",
-			"add_value": "Add a value",
-			"no_value": "No opinion in this dimension.",
-			"unused": "Not ranked:",
-			"add_override": "Give a category its own order",
-			"override_note": "A category’s order replaces the household one whole rather than adding to it, so it starts as a copy of it and changing the household order later does not reach into it.",
-			"media_note": "One series or one film can have an order of its own, set on the media itself — where it is shown and can be cancelled."
+			"move_up": "更早参与决定",
+			"move_down": "更晚参与决定",
+			"drop": "对此没有意见",
+			"promote": "更偏好这个",
+			"add_value": "添加一个值",
+			"no_value": "这一项没有意见。",
+			"unused": "未排序：",
+			"add_override": "为某个分类设定自己的排序",
+			"override_note": "分类的排序是整体替换全家的排序，而不是叠加：它以全家排序的副本开始，之后再改全家的排序也不会影响它。",
+			"media_note": "某部剧集或电影可以有自己的排序，在媒体本身上设定——也在那里显示和取消。"
 		},
 		"request": {
 			"title": "请求的来源",
@@ -1612,7 +1616,8 @@
 			"ptp_golden": "金爆米花",
 			"ptp_approved": "已认可"
 		},
-		"from": "Tracker"
+		"from": "Tracker",
+		"choose_indexer": "选择 tracker"
 	},
 	"classification": {
 		"title": "这可能属于哪里",

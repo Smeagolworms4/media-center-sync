@@ -36,6 +36,7 @@ interface Sketch {
 	seeders?: number | null;
 	heldAlready?: boolean;
 	flags?: string[];
+	indexer?: string;
 }
 
 /**
@@ -50,7 +51,7 @@ function release(sketch: Sketch = {}): Release {
 	return {
 		id: `id:${sketch.title ?? 'Show.S01E01'}:${String(sketch.seeders ?? 0)}`,
 		title: sketch.title ?? 'Show.S01E01.1080p.WEB-DL-GRP',
-		indexer: 'tracker',
+		indexer: sketch.indexer ?? 'tracker',
 		size: 2 * GIGABYTE,
 		seeders: sketch.seeders === undefined ? 10 : sketch.seeders,
 		leechers: 0,
@@ -379,6 +380,96 @@ describe('orderGroupsByPreference', () => {
 		);
 
 		expect(titles(sorted)).toEqual(['Show.1080p', 'Show.2160p']);
+	});
+
+	/*
+	 * The two dimensions that are about where a copy comes from rather than what it is.
+	 *
+	 * Both are read from what the indexer said and never from the name: whether a tracker
+	 * gives a release away is a fact about that tracker on that day, and a name that said
+	 * `FREELEECH` would be a name somebody typed.
+	 */
+	it('puts a free copy first when the household asked for that', () => {
+		const sorted = orderGroupsByPreference(
+			[
+				group({ title: 'Show.full', seeders: 500 }),
+				group({ title: 'Show.free', seeders: 10, flags: ['freeleech'] }),
+			],
+			preference([Dimension.COST, ['free', 'half']]),
+		);
+
+		expect(titles(sorted)).toEqual(['Show.free', 'Show.full']);
+	});
+
+	it('reads half price as cheaper than full and dearer than free', () => {
+		const sorted = orderGroupsByPreference(
+			[
+				group({ title: 'Show.full' }),
+				group({ title: 'Show.half', flags: ['halfleech'] }),
+				group({ title: 'Show.free', flags: ['freeleech'] }),
+			],
+			preference([Dimension.COST, ['free', 'half']]),
+		);
+
+		expect(titles(sorted)).toEqual(['Show.free', 'Show.half', 'Show.full']);
+	});
+
+	it('takes what somebody typed for the flag the indexer reported', () => {
+		// The tracker says `freeleech`, the household typed `gratuit`, and they are the
+		// same sentence — as every other dimension already folds.
+		const sorted = orderGroupsByPreference(
+			[group({ title: 'Show.full' }), group({ title: 'Show.free', flags: ['freeleech'] })],
+			preference([Dimension.COST, ['gratuit']]),
+		);
+
+		expect(titles(sorted)).toEqual(['Show.free', 'Show.full']);
+	});
+
+	it('says nothing about a release whose tracker said nothing', () => {
+		// Most public trackers report no flags at all, and reading that silence as "full
+		// price" would sink every public copy for a household that never mentioned cost.
+		const sorted = orderGroupsByPreference(
+			[
+				group({ title: 'Show.silent', seeders: 5 }),
+				group({ title: 'Show.dear', seeders: 500, flags: ['internal'] }),
+			],
+			preference([Dimension.COST, ['free']]),
+		);
+
+		// Neither is free, so neither is separated and the order it was given survives.
+		expect(titles(sorted)).toEqual(['Show.silent', 'Show.dear']);
+	});
+
+	it('prefers one tracker over another, by the name a row shows', () => {
+		const sorted = orderGroupsByPreference(
+			[
+				group({ title: 'Show.elsewhere', indexer: 'Sharewood', seeders: 500 }),
+				group({ title: 'Show.here', indexer: 'YGG', seeders: 10 }),
+			],
+			preference([Dimension.INDEXER, ['YGG']]),
+		);
+
+		expect(titles(sorted)).toEqual(['Show.here', 'Show.elsewhere']);
+	});
+
+	/*
+	 * And within a line, which is the half that decides what actually gets downloaded.
+	 *
+	 * A release on two trackers is one row and the first of its copies is what a grab
+	 * takes. Ordering only the rows would let a household's "free first, YGG before the
+	 * rest" pick which line to press and then be ignored the moment it was pressed.
+	 */
+	it('orders the copies inside a line, because the first of them is what is taken', () => {
+		const dear = release({ title: 'Show.S01E01', indexer: 'Public', seeders: 500 });
+		const free = release({ title: 'Show.S01E01', indexer: 'YGG', seeders: 10, flags: ['freeleech'] });
+		const one = { ...group({ title: 'Show.S01E01' }), releases: [dear, free] };
+
+		const [sorted] = orderGroupsByPreference([one], preference([Dimension.COST, ['free']]));
+
+		expect(sorted.releases.map((copy) => copy.indexer)).toEqual(['YGG', 'Public']);
+		// And the trackers it says it is on follow the same order, because that is the
+		// list the screen offers to choose from.
+		expect(sorted.indexers).toEqual(['YGG', 'Public']);
 	});
 
 	it('keeps a copy already on the disk last, however preferred it is', () => {
