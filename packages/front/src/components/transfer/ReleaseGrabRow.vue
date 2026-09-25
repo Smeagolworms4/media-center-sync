@@ -32,7 +32,13 @@
 		busy: false,
 	});
 
-	const emit = defineEmits<{ retarget: [grab: ReleaseGrab]; retry: [grab: ReleaseGrab] }>();
+	const emit = defineEmits<{
+		retarget: [grab: ReleaseGrab];
+		retry: [grab: ReleaseGrab];
+		pause: [grab: ReleaseGrab];
+		resume: [grab: ReleaseGrab];
+		archive: [grab: ReleaseGrab];
+	}>();
 
 	const librariesStore = useLibrariesStore();
 
@@ -53,6 +59,21 @@
 	const retryable = computed(() =>
 		props.grab.clientId !== null
 		&& (props.grab.state === GrabState.FAILED || props.grab.state === GrabState.CANCELLED));
+
+	/**
+	 * Whether this one can be stopped, or started again.
+	 *
+	 * Only while the client still has something to do about it: a download already filed
+	 * is a file, and stopping it would mean nothing. The other half of the queue's
+	 * controls — somebody wanting their line back for an evening had to go and find the
+	 * torrent in the download client's own interface.
+	 */
+	const stoppable = computed(() =>
+		props.grab.clientId !== null
+		&& (props.grab.state === GrabState.SENT || props.grab.state === GrabState.DOWNLOADING));
+
+	const startable = computed(() =>
+		props.grab.clientId !== null && props.grab.state === GrabState.PAUSED);
 
 	/** Which of the two things the bytes are counting, said rather than implied. */
 	const phase = computed(() =>
@@ -175,6 +196,35 @@
 			</p>
 
 			<div class="release-grab-row_actions mt-2">
+				<v-btn
+					v-if="stoppable"
+					data-test="release-grab-row-pause"
+					:disabled="busy"
+					prepend-icon="mdi-pause"
+					size="small"
+					variant="text"
+					@click="emit('pause', grab)"
+				>
+					{{ $t('transfer.action.pause') }}
+				</v-btn>
+
+				<!--
+					Filled, like a paused transfer's: stopping is the first thing people try,
+					and the way back has to be the obvious one.
+				-->
+				<v-btn
+					v-if="startable"
+					color="primary"
+					data-test="release-grab-row-resume"
+					:disabled="busy"
+					prepend-icon="mdi-play"
+					size="small"
+					variant="tonal"
+					@click="emit('resume', grab)"
+				>
+					{{ $t('transfer.action.resume') }}
+				</v-btn>
+
 				<!--
 					Offered only where it means something: the client still holds the torrent,
 					so this is a second look rather than a second download.
@@ -196,6 +246,23 @@
 					library it is a file like any other, and moving it is the media's own
 					business rather than this row's.
 				-->
+				<!--
+					On every row, in every state, for the reason the transfers have one: a
+					queue nobody can take anything off stops being read. The torrent is left
+					in the client and a filed copy in its library — this forgets the row.
+				-->
+				<v-btn
+					data-test="release-grab-row-archive"
+					:disabled="busy"
+					prepend-icon="mdi-archive-outline"
+					size="small"
+					:title="$t('transfer.action.archive')"
+					variant="text"
+					@click="emit('archive', grab)"
+				>
+					{{ $t('transfer.action.archive') }}
+				</v-btn>
+
 				<v-btn
 					v-if="grab.state !== GrabState.PLACED"
 					data-test="release-grab-row-retarget"

@@ -57,6 +57,15 @@ export interface DownloadStatus {
 	rate: number;
 	/** True once every byte is on the client's disk. */
 	complete: boolean;
+	/**
+	 * Stopped by somebody rather than by a fault.
+	 *
+	 * Told apart from `failed` because the two are opposite news: one is a download
+	 * waiting to be let go again, the other is one that needs somebody. Decided by the
+	 * client, whose words these are — qBittorrent says `pausedDL` on 4 and `stoppedDL` on
+	 * 5, and a manager that knew either would be wrong on the other.
+	 */
+	paused: boolean;
 	/** The client's own state word, kept for the log rather than for a decision. */
 	state: string;
 	/**
@@ -139,6 +148,19 @@ export interface DownloadClient {
 
 	/** Let a stopped download run. */
 	start(settings: DownloadClientSettings, clientId: string): Promise<void>;
+
+	/**
+	 * Stop a running download without giving it up.
+	 *
+	 * The other half of `start`, and it was missing: a torrent could be added stopped and
+	 * set going, and never stopped again from here. Somebody wanting to free a line or a
+	 * disk for an hour had to go and find it in the client's own interface, which is the
+	 * thing this screen exists to spare them.
+	 *
+	 * The bytes already fetched are kept — that is what makes it a pause rather than a
+	 * cancellation.
+	 */
+	pause(settings: DownloadClientSettings, clientId: string): Promise<void>;
 
 	/** Whether the address and credentials work, for the settings screen to say so. */
 	probe(settings: DownloadClientSettings): Promise<boolean>;

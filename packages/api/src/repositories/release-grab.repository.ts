@@ -4,7 +4,19 @@ import { GrabState } from '@mcs/shared';
 import { ReleaseGrab } from '@/entities';
 
 /** Grabs the download client may still have something to say about. */
-const LIVE_STATES = [GrabState.SENT, GrabState.DOWNLOADING, GrabState.FETCHED];
+/**
+ * The states worth asking the client about.
+ *
+ * `paused` is here, and that is deliberate: a torrent somebody stopped is one they mean
+ * to start again, and a gateway that stopped watching it would not notice when they do —
+ * the download would finish in the client and never be filed.
+ */
+const LIVE_STATES = [
+	GrabState.SENT,
+	GrabState.DOWNLOADING,
+	GrabState.PAUSED,
+	GrabState.FETCHED,
+];
 
 /**
  * Reading and writing what was grabbed, and nothing else.

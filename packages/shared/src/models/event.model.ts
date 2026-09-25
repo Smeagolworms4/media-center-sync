@@ -72,6 +72,8 @@ export const EventName = {
 	 * on the next reload would go on offering buttons for a row the gateway no longer has.
 	 */
 	TRANSFER_REMOVED: 'transfer.removed',
+	/** A torrent was taken off the queue, and every screen showing it has to drop it. */
+	RELEASE_GRAB_REMOVED: 'release.grab.removed',
 } as const;
 
 export type EventNameValue = (typeof EventName)[keyof typeof EventName];
@@ -95,6 +97,7 @@ export interface EventPayloads {
 	[EventName.SCAN_PROGRESS]: ScanProgress;
 	[EventName.TRANSFER_VERIFIED]: TransferVerification;
 	[EventName.TRANSFER_REMOVED]: { id: string };
+	[EventName.RELEASE_GRAB_REMOVED]: { id: string };
 	[EventName.TRANSFER_REVALIDATED]: Revalidation;
 	[EventName.RELEASE_GRAB]: ReleaseGrab;
 	[EventName.TRANSFER_LANDING]: { transferId: string; landing: MediaLandingState };

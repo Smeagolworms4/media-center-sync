@@ -97,6 +97,20 @@ interface QbTorrent {
  */
 const FAILED_STATES = new Set(['error', 'missingFiles']);
 
+/**
+ * The states a torrent is in when somebody stopped it.
+ *
+ * Both spellings, because both are current: qBittorrent 4 says `paused*` and 5 says
+ * `stopped*`, and a gateway that knew one of them would report the other's idle torrents
+ * as downloading at zero bytes for ever.
+ */
+const PAUSED_STATES = new Set([
+	'pausedDL',
+	'pausedUP',
+	'stoppedDL',
+	'stoppedUP',
+]);
+
 const COMPLETE_STATES = new Set([
 	'uploading',
 	'stalledUP',
@@ -518,6 +532,7 @@ export class QbittorrentClient implements DownloadClient {
 					complete: (row.progress ?? 0) >= 1 && COMPLETE_STATES.has(row.state ?? ''),
 					state: row.state ?? '',
 					failed: FAILED_STATES.has(row.state ?? ''),
+					paused: PAUSED_STATES.has(row.state ?? ''),
 					// qBittorrent's listing carries no message — the reason is in its own log
 					// — so the one fact worth carrying is where it was writing, because that
 					// is what the reason nearly always is.
@@ -629,6 +644,38 @@ export class QbittorrentClient implements DownloadClient {
 
 				// Anything but "this version has no such route" is a real failure and is
 				// not worth asking the same server a second question about.
+				if (!isMissingRoute(error)) {
+					throw error;
+				}
+			}
+		}
+
+		throw last ?? new ServiceUnavailableException({ key: ErrorKey.DOWNLOAD_CLIENT_REFUSED });
+	}
+
+	/**
+	 * Stop a torrent, keeping what it has already fetched.
+	 *
+	 * `stop` on qBittorrent 5 and `pause` on 4, tried in that order for the reason
+	 * `start` documents: the version that does not know a route answers 404, and only a
+	 * 404 is worth asking the same server a second question about.
+	 */
+	public async pause(settings: DownloadClientSettings, clientId: string): Promise<void> {
+		const cookie = await this._login(settings);
+		let last: unknown = null;
+
+		for (const path of ['/api/v2/torrents/stop', '/api/v2/torrents/pause']) {
+			try {
+				await releaseText(settings.baseUrl, path, {
+					form: { hashes: clientId },
+					headers: cookie === null ? {} : { Cookie: cookie },
+					unreachable: ErrorKey.DOWNLOAD_CLIENT_UNREACHABLE,
+				});
+
+				return;
+			} catch (error: unknown) {
+				last = error;
+
 				if (!isMissingRoute(error)) {
 					throw error;
 				}

@@ -488,6 +488,7 @@ describe('QbittorrentClient', () => {
 				rate: 125,
 				complete: false,
 				state: 'downloading',
+				paused: false,
 				failed: false,
 				failedReason: null,
 				savePath: '/downloads/shows',
@@ -516,6 +517,24 @@ describe('QbittorrentClient', () => {
 			expect(status.failedReason).toContain(state);
 			expect(status.failedReason).toContain('/downloads/shows');
 		});
+
+		/*
+		 * Both spellings, because both are current: qBittorrent 4 says `paused*` and 5 says
+		 * `stopped*`. A gateway that knew one of them would report the other's idle
+		 * torrents as downloading at zero bytes for ever — a row people look into for
+		 * nothing, about a download that is doing exactly what somebody told it to.
+		 */
+		it.each(['pausedDL', 'stoppedDL', 'pausedUP', 'stoppedUP'])(
+			'reads %s as stopped by somebody rather than stalled',
+			async (state) => {
+				serve({ '/api/v2/torrents/info': { body: [torrent({ hash: 'h1', state })] } });
+
+				const [status] = await client.statuses(SETTINGS, 'mcs');
+
+				expect(status.paused).toBe(true);
+				expect(status.failed).toBe(false);
+			},
+		);
 
 		it('does not call a stalled download a failure', async () => {
 			// No peers is not the same as given up on: it downloads the moment one appears,
@@ -621,6 +640,40 @@ describe('QbittorrentClient', () => {
 
 			expect(await client.statuses(SETTINGS, 'mcs', [])).toEqual([]);
 			expect(callsTo('/api/v2/torrents/info')).toHaveLength(0);
+		});
+	});
+
+	describe('pause', () => {
+		it('stops a torrent through the route this version has', async () => {
+			serve({ '/api/v2/torrents/stop': {} });
+
+			await client.pause(SETTINGS, 'hash-1');
+
+			expect(callsTo('/api/v2/torrents/stop')[0].form.get('hashes')).toBe('hash-1');
+		});
+
+		it('falls back to the older spelling when the newer one is not there', async () => {
+			// `stop` on 5 and `pause` on 4; the version that does not know a route answers
+			// 404, and only a 404 is worth asking the same server a second question about.
+			serve({
+				'/api/v2/torrents/stop': { status: 404, body: 'Not Found' },
+				'/api/v2/torrents/pause': {},
+			});
+
+			await client.pause(SETTINGS, 'hash-1');
+
+			expect(callsTo('/api/v2/torrents/pause')).toHaveLength(1);
+		});
+
+		it('reports a client that is down as unreachable rather than as a refusal', async () => {
+			// Catching everything meant a client that was simply down failed both calls and
+			// was blamed for refusing, which sends somebody to the wrong screen.
+			serve({ '/api/v2/torrents/stop': { status: 503, body: 'nope' } });
+
+			await expect(client.pause(SETTINGS, 'hash-1')).rejects.toMatchObject({
+				response: { key: ErrorKey.DOWNLOAD_CLIENT_UNREACHABLE },
+			});
+			expect(callsTo('/api/v2/torrents/pause')).toHaveLength(0);
 		});
 	});
 

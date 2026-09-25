@@ -64,6 +64,15 @@ export enum GrabState {
 	/** Handed to the download client, which has not said anything yet. */
 	SENT = 'sent',
 	DOWNLOADING = 'downloading',
+	/**
+	 * Stopped by somebody, and waiting to be let go again.
+	 *
+	 * Its own state rather than a flag on `downloading`, because the two say opposite
+	 * things to everybody who reads them: a paused row is not late, it is not stalled, and
+	 * nothing about it needs looking into. Still live — the client keeps the bytes it has,
+	 * and the gateway keeps watching for the moment it is started again.
+	 */
+	PAUSED = 'paused',
 	/** The client has the whole thing; the gateway has not filed it yet. */
 	FETCHED = 'fetched',
 	/** Copied into the library. The torrent is left alone — see `ReleaseGrab.copied`. */

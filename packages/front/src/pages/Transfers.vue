@@ -521,6 +521,24 @@
 		}
 	});
 
+	/** Stop a torrent, start it again, or take its row off the queue. */
+	function onGrab (act: (id: string) => Promise<unknown>, said: string) {
+		return tryCallback(async (grab: ReleaseGrab) => {
+			busyId.value = grab.id;
+
+			try {
+				await act(grab.id);
+				void notify(said);
+			} finally {
+				busyId.value = null;
+			}
+		});
+	}
+
+	const pauseGrab = onGrab(id => releasesStore.pause(id), 'transfer.paused');
+	const resumeGrab = onGrab(id => releasesStore.resume(id), 'transfer.resumed');
+	const archiveGrab = onGrab(id => releasesStore.archive(id), 'transfer.archived');
+
 	const confirmRetarget = tryCallback(async () => {
 		const asked = retargeting.value;
 
@@ -788,6 +806,9 @@
 					:key="grab.id"
 					:busy="busyId === grab.id"
 					:grab="grab"
+					@archive="archiveGrab"
+					@pause="pauseGrab"
+					@resume="resumeGrab"
 					@retarget="retargetGrab"
 					@retry="retryGrab"
 				/>

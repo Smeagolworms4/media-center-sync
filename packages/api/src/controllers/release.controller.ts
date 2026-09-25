@@ -9,6 +9,7 @@ import {
 import {
 	Body,
 	Controller,
+	Delete,
 	Get,
 	HttpCode,
 	HttpStatus,
@@ -20,6 +21,7 @@ import {
 import {
 	ApiBearerAuth,
 	ApiConflictResponse,
+	ApiNoContentResponse,
 	ApiNotFoundResponse,
 	ApiOkResponse,
 	ApiOperation,
@@ -312,6 +314,46 @@ export class ReleaseController {
 	@ApiConflictResponse({ description: 'error.grab.not_retryable' })
 	public retry(@Param('id', ParseUUIDPipe) id: string): Promise<ReleaseGrab> {
 		return this._releases.retry(id);
+	}
+
+	@Post('downloads/:id/pause')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Stop a download without giving it up',
+		description: 'The bytes already fetched are kept, and the row keeps being watched.',
+	})
+	@ApiOkResponse({ description: 'ReleaseGrab' })
+	@ApiNotFoundResponse({ description: 'error.grab.not_found' })
+	@ApiConflictResponse({ description: 'error.grab.not_retryable' })
+	public pause(@Param('id', ParseUUIDPipe) id: string): Promise<ReleaseGrab> {
+		return this._releases.pause(id);
+	}
+
+	@Post('downloads/:id/resume')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({ summary: 'Let a stopped download run again' })
+	@ApiOkResponse({ description: 'ReleaseGrab' })
+	@ApiNotFoundResponse({ description: 'error.grab.not_found' })
+	@ApiConflictResponse({ description: 'error.grab.not_retryable' })
+	public resume(@Param('id', ParseUUIDPipe) id: string): Promise<ReleaseGrab> {
+		return this._releases.resume(id);
+	}
+
+	@Delete('downloads/:id')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({
+		summary: 'Take a download off the queue',
+		description:
+			'The row and nothing else: the torrent stays in the client, seeding or stopped '
+			+ 'as it was, and a file already filed stays in its library.',
+	})
+	@ApiNoContentResponse({ description: 'Archived' })
+	@ApiNotFoundResponse({ description: 'error.grab.not_found' })
+	public archive(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+		return this._releases.archive(id);
 	}
 
 	@Get('trackers')

@@ -287,6 +287,36 @@ export const useReleasesStore = defineStore('releases', () => {
 		return answer?.folder ?? null;
 	}
 
+	/** Stop a download without giving it up; the client keeps the bytes it has. */
+	async function pause (id: string): Promise<ReleaseGrab> {
+		return replace(await caller('api').post<ReleaseGrab>(`/releases/downloads/${id}/pause`, {}));
+	}
+
+	/** Let a stopped one run again. */
+	async function resume (id: string): Promise<ReleaseGrab> {
+		return replace(await caller('api').post<ReleaseGrab>(`/releases/downloads/${id}/resume`, {}));
+	}
+
+	/**
+	 * Take a row off the queue, leaving the torrent and any filed copy alone.
+	 *
+	 * Dropped here as well as on the gateway rather than reloading the list: the row is
+	 * gone, and a list that kept showing it would offer buttons for something the gateway
+	 * no longer has.
+	 */
+	async function archive (id: string): Promise<void> {
+		await caller('api').delete(`/releases/downloads/${id}`);
+
+		grabs.value = grabs.value.filter(one => one.id !== id);
+	}
+
+	/** Put an answered row back in the list in place, so the screen says what happened. */
+	function replace (row: ReleaseGrab): ReleaseGrab {
+		grabs.value = grabs.value.map(one => (one.id === row.id ? row : one));
+
+		return row;
+	}
+
 	return {
 		result,
 		grabs,
@@ -305,8 +335,11 @@ export const useReleasesStore = defineStore('releases', () => {
 		pull,
 		trackers,
 		loadTrackers,
+		archive,
 		loadGrabs,
+		pause,
 		plannedFolder,
+		resume,
 		retry,
 		setDestination,
 	};
