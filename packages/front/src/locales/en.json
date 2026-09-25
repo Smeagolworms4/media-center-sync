@@ -1593,6 +1593,25 @@
 			"uncovered": "{count} nothing on offer can fill:",
 			"uncovered_peer": "One of these is on a peer — pull it from the list above. | {count} of these are on peers — pull them from the list above.",
 			"uncovered_hint": "Try other search terms, or come back once a release appears."
+		},
+		"from_indexer": "from {indexer}",
+		"choose_indexer": "Choose the tracker",
+		"cost": {
+			"free": "free",
+			"half": "half ratio"
+		},
+		"flag": {
+			"freeleech": "freeleech",
+			"g_freeleech": "freeleech",
+			"free": "freeleech",
+			"halfleech": "halfleech",
+			"g_halfleech": "halfleech",
+			"doubleupload": "double upload",
+			"internal": "internal",
+			"scene": "scene",
+			"nuked": "nuked",
+			"ptp_golden": "golden popcorn",
+			"ptp_approved": "approved"
 		}
 	},
 	"classification": {

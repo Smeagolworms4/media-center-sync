@@ -1593,6 +1593,25 @@
 			"uncovered": "有 {count} 集是现有内容无法填补的：",
 			"uncovered_peer": "其中 {count} 集在对端手里——请从上面的列表拉取。",
 			"uncovered_hint": "试试别的搜索词，或者等有新的发布后再回来。"
+		},
+		"from_indexer": "来自 {indexer}",
+		"choose_indexer": "选择 tracker",
+		"cost": {
+			"free": "免费",
+			"half": "半计量"
+		},
+		"flag": {
+			"freeleech": "免费下载",
+			"g_freeleech": "免费下载",
+			"free": "免费下载",
+			"halfleech": "半计量",
+			"g_halfleech": "半计量",
+			"doubleupload": "双倍上传",
+			"internal": "内部",
+			"scene": "scene",
+			"nuked": "已作废",
+			"ptp_golden": "金爆米花",
+			"ptp_approved": "已认可"
 		}
 	},
 	"classification": {

@@ -57,6 +57,10 @@ module.exports = [
 		],
 	},
 	{
+		// Free on this tracker's ratio, which is the one fact about a release that decides
+		// whether somebody on a private tracker can take it at all. Here so that the chain
+		// from a Torznab attribute to the chip on the row is proved rather than assumed.
+		downloadFactor: 0,
 		key: 'expanse-s01e01-2160p-labhd',
 		title: 'The.Expanse.S01E01.Dulcinea.2160p.WEB-DL.x265-LABHD',
 		category: TV_UHD,
@@ -73,6 +77,8 @@ module.exports = [
 		],
 	},
 	{
+		// Half price, because a screen that only knew "free" would call this full price.
+		downloadFactor: 0.5,
 		key: 'expanse-s01e01-720p-labrip',
 		title: 'The.Expanse.S01E01.Dulcinea.720p.HDTV.x264-LABRIP',
 		category: TV_HD,

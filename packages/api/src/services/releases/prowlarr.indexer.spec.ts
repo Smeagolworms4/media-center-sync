@@ -186,6 +186,52 @@ describe('ProwlarrIndexer', () => {
 			expect(found.indexer).toBe('YGG');
 		});
 
+		/*
+		 * What a release costs on the tracker's ratio, which on a private one decides
+		 * whether somebody can take it at all.
+		 *
+		 * Prowlarr normalises every tracker's own vocabulary into `indexerFlags`, a list of
+		 * strings — verified against a running one, which also has no
+		 * `downloadVolumeFactor` beside it to fall back on. An empty list is the ordinary
+		 * answer from a public tracker and says nothing at all, so it must not be read as
+		 * "this costs full ratio".
+		 */
+		describe('what the tracker says it costs', () => {
+			it('carries the flags across, lower-cased', async () => {
+				answer([row({ indexerFlags: ['FreeLeech', 'Internal'] })]);
+
+				const [found] = await indexer.search(SETTINGS, episodeQuery);
+
+				expect(found.flags).toEqual(['freeleech', 'internal']);
+			});
+
+			it('answers an empty list when the indexer said nothing', async () => {
+				answer([row({ indexerFlags: [] })]);
+
+				const [found] = await indexer.search(SETTINGS, episodeQuery);
+
+				expect(found.flags).toEqual([]);
+			});
+
+			it('answers an empty list rather than throwing on a shape it did not expect', async () => {
+				// Somebody else's API over a version nobody pins: a fork answering a string
+				// or a table here must cost one unreadable chip, never the whole search.
+				answer([row({ indexerFlags: 'freeleech' })]);
+
+				const [found] = await indexer.search(SETTINGS, episodeQuery);
+
+				expect(found.flags).toEqual([]);
+			});
+
+			it('drops the entries that are not strings and keeps the ones that are', async () => {
+				answer([row({ indexerFlags: ['freeleech', 3, null, '  ', 'scene'] })]);
+
+				const [found] = await indexer.search(SETTINGS, episodeQuery);
+
+				expect(found.flags).toEqual(['freeleech', 'scene']);
+			});
+		});
+
 		it('leaves what we hold to the layer that knows it', async () => {
 			answer([row()]);
 

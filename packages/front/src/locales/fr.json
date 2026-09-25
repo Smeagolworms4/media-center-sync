@@ -1593,6 +1593,25 @@
 			"uncovered": "{count} que rien de proposé ne peut combler :",
 			"uncovered_peer": "L’un d’eux est chez un pair — rapatriez-le depuis la liste ci-dessus. | {count} d’entre eux sont chez des pairs — rapatriez-les depuis la liste ci-dessus.",
 			"uncovered_hint": "Essayez d’autres termes de recherche, ou revenez quand une release apparaîtra."
+		},
+		"from_indexer": "depuis {indexer}",
+		"choose_indexer": "Choisir le tracker",
+		"cost": {
+			"free": "gratuit",
+			"half": "demi-ratio"
+		},
+		"flag": {
+			"freeleech": "freeleech",
+			"g_freeleech": "freeleech",
+			"free": "freeleech",
+			"halfleech": "demi-ratio",
+			"g_halfleech": "demi-ratio",
+			"doubleupload": "upload doublé",
+			"internal": "interne",
+			"scene": "scene",
+			"nuked": "nukée",
+			"ptp_golden": "golden popcorn",
+			"ptp_approved": "approuvée"
 		}
 	},
 	"classification": {

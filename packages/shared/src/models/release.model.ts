@@ -149,7 +149,46 @@ export interface Release {
 	coverage: ReleaseCoverage;
 	/** True when this gateway already holds a file of that exact size. */
 	heldAlready: boolean;
+	/**
+	 * What the tracker says about this one, in the indexer's normalised words.
+	 *
+	 * `freeleech`, `halfleech`, `internal`, `scene`, `nuked` — whatever it reported,
+	 * lower-cased and otherwise untouched. Shown rather than interpreted, because the
+	 * vocabulary belongs to trackers this gateway has never heard of and an unknown flag
+	 * is still worth reading; the two that change what a grab *costs* are recognised (see
+	 * `FREE_RELEASE_FLAGS`) and the rest are simply displayed.
+	 *
+	 * Empty where the indexer said nothing, which is not the same as "it costs full
+	 * ratio" — most public trackers report no flags at all.
+	 */
+	flags: string[];
 }
+
+/**
+ * The flags that mean this download is free, or cheaper, on the tracker's ratio.
+ *
+ * On a private tracker this is the difference between a release somebody can take and one
+ * they cannot afford, so it belongs on the row rather than three clicks away. `halfleech`
+ * is in here because it answers the same question — what will this cost me — and a screen
+ * that only knew about "free" would call a half-price release full price.
+ */
+export const FREE_RELEASE_FLAGS: Record<string, 'free' | 'half'> = {
+	freeleech: 'free',
+	free: 'free',
+	g_freeleech: 'free',
+	ptp_golden: 'free',
+	halfleech: 'half',
+	g_halfleech: 'half',
+};
+
+/** How a release counts against a ratio, as far as its flags say. Null when they do not. */
+export const releaseCostOf = (flags: string[]): 'free' | 'half' | null => {
+	const costs = flags.map((flag) => FREE_RELEASE_FLAGS[flag.toLowerCase()]).filter(Boolean);
+
+	// Free wins over half: a release flagged both ways on two trackers is free on one of
+	// them, and that is the one somebody would take.
+	return costs.includes('free') ? 'free' : (costs[0] ?? null);
+};
 
 /**
  * Releases that are the same thing to grab, folded into one line.

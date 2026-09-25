@@ -67,6 +67,7 @@ function group (overrides: Partial<ReleaseGroup> = {}): ReleaseGroup {
 				languages: ['VO'],
 				coverage: { seasonNumber: 1, episodeNumbers: [1], wholeSeason: false, wholeSeries: false },
 				heldAlready: false,
+				flags: [],
 			},
 		],
 		coverage: { seasonNumber: 1, episodeNumbers: [1], wholeSeason: false, wholeSeries: false },
@@ -263,6 +264,114 @@ describe('components/media/ReleaseSearch', () => {
 
 			expect(urls.some(url => url.includes('/releases/grab'))).toBe(true);
 			expect(urls.some(url => url.includes('/sync/run'))).toBe(false);
+		});
+	});
+
+	/*
+	 * Which tracker a grab comes from.
+	 *
+	 * The same release usually sits on several, and the row already said so — "on 2
+	 * trackers" — while never saying which of the two it would take, nor what it costs
+	 * there. On a private tracker that is the difference between a release somebody can
+	 * take and one they cannot afford.
+	 */
+	describe('choosing the tracker', () => {
+		const onTwo = () => searchResult({
+			suggestions: [
+				{
+					source: SuggestionSource.INDEXER,
+					key: 'grp-1',
+					release: group({
+						releases: [
+							{ ...group().releases[0], id: 'release-1', indexer: 'YGG', seeders: 40, flags: [] },
+							{
+								...group().releases[0],
+								id: 'release-2',
+								indexer: 'Sharewood',
+								seeders: 12,
+								flags: ['freeleech'],
+							},
+						],
+					}),
+				},
+			],
+		});
+
+		it('names the tracker a grab would take, before anybody presses', async () => {
+			const { wrapper } = await mountWithResult(onTwo());
+
+			expect(wrapper.find('[data-test="release-from"]').text()).toContain('YGG');
+		});
+
+		it('lists every tracker holding it, with what each one costs', async () => {
+			const { wrapper } = await mountWithResult(onTwo());
+
+			await wrapper.find('[data-test="release-copies-toggle"]').trigger('click');
+
+			const copies = wrapper.findAll('[data-test="release-copy"]');
+
+			expect(copies).toHaveLength(2);
+			expect(copies[0].attributes('data-chosen')).toBe('true');
+			expect(copies[1].find('[data-test="release-copy-flag-freeleech"]').exists()).toBe(true);
+		});
+
+		it('grabs the one that was chosen and not the best seeded', async () => {
+			const fetched = stubFetchRoutes({
+				'/releases/downloads': { body: [] },
+				'/releases/grab': { body: { id: 'grab-1', placements: [] } },
+			});
+			const { wrapper } = await mountWithResult(onTwo());
+
+			await wrapper.find('[data-test="release-copies-toggle"]').trigger('click');
+			await wrapper.findAll('[data-test="release-copy"]')[1].trigger('click');
+			await wrapper.find('[data-test="release-grab-button"]').trigger('click');
+			await flushPromises();
+
+			const [, options] = fetched.mock.calls
+				.find(call => String(call[0]).includes('/releases/grab')) ?? [];
+
+			expect(JSON.parse(String((options as RequestInit).body))).toMatchObject({
+				releaseId: 'release-2',
+			});
+		});
+
+		/** And the default is what it always was: the copy the gateway put first. */
+		it('takes the best seeded when nobody chose', async () => {
+			const fetched = stubFetchRoutes({
+				'/releases/downloads': { body: [] },
+				'/releases/grab': { body: { id: 'grab-1', placements: [] } },
+			});
+			const { wrapper } = await mountWithResult(onTwo());
+
+			await wrapper.find('[data-test="release-grab-button"]').trigger('click');
+			await flushPromises();
+
+			const [, options] = fetched.mock.calls
+				.find(call => String(call[0]).includes('/releases/grab')) ?? [];
+
+			expect(JSON.parse(String((options as RequestInit).body))).toMatchObject({
+				releaseId: 'release-1',
+			});
+		});
+
+		it('says what the chosen copy costs on the row itself', async () => {
+			const { wrapper } = await mountWithResult(onTwo());
+
+			// Nothing said about the best-seeded one, which carries no flag.
+			expect(wrapper.find('[data-test="release-cost"]').exists()).toBe(false);
+
+			await wrapper.find('[data-test="release-copies-toggle"]').trigger('click');
+			await wrapper.findAll('[data-test="release-copy"]')[1].trigger('click');
+
+			expect(wrapper.find('[data-test="release-cost"]').attributes('data-cost')).toBe('free');
+		});
+
+		it('offers no choice where there is nothing to choose', async () => {
+			const { wrapper } = await mountWithResult();
+
+			// One copy, no flags: an expander that opens on a line repeating the row above
+			// it is an expander people stop pressing.
+			expect(wrapper.find('[data-test="release-copies-toggle"]').exists()).toBe(false);
 		});
 	});
 

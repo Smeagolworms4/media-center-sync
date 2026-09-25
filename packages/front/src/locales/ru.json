@@ -1593,6 +1593,25 @@
 			"uncovered": "{count}, которые нечем закрыть:",
 			"uncovered_peer": "{count} из них есть у пира — заберите его из списка выше. | {count} из них есть у пиров — заберите их из списка выше. | {count} из них есть у пиров — заберите их из списка выше.",
 			"uncovered_hint": "Попробуйте другие слова для поиска или вернитесь, когда появится релиз."
+		},
+		"from_indexer": "с {indexer}",
+		"choose_indexer": "Выбрать трекер",
+		"cost": {
+			"free": "бесплатно",
+			"half": "половина рейтинга"
+		},
+		"flag": {
+			"freeleech": "freeleech",
+			"g_freeleech": "freeleech",
+			"free": "freeleech",
+			"halfleech": "половина рейтинга",
+			"g_halfleech": "половина рейтинга",
+			"doubleupload": "двойная отдача",
+			"internal": "внутренний",
+			"scene": "scene",
+			"nuked": "забракован",
+			"ptp_golden": "golden popcorn",
+			"ptp_approved": "одобрен"
 		}
 	},
 	"classification": {

@@ -35,6 +35,7 @@ interface Sketch {
 	languages?: string[];
 	seeders?: number | null;
 	heldAlready?: boolean;
+	flags?: string[];
 }
 
 /**
@@ -64,6 +65,7 @@ function release(sketch: Sketch = {}): Release {
 		languages: sketch.languages ?? [],
 		coverage: { seasonNumber: 1, episodeNumbers: [1], wholeSeason: false, wholeSeries: false },
 		heldAlready: sketch.heldAlready ?? false,
+		flags: sketch.flags ?? [],
 	};
 }
 

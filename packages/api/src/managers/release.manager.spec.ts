@@ -281,6 +281,9 @@ const release = (overrides: Partial<Release> = {}): Release => ({
 	languages: ['VO'],
 	coverage: { seasonNumber: 1, episodeNumbers: [2], wholeSeason: false, wholeSeries: false },
 	heldAlready: false,
+	// Most public trackers report none, which is the ordinary case and not a statement
+	// that a release costs full ratio.
+	flags: [],
 	...overrides,
 });
 

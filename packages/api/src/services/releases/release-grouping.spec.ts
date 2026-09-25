@@ -25,6 +25,7 @@ interface Sketch {
 	size?: number | null;
 	seeders?: number | null;
 	heldAlready?: boolean;
+	flags?: string[];
 }
 
 const GIGABYTE = 1_000_000_000;
@@ -63,6 +64,7 @@ function release(sketch: Sketch = {}): Release {
 			wholeSeries: sketch.wholeSeries ?? false,
 		},
 		heldAlready: sketch.heldAlready ?? false,
+		flags: sketch.flags ?? [],
 	};
 }
 

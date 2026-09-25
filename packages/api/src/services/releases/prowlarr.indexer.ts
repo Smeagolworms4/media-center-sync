@@ -31,6 +31,15 @@ interface ProwlarrRelease {
 	magnetUrl?: string;
 	downloadUrl?: string;
 	infoUrl?: string;
+	/**
+	 * What the tracker said about this one, normalised by Prowlarr into its own words.
+	 *
+	 * An array of strings — `freeleech`, `internal`, `scene` — and an empty one on every
+	 * public tracker, which is why nothing here may read an empty list as a statement.
+	 * Verified against a running Prowlarr: the field is always present, often `[]`, and
+	 * there is no `downloadVolumeFactor` beside it to fall back on.
+	 */
+	indexerFlags?: unknown;
 }
 
 /**
@@ -158,6 +167,12 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 			coverage: parsed.coverage,
 			// Answered by the manager, which is the only layer that knows what we hold.
 			heldAlready: false,
+			flags: Array.isArray(row.indexerFlags)
+				? row.indexerFlags
+					.filter((flag): flag is string => typeof flag === 'string')
+					.map((flag) => flag.trim().toLowerCase())
+					.filter((flag) => flag !== '')
+				: [],
 		};
 	}
 }
