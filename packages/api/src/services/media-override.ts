@@ -93,6 +93,19 @@ const withoutUnchanged = (
 		delete kept.ignored;
 	}
 
+	/*
+	 * An empty pin is no pin, and has to disappear rather than be stored as one.
+	 *
+	 * `targetFolder` has no counterpart a media server reports — no server has an opinion
+	 * about which of our folders a file of ours belongs in — so nothing above would drop
+	 * it, and clearing the field would leave `{ targetFolder: null }` behind: an override
+	 * that corrects nothing, which pins the item's `reported` snapshot for ever and makes
+	 * the dialog say a correction is in force. Removing the pin is removing the key.
+	 */
+	if (kept.targetFolder === null || kept.targetFolder === '') {
+		delete kept.targetFolder;
+	}
+
 	return kept;
 };
 
@@ -239,4 +252,22 @@ const seriesOrOwn = (item: OverridableItem): string => {
 	const series = item.seriesTitle?.trim();
 
 	return series ? series : item.title;
+};
+
+/**
+ * The folder somebody pinned for this media, if anybody did.
+ *
+ * Read off the **top of the tree** and not off the row being placed, because that is
+ * where the decision is taken: a season and an episode both live inside their show's
+ * folder, and a pin written on one episode would put that episode somewhere no media
+ * server shows as part of the series. The caller hands in the ancestor it already
+ * resolved — this is a reader, not a walk.
+ *
+ * Null for an empty string as well as for nothing, since a field somebody emptied is a
+ * pin somebody removed.
+ */
+export const pinnedFolderOf = (top: { overrides?: MediaOverride | null } | null): string | null => {
+	const folder = top?.overrides?.targetFolder ?? null;
+
+	return folder === null || folder.trim() === '' ? null : folder;
 };

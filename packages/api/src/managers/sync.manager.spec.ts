@@ -257,6 +257,23 @@ const build = (
 		findOne: jest.fn((options: { where: { id: string } }) =>
 			Promise.resolve(items.find((candidate) => candidate.id === options.where.id) ?? null),
 		),
+		// The walk the real repository does: up to the row with no parent, which is where a
+		// folder somebody pinned in the correction dialog is written.
+		topAncestor: jest.fn((item: MediaItem) => {
+			let current = item;
+
+			while (current.parentId !== null) {
+				const parent = items.find((candidate) => candidate.id === current.parentId);
+
+				if (parent === undefined) {
+					break;
+				}
+
+				current = parent;
+			}
+
+			return Promise.resolve(current);
+		}),
 		save: jest.fn((value: MediaItem) => Promise.resolve(value)),
 	};
 

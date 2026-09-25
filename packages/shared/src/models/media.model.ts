@@ -194,6 +194,23 @@ export interface MediaCompanions {
 export interface MediaOverride {
 	/** Reclassify into another library, which is what moves it between categories. */
 	libraryId?: string | null;
+	/**
+	 * The folder inside that library this media's files go in, and null lets the rule
+	 * decide again.
+	 *
+	 * Beside `libraryId` because it is the second half of the same sentence: choosing a
+	 * shelf leaves "where on it" open, and on a gateway whose library is five directories
+	 * on five disks that is the half somebody actually cares about. It is a pin — every
+	 * file of this media lands there — for the reason the placement rule never splits a
+	 * show: a season in one folder and the next in another is not shown as one series by
+	 * any media server.
+	 *
+	 * Held in the overrides blob rather than a column, like `ignored` and
+	 * `releasePreference`: it is a household decision about one media, the service will
+	 * report the item again on the next scan, and anything kept elsewhere would be undone
+	 * by that scan. It costs no migration on either engine.
+	 */
+	targetFolder?: string | null;
 	title?: string | null;
 	/** The show's name, for an episode — what its folder is named after. */
 	seriesTitle?: string | null;

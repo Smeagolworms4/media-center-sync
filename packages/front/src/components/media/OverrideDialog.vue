@@ -11,6 +11,7 @@
 	} from '@mcs/shared';
 	import { computed, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
+	import DirectoryPicker from '@/components/common/DirectoryPicker.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import FormMainError from '@/components/FormMainError.vue';
 	import CategoryProposalBlock from '@/components/media/CategoryProposal.vue';
@@ -23,6 +24,7 @@
 	import { useValidators } from '@/plugins/validators';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
+	import { useReleasesStore } from '@/stores/releases';
 	import { useServicesStore } from '@/stores/services';
 
 	/**
@@ -54,6 +56,7 @@
 
 	const mediaStore = useMediaStore();
 	const librariesStore = useLibrariesStore();
+	const releasesStore = useReleasesStore();
 	const servicesStore = useServicesStore();
 	const validators = useValidators();
 	const { notify, tryCallback } = useNotifier();
@@ -201,7 +204,7 @@
 	});
 
 	/**
-	 * The folders of our own this media can be moved onto, listed by the path.
+	 * The folders of our own this media can be moved onto, listed by their name.
 	 *
 	 * **Never a remote library.** Reclassifying decides which category the media appears
 	 * under *and* which folder a pull of it lands in, so a library on somebody else's
@@ -211,19 +214,83 @@
 	 * that question for the sync screens, and answering it twice is how the two lists end
 	 * up disagreeing. This list offered every library it knew about, a friend's included.
 	 *
-	 * **The path is the label**, because that is what the choice is about. Two servers
-	 * commonly have a library called `Films` and the name alone is then not a choice
-	 * anybody can make, while `/media/documentaires` is unambiguous and is the thing
-	 * somebody recognises from their own disk. The shelf's name and its server stay on the
-	 * second line, for the case where the path is the unfamiliar one. A library holding
-	 * several roots lists them all: it really is five directories, and naming one of them
-	 * would be picking a folder on somebody's behalf.
+	 * **The name is the label**, because it is what the shelf is called everywhere else —
+	 * on the media server, on the libraries screen, in the category mapping. This listed
+	 * the paths instead, and a closed select then read `/share/FilmsHD/Films ·
+	 * /share/FilmsHD2`, which is a disk layout rather than an answer to "which library".
+	 *
+	 * The paths keep their place on the second line, because the argument for them is
+	 * real: two servers commonly have a library called `Films`, and the name alone would
+	 * not be a choice anybody could make. So the server and every root are named there —
+	 * every one of them, since a shelf really is five directories and naming one would be
+	 * picking a folder on somebody's behalf.
+	 *
+	 * **Never a remote library**, and that rule is above, not here.
 	 */
 	const libraryItems = computed(() => destinations.value.map(one => ({
 		value: one.id,
-		title: one.roots.length > 0 ? one.roots.join(' · ') : (one.path ?? one.name),
-		props: { subtitle: `${one.name} — ${one.serviceName}` },
+		title: one.name,
+		props: {
+			subtitle: one.roots.length > 0
+				? `${one.serviceName} — ${one.roots.join(' · ')}`
+				: `${one.serviceName}${one.path === null ? '' : ` — ${one.path}`}`,
+		},
 	})));
+
+	/**
+	 * Where the gateway would put it, offered as the folder field's starting value.
+	 *
+	 * Asked of the gateway rather than guessed here, because the answer is a rule with
+	 * four steps in it and the first one — a series we already hold keeps its folder — is
+	 * the one somebody actually wants and the one the interface cannot work out. A field
+	 * that opened blank had somebody typing a path the gateway already knew, or inventing
+	 * one beside the folder the series is in.
+	 *
+	 * Only when nothing is pinned: a folder somebody chose is a decision, and overwriting
+	 * it with a suggestion would undo it silently.
+	 */
+	const browsingFolder = ref(false);
+	const suggestedFolder = ref<string | null>(null);
+
+	async function suggestFolder (): Promise<void> {
+		const id = item.value?.id ?? null;
+
+		if (id === null || draft.libraryId === null) {
+			suggestedFolder.value = null;
+
+			return;
+		}
+
+		try {
+			suggestedFolder.value = await releasesStore.plannedFolder(id, draft.libraryId);
+		} catch {
+			// A prefill nobody could work out is a field that opens empty, which is the
+			// honest state: the rule still decides at placement, exactly as it did before
+			// this field existed.
+			suggestedFolder.value = null;
+		}
+
+		if (draft.targetFolder === null || draft.targetFolder.trim() === '') {
+			draft.targetFolder = suggestedFolder.value;
+		}
+	}
+
+	watch(() => draft.libraryId, (next, previous) => {
+		if (next === previous) {
+			return;
+		}
+
+		/*
+		 * A folder of the shelf somebody just left sits under no root of the new one, so
+		 * keeping it would pin a path the gateway will refuse. Cleared and asked again,
+		 * which is what the redirect dialog does for the same reason.
+		 */
+		if (previous !== null) {
+			draft.targetFolder = null;
+		}
+
+		void suggestFolder();
+	});
 
 	const reportedLibraryName = computed(() => {
 		const library = librariesStore.byId[reported.value?.libraryId ?? ''];
@@ -518,6 +585,46 @@
 				:label="$t('override.library')"
 				persistent-hint
 			/>
+
+			<!--
+				The folder inside that shelf, once a shelf is chosen: a library is commonly
+				several directories on several disks, so naming one answers only half of
+				"where does this go". Prefilled with what the gateway would answer — the
+				folder the series is already in, when we hold it — because the alternative
+				is somebody typing a path that already exists two lines above them.
+
+				Emptying it is how the pin is removed, which is why it is clearable and why
+				an empty field is never sent as one.
+			-->
+			<div v-if="draft.libraryId">
+				<v-text-field
+					v-model="draft.targetFolder"
+					clearable
+					data-test="override-folder"
+					density="compact"
+					:hint="$t('override.folder_hint')"
+					:label="$t('override.folder')"
+					persistent-hint
+					:placeholder="suggestedFolder ?? ''"
+				>
+					<template #append-inner>
+						<v-btn
+							data-test="override-browse"
+							icon="mdi-folder-open-outline"
+							size="small"
+							:title="$t('browse.open')"
+							variant="text"
+							@click="browsingFolder = true"
+						/>
+					</template>
+				</v-text-field>
+
+				<DirectoryPicker
+					v-model="browsingFolder"
+					:path="draft.targetFolder ?? suggestedFolder"
+					@choose="draft.targetFolder = $event"
+				/>
+			</div>
 
 			<!--
 				Where it sits now, when that is not somewhere we could move it to — which is

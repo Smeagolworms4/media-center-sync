@@ -360,7 +360,7 @@ describe('components/media/OverrideDialog', () => {
 	describe('the libraries it offers to reclassify into', () => {
 		const optionsOf = (wrapper: ReturnType<typeof mountDialog>['wrapper']) =>
 			wrapper.findComponent({ name: 'VSelect' }).props('items') as
-				{ value: string; title: string }[];
+				{ value: string; title: string; props?: { subtitle?: string } }[];
 
 		it('offers our own writable shelves and never a remote one', async () => {
 			const { wrapper } = mountDialog();
@@ -369,16 +369,25 @@ describe('components/media/OverrideDialog', () => {
 			expect(optionsOf(wrapper).map(one => one.value)).toEqual(['l2', 'l1']);
 		});
 
-		it('labels each one with the path a file would land in', async () => {
-			// The path and not the name: two servers commonly have a library called
-			// `Films`, and a list of identical names is not a choice anybody can make.
-			// A shelf spread over two disks lists both, because it really is two.
+		it('labels each one with the library name, and its paths underneath', async () => {
+			/*
+			 * The name is what the shelf is called everywhere else — on the media server,
+			 * on the libraries screen, in the category mapping — and a closed select that
+			 * read `/share/FilmsHD/Films · /share/FilmsHD2` was showing a disk layout
+			 * rather than an answer to "which library".
+			 *
+			 * The paths stay on the second line, because two servers commonly have a
+			 * library called `Films` and the name alone would not be a choice anybody
+			 * could make. A shelf spread over two disks lists both, because it really is
+			 * two.
+			 */
 			const { wrapper } = mountDialog();
 			await settle();
 
-			expect(optionsOf(wrapper).map(one => one.title)).toEqual([
-				'/media/documentaires · /mnt/disk2/documentaires',
-				'/media/films',
+			expect(optionsOf(wrapper).map(one => one.title)).toEqual(['Documentaries', 'Films']);
+			expect(optionsOf(wrapper).map(one => one.props?.subtitle)).toEqual([
+				'Living room — /media/documentaires · /mnt/disk2/documentaires',
+				'Living room — /media/films',
 			]);
 		});
 

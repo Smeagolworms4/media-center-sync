@@ -17,6 +17,7 @@ import {
 	TransferTransport,
 	UNCONFIGURED_PLACEMENTS,
 	type CompanionPullResult,
+	PlacementStrategy,
 	type CreateSyncPlanForItemRequest,
 	type CreateSyncPlanRequest,
 	type EstimateSyncRequest,
@@ -71,6 +72,7 @@ import {
 	EventGatewayService,
 	MetadataService,
 	NamingService,
+	pinnedFolderOf,
 	PlacementService,
 	QualityService,
 	SchedulerService,
@@ -1487,11 +1489,27 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			 * the folders it has — but the root itself is the lot's and not this file's.
 			 */
 			const lot = lots.get(entry.item.id) ?? entry.item.id;
+			const pin = pins.get(lot) ?? null;
+			/*
+			 * The folder pinned on this media in the correction dialog.
+			 *
+			 * Only for the item that decides the lot: every other file of the run is handed
+			 * that decision through `pinned`, and asking again halfway down a season is how
+			 * a show ends up in two folders. Read off the top of the tree, because the pin
+			 * is written on the series and the file being placed is an episode of it.
+			 */
+			const folder = pin === null
+				? pinnedFolderOf(await this._items.topAncestor(entry.item))
+				: null;
 			const target = await this._placement.resolve({
-				pinned: pins.get(lot) ?? null,
+				pinned: pin,
 				kind: entry.item.kind,
 				categoryKey: categoryKeys.get(entry.item.libraryId) ?? null,
-				settings,
+				// A folder somebody named outranks the rule, said through the fixed-path
+				// strategy so a chosen folder and a configured one take one code path.
+				settings: folder === null
+					? settings
+					: { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: folder },
 				libraries,
 				relativeName: (libraryRoot) =>
 					this._naming.render(settings.namingOrder, nameable, { libraryRoot, siblingPath }),

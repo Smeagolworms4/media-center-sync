@@ -48,6 +48,17 @@ export function withoutReleasePreference (
 export interface OverrideDraft {
 	libraryId: string | null;
 	/**
+	 * The folder inside that library this media's files go in, and null lets the rule
+	 * decide.
+	 *
+	 * The second half of choosing a shelf: a library is commonly several directories on
+	 * several disks, so naming one answered only half the question. It is a pin — every
+	 * file of this media lands there — because the placement rule never splits a show, and
+	 * a season in one folder with the next in another is not shown as one series by any
+	 * media server.
+	 */
+	targetFolder: string | null;
+	/**
 	 * This media's own search order, or null when it follows its category's.
 	 *
 	 * Null and an order with no values are two different sentences — see
@@ -140,6 +151,7 @@ function clonePreference (preference: ReleasePreference | null): ReleasePreferen
 export function useMediaOverride (item: Ref<MediaItem | null>) {
 	const draft = reactive<OverrideDraft>({
 		libraryId: null,
+		targetFolder: null,
 		releasePreference: null,
 		ignored: false,
 		values: emptyValues(),
@@ -158,6 +170,10 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		draft.cleared = emptyCleared();
 		draft.externalIds = { tvdb: '', tmdb: '', imdb: '' };
 		draft.libraryId = source?.libraryId ?? null;
+		// What is pinned today, not what the rule would answer: the field shows the
+		// standing decision, and the gateway's own answer is only offered as a prefill
+		// when there is no decision to show.
+		draft.targetFolder = source?.overrides?.targetFolder ?? null;
 		// Copied rather than referenced: the editor rewrites the ranks in place as
 		// somebody reorders them, and a draft sharing the item's object would change
 		// what the page shows before anything was saved — including the note that says
@@ -280,6 +296,16 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 
 		if (libraryChanged.value && draft.libraryId) {
 			body.libraryId = draft.libraryId;
+		}
+
+		/*
+		 * Sent whenever it is set, like `ignored` beside it and for the same reason: no
+		 * media server reports which of our folders a file of ours belongs in, so there is
+		 * nothing to compare it against and "unchanged" means "still in force". An emptied
+		 * field is a pin somebody removed, which the API reads as no pin at all.
+		 */
+		if (draft.targetFolder !== null && draft.targetFolder.trim() !== '') {
+			body.targetFolder = draft.targetFolder.trim();
 		}
 
 		/*

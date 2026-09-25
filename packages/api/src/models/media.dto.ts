@@ -379,6 +379,12 @@ export class MediaOverrideDto {
 	@IsUUID()
 	public libraryId?: string | null;
 
+	@ApiPropertyOptional({ description: 'Pin the folder inside that library.' })
+	@IsOptional()
+	@IsString()
+	@MaxLength(1024)
+	public targetFolder?: string | null;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsString()

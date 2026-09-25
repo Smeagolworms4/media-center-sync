@@ -153,6 +153,15 @@ export interface GroupSeedQuery
 	coveredParentIds?: string[];
 }
 
+/**
+ * How far up a parent chain is followed before it is called broken.
+ *
+ * Three is the whole tree — episode, season, series — and one spare, because the walk
+ * has to end somewhere: a row whose parent chain loops back on itself would otherwise
+ * be an endless query loop rather than a wrong answer somebody can see.
+ */
+const ANCESTOR_DEPTH = 4;
+
 @Injectable()
 export class MediaItemRepository extends Repository<MediaItem> {
 	public constructor(dataSource: DataSource) {
@@ -164,6 +173,34 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			where: { parentId },
 			order: { seasonNumber: 'ASC', episodeNumber: 'ASC', title: 'ASC' },
 		});
+	}
+
+	/**
+	 * The series a row belongs to, or the row itself when it is already the top.
+	 *
+	 * Walks `parentId` up rather than reading one level, because the tree is three deep
+	 * — episode, season, series — and a decision taken about a show has to be found from
+	 * any of them. Bounded, so a parent chain a scan wrote in a circle costs three
+	 * queries rather than the process.
+	 */
+	public async topAncestor(item: MediaItem): Promise<MediaItem> {
+		let current = item;
+
+		for (let step = 0; step < ANCESTOR_DEPTH; step += 1) {
+			if (current.parentId === null) {
+				return current;
+			}
+
+			const parent = await this.findOne({ where: { id: current.parentId } });
+
+			if (parent === null) {
+				return current;
+			}
+
+			current = parent;
+		}
+
+		return current;
 	}
 
 	/** The top of a library: what has no parent. */
