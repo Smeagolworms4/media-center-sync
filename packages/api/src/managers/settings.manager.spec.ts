@@ -1,4 +1,4 @@
-import { ErrorKey, RequestSourceType } from '@mcs/shared';
+import { DownloadClientType, ErrorKey, IndexerType, RequestSourceType } from '@mcs/shared';
 import {
 	DEFAULT_SETTINGS,
 	type BandwidthService,
@@ -383,6 +383,68 @@ describe('SettingsManager', () => {
 
 			expect(fakes.settings.update).toHaveBeenCalledWith({
 				requestSource: expect.objectContaining({ apiKey: 'typed' }),
+			});
+		});
+	});
+
+	/*
+	 * The first save, when there is nothing to keep.
+	 *
+	 * "Blank means keep what you have" has a second half that only shows up on a gateway
+	 * nobody has configured yet: there is nothing stored, so what gets written is the
+	 * absence — and it has to be written as `null` rather than left undefined, because an
+	 * undefined key is dropped on the way into a JSON column and the row would then carry
+	 * no `apiKey` field at all. Everything downstream reads that as "a key I cannot see"
+	 * instead of "no key", and the screen that says whether one is set would lie.
+	 */
+	describe('a secret left blank with nothing stored yet', () => {
+		it('writes the indexer’s absent key as null and not as nothing', async () => {
+			const { manager, fakes } = build();
+
+			await manager.write({
+				indexer: {
+					type: IndexerType.PROWLARR,
+					baseUrl: 'http://prowlarr:9696',
+					enabled: true,
+				},
+			});
+
+			expect(fakes.settings.update).toHaveBeenCalledWith({
+				indexer: expect.objectContaining({ apiKey: null }),
+			});
+		});
+
+		it('does the same for the download client’s password', async () => {
+			const { manager, fakes } = build();
+
+			await manager.write({
+				downloadClient: {
+					type: DownloadClientType.QBITTORRENT,
+					baseUrl: 'http://qbittorrent:8080',
+					username: 'admin',
+					rootMappings: [],
+					enabled: true,
+				},
+			});
+
+			expect(fakes.settings.update).toHaveBeenCalledWith({
+				downloadClient: expect.objectContaining({ password: null }),
+			});
+		});
+
+		it('and for the request source’s key', async () => {
+			const { manager, fakes } = build();
+
+			await manager.write({
+				requestSource: {
+					type: RequestSourceType.SEERR,
+					baseUrl: 'http://seerr:5055',
+					enabled: true,
+				},
+			});
+
+			expect(fakes.settings.update).toHaveBeenCalledWith({
+				requestSource: expect.objectContaining({ apiKey: null }),
 			});
 		});
 	});

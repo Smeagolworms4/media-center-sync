@@ -194,6 +194,32 @@ curl -sS -o /dev/null -X POST "$CLIENT/api/v2/torrents/createCategory" \
 	-H "Cookie: $COOKIE" -H "Referer: $CLIENT" \
 	--data-urlencode "category=$CATEGORY" --data-urlencode "savePath=$SAVE_PATH" || true
 
+# The seeder is made to announce again, and this is not belt and braces.
+#
+# The tracker lives inside the `fake-indexer` process and keeps its peers in memory, so
+# `docker compose restart fake-indexer` — the entire edit-and-see loop for the fixture —
+# empties the swarm's registry while both clients still hold every torrent at 100 %. The
+# seeder then says nothing until its own announce interval comes round, which is half an
+# hour, and until it does this check waits two minutes and reports `metaDL`: no peer served
+# the metadata, which is true, and which reads exactly like the lab being broken.
+#
+# One POST removes the whole failure mode. It is aimed at the *seeding* client and it is
+# best effort: a lab without one is a lab where this was going to fail anyway, and the
+# message below says so better than a dead script would.
+SEED_CLIENT="${LAB_QBITTORRENT_SEED_URL:-http://localhost:${LAB_QBITTORRENT_SEED_PORT:-8091}}"
+SEED_COOKIE="$(
+	{ curl -sS -i --max-time 5 -X POST "$SEED_CLIENT/api/v2/auth/login" -H "Referer: $SEED_CLIENT" \
+		--data-urlencode "username=$USERNAME" --data-urlencode "password=$PASSWORD" 2>/dev/null \
+		| grep -i '^set-cookie:' | sed -n 's/.*\(QBT_SID_[^;]*\).*/\1/p' | head -1; } || true
+)"
+
+if [ -n "$SEED_COOKIE" ]; then
+	curl -sS -o /dev/null --max-time 10 -X POST "$SEED_CLIENT/api/v2/torrents/reannounce" \
+		-H "Cookie: $SEED_COOKIE" -H "Referer: $SEED_CLIENT" \
+		--data-urlencode 'hashes=all' || true
+	say "asked the seeder at $SEED_CLIENT to announce itself again"
+fi
+
 printf '\nHanding the magnet to %s\n' "$CLIENT"
 
 curl -fsS -o /dev/null -X POST "$CLIENT/api/v2/torrents/add" \
@@ -242,9 +268,16 @@ if [ "$progress" != '1' ]; then
 	printf '\n%s never completed: %s at %s of 1 after %s seconds.\n' "$KEY" "$state" "$progress" "$TIMEOUT" >&2
 
 	if [ "$state" = 'metaDL' ]; then
-		printf 'It is stuck on the metadata, which means no peer served it: either the seeder\n' >&2
-		printf 'does not hold this torrent (docker/lab/seed-torrents.sh) or the torrents were\n' >&2
-		printf 'built with the private flag, which stops libtorrent serving metadata at all.\n' >&2
+		printf 'It is stuck on the metadata, which means no peer served it. Three causes, in the\n' >&2
+		printf 'order they actually happen:\n' >&2
+		printf '  - the tracker was restarted and the seeder has not announced itself since. It\n' >&2
+		printf '    keeps its peers in memory, so restarting fake-indexer empties the swarm while\n' >&2
+		printf '    both clients still hold every file. This run asks the seeder to announce\n' >&2
+		printf '    again, so reaching here means that did not work — check that\n' >&2
+		printf '    %s answers, and its tracker status for this hash;\n' "$SEED_CLIENT" >&2
+		printf '  - the seeder does not hold this torrent at all (docker/lab/seed-torrents.sh);\n' >&2
+		printf '  - the torrents were built with the private flag, which stops libtorrent\n' >&2
+		printf '    serving metadata at all.\n' >&2
 	fi
 
 	exit 1

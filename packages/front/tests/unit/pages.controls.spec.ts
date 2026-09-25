@@ -404,5 +404,11 @@ describe('every control on every page', () => {
 
 		expect(errors).toEqual([]);
 		expect(wrapper.html().length).toBeGreaterThan(0);
-	});
+		// Four times the default, because this test does thirteen pages' worth of work the
+		// slow way on purpose: it mounts a page, presses every enabled control on it and
+		// settles between each. The settings page alone is five panes and some sixty
+		// controls, and under coverage instrumentation each press re-renders an
+		// instrumented Vuetify tree — which took it past five seconds and failed the
+		// campaign for a reason that had nothing to do with the code under test.
+	}, 20_000);
 });
