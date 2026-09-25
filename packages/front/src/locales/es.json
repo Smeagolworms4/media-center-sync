@@ -1312,7 +1312,6 @@
 		"retarget": {
 			"title": "Enviarlo a otra biblioteca",
 			"action": "Enviar a otro sitio",
-			"hint_repoint": "Todavía no se ha archivado nada, así que esto solo cambia el destino. La descarga no se interrumpe y no se copia ni un byte.",
 			"hint_move": "Este archivo ya está en una biblioteca. Elegir otra lo mueve de verdad, lo que tarda un rato con un archivo grande: la cola muestra el progreso.",
 			"library": "Biblioteca de destino",
 			"confirm": "Enviarlo ahí",
@@ -1321,7 +1320,8 @@
 			"moved": "Movido. El archivo ya está en esa biblioteca.",
 			"whole_lot": "{title} — toda la descarga, {count} archivos",
 			"hint_lot_landed": "Los archivos de esta descarga que ya han aterrizado se mueven también, incluidos los que trajo una ejecución anterior, y las carpetas que dejan vacías se eliminan.",
-			"current": "Actualmente: {path}"
+			"current": "Actualmente: {path}",
+			"into": "Hacia {path}"
 		},
 		"revalidation": {
 			"title": "Por qué esta transferencia ha cambiado de idea",
@@ -1502,6 +1502,7 @@
 		"settings": {
 			"invalid": "Estos ajustes han sido rechazados.",
 			"public_url_invalid": "Introduce la dirección completa, con el esquema, por ejemplo https://mcs.example.org.",
+			"peer_address_invalid": "Introduzca una dirección y un puerto, por ejemplo mcs.example.org:8443.",
 			"target_path_invalid": "Introduce una ruta absoluta, por ejemplo /media/incoming.",
 			"target_path_not_writable": "La pasarela no puede escribir en esta carpeta.",
 			"pinned": "Este ajuste lo fija la instalación y no se puede cambiar aquí."

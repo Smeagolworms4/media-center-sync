@@ -1312,7 +1312,6 @@
 		"retarget": {
 			"title": "Mandarlo in un'altra libreria",
 			"action": "Manda altrove",
-			"hint_repoint": "Non è ancora stato archiviato nulla, quindi questo cambia solo la destinazione. Il download non viene interrotto e non viene copiato un byte.",
 			"hint_move": "Questo file è già in una libreria. Sceglierne un'altra lo sposta davvero, e su un file grande ci vuole un po': la coda ne mostra l'avanzamento.",
 			"library": "Libreria di destinazione",
 			"confirm": "Mandalo lì",
@@ -1321,7 +1320,8 @@
 			"moved": "Spostato. Il file ora è in quella libreria.",
 			"whole_lot": "{title} — tutto lo scaricamento, {count} file",
 			"hint_lot_landed": "Anche i file di questo scaricamento già atterrati vengono spostati, compresi quelli portati da un’esecuzione precedente, e le cartelle che lasciano vuote vengono rimosse.",
-			"current": "Attualmente: {path}"
+			"current": "Attualmente: {path}",
+			"into": "Verso {path}"
 		},
 		"revalidation": {
 			"title": "Perché questo trasferimento ha cambiato idea",
@@ -1502,6 +1502,7 @@
 		"settings": {
 			"invalid": "Queste impostazioni sono state rifiutate.",
 			"public_url_invalid": "Inserisci l'indirizzo completo, schema compreso, ad esempio https://mcs.example.org.",
+			"peer_address_invalid": "Inserisci un indirizzo e una porta, per esempio mcs.example.org:8443.",
 			"target_path_invalid": "Inserisci un percorso assoluto, ad esempio /media/incoming.",
 			"target_path_not_writable": "Il gateway non può scrivere in questa cartella.",
 			"pinned": "Questa impostazione è fissata dall'installazione e non può essere modificata qui."

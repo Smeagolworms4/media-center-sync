@@ -1312,7 +1312,6 @@
 		"retarget": {
 			"title": "In eine andere Bibliothek schicken",
 			"action": "Woanders hinschicken",
-			"hint_repoint": "Es ist noch nichts abgelegt worden, das ändert also nur das Ziel. Der Download läuft weiter, und es wird kein Byte kopiert.",
 			"hint_move": "Diese Datei liegt bereits in einer Bibliothek. Eine andere zu wählen verschiebt sie wirklich, was bei einer großen Datei dauert — die Warteschlange zeigt den Fortschritt.",
 			"library": "Zielbibliothek",
 			"confirm": "Dorthin schicken",
@@ -1321,7 +1320,8 @@
 			"moved": "Verschoben. Die Datei liegt jetzt in dieser Bibliothek.",
 			"whole_lot": "{title} — der ganze Download, {count} Dateien",
 			"hint_lot_landed": "Die Dateien dieses Downloads, die schon gelandet sind, werden mitverschoben — auch die aus einem früheren Lauf — und die Ordner, die dadurch leer bleiben, werden entfernt.",
-			"current": "Derzeit: {path}"
+			"current": "Derzeit: {path}",
+			"into": "Nach {path}"
 		},
 		"revalidation": {
 			"title": "Warum diese Übertragung es sich anders überlegt hat",
@@ -1502,6 +1502,7 @@
 		"settings": {
 			"invalid": "Diese Einstellungen wurden abgelehnt.",
 			"public_url_invalid": "Geben Sie die vollständige Adresse samt Schema ein, etwa https://mcs.example.org.",
+			"peer_address_invalid": "Geben Sie eine Adresse und einen Port an, zum Beispiel mcs.example.org:8443.",
 			"target_path_invalid": "Geben Sie einen absoluten Pfad ein, etwa /media/incoming.",
 			"target_path_not_writable": "Das Gateway kann in diesen Ordner nicht schreiben.",
 			"pinned": "Diese Einstellung ist durch die Installation festgelegt und kann hier nicht geändert werden."

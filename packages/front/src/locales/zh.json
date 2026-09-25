@@ -1312,7 +1312,6 @@
 		"retarget": {
 			"title": "发送到其他媒体库",
 			"action": "发送到别处",
-			"hint_repoint": "还没有任何文件落盘，所以这只改变去向。下载不会中断，也不会复制任何字节。",
 			"hint_move": "该文件已经在某个媒体库中。选择另一个会真的移动它，大文件需要一些时间——队列会显示进度。",
 			"library": "目标媒体库",
 			"confirm": "发送到那里",
@@ -1321,7 +1320,8 @@
 			"moved": "已移动。文件现在位于该媒体库中。",
 			"whole_lot": "{title} — 整个下载，{count} 个文件",
 			"hint_lot_landed": "本次下载中已经归位的文件也会一起移动，包括早先那次运行带来的文件，留空的目录会被删除。",
-			"current": "当前：{path}"
+			"current": "当前：{path}",
+			"into": "去往 {path}"
 		},
 		"revalidation": {
 			"title": "此传输为何改变了主意",
@@ -1502,6 +1502,7 @@
 		"settings": {
 			"invalid": "这些设置被拒绝。",
 			"public_url_invalid": "请输入完整地址，包含协议，例如 https://mcs.example.org。",
+			"peer_address_invalid": "请输入地址和端口，例如 mcs.example.org:8443。",
 			"target_path_invalid": "请输入绝对路径，例如 /media/incoming。",
 			"target_path_not_writable": "网关无法写入此文件夹。",
 			"pinned": "此设置由部署方固定，无法在此处更改。"

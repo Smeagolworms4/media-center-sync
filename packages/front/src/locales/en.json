@@ -1312,7 +1312,6 @@
 		"retarget": {
 			"title": "Send it to another library",
 			"action": "Send elsewhere",
-			"hint_repoint": "Nothing has landed yet, so this only changes where it will go. The download is not interrupted and not a byte is copied.",
 			"hint_move": "This file is already in a library. Choosing another one really moves it, which takes a while on a large file — the queue shows the progress.",
 			"library": "Destination library",
 			"confirm": "Send it there",
@@ -1321,7 +1320,8 @@
 			"moved": "Moved. The file is in that library now.",
 			"whole_lot": "{title} — the whole download, {count} files",
 			"hint_lot_landed": "The files of this download that have already landed are moved too, including the ones an earlier run brought in, and the folders they leave empty are removed.",
-			"current": "Currently: {path}"
+			"current": "Currently: {path}",
+			"into": "Into {path}"
 		},
 		"revalidation": {
 			"title": "Why this transfer changed its mind",
@@ -1502,6 +1502,7 @@
 		"settings": {
 			"invalid": "These settings were refused.",
 			"public_url_invalid": "Enter the full address, scheme included, such as https://mcs.example.org.",
+			"peer_address_invalid": "Enter an address and a port, for example mcs.example.org:8443.",
 			"target_path_invalid": "Enter an absolute path, such as /media/incoming.",
 			"target_path_not_writable": "The gateway cannot write to this folder.",
 			"pinned": "This setting is fixed by the deployment and cannot be changed here."

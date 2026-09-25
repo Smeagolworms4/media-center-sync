@@ -1312,7 +1312,6 @@
 		"retarget": {
 			"title": "Enviá-lo para outra biblioteca",
 			"action": "Enviar para outro sítio",
-			"hint_repoint": "Ainda nada foi arquivado, por isso isto só muda o destino. A transferência não é interrompida e não se copia um único byte.",
 			"hint_move": "Este ficheiro já está numa biblioteca. Escolher outra move-o mesmo, o que demora num ficheiro grande — a fila mostra o progresso.",
 			"library": "Biblioteca de destino",
 			"confirm": "Enviá-lo para lá",
@@ -1321,7 +1320,8 @@
 			"moved": "Movido. O ficheiro está agora nessa biblioteca.",
 			"whole_lot": "{title} — todo o descarregamento, {count} ficheiros",
 			"hint_lot_landed": "Os ficheiros deste descarregamento que já aterraram também são movidos, incluindo os que uma execução anterior trouxe, e as pastas que deixam vazias são removidas.",
-			"current": "Atualmente: {path}"
+			"current": "Atualmente: {path}",
+			"into": "Para {path}"
 		},
 		"revalidation": {
 			"title": "Porque é que esta transferência mudou de ideias",
@@ -1502,6 +1502,7 @@
 		"settings": {
 			"invalid": "Estas definições foram recusadas.",
 			"public_url_invalid": "Introduza o endereço completo, com o esquema, por exemplo https://mcs.example.org.",
+			"peer_address_invalid": "Introduza um endereço e uma porta, por exemplo mcs.example.org:8443.",
 			"target_path_invalid": "Introduza um caminho absoluto, por exemplo /media/incoming.",
 			"target_path_not_writable": "O gateway não consegue escrever nesta pasta.",
 			"pinned": "Esta definição é fixada pela instalação e não pode ser alterada aqui."

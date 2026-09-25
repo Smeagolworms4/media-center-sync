@@ -1,4 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { ErrorKey } from '@mcs/shared';
+import { glob } from 'glob';
 import { describe, expect, it } from 'vitest';
 import deMessages from '@/locales/de.json';
 import enMessages from '@/locales/en.json';
@@ -97,6 +100,39 @@ describe('locales', () => {
 		// the keys to write and the keys to drop, which is the whole answer.
 		expect(expected.filter(key => !keys.includes(key)), `missing from ${locale}`).toEqual([]);
 		expect(keys.filter(key => !expected.includes(key)), `in ${locale} but not in English`).toEqual([]);
+	});
+
+	/*
+	 * Every key the interface asks for exists, which nothing checked.
+	 *
+	 * The catalogues were compared with each other and never with the code, so a key
+	 * spelled in a component and written in no catalogue passed every test — and vue-i18n
+	 * renders the key itself, so the screen said `transfer.retarget.into` where it meant
+	 * "Into /share/SeriesTV5". It sat there unnoticed because the line only appears when
+	 * there is a destination to announce, and until recently there never was one during a
+	 * download.
+	 *
+	 * Only literal keys are read, because only those can be checked: a key built from a
+	 * variable — `release.state.${row.state}` — is checked by the tests of the thing that
+	 * builds it. The literal ones are the overwhelming majority and every one of them is
+	 * a one-character typo away from this.
+	 */
+	it('uses no key that no catalogue defines', async () => {
+		const sources = await glob('src/**/*.{vue,ts}', { cwd: resolve(__dirname, '../..') });
+		const known = new Set(Object.keys(english));
+		const missing: string[] = [];
+
+		for (const file of sources) {
+			const text = await readFile(resolve(__dirname, '../..', file), 'utf8');
+
+			for (const [, key] of text.matchAll(/\$?\bt\(\s*'([a-z][\w.]*)'/g)) {
+				if (!known.has(key) && !missing.includes(key)) {
+					missing.push(`${key} (${file})`);
+				}
+			}
+		}
+
+		expect(missing, 'asked for by the interface and written in no catalogue').toEqual([]);
 	});
 
 	it.each(translated)('%s keeps every interpolation placeholder', locale => {

@@ -1312,7 +1312,6 @@
 		"retarget": {
 			"title": "L'envoyer dans une autre bibliothèque",
 			"action": "Envoyer ailleurs",
-			"hint_repoint": "Rien n'a encore été déposé : cela ne change que la destination. Le téléchargement n'est pas interrompu et pas un octet n'est copié.",
 			"hint_move": "Ce fichier est déjà dans une bibliothèque. En choisir une autre le déplace réellement, ce qui prend un moment sur un gros fichier — la file en montre la progression.",
 			"library": "Bibliothèque de destination",
 			"confirm": "L'envoyer là",
@@ -1321,7 +1320,8 @@
 			"moved": "Déplacé. Le fichier est maintenant dans cette bibliothèque.",
 			"whole_lot": "{title} — tout le téléchargement, {count} fichiers",
 			"hint_lot_landed": "Les fichiers de ce téléchargement déjà déposés sont déplacés eux aussi, y compris ceux qu’une exécution antérieure a apportés, et les dossiers qu’ils laissent vides sont supprimés.",
-			"current": "Actuellement : {path}"
+			"current": "Actuellement : {path}",
+			"into": "Vers {path}"
 		},
 		"revalidation": {
 			"title": "Pourquoi ce transfert a changé d'avis",
@@ -1502,6 +1502,7 @@
 		"settings": {
 			"invalid": "Ces paramètres ont été refusés.",
 			"public_url_invalid": "Saisissez l'adresse complète, protocole compris, par exemple https://mcs.example.org.",
+			"peer_address_invalid": "Saisissez une adresse et un port, par exemple mcs.example.org:8443.",
 			"target_path_invalid": "Saisissez un chemin absolu, par exemple /media/incoming.",
 			"target_path_not_writable": "La passerelle ne peut pas écrire dans ce dossier.",
 			"pinned": "Ce réglage est fixé par le déploiement et ne peut pas être modifié ici."
