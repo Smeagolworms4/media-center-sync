@@ -77,6 +77,7 @@
 		reportedValue,
 		fillFromReported,
 		payload,
+		suggestedFolder,
 	} = useMediaOverride(item);
 
 	const { destinations } = useDestinationLibraries();
@@ -250,7 +251,6 @@
 	 * it with a suggestion would undo it silently.
 	 */
 	const browsingFolder = ref(false);
-	const suggestedFolder = ref<string | null>(null);
 
 	async function suggestFolder (): Promise<void> {
 		const id = item.value?.id ?? null;

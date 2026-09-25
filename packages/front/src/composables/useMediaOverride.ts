@@ -1,5 +1,5 @@
 import type { ExternalIds, MediaItem, MediaOverride, MediaReported, ReleasePreference } from '@mcs/shared';
-import { computed, type InjectionKey, reactive, type Ref, watch } from 'vue';
+import { computed, type InjectionKey, reactive, ref, type Ref, watch } from 'vue';
 
 /** The text fields a correction can carry, in the order the dialog shows them. */
 export const OVERRIDE_TEXT_FIELDS = ['title', 'seriesTitle', 'overview'] as const;
@@ -159,6 +159,21 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		externalIds: { tvdb: '', tmdb: '', imdb: '' },
 	});
 
+	/**
+	 * What the gateway said it would choose, which is not what somebody chose.
+	 *
+	 * The folder field opens on the gateway's own answer so nobody has to type a path it
+	 * already knows — and a prefilled value is a display of a default, not a decision. Sent
+	 * back it would become one: opening the dialog and pressing save would pin the folder
+	 * the rule would have picked anyway, and that pin then outranks the rule for ever,
+	 * including the part of it that follows a series when it moves. The redirect dialog
+	 * draws the same line, in the same words.
+	 *
+	 * Worse, it would break the undo: after a reset the body must be empty, and a body
+	 * carrying a folder nobody asked for stores a correction instead of removing one.
+	 */
+	const suggestedFolder = ref<string | null>(null);
+
 	const reported = computed(() => reportedOf(item.value));
 	const overrides = computed<MediaOverride>(() => item.value?.overrides ?? {});
 	const hasOverride = computed(() => Object.keys(overrides.value).length > 0);
@@ -235,6 +250,10 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		 */
 		draft.releasePreference = null;
 		draft.ignored = false;
+		// The pin goes too, and no media server has one to put back: "put back what the
+		// service reported" is a statement about the fields a service reports, and which
+		// of our folders a file of ours belongs in is not one of them.
+		draft.targetFolder = null;
 
 		if (!answer) {
 			return;
@@ -304,8 +323,10 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		 * nothing to compare it against and "unchanged" means "still in force". An emptied
 		 * field is a pin somebody removed, which the API reads as no pin at all.
 		 */
-		if (draft.targetFolder !== null && draft.targetFolder.trim() !== '') {
-			body.targetFolder = draft.targetFolder.trim();
+		const folder = draft.targetFolder?.trim() ?? '';
+
+		if (folder !== '' && folder !== suggestedFolder.value) {
+			body.targetFolder = folder;
 		}
 
 		/*
@@ -386,5 +407,6 @@ export function useMediaOverride (item: Ref<MediaItem | null>) {
 		reportedValue,
 		isCorrected,
 		payload,
+		suggestedFolder,
 	};
 }

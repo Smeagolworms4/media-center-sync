@@ -15,6 +15,12 @@ test.describe('transfers', () => {
 	test.beforeEach(async ({ page }) => {
 		await signIn(page);
 		await page.locator(test0('nav-transfers')).click();
+		// Waited for, because the click only starts the navigation: the dashboard is
+		// still on screen for a moment afterwards, and it has empty states of its own —
+		// so the first assertion of a test could match one of those and fail on a page
+		// nobody was looking at. It failed exactly that way once, on the one test whose
+		// first assertion is a bare `empty-state`.
+		await page.waitForURL(/\/transfers/);
 	});
 
 	test('an empty queue says so instead of showing an empty frame', async ({ page }) => {
@@ -345,21 +351,27 @@ test.describe('changing where a pull lands', () => {
 		await expect(downloading).toBeVisible();
 		await expect(landed).toBeVisible();
 
-		// Still downloading: re-pointing, which copies nothing.
+		// Still downloading: re-pointing, which copies nothing — and therefore says
+		// nothing. The line explaining that changing a destination moves no bytes was
+		// three lines telling somebody that nothing surprising was about to happen.
 		await downloading.locator(test0('transfer-retarget')).click();
 		const hint = page.locator(test0('retarget-hint'));
 		const confirm = page.locator(test0('retarget-confirm'));
-		await expect(hint).toBeVisible();
-		const repointHint = (await hint.textContent() ?? '').trim();
+		const current = page.locator(test0('retarget-current'));
+		await expect(hint).toBeHidden();
+		// What it says instead: where the thing goes today, which is what "another
+		// library" is being asked against.
+		await expect(current).toBeVisible();
 		const repointLabel = (await confirm.textContent() ?? '').trim();
 
 		// Nothing is chosen yet, so nothing can be confirmed: a default target would be
 		// a move nobody picked.
 		await expect(confirm).toBeDisabled();
 		await page.keyboard.press('Escape');
-		await expect(hint).toBeHidden();
+		await expect(current).toBeHidden();
 
-		// Already landed: really moving bytes, and saying so.
+		// Already landed: really moving bytes, and saying so. This is the case the line
+		// exists for, and the only one.
 		await landed.locator(test0('transfer-retarget')).click();
 		await expect(hint).toBeVisible();
 		const moveHint = (await hint.textContent() ?? '').trim();
@@ -373,16 +385,14 @@ test.describe('changing where a pull lands', () => {
 		 * matters is the property: the two operations are never described alike —
 		 * neither the explanation nor the button that commits to it.
 		 */
-		expect(repointHint).not.toBe('');
 		expect(moveHint).not.toBe('');
-		expect(moveHint, 'a move and a re-point are described with the same words').not.toBe(repointHint);
 		expect(moveLabel, 'a move and a re-point are confirmed with the same button').not.toBe(repointLabel);
 
 		await page.keyboard.press('Escape');
 		expect(asked, 'closing the dialog asked the gateway to change something').toHaveLength(0);
 	});
 
-	test('only libraries this gateway can write into are offered, the rest named with the reason', async ({ page }) => {
+	test('only libraries this gateway can write into are offered, and the rest are not listed', async ({ page }) => {
 		const asked = await serveQueue(page);
 
 		await page.goto('/transfers');
@@ -395,19 +405,15 @@ test.describe('changing where a pull lands', () => {
 		await expect(options).toHaveCount(1);
 		await expect(options).toHaveAttribute('data-library', OURS);
 
-		// Both left out, each on its own line: a friend's shelf, and one of ours whose
-		// folder cannot be written — two reasons fixed in two different places, which
-		// is why the line has to say which.
-		const rejected = page.locator(test0('retarget-rejected'));
-		await expect(rejected).toHaveCount(2);
-		await expect(rejected.filter({ hasText: 'Journey their films' })).toHaveCount(1);
-		await expect(rejected.filter({ hasText: 'Journey broken films' })).toHaveCount(1);
-
-		// And the two reasons are not the same sentence.
-		const reasons = await rejected.evaluateAll(
-			nodes => nodes.map(node => (node.textContent ?? '').split('—').at(-1)?.trim() ?? ''));
-		expect(reasons[0]).not.toBe('');
-		expect(reasons[0], 'two different reasons were given the same words').not.toBe(reasons[1]);
+		/*
+		 * And the two that were left out are not named here at all.
+		 *
+		 * They were, one line each with the reason, and on a household with a friend's
+		 * server that is four lines of "you cannot pick this" in front of a decision with
+		 * one choice in it. The settings screen is where a shelf that should be writable
+		 * and is not gets explained; this dialog asks one question.
+		 */
+		await expect(page.locator(test0('retarget-rejected'))).toHaveCount(0);
 
 		// Choosing it is what commits, and the request names this transfer and that
 		// library — nothing is re-planned and nothing starts over from its sources.
