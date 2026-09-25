@@ -70,6 +70,8 @@ function group (overrides: Partial<ReleaseGroup> = {}): ReleaseGroup {
 				flags: [],
 			},
 		],
+		flags: [],
+		indexers: ['prowlarr'],
 		coverage: { seasonNumber: 1, episodeNumbers: [1], wholeSeason: false, wholeSeries: false },
 		fills: [],
 		brings: [],
@@ -299,20 +301,23 @@ describe('components/media/ReleaseSearch', () => {
 
 		it('names the tracker a grab would take, before anybody presses', async () => {
 			const { wrapper } = await mountWithResult(onTwo());
+			const select = wrapper.findComponent({ name: 'VSelect' });
 
-			expect(wrapper.find('[data-test="release-from"]').text()).toContain('YGG');
+			// The control's own value is the answer: no opening, no hover, no second line.
+			expect(select.props('modelValue')).toBe('release-1');
+			expect((select.props('items') as { id: string; indexer: string }[])
+				.find(one => one.id === select.props('modelValue'))
+				?.indexer).toBe('YGG');
 		});
 
-		it('lists every tracker holding it, with what each one costs', async () => {
+		it('offers every tracker holding it, the chosen one on its face', async () => {
 			const { wrapper } = await mountWithResult(onTwo());
+			const select = wrapper.findComponent({ name: 'VSelect' });
 
-			await wrapper.find('[data-test="release-copies-toggle"]').trigger('click');
-
-			const copies = wrapper.findAll('[data-test="release-copy"]');
-
-			expect(copies).toHaveLength(2);
-			expect(copies[0].attributes('data-chosen')).toBe('true');
-			expect(copies[1].find('[data-test="release-copy-flag-freeleech"]').exists()).toBe(true);
+			expect(select.exists()).toBe(true);
+			expect(select.props('modelValue')).toBe('release-1');
+			expect((select.props('items') as { id: string }[]).map(one => one.id))
+				.toEqual(['release-1', 'release-2']);
 		});
 
 		it('grabs the one that was chosen and not the best seeded', async () => {
@@ -322,8 +327,7 @@ describe('components/media/ReleaseSearch', () => {
 			});
 			const { wrapper } = await mountWithResult(onTwo());
 
-			await wrapper.find('[data-test="release-copies-toggle"]').trigger('click');
-			await wrapper.findAll('[data-test="release-copy"]')[1].trigger('click');
+			await wrapper.findComponent({ name: 'VSelect' }).setValue('release-2');
 			await wrapper.find('[data-test="release-grab-button"]').trigger('click');
 			await flushPromises();
 
@@ -360,18 +364,18 @@ describe('components/media/ReleaseSearch', () => {
 			// Nothing said about the best-seeded one, which carries no flag.
 			expect(wrapper.find('[data-test="release-cost"]').exists()).toBe(false);
 
-			await wrapper.find('[data-test="release-copies-toggle"]').trigger('click');
-			await wrapper.findAll('[data-test="release-copy"]')[1].trigger('click');
+			await wrapper.findComponent({ name: 'VSelect' }).setValue('release-2');
 
 			expect(wrapper.find('[data-test="release-cost"]').attributes('data-cost')).toBe('free');
 		});
 
-		it('offers no choice where there is nothing to choose', async () => {
+		it('says the tracker plainly when there is only one of them', async () => {
 			const { wrapper } = await mountWithResult();
 
-			// One copy, no flags: an expander that opens on a line repeating the row above
-			// it is an expander people stop pressing.
-			expect(wrapper.find('[data-test="release-copies-toggle"]').exists()).toBe(false);
+			// A select over one option is a control that cannot do anything, on a row that
+			// already carries five chips.
+			expect(wrapper.findComponent({ name: 'VSelect' }).exists()).toBe(false);
+			expect(wrapper.find('[data-test="release-from"]').text()).toContain('prowlarr');
 		});
 	});
 

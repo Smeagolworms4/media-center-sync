@@ -197,6 +197,16 @@ module.exports = [
 	},
 	{
 		// A film: a year where an episode has a season, and nothing else to go on.
+		/*
+		 * A release the tracker offers as a `.torrent` file and not as a magnet.
+		 *
+		 * Half the private trackers do exactly this, and it is a different chain: the
+		 * client is handed a link and has to fetch it *itself*, from wherever it runs. A
+		 * link built from the host the gateway asked on — which is what Prowlarr hands out
+		 * — then resolves to the client's own container, and the add takes nothing while
+		 * answering nothing. Here so that chain is exercised rather than assumed.
+		 */
+		torrentOnly: true,
 		key: 'tears-of-steel-1080p',
 		title: 'Tears.of.Steel.2012.1080p.BluRay.x265-LABTEAM',
 		category: MOVIE_HD,

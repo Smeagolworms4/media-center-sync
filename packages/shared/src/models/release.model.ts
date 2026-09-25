@@ -212,8 +212,24 @@ export interface ReleaseGroup {
 	size: number | null;
 	/** Summed over the group, because a release on four trackers really is better seeded. */
 	seeders: number | null;
-	/** Every copy, best seeded first. The first is what a grab takes. */
+	/**
+	 * Every copy, in the order the household's preference puts them.
+	 *
+	 * **The first is what a grab takes** unless somebody picks another on the row, so this
+	 * order is not cosmetic: it is which tracker a download comes from and what it costs.
+	 * Best seeded first where nothing was preferred, which is what it always was.
+	 */
 	releases: Release[];
+	/**
+	 * Every flag any copy of it carries, deduplicated.
+	 *
+	 * A group is free when *one* of its trackers gives it away, because taking that one is
+	 * a press away — so this is the union and not the intersection, and the row says which
+	 * copy the flag belongs to.
+	 */
+	flags: string[];
+	/** The trackers holding it, in the same order as `releases`. */
+	indexers: string[];
 	coverage: ReleaseCoverage;
 	/**
 	 * The episodes of ours this would fill, worked out against what we hold.

@@ -1595,7 +1595,6 @@
 			"uncovered_hint": "试试别的搜索词，或者等有新的发布后再回来。"
 		},
 		"from_indexer": "来自 {indexer}",
-		"choose_indexer": "选择 tracker",
 		"cost": {
 			"free": "免费",
 			"half": "半计量"
@@ -1612,7 +1611,8 @@
 			"nuked": "已作废",
 			"ptp_golden": "金爆米花",
 			"ptp_approved": "已认可"
-		}
+		},
+		"from": "Tracker"
 	},
 	"classification": {
 		"title": "这可能属于哪里",

@@ -43,6 +43,32 @@ export enum ReleasePreferenceDimension {
 	SOURCE = 'source',
 	/** `MULTI`, `VOSTFR`, `FRENCH` — the tags the parser read, in the name's order. */
 	LANGUAGE = 'language',
+	/**
+	 * What it costs on the tracker's ratio: `free`, `half`.
+	 *
+	 * The one dimension that is not about the file at all, and on a private tracker it is
+	 * often the one that decides: two identical encodes, one free and one not, is not a
+	 * choice anybody makes twice. Put ahead of the others it says "the cheapest of the
+	 * acceptable copies"; put behind them, "the best copy, free if that is an option".
+	 *
+	 * Read from the flags the indexer reported, so it is only ever known for a tracker
+	 * that says — most public ones do not, and a release that said nothing ranks with the
+	 * unlisted rather than last.
+	 */
+	COST = 'cost',
+	/**
+	 * Which tracker the copy comes from.
+	 *
+	 * Not a property of the release either: the same file sits on several, and which one
+	 * it is taken from decides what it costs, how fast it comes and whose ratio pays. A
+	 * household with a private tracker it trusts and a public one it falls back on has
+	 * exactly one sentence to say here, and it is an order rather than a filter — the
+	 * fallback is still worth having when the good one has nothing.
+	 *
+	 * This one also chooses **within** a line: a release found on three trackers is one
+	 * row, and the copy a grab takes is the first one this order puts.
+	 */
+	INDEXER = 'indexer',
 }
 
 /** One dimension and the values somebody prefers in it, best first. */
@@ -172,6 +198,11 @@ export const RELEASE_PREFERENCE_DIMENSIONS: ReleasePreferenceDimension[] = [
 	ReleasePreferenceDimension.TEAM,
 	ReleasePreferenceDimension.SOURCE,
 	ReleasePreferenceDimension.LANGUAGE,
+	// The two that are about where a copy comes from rather than what it is, last in the
+	// offered order because a household answers "what is a good copy" before "and from
+	// whom" — and moving either to the front is one press, which is the whole point.
+	ReleasePreferenceDimension.COST,
+	ReleasePreferenceDimension.INDEXER,
 ];
 
 /**
@@ -189,4 +220,10 @@ export const RELEASE_PREFERENCE_SUGGESTIONS: Record<ReleasePreferenceDimension, 
 	[ReleasePreferenceDimension.TEAM]: [],
 	[ReleasePreferenceDimension.SOURCE]: ['BluRay', 'WEB-DL', 'WEBRip', 'HDTV', 'DVD'],
 	[ReleasePreferenceDimension.LANGUAGE]: ['MULTI', 'VF', 'FRENCH', 'VOSTFR', 'VO'],
+	// `free` and `half` are the two an indexer can actually report; a release nothing was
+	// said about carries neither and ranks with the unlisted.
+	[ReleasePreferenceDimension.COST]: ['free', 'half'],
+	// None, for the reason teams have none: the trackers a household uses are its own
+	// business, and they are typed as they appear on the rows.
+	[ReleasePreferenceDimension.INDEXER]: [],
 };

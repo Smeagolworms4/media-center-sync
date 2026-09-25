@@ -15,9 +15,11 @@
 		SuggestionSource,
 	} from '@mcs/shared';
 	import { computed, onMounted, ref, watch } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import ReleasePlan from '@/components/media/ReleasePlan.vue';
+	import { formatBytes } from '@/composables/useFormat';
 	import { describeMediaOrigin } from '@/composables/useMediaOrigin';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useReleasesStore } from '@/stores/releases';
@@ -56,6 +58,7 @@
 		episodeNumber?: number | null;
 	}>();
 
+	const { locale, t } = useI18n();
 	const releases = useReleasesStore();
 	const { notify, tryCallback } = useNotifier();
 
@@ -142,31 +145,30 @@
 		return group.releases.find(one => one.id === picked) ?? group.releases[0];
 	}
 
-	function choose (group: ReleaseGroup, release: Release): void {
-		chosen.value = { ...chosen.value, [group.key]: release.id };
+	function chooseById (group: ReleaseGroup, id: string): void {
+		chosen.value = { ...chosen.value, [group.key]: id };
+	}
+
+	/**
+	 * What a copy is worth choosing on, under its tracker's name.
+	 *
+	 * Built here rather than in the template because it is one line of prose in a menu
+	 * item, and three chips in a dropdown read as a form rather than as a choice.
+	 */
+	function copyLine (copy: Release): string {
+		const cost = releaseCostOf(copy.flags);
+
+		return [
+			t('release.seeders', { count: copy.seeders ?? 0 }),
+			(copy.size ?? 0) > 0 ? formatBytes(copy.size, locale.value) : null,
+			cost === null ? null : t(`release.cost.${cost}`),
+			...copy.flags.filter(flag => releaseCostOf([flag]) === null).map(flag => t(`release.flag.${flag}`, flag)),
+		].filter(Boolean).join(' · ');
 	}
 
 	/** What the copy a grab would take costs on its tracker's ratio, if it says. */
 	function costOf (group: ReleaseGroup): 'free' | 'half' | null {
 		return releaseCostOf(copyOf(group)?.flags ?? []);
-	}
-
-	/**
-	 * Whether a group is worth opening: more than one tracker, or a flag worth reading.
-	 *
-	 * A single copy with nothing to say about it has nothing behind the arrow, and an
-	 * expander that opens on one line repeating the row above it is an expander people
-	 * stop pressing.
-	 */
-	function hasCopies (group: ReleaseGroup): boolean {
-		return group.releases.length > 1 || group.releases.some(one => one.flags.length > 0);
-	}
-
-	/** Which groups somebody has opened the copies of. */
-	const opened = ref<Record<string, boolean>>({});
-
-	function toggleCopies (group: ReleaseGroup): void {
-		opened.value = { ...opened.value, [group.key]: opened.value[group.key] !== true };
 	}
 
 	const grab = tryCallback(async (group: ReleaseGroup) => {
@@ -580,10 +582,38 @@
 								presses rather than found out afterwards in the client. The same
 								release on two trackers is one row, and the two are not
 								interchangeable: one may be free on the ratio and the other not.
+
+								A select rather than a list of copies: on a row that is already a
+								name, a size, five chips and a button, a second block of lines
+								underneath is a second list to read. One control, the answer on
+								its face, the rest on opening it — and under each tracker's name,
+								what decides between them: what it costs there and how well it is
+								seeded.
 							-->
-							<span class="text-caption text-medium-emphasis" data-test="release-from">
+							<span
+								v-if="one.release.releases.length < 2"
+								class="text-caption text-medium-emphasis"
+								data-test="release-from"
+							>
 								{{ $t('release.from_indexer', { indexer: copyOf(one.release)?.indexer ?? '—' }) }}
 							</span>
+
+							<v-select
+								v-else
+								class="release-search_indexer"
+								data-test="release-indexer-select"
+								density="compact"
+								hide-details
+								:item-props="(copy: Release) => ({ subtitle: copyLine(copy) })"
+								item-title="indexer"
+								item-value="id"
+								:items="one.release.releases"
+								:label="$t('release.from')"
+								:menu-props="{ maxWidth: 420 }"
+								:model-value="copyOf(one.release)?.id"
+								variant="underlined"
+								@update:model-value="(id: string) => chooseById(one.release, id)"
+							/>
 
 							<v-chip
 								v-if="costOf(one.release) !== null"
@@ -610,87 +640,18 @@
 						</div>
 					</div>
 
-					<div class="release-search_actions">
-						<v-btn
-							v-if="hasCopies(one.release)"
-							:append-icon="opened[one.release.key] ? 'mdi-chevron-up' : 'mdi-chevron-down'"
-							data-test="release-copies-toggle"
-							size="small"
-							variant="text"
-							@click="toggleCopies(one.release)"
-						>
-							{{ $t('release.choose_indexer') }}
-						</v-btn>
-
-						<v-btn
-							data-test="release-grab-button"
-							:loading="grabbing === one.release.key"
-							prepend-icon="mdi-download"
-							size="small"
-							variant="tonal"
-							@click="grab(one.release)"
-						>
-							{{ $t('release.grab') }}
-						</v-btn>
-					</div>
-				</div>
-
-				<!--
-					One line per tracker holding this release, and pressing one decides where
-					the grab goes. The copies are already on the row — the group carries them —
-					so this costs no call and answers the question the collapsed line raises the
-					moment it says "on 2 trackers": which of the two, and what does it cost.
-				-->
-				<div
-					v-if="one.source === SuggestionSource.INDEXER && opened[one.release.key] === true"
-					class="release-search_copies"
-					data-test="release-copy-list"
-				>
-					<button
-						v-for="copy of one.release.releases"
-						:key="copy.id"
-						class="release-search_copy"
-						:class="{ 'release-search_copy--chosen': copyOf(one.release)?.id === copy.id }"
-						:data-chosen="copyOf(one.release)?.id === copy.id ? 'true' : 'false'"
-						data-test="release-copy"
-						type="button"
-						@click="choose(one.release, copy)"
+					<v-btn
+						data-test="release-grab-button"
+						:loading="grabbing === one.release.key"
+						prepend-icon="mdi-download"
+						size="small"
+						variant="tonal"
+						@click="grab(one.release)"
 					>
-						<v-icon
-							class="release-search_copy_mark"
-							:icon="copyOf(one.release)?.id === copy.id
-								? 'mdi-radiobox-marked'
-								: 'mdi-radiobox-blank'"
-							size="x-small"
-						/>
-
-						<span class="release-search_copy_name" data-test="release-copy-indexer">
-							{{ copy.indexer }}
-						</span>
-
-						<span class="text-caption text-medium-emphasis">
-							{{ $t('release.seeders', { count: copy.seeders ?? 0 }) }}
-						</span>
-
-						<span v-if="(copy.size ?? 0) > 0" class="text-caption text-medium-emphasis">
-							<ByteSize :bytes="copy.size" />
-						</span>
-
-						<v-chip
-							v-for="flag of copy.flags"
-							:key="flag"
-							:color="releaseCostOf([flag]) === 'free'
-								? 'state-in-sync'
-								: (releaseCostOf([flag]) === 'half' ? 'warning' : undefined)"
-							:data-test="`release-copy-flag-${flag}`"
-							label
-							size="x-small"
-							variant="tonal"
-						>
-							{{ $t(`release.flag.${flag}`, flag) }}
-						</v-chip>
-					</button>
+						{{ $t('release.grab') }}
+					</v-btn>
 				</div>
+
 			</template>
 		</div>
 
@@ -748,44 +709,12 @@
 			padding: 6px 0;
 		}
 
-		&_actions {
-			display: flex;
-			align-items: center;
-			gap: 4px;
-			flex-wrap: wrap;
-		}
-
-		&_copies {
-			display: flex;
-			flex-direction: column;
-			gap: 2px;
-			// Indented under the row it belongs to, so a list of trackers cannot be read as
-			// a list of releases — which is what it would look like flush with the others.
-			padding: 2px 0 8px 16px;
-		}
-
-		&_copy {
-			display: flex;
-			align-items: center;
-			flex-wrap: wrap;
-			gap: 8px;
-			padding: 4px 8px;
-			border-radius: 4px;
-			text-align: left;
-			width: 100%;
-
-			&:hover,
-			&:focus-visible {
-				background: rgba(var(--v-theme-on-surface), 0.06);
-			}
-
-			&--chosen {
-				background: rgba(var(--v-theme-on-surface), 0.08);
-			}
-
-			&_name {
-				font-weight: 500;
-			}
+		// Narrow on purpose: it sits in a line of chips and a tracker's name is short. Left
+		// to its own width it would push the size and the seeders onto a second line.
+		&_indexer {
+			max-width: 200px;
+			min-width: 120px;
+			flex: 0 1 auto;
 		}
 
 		&_label {

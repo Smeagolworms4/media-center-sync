@@ -3,7 +3,7 @@ import {
 	ErrorKey,
 	type DownloadClientSettings,
 } from '@mcs/shared';
-import { HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { HttpException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { DownloadClientFor } from './download-client.decorator';
 import { CLIENT_TIMEOUT_MS, releaseJson, releaseText } from './release-http';
 import type {
@@ -90,11 +90,16 @@ const COMPLETE_STATES = new Set([
 @Injectable()
 @DownloadClientFor(DownloadClientType.QBITTORRENT)
 export class QbittorrentClient implements DownloadClient {
+	private readonly _logger = new Logger(QbittorrentClient.name);
+
 	public async grab(settings: DownloadClientSettings, order: GrabOrder): Promise<string> {
 		const cookie = await this._login(settings);
 		const url = order.magnetUrl ?? order.downloadUrl;
 
-		if (url === null) {
+		// Nothing to hand over at all. Carrying the bytes counts: a release whose only
+		// address is a link this gateway already resolved has no URL left to pass on, and
+		// refusing it here would refuse exactly the case the fetching was added for.
+		if (url === null && !order.torrentFile) {
 			throw new ServiceUnavailableException({ key: ErrorKey.DOWNLOAD_CLIENT_REFUSED });
 		}
 
@@ -104,9 +109,35 @@ export class QbittorrentClient implements DownloadClient {
 		// nothing can ever be tracked or filed.
 		const before = new Set((await this._list(settings, cookie, order.category)).map((one) => one.hash));
 
+		/*
+		 * The file itself when we have it, and a link only when we do not.
+		 *
+		 * A client asked to fetch an indexer's link resolves it from *its* network, where
+		 * the `localhost` the link was built with is the client — so it fetches nothing,
+		 * adds nothing and answers no error. The bytes are fetched by the gateway, which
+		 * is the party the link was built for, and handed over as a file.
+		 */
+		const parts = order.torrentFile ? new FormData() : null;
+
+		if (parts !== null && order.torrentFile) {
+			parts.set(
+				'torrents',
+				new Blob([order.torrentFile as unknown as BlobPart], { type: 'application/x-bittorrent' }),
+				`${order.title}.torrent`,
+			);
+			parts.set('savepath', order.savePath);
+			parts.set('category', order.category);
+			parts.set('rename', '');
+
+			if (order.paused === true) {
+				parts.set('stopCondition', 'MetadataReceived');
+			}
+		}
+
 		await releaseText(settings.baseUrl, '/api/v2/torrents/add', {
-			form: {
-				urls: url,
+			...(parts === null ? {} : { multipart: parts }),
+			form: parts !== null ? undefined : {
+				urls: url ?? '',
 				savepath: order.savePath,
 				category: order.category,
 				/*
@@ -140,10 +171,26 @@ export class QbittorrentClient implements DownloadClient {
 		const added = after.find((one) => one.hash !== undefined && !before.has(one.hash));
 
 		if (added?.hash === undefined) {
-			// It answered and took nothing: a magnet it already has, or one it refused
-			// without saying so. Its own key, because the remedy is in the client rather
-			// than in its address.
-			throw new ServiceUnavailableException({ key: ErrorKey.DOWNLOAD_CLIENT_REFUSED });
+			/*
+			 * It answered and took nothing: a torrent it already has, or one it refused
+			 * without saying so. Its own key, because the remedy is in the client rather
+			 * than in its address.
+			 *
+			 * Said out loud, because it was not: this refusal reached a production screen
+			 * with the logs carrying no trace of it at all, and working out which of the
+			 * three causes it was took a reproduction in a lab. What it was handed is the
+			 * one fact that separates them.
+			 */
+			const handed = order.torrentFile
+				? `a ${order.torrentFile.length}-byte file`
+				: (order.magnetUrl === null ? `the link ${url}` : 'a magnet');
+
+			this._logger.warn(`${settings.baseUrl} took nothing when handed ${handed} for ${order.title}`);
+
+			throw new ServiceUnavailableException({
+				key: ErrorKey.DOWNLOAD_CLIENT_REFUSED,
+				detail: `handed ${handed}, and no new torrent appeared in ${order.category}`,
+			});
 		}
 
 		return added.hash;

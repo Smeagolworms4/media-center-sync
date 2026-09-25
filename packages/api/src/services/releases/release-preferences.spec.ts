@@ -84,6 +84,8 @@ function group(sketch: Sketch = {}): ReleaseGroup {
 		size: one.size,
 		seeders: one.seeders,
 		releases: [one],
+		flags: one.flags,
+		indexers: [one.indexer],
 		coverage: one.coverage,
 		fills: [],
 		brings: [],

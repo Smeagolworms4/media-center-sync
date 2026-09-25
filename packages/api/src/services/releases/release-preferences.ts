@@ -1,4 +1,5 @@
 import {
+	releaseCostOf,
 	ReleasePreferenceDimension,
 	ReleasePreferenceScope,
 	type Release,
@@ -37,7 +38,19 @@ import {
  * not one of them: the manager orders groups, the grouping orders the copies inside a
  * group, and both are the same question about the same four facts.
  */
-export type PreferableRelease = Pick<Release, 'title' | 'quality' | 'source' | 'languages'>;
+/**
+ * What ranking needs of a release, which a `Release` and a `ReleaseGroup` both answer.
+ *
+ * The last three are optional because the two shapes carry them differently: one release
+ * has one tracker and its own flags, a group has every tracker its copies came from and
+ * the union of their flags. Both are legitimate answers to "which trackers is this on",
+ * and a reader that insisted on one of them would rank a group as coming from nowhere.
+ */
+export type PreferableRelease = Pick<Release, 'title' | 'quality' | 'source' | 'languages'> & {
+	flags?: string[];
+	indexer?: string;
+	indexers?: string[];
+};
 
 /** Guard against a reordering that silently drops a row: never move, never remove. */
 type Comparator<T> = (left: T, right: T) => number;
@@ -202,6 +215,17 @@ export const releaseCodecOf = (title: string): string | null => firstMatch(title
  */
 const listOf = (value: string | null): string[] => (value === null ? [] : [value]);
 
+/**
+ * The two answers an indexer can give about what a release costs, and the words for them.
+ *
+ * Folded like every other dimension so a typed opinion meets a reported flag: the tracker
+ * says `freeleech`, the household typed `gratuit`, and they are the same sentence.
+ */
+const COSTS: [RegExp, string][] = [
+	[/free\s*leech|freeleech|gratuit|\bfree\b|golden/i, 'free'],
+	[/half\s*leech|halfleech|demi|\bhalf\b/i, 'half'],
+];
+
 const readers: Record<ReleasePreferenceDimension, (release: PreferableRelease) => string[]> = {
 	// The parser fills `quality`, and the name is read only when it did not: a group
 	// assembled by something other than `parseReleaseName` would otherwise be ranked as
@@ -216,6 +240,21 @@ const readers: Record<ReleasePreferenceDimension, (release: PreferableRelease) =
 		release.source !== null ? [release.source] : listOf(firstMatch(release.title, SOURCES)),
 	[ReleasePreferenceDimension.LANGUAGE]: (release) =>
 		release.languages.length > 0 ? release.languages : listOf(firstMatch(release.title, LANGUAGES)),
+	/*
+	 * From the indexer's flags and never from the name.
+	 *
+	 * The one dimension a release name cannot carry: whether a tracker gives it away is a
+	 * fact about that tracker on that day, and a name that said `FREELEECH` would be a
+	 * name somebody typed. A release nothing was said about answers nothing and ranks with
+	 * the unlisted, which is right — most public trackers report no flags at all, and
+	 * reading that silence as "full price" would push every public copy to the bottom of a
+	 * list for a household that never said anything about cost.
+	 */
+	[ReleasePreferenceDimension.COST]: (release) => listOf(releaseCostOf(release.flags ?? [])),
+	// One tracker for a single copy, all of them for a group: a release on three trackers
+	// is ranked on the best of the three, because taking that one is a press away.
+	[ReleasePreferenceDimension.INDEXER]: (release) =>
+		release.indexers ?? (release.indexer === undefined ? [] : [release.indexer]),
 };
 
 const folds: Record<ReleasePreferenceDimension, [RegExp, string][]> = {
@@ -226,6 +265,11 @@ const folds: Record<ReleasePreferenceDimension, [RegExp, string][]> = {
 	[ReleasePreferenceDimension.TEAM]: [],
 	[ReleasePreferenceDimension.SOURCE]: SOURCES,
 	[ReleasePreferenceDimension.LANGUAGE]: LANGUAGES,
+	// Somebody types what their tracker prints — `freeleech`, `gratuit`, `free` — and
+	// means the one thing the indexer reports as `free`.
+	[ReleasePreferenceDimension.COST]: COSTS,
+	// A tracker's name is its name, exactly as a team's is.
+	[ReleasePreferenceDimension.INDEXER]: [],
 };
 
 /**
@@ -357,7 +401,21 @@ export const orderGroupsByPreference = (
 ): ReleaseGroup[] => {
 	const order = compareByReleasePreference(preference);
 
-	return [...groups].sort(
-		(left, right) => Number(left.heldAlready) - Number(right.heldAlready) || order(left, right),
-	);
+	return [...groups]
+		/*
+		 * The copies inside a line are ordered too, and that is not cosmetic: the first of
+		 * them is what a grab takes.
+		 *
+		 * Two of the dimensions — what it costs and which tracker it is on — separate the
+		 * copies of one release rather than the releases from each other, and ordering only
+		 * the lines would leave a household that said "free first, and YGG before the rest"
+		 * watching its own order decide which row to press and then be ignored the moment
+		 * it did. Everything else ties between copies of the same release, so the seeded
+		 * order the grouping produced survives underneath.
+		 */
+		.map((group) => ({ ...group, releases: sortByReleasePreference(group.releases, preference) }))
+		.map((group) => ({ ...group, indexers: [...new Set(group.releases.map((one) => one.indexer))] }))
+		.sort(
+			(left, right) => Number(left.heldAlready) - Number(right.heldAlready) || order(left, right),
+		);
 };

@@ -240,7 +240,7 @@ function item(release, torrent, announce, base) {
 			<torznab:attr name="seeders" value="${release.seeders}"/>
 			<torznab:attr name="peers" value="${release.seeders + release.leechers}"/>
 			<torznab:attr name="infohash" value="${torrent.infoHash}"/>
-			<torznab:attr name="magneturl" value="${escapeXml(magnet)}"/>
+${release.torrentOnly ? '' : `			<torznab:attr name="magneturl" value="${escapeXml(magnet)}"/>\n`}
 			<torznab:attr name="downloadvolumefactor" value="${release.downloadFactor ?? 1}"/>
 			<torznab:attr name="uploadvolumefactor" value="1"/>
 		</item>

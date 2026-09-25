@@ -1595,7 +1595,6 @@
 			"uncovered_hint": "Попробуйте другие слова для поиска или вернитесь, когда появится релиз."
 		},
 		"from_indexer": "с {indexer}",
-		"choose_indexer": "Выбрать трекер",
 		"cost": {
 			"free": "бесплатно",
 			"half": "половина рейтинга"
@@ -1612,7 +1611,8 @@
 			"nuked": "забракован",
 			"ptp_golden": "golden popcorn",
 			"ptp_approved": "одобрен"
-		}
+		},
+		"from": "Трекер"
 	},
 	"classification": {
 		"title": "Куда это может относиться",

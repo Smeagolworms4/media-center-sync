@@ -5,6 +5,22 @@ export interface GrabOrder {
 	/** Either of these; the client takes whichever it prefers. */
 	magnetUrl: string | null;
 	downloadUrl: string | null;
+	/**
+	 * The `.torrent` itself, fetched by the gateway rather than by the client.
+	 *
+	 * **A client is never asked to fetch a link.** An indexer builds its download link
+	 * from the `Host` of the request that asked for it, so a search made by this gateway
+	 * yields `http://localhost:9696/…`; handed to a client in its own container,
+	 * `localhost` is the client. It fetches nothing, adds nothing, and answers no error —
+	 * and the only symptom, several layers away, is a refusal saying the client took
+	 * something and produced no torrent. Half the private trackers serve a file rather
+	 * than a magnet, so this is not an edge: it is the other half of the feature.
+	 *
+	 * Null when the release offered a magnet, which needs no fetching, or when the fetch
+	 * failed — and then `downloadUrl` is passed on as a last resort, because a tracker
+	 * whose link the client *can* reach is a case that works.
+	 */
+	torrentFile?: Uint8Array | null;
 	/** The release name, so the client's own list is readable by a human. */
 	title: string;
 	/** Where the client should write, in the client's own spelling of the path. */

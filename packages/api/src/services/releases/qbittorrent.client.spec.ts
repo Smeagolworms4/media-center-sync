@@ -41,6 +41,8 @@ interface Call {
 	path: string;
 	query: URLSearchParams;
 	form: URLSearchParams;
+	/** The multipart body, when the call carried a file rather than a form. */
+	parts: FormData | null;
 	headers: Record<string, string>;
 }
 
@@ -76,6 +78,7 @@ describe('QbittorrentClient', () => {
 				path: url.pathname,
 				query: url.searchParams,
 				form: new URLSearchParams(typeof init?.body === 'string' ? init.body : ''),
+				parts: init?.body instanceof FormData ? init.body : null,
 				headers: (init?.headers ?? {}) as Record<string, string>,
 			};
 
@@ -199,6 +202,52 @@ describe('QbittorrentClient', () => {
 			// And never the flat pause, which is the deadlock.
 			expect(add.form.has('paused')).toBe(false);
 			expect(add.form.has('stopped')).toBe(false);
+		});
+
+		/*
+		 * A file rather than a link, and the client is never asked to fetch anything.
+		 *
+		 * The link an indexer hands out is built from the `Host` of the request that asked
+		 * for it, so a client in its own container resolves `localhost:9696` to itself:
+		 * nothing fetched, nothing added, no error. Handing over the bytes removes the
+		 * question, and the gateway is the party the link was built for.
+		 */
+		it('uploads the torrent when it was given one, and asks for no link', async () => {
+			serve({
+				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),
+				'/api/v2/torrents/add': {},
+			});
+
+			await client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: null,
+				downloadUrl: 'http://localhost:9696/1/download?apikey=k',
+				torrentFile: new Uint8Array([0x64, 0x38]),
+			});
+
+			const add = callsTo('/api/v2/torrents/add')[0];
+
+			expect(add.parts?.get('urls')).toBeNull();
+			expect(add.parts?.get('savepath')).toBe(ORDER.savePath);
+			expect(add.parts?.get('category')).toBe(ORDER.category);
+			expect(add.parts?.get('torrents')).toBeInstanceOf(Blob);
+		});
+
+		it('still stops on the metadata when it uploads a file for a partial grab', async () => {
+			serve({
+				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),
+				'/api/v2/torrents/add': {},
+			});
+
+			await client.grab(SETTINGS, {
+				...ORDER,
+				magnetUrl: null,
+				torrentFile: new Uint8Array([0x64]),
+				paused: true,
+			});
+
+			expect(callsTo('/api/v2/torrents/add')[0].parts?.get('stopCondition'))
+				.toBe('MetadataReceived');
 		});
 
 		it('says nothing about stopping when the torrent is meant to run', async () => {

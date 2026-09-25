@@ -1595,7 +1595,6 @@
 			"uncovered_hint": "Provate altri termini di ricerca, o tornate quando comparirà una release."
 		},
 		"from_indexer": "da {indexer}",
-		"choose_indexer": "Scegliere il tracker",
 		"cost": {
 			"free": "gratis",
 			"half": "mezzo ratio"
@@ -1612,7 +1611,8 @@
 			"nuked": "nukata",
 			"ptp_golden": "golden popcorn",
 			"ptp_approved": "approvata"
-		}
+		},
+		"from": "Tracker"
 	},
 	"classification": {
 		"title": "Dove questo potrebbe andare",

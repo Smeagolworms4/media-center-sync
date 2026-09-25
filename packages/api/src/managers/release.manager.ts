@@ -43,6 +43,7 @@ import {
 	FilesystemService,
 	followToMagnet,
 	isInside,
+	releaseBytes,
 	groupReleases,
 	IndexerRegistry,
 	NamingService,
@@ -610,10 +611,23 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		 * passed on as one.
 		 */
 		const magnetUrl = await resolveMagnet(release.magnetUrl, release.downloadUrl);
+		/*
+		 * No magnet means a file, and the file is fetched here rather than by the client.
+		 *
+		 * The same trap as the magnet above, on the other branch and just as silent: the
+		 * link an indexer hands out is built from the `Host` of the request that asked, so
+		 * a client in its own container resolving `localhost:9696` reaches itself, takes
+		 * nothing, and reports nothing. Half the private trackers serve a `.torrent` rather
+		 * than a magnet, so this is not an edge — it is the other half of every search.
+		 */
+		const torrentFile = magnetUrl !== null || release.downloadUrl === null
+			? null
+			: await releaseBytes(release.downloadUrl);
 
 		const clientId = await this._clients.get(client.type).grab(client, {
 			magnetUrl,
 			downloadUrl: release.downloadUrl,
+			torrentFile,
 			title: release.title,
 			savePath: savePathOf(client),
 			category: CATEGORY,

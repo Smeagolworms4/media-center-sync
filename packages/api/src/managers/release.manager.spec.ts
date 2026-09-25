@@ -1126,6 +1126,74 @@ describe('ReleaseManager', () => {
 			);
 		});
 
+		/*
+		 * The other half of the same trap, and the one that reached production.
+		 *
+		 * Half the private trackers serve a `.torrent` rather than a magnet. The link to it
+		 * is built from the `Host` the gateway asked on, so a client in its own container
+		 * resolves `localhost:9696` to itself: it fetches nothing, adds nothing, answers no
+		 * error, and the refusal surfaces two layers away as "the client took something and
+		 * produced no torrent". Reproduced in the lab with an indexer that offers no
+		 * magnet, which is exactly what it looked like.
+		 */
+		it('fetches the torrent itself when there is no magnet, rather than sending a link', async () => {
+			const { manager, fakes } = build();
+			const bytes = new Uint8Array([0x64, 0x38, 0x3a]);
+
+			global.fetch = jest.fn(async () => ({
+				ok: true,
+				headers: new Headers(),
+				arrayBuffer: async () => bytes.buffer,
+			})) as unknown as typeof fetch;
+			fakes.cache.get.mockResolvedValue(
+				release({ magnetUrl: null, downloadUrl: 'http://localhost:9696/1/download?apikey=k' }),
+			);
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			expect(fakes.client.grab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ torrentFile: bytes, magnetUrl: null }),
+			);
+		});
+
+		it('fetches nothing when a magnet was already found', async () => {
+			const { manager, fakes } = build();
+			const fetched = jest.fn();
+
+			global.fetch = fetched as unknown as typeof fetch;
+			fakes.cache.get.mockResolvedValue(release({ magnetUrl: 'magnet:?xt=urn:btih:one' }));
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			expect(fetched).not.toHaveBeenCalled();
+			expect(fakes.client.grab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ torrentFile: null }),
+			);
+		});
+
+		it('still hands the link over when the bytes cannot be fetched', async () => {
+			// A tracker the client can reach is a case that works, and refusing here would
+			// break it for the sake of a fetch this gateway happened to fail.
+			const { manager, fakes } = build();
+
+			global.fetch = jest.fn(async () => ({ ok: false, headers: new Headers() })) as unknown as typeof fetch;
+			fakes.cache.get.mockResolvedValue(
+				release({ magnetUrl: null, downloadUrl: 'http://tracker.example/one.torrent' }),
+			);
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			expect(fakes.client.grab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					torrentFile: null,
+					downloadUrl: 'http://tracker.example/one.torrent',
+				}),
+			);
+		});
+
 		it('hands the link over unchanged when it leads to no magnet', async () => {
 			// Some trackers really do serve `.torrent` bytes at a URL the client can
 			// fetch for itself, so refusing here would break a case that works.

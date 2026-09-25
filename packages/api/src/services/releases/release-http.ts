@@ -33,6 +33,13 @@ export interface ReleaseHttpOptions extends HttpRequestOptions {
 	unauthorized?: string;
 	/** Sent as a form body rather than JSON, which is what qBittorrent speaks. */
 	form?: Record<string, string>;
+	/**
+	 * Sent as `multipart/form-data`, which is the only way to hand a client a file.
+	 *
+	 * The boundary is left to `fetch`: setting `Content-Type` by hand here would send one
+	 * without it, and the far end would read the whole body as a single malformed field.
+	 */
+	multipart?: FormData;
 }
 
 const send = async (
@@ -43,21 +50,26 @@ const send = async (
 	const url = buildUrl(baseUrl, path, options.query);
 	const hasJson = options.body !== undefined;
 	const hasForm = options.form !== undefined;
+	const hasParts = options.multipart !== undefined;
 
 	try {
 		return await fetch(url, {
-			method: options.method ?? (hasJson || hasForm ? 'POST' : 'GET'),
+			method: options.method ?? (hasJson || hasForm || hasParts ? 'POST' : 'GET'),
 			headers: {
 				Accept: 'application/json',
 				...(hasJson ? { 'Content-Type': 'application/json' } : {}),
 				...(hasForm ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+				// Never a `Content-Type` for a multipart body: it carries a boundary only
+				// `fetch` knows, and setting one here sends it without.
 				...(options.headers ?? {}),
 			},
-			body: hasJson
-				? JSON.stringify(options.body)
-				: hasForm
-					? new URLSearchParams(options.form).toString()
-					: undefined,
+			body: hasParts
+				? options.multipart
+				: hasJson
+					? JSON.stringify(options.body)
+					: hasForm
+						? new URLSearchParams(options.form).toString()
+						: undefined,
 			signal: AbortSignal.timeout(options.timeoutMs ?? CLIENT_TIMEOUT_MS),
 			// Never followed automatically: qBittorrent answers a failed login with a
 			// redirect to its own interface, and following it turns a refusal into a
@@ -149,6 +161,40 @@ export const followToMagnet = async (url: string): Promise<string | null> => {
 	} catch {
 		// The indexer is unreachable from here, which the caller is about to find out
 		// anyway when it tries the link. Answering null lets it try.
+		return null;
+	}
+};
+
+/**
+ * The bytes behind a link, fetched from where the link makes sense.
+ *
+ * The companion of `followToMagnet` and the same reasoning: an indexer's link is built
+ * for whoever asked, so the gateway is the only party that can be sure of resolving it.
+ * Redirects are followed here — unlike everywhere else in this file — because a
+ * `.torrent` served through two hops is ordinary and the destination is the point.
+ *
+ * Null on anything that is not a fetch of some bytes: the caller still has the link and
+ * may pass it on, which is a case that works for a tracker the client can reach.
+ */
+export const releaseBytes = async (url: string): Promise<Uint8Array | null> => {
+	try {
+		const response = await fetch(url, {
+			redirect: 'follow',
+			signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
+		});
+
+		if (!response.ok) {
+			return null;
+		}
+
+		const bytes = new Uint8Array(await response.arrayBuffer());
+
+		// An empty body is not a torrent, and neither is an HTML page saying "log in" —
+		// which is what a tracker answers to a request with no session. Both would be
+		// accepted by a client and produce nothing, which is the failure being closed here,
+		// so the first byte is checked: a bencoded dictionary starts with `d`.
+		return bytes.length > 0 && bytes[0] === 0x64 ? bytes : null;
+	} catch {
 		return null;
 	}
 };

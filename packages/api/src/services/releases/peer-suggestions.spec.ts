@@ -86,6 +86,8 @@ const group = (overrides: Partial<ReleaseGroup> = {}): ReleaseGroup => ({
 	size: 3_000,
 	seeders: 40,
 	releases: [],
+	flags: [],
+	indexers: [],
 	coverage: { seasonNumber: 1, episodeNumbers: [1], wholeSeason: false, wholeSeries: false },
 	fills: [ref(1)],
 	brings: [],

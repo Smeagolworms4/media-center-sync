@@ -110,6 +110,10 @@ export const groupReleases = (releases: Release[]): ReleaseGroup[] => {
 				? sorted.reduce((total, one) => total + (one.seeders ?? 0), 0)
 				: null,
 			releases: sorted,
+			// The union, not the intersection: a release is free when one of its trackers
+			// gives it away, and taking that copy is one press on the row.
+			flags: [...new Set(sorted.flatMap((one) => one.flags))],
+			indexers: [...new Set(sorted.map((one) => one.indexer))],
 			coverage: first.coverage,
 			// Both filled by the manager, which is the only layer that knows what we hold
 			// and what any server here has ever reported.
