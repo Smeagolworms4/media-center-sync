@@ -1,4 +1,4 @@
-import { MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy } from '@mcs/shared';
+import { IndexerType, MAX_PEER_MAX_DEPTH, NamingScheme, PlacementStrategy } from '@mcs/shared';
 import type { ConfigService } from '@nestjs/config';
 import type { SettingRepository } from '@/repositories';
 import { CacheService } from './cache.service';
@@ -165,6 +165,75 @@ describe('SettingsService', () => {
 		stored.set('chunkSize', '"8MB"');
 
 		expect((await service.get()).chunkSize).toBe(DEFAULT_SETTINGS.chunkSize);
+	});
+
+	/*
+	 * The three settings that default to null and hold an object.
+	 *
+	 * This is a restart test and it has to be: the write path keeps its own copy in
+	 * memory and answers every read from it, so a value refused on the way *out* of the
+	 * database is correct for the rest of the process's life and gone afterwards. What
+	 * that looked like was a configured Prowlarr that worked all afternoon and came back
+	 * as "no indexer configured" the next morning — an empty form, a search screen saying
+	 * nothing is set up, and no failure anywhere to explain it.
+	 *
+	 * The same trap caught every optional string once already. Null carries no type, so
+	 * the guard has to be told which keys are objects, and a fourth one added without
+	 * being told will behave exactly like this again.
+	 */
+	describe('a setting that defaults to null and is not a string', () => {
+		it.each([
+			['indexer', '{"type":"prowlarr","baseUrl":"http://prowlarr:9696","apiKey":"k","enabled":true}'],
+			['downloadClient', '{"type":"qbittorrent","baseUrl":"http://qb:8080","username":"admin","rootMappings":[],"enabled":true}'],
+			['requestSource', '{"type":"seerr","baseUrl":"http://seerr:5055","apiKey":"k","enabled":true}'],
+		])('survives a restart once stored: %s', async (key, row) => {
+			stored.set(key, row);
+
+			const settings = await service.get() as unknown as Record<string, unknown>;
+
+			expect(settings[key]).toEqual(JSON.parse(row));
+		});
+
+		it('is written and read back as the same thing across a restart', async () => {
+			await service.update({
+				indexer: {
+					type: IndexerType.PROWLARR,
+					baseUrl: 'http://prowlarr:9696',
+					apiKey: 'a-key',
+					enabled: true,
+				},
+			});
+
+			// Which is what a restart is, as far as this service is concerned: the copy in
+			// memory goes and the row has to answer for itself.
+			service.invalidate();
+
+			expect((await service.get()).indexer).toEqual({
+				type: IndexerType.PROWLARR,
+				baseUrl: 'http://prowlarr:9696',
+				apiKey: 'a-key',
+				enabled: true,
+			});
+		});
+
+		it('still refuses a row of the wrong shape, so the guard is worth having', async () => {
+			// A list is not a table, and a string is not one either. Both come back as the
+			// default — nothing configured — rather than reaching a reader that will index
+			// into them.
+			stored.set('indexer', '["prowlarr"]');
+			stored.set('downloadClient', '"qbittorrent"');
+
+			const settings = await service.get();
+
+			expect(settings.indexer).toBeNull();
+			expect(settings.downloadClient).toBeNull();
+		});
+
+		it('reads a stored null as nothing configured', async () => {
+			stored.set('requestSource', 'null');
+
+			expect((await service.get()).requestSource).toBeNull();
+		});
 	});
 
 	it('clamps a stored value that is out of range instead of failing to boot', async () => {

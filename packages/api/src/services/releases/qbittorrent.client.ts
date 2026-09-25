@@ -109,11 +109,24 @@ export class QbittorrentClient implements DownloadClient {
 				urls: url,
 				savepath: order.savePath,
 				category: order.category,
-				// Both spellings, because they changed with qBittorrent 5 and a client of
-				// either version ignores the one it does not know. Adding a pack that
-				// starts downloading before its files can be chosen is the whole season on
-				// the disk, which is precisely what partial grabbing exists to avoid.
-				...(order.paused === true ? { paused: 'true', stopped: 'true' } : {}),
+				/*
+				 * Stopped **once the metadata is in**, and not stopped outright.
+				 *
+				 * Adding a pack that runs before its files can be chosen puts the whole
+				 * season on the disk, which is what partial grabbing exists to avoid — so
+				 * this used to send `paused`. It deadlocks: a magnet added stopped never
+				 * fetches its metadata, `/torrents/files` answers an empty list for ever,
+				 * and the file selection that was waiting for that list never happens. The
+				 * row sits on "sent", nothing downloads, and nothing anywhere reports a
+				 * fault. Verified against qBittorrent 5.2.3, which answers `[]`.
+				 *
+				 * `stopCondition=MetadataReceived` is the client doing exactly what is
+				 * wanted: fetch the torrent's description, stop before any data. A client
+				 * too old to know it ignores it and starts downloading, and the selection a
+				 * moment later stops the files nobody asked for — some wasted traffic
+				 * rather than a grab that never moves.
+				 */
+				...(order.paused === true ? { stopCondition: 'MetadataReceived' } : {}),
 				// Renaming is ours to do when the file is filed, and a client that renamed
 				// it first would hide the release name the whole list is read by.
 				rename: '',

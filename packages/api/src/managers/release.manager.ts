@@ -1,4 +1,4 @@
-import { basename, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
 	ErrorKey,
 	EventName,
@@ -42,6 +42,7 @@ import {
 	FileMoveService,
 	FilesystemService,
 	followToMagnet,
+	isInside,
 	groupReleases,
 	IndexerRegistry,
 	NamingService,
@@ -89,6 +90,37 @@ const POLL_INTERVAL_MS = 5_000;
  * named the way that library names things — and that line is a decision at every step,
  * which is what a manager is for.
  */
+/**
+ * The first of these links that is, or leads to, a magnet.
+ *
+ * Tried in order and never trusted by field name: `magnetUrl` holding an http link is
+ * what Prowlarr actually answers. Null when neither leads anywhere, which is honest
+ * rather than defeatist — some trackers serve `.torrent` bytes at a URL the client can
+ * fetch for itself, and the caller still passes the download link on.
+ */
+const resolveMagnet = async (
+	magnetUrl: string | null,
+	downloadUrl: string | null,
+): Promise<string | null> => {
+	for (const link of [magnetUrl, downloadUrl]) {
+		if (link === null || link === '') {
+			continue;
+		}
+
+		if (link.startsWith('magnet:')) {
+			return link;
+		}
+
+		const followed = await followToMagnet(link);
+
+		if (followed !== null) {
+			return followed;
+		}
+	}
+
+	return null;
+};
+
 @Injectable()
 export class ReleaseManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(ReleaseManager.name);
@@ -566,9 +598,18 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		 * yields `http://localhost:9696/…`. Handed to a client in its own container,
 		 * `localhost` is the client: it fetches nothing, adds nothing and reports no
 		 * error, and every screen says the release was handed over. See `followToMagnet`.
+		 *
+		 * **And the field called `magnetUrl` is not necessarily a magnet.** A real Prowlarr
+		 * puts one of its own http links in it — the field names what it leads to, not what
+		 * it is — so trusting the name skipped the whole guard above and handed the client
+		 * exactly the link the guard exists to resolve. Found by grabbing through the lab:
+		 * the client answered, took nothing, and the only trace was a refusal several
+		 * layers away saying it had accepted something and added no torrent.
+		 *
+		 * So both fields are tried, and only a string that really begins `magnet:` is
+		 * passed on as one.
 		 */
-		const magnetUrl = release.magnetUrl
-			?? (release.downloadUrl === null ? null : await followToMagnet(release.downloadUrl));
+		const magnetUrl = await resolveMagnet(release.magnetUrl, release.downloadUrl);
 
 		const clientId = await this._clients.get(client.type).grab(client, {
 			magnetUrl,
@@ -836,6 +877,29 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				throw new Error('the media or the downloaded file is gone');
 			}
 
+			/*
+			 * A pack taken for several episodes is several files, and every one of them has
+			 * to be filed.
+			 *
+			 * This used to file the largest file and stop, which is right for "this release
+			 * for this episode" and quietly wrong for everything the coverage plan does: a
+			 * run of three episodes under one info hash arrived, one episode was filed, two
+			 * sat in the download folder for ever, and the row said `placed`. Nothing
+			 * reported it — the copy that did happen succeeded — and the season stayed
+			 * incomplete with a finished download next to it.
+			 *
+			 * `_choose` has already worked out which file answers which episode, so the
+			 * names are on the row. When they are not — a whole-release grab, where nobody
+			 * named anything — the largest file is still the answer.
+			 */
+			const named = (grab.placements ?? []).filter((one) => one.fileName !== null);
+
+			if (named.length > 0) {
+				await this._placeEach(grab, settings);
+
+				return;
+			}
+
 			const source = await this._largestFile(grab.sourcePath);
 
 			if (source === null) {
@@ -844,6 +908,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 
 			const libraries = await this._libraries.placementLibraries();
 			const categoryKeys = await this._libraries.categoryKeysByLibrary();
+			const show = await this._showFacts(item);
 			const target = await this._placement.resolve({
 				kind: item.kind as MediaKind,
 				categoryKey: categoryKeys.get(item.libraryId) ?? null,
@@ -868,7 +933,10 @@ export class ReleaseManager implements OnApplicationBootstrap {
 							year: item.year,
 							seasonNumber: item.seasonNumber,
 							episodeNumber: item.episodeNumber,
-							seriesTitle: null,
+							// The show, not the episode — see `_showFacts`. Null here filed
+							// an episode in a folder named after the episode.
+							seriesTitle: show?.title ?? null,
+							seriesYear: show?.year ?? null,
 							// The release's own name, so `SOURCE` keeps what the tracker
 							// called it — which is what a library full of scene names wants.
 							sourcePath: source,
@@ -916,6 +984,192 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// rather than retried for ever.
 			await this._settle(grab, GrabState.FAILED, String(error));
 		}
+	}
+
+	/**
+	 * One copy per episode the pack was taken for, each filed as that episode.
+	 *
+	 * Filed against the episode's own row rather than the row the grab was made from, so
+	 * the naming has a season and an episode number to render and the file lands where a
+	 * sync would have put it. Anything else would file three episodes under the show's
+	 * own name, three times.
+	 *
+	 * Sequential and not parallel: two copies across the same two filesystems take the
+	 * same total time and make the progress on the row meaningless, and the row is the
+	 * only thing anybody watching has.
+	 *
+	 * An episode whose file cannot be found is skipped and named in the error, and the
+	 * ones that did arrive keep their place: a season two files short is worth having,
+	 * and saying nothing about the two is what leaves somebody waiting for them.
+	 */
+	private async _placeEach(grab: GrabEntity, settings: Settings): Promise<void> {
+		if (grab.sourcePath === null) {
+			throw new Error('the downloaded file is gone');
+		}
+
+		// The client spells a file relative to the directory everything lands in, which is
+		// the parent of the folder this torrent produced.
+		const root = dirname(grab.sourcePath);
+		const placements = [...(grab.placements ?? [])];
+		const libraries = await this._libraries.placementLibraries();
+		const categoryKeys = await this._libraries.categoryKeysByLibrary();
+		const missing: string[] = [];
+
+		let placed = 0;
+		let base = 0;
+
+		grab.bytesDone = 0;
+		grab.bytesTotal = 0;
+
+		for (const placement of placements) {
+			if (placement.fileName === null) {
+				missing.push(placement.title);
+				continue;
+			}
+
+			const source = await this._fileNamed(placement.fileName, grab.sourcePath, root);
+
+			if (source === null) {
+				missing.push(placement.title);
+				continue;
+			}
+
+			const episode = await this._items.findOne({ where: { id: placement.itemId } });
+
+			if (episode === null) {
+				missing.push(placement.title);
+				continue;
+			}
+
+			const show = await this._showFacts(episode);
+			const target = await this._placement.resolve({
+				kind: episode.kind as MediaKind,
+				categoryKey: categoryKeys.get(episode.libraryId) ?? null,
+				settings: grab.targetFolder
+					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: grab.targetFolder }
+					: settings,
+				libraries,
+				preferredLibraryId: grab.targetLibraryId,
+				relativeName: (libraryRoot: string) =>
+					this._naming.render(
+						settings.namingOrder,
+						{
+							kind: episode.kind as MediaKind,
+							title: episode.title,
+							year: episode.year,
+							seasonNumber: episode.seasonNumber,
+							episodeNumber: episode.episodeNumber,
+							seriesTitle: show?.title ?? null,
+							seriesYear: show?.year ?? null,
+							sourcePath: source,
+						},
+						{ libraryRoot, siblingPath: null },
+					),
+				requiredBytes: 0,
+			});
+
+			await this._placement.prepare(target);
+
+			await this._mover.move({
+				source,
+				destination: target.path,
+				reserveBytes: settings.diskReserveBytes,
+				// A copy, as everywhere here: the torrent is still seeding.
+				keepSource: true,
+				onProgress: (progress) => {
+					// Across the whole pack rather than per file, because what somebody is
+					// watching is one line for one download.
+					grab.bytesDone = base + progress.bytesDone;
+					grab.bytesTotal = base + progress.bytesTotal;
+
+					this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab, progress.rate));
+				},
+			});
+
+			placement.targetPath = target.path;
+			base = grab.bytesDone;
+			placed += 1;
+			// Saved as each one lands, so a failure halfway leaves a row that says which
+			// files are already in the library rather than none of them.
+			grab.placements = placements;
+			grab.targetPath = target.path;
+			await this._grabs.save(grab);
+		}
+
+		if (placed === 0) {
+			throw new Error(`none of the wanted files are under ${grab.sourcePath}`);
+		}
+
+		grab.state = GrabState.PLACED;
+		grab.error = missing.length === 0
+			? null
+			: `filed ${placed} of ${placements.length}; nothing found for ${missing.join(', ')}`;
+		await this._grabs.save(grab);
+
+		this._logger.log(`Placed ${placed} file(s) of ${grab.title}`);
+		this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab));
+	}
+
+	/**
+	 * The show an episode belongs to, which is what its folder is named after.
+	 *
+	 * Without it an episode is filed under its own title: three episodes of one season
+	 * land in three folders called *Dulcinea*, *The Big Empty* and *Remember the Cant*,
+	 * each with a `Season 01` inside it. The same mistake was found in a sync once, one
+	 * show in four folders, and the fix there is the fix here — the naming service takes a
+	 * `seriesTitle` precisely because an episode's own title is never the show's.
+	 *
+	 * The **series'** year and never the season's or the episode's: a media server dates
+	 * an episode by when it aired, so building the folder from that gives one folder per
+	 * season. A season's title is the fallback for a show row nothing reported, which is
+	 * better than the episode's own.
+	 */
+	private async _showFacts(
+		item: MediaItemEntity,
+	): Promise<{ title: string; year: number | null } | null> {
+		if (item.kind !== MediaKind.EPISODE || item.parentId === null) {
+			return null;
+		}
+
+		const season = await this._items.findOne({ where: { id: item.parentId } });
+		const show = season?.parentId === null || season?.parentId === undefined
+			? null
+			: await this._items.findOne({ where: { id: season.parentId } });
+		const title = show?.title ?? season?.title ?? null;
+
+		return title === null ? null : { title, year: show?.year ?? null };
+	}
+
+	/**
+	 * Where one of the client's file names actually is on our disk.
+	 *
+	 * The client spells a file relative to the directory everything lands in, so a
+	 * multi-file torrent says `Torrent.Name/episode.mkv` — but a single-file torrent says
+	 * just `episode.mkv` while its content path is the file itself, and some clients
+	 * answer the second spelling for a folder too. Both are tried rather than guessed at
+	 * from the shape of the torrent, because getting it wrong here files nothing and
+	 * reports a file that is missing when it is not.
+	 *
+	 * Every candidate is checked to be inside the download directory first: the name is
+	 * the client's string, and a `..` in it would file into a directory nothing here
+	 * chose.
+	 */
+	private async _fileNamed(
+		fileName: string,
+		contentPath: string,
+		root: string,
+	): Promise<string | null> {
+		for (const candidate of [resolve(root, fileName), resolve(contentPath, fileName)]) {
+			if (!isInside(candidate, root)) {
+				continue;
+			}
+
+			if ((await this._filesystem.rights(candidate)).readable) {
+				return candidate;
+			}
+		}
+
+		return null;
 	}
 
 	/**

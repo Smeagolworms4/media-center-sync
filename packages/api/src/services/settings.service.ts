@@ -310,8 +310,19 @@ const TEXT_NORMALISERS = {
  * reported it, because the write path keeps its own copy in memory and answers every
  * read from it: the value came back correctly until the process restarted, and then
  * it was simply gone.
+ *
+ * **And it happened a second time**, which is why the null case now takes the key as
+ * well. "A null default means a string" was true of every setting there was, until the
+ * indexer, the download client and the request source arrived: they default to null
+ * and they hold an object. So a configured Prowlarr was written, served from memory for
+ * the rest of the process's life, and came back as "nothing configured" after the next
+ * restart — an empty form, a search screen saying no indexer is set up, and nothing
+ * anywhere having failed. Any future setting that defaults to null and is not a string
+ * has to be named in `NULLABLE_OBJECT_SETTINGS` or it will do the same thing.
  */
-const fitsTheShapeOf = (value: unknown, fallback: unknown): boolean => {
+const NULLABLE_OBJECT_SETTINGS = new Set<string>(['indexer', 'downloadClient', 'requestSource']);
+
+const fitsTheShapeOf = (value: unknown, fallback: unknown, key?: string): boolean => {
 	// A list before a table, because an array is an object and would otherwise be
 	// refused by the branch below — which is how the naming order, whose whole value is
 	// that it is an order, would have been dropped on the way out of the database and
@@ -332,10 +343,13 @@ const fitsTheShapeOf = (value: unknown, fallback: unknown): boolean => {
 	}
 
 	// Null says what a setting is not worth, never what it holds, so there is no type
-	// to compare against — and every setting that defaults to null holds a string.
-	// Refusing anything else is what keeps this guard worth having.
+	// to compare against. Most such settings hold a string; the three named above hold
+	// an object, and they have to be named because null cannot say so. Refusing anything
+	// else is what keeps this guard worth having.
 	if (fallback === null) {
-		return typeof value === 'string';
+		return key !== undefined && NULLABLE_OBJECT_SETTINGS.has(key)
+			? typeof value === 'object' && !Array.isArray(value)
+			: typeof value === 'string';
 	}
 
 	return typeof value === typeof fallback;
@@ -462,7 +476,7 @@ export class SettingsService {
 				continue;
 			}
 
-			if (fitsTheShapeOf(value, DEFAULT_SETTINGS[key])) {
+			if (fitsTheShapeOf(value, DEFAULT_SETTINGS[key], key)) {
 				(merged as Record<string, unknown>)[key] = value;
 			}
 		}

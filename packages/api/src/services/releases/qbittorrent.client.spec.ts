@@ -175,12 +175,17 @@ describe('QbittorrentClient', () => {
 		});
 
 		/**
-		 * Both spellings, because they changed with qBittorrent 5 and a client of either
-		 * version ignores the one it does not know. A pack that starts downloading before
-		 * its files can be chosen is the whole season on the disk, which is precisely what
-		 * partial grabbing exists to avoid.
+		 * A pack that starts downloading before its files can be chosen is the whole season
+		 * on the disk, which is what partial grabbing exists to avoid — and asking for a
+		 * stopped add instead deadlocks: **a magnet added stopped never fetches its
+		 * metadata**, so `/torrents/files` answers an empty list for ever and the selection
+		 * waiting on that list never happens. Verified against qBittorrent 5.2.3, which
+		 * answers `[]`. The row sits on "sent" and nothing anywhere reports a fault.
+		 *
+		 * `stopCondition=MetadataReceived` is the client doing exactly what is wanted:
+		 * fetch the description, stop before any data.
 		 */
-		it('asks for a paused add in both spellings of the word', async () => {
+		it('asks the client to stop once it has the metadata, not before', async () => {
 			serve({
 				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),
 				'/api/v2/torrents/add': {},
@@ -190,11 +195,13 @@ describe('QbittorrentClient', () => {
 
 			const add = callsTo('/api/v2/torrents/add')[0];
 
-			expect(add.form.get('paused')).toBe('true');
-			expect(add.form.get('stopped')).toBe('true');
+			expect(add.form.get('stopCondition')).toBe('MetadataReceived');
+			// And never the flat pause, which is the deadlock.
+			expect(add.form.has('paused')).toBe(false);
+			expect(add.form.has('stopped')).toBe(false);
 		});
 
-		it('says nothing about pausing when the torrent is meant to run', async () => {
+		it('says nothing about stopping when the torrent is meant to run', async () => {
 			serve({
 				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),
 				'/api/v2/torrents/add': {},
@@ -202,6 +209,7 @@ describe('QbittorrentClient', () => {
 
 			await client.grab(SETTINGS, ORDER);
 
+			expect(callsTo('/api/v2/torrents/add')[0].form.has('stopCondition')).toBe(false);
 			expect(callsTo('/api/v2/torrents/add')[0].form.has('paused')).toBe(false);
 		});
 

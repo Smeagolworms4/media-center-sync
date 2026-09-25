@@ -42,9 +42,22 @@ const TITLE = 'Lab Fake Indexer';
 // for half an hour, which reads exactly like a tracker that is not answering.
 const ANNOUNCE_INTERVAL = 30;
 
-// Four missed announces. A seeder that is restarted keeps its slot long enough for the
-// downloader's next announce to still find it.
-const PEER_TIMEOUT = 4 * ANNOUNCE_INTERVAL * 1000;
+/*
+ * An hour, and deliberately not a multiple of the interval above.
+ *
+ * It used to be four announces — two minutes — on the reasoning that a peer which has
+ * stopped announcing has gone. Clients do not honour a thirty-second interval: they clamp
+ * it to a floor of their own, and a seed with nothing to send sits in `stalledUP` and
+ * announces rarely. So two peers that were both in the swarm pruned each other between
+ * announces, and what came out was a download stuck in `metaDL` with this tracker
+ * reporting zero peers for a torrent both clients hold at 100 % — a lab that says the
+ * release chain is broken when nothing is.
+ *
+ * A peer that really leaves says `event=stopped` and is removed on the spot. This timeout
+ * is only for one that vanished without saying, and the cost of holding a dead entry too
+ * long is one client trying one address that does not answer.
+ */
+const PEER_TIMEOUT = 60 * 60 * 1000;
 
 /*
  * Read on every search rather than at startup, and that is the whole reason this is a

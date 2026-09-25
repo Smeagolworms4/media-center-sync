@@ -156,6 +156,16 @@ const WORLD: MediaItemEntity[] = [
 		episodeNumber: 2,
 		file: { path: '/media/shows/S01E02.mkv', size: 1_000 },
 	}),
+	// A second episode of the same season, held by nobody: what a pack is taken for when
+	// it is taken for more than one thing, and the row a second copy has to be filed as.
+	item({
+		id: 'ep-3',
+		kind: MediaKind.EPISODE,
+		title: 'Legends',
+		parentId: 'season-1',
+		seasonNumber: 1,
+		episodeNumber: 3,
+	}),
 	item({ id: 'movie-1', kind: MediaKind.MOVIE, title: 'Blade Runner 2049', year: 2017 }),
 ];
 
@@ -321,6 +331,27 @@ const placement = (overrides: Record<string, unknown> = {}) => ({
 	targetPath: null,
 	...overrides,
 });
+
+/**
+ * What the placement asked the naming service to render, for one `resolve` call.
+ *
+ * `relativeName` is a callback, so the only way to see the facts a placement was built
+ * from is to call it — which is also the only way to assert on the one that matters: the
+ * show an episode is filed under.
+ */
+const namedBy = (
+	render: jest.Mock,
+	order: { relativeName: (root: string) => string },
+): { title: string; seriesTitle: string | null; seriesYear: number | null }[] => {
+	render.mockClear();
+	order.relativeName('/media/shows');
+
+	return render.mock.calls.map(([, item]) => item as {
+		title: string;
+		seriesTitle: string | null;
+		seriesYear: number | null;
+	});
+};
 
 const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 	const indexer = { search: jest.fn().mockResolvedValue([]) };
@@ -1045,6 +1076,53 @@ describe('ReleaseManager', () => {
 			);
 		});
 
+		/*
+		 * The same failure one field to the left, and it survived the fix above.
+		 *
+		 * The test beside this one sets `magnetUrl` to null, which is what a polite indexer
+		 * does — and a real Prowlarr does not: it puts one of its own http links in the
+		 * field called `magnetUrl`, because the name says what the link leads to rather
+		 * than what it is. Trusting the name skipped the guard entirely and handed the
+		 * client the very link the guard exists to resolve. Found by grabbing through the
+		 * lab, where it came back as "the client accepted it and added no torrent".
+		 */
+		it('does not trust the magnet field to hold a magnet', async () => {
+			const { manager, fakes } = build();
+
+			global.fetch = jest.fn().mockResolvedValue({
+				headers: new Headers({ location: 'magnet:?xt=urn:btih:behind-the-field' }),
+			}) as unknown as typeof fetch;
+			fakes.cache.get.mockResolvedValue(
+				release({
+					magnetUrl: 'http://localhost:9696/1/download?apikey=k&link=abc',
+					downloadUrl: 'http://localhost:9696/1/download?apikey=k&link=abc',
+				}),
+			);
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			expect(fakes.client.grab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ magnetUrl: 'magnet:?xt=urn:btih:behind-the-field' }),
+			);
+		});
+
+		it('passes a real magnet straight through without asking anybody', async () => {
+			const { manager, fakes } = build();
+			const fetched = jest.fn();
+
+			global.fetch = fetched as unknown as typeof fetch;
+			fakes.cache.get.mockResolvedValue(release({ magnetUrl: 'magnet:?xt=urn:btih:already' }));
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			expect(fetched).not.toHaveBeenCalled();
+			expect(fakes.client.grab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ magnetUrl: 'magnet:?xt=urn:btih:already' }),
+			);
+		});
+
 		it('hands the link over unchanged when it leads to no magnet', async () => {
 			// Some trackers really do serve `.torrent` bytes at a URL the client can
 			// fetch for itself, so refusing here would break a case that works.
@@ -1399,7 +1477,16 @@ describe('ReleaseManager', () => {
 		});
 
 		describe('placing what has arrived', () => {
-			const fetched = (): GrabEntity => grab({ state: GrabState.DOWNLOADING, placements: [placement({ fileName: 'episode.mkv' })] });
+			// The file name as a client really spells it: relative to the directory
+			// everything lands in, so a multi-file torrent names its own folder first. A
+			// bare `episode.mkv` beside a folder content path is a shape qBittorrent does
+			// not produce, and a fixture that used one made the wrong resolution pass.
+			const fetched = (): GrabEntity => grab({
+				state: GrabState.DOWNLOADING,
+				placements: [
+					placement({ fileName: 'Spartacus.S01E02.1080p.WEB-DL-GRP/episode.mkv' }),
+				],
+			});
 
 			it('copies it into the library and leaves the torrent seeding', async () => {
 				const { manager, fakes } = build();
@@ -1422,6 +1509,114 @@ describe('ReleaseManager', () => {
 				expect(row.state).toBe(GrabState.PLACED);
 				expect(row.targetPath).toBe('/media/shows/Spartacus/Season 01/S01E02.mkv');
 				expect(row.error).toBeNull();
+			});
+
+			/*
+			 * A pack taken for more than one episode is more than one copy.
+			 *
+			 * This filed the largest file and stopped, which is right for "this release for
+			 * this episode" and silently wrong for everything the coverage plan does: three
+			 * episodes under one info hash arrived, one was filed, two sat in the download
+			 * folder for ever, and the row said `placed`. The copy that happened succeeded,
+			 * so nothing anywhere reported the two that did not.
+			 */
+			it('files every episode the pack was taken for, not just the biggest file', async () => {
+				const { manager, fakes } = build();
+				const row = grab({
+					state: GrabState.DOWNLOADING,
+					partial: true,
+					placements: [
+						placement({ fileName: 'Spartacus.S01E02.1080p.WEB-DL-GRP/two.mkv' }),
+						placement({
+							itemId: 'ep-3',
+							episodeNumber: 3,
+							title: 'Legends',
+							fileName: 'Spartacus.S01E02.1080p.WEB-DL-GRP/three.mkv',
+						}),
+					],
+				});
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+
+				expect(fakes.mover.move).toHaveBeenCalledTimes(2);
+				expect(fakes.mover.move.mock.calls.map(([order]) => order.source)).toEqual([
+					'/share/torrents/Spartacus.S01E02.1080p.WEB-DL-GRP/two.mkv',
+					'/share/torrents/Spartacus.S01E02.1080p.WEB-DL-GRP/three.mkv',
+				]);
+				// Each against its own episode's row, or three files would be filed under
+				// the show's own name three times over.
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(
+					expect.objectContaining({ kind: MediaKind.EPISODE }),
+				);
+				// And the folder is named after the *show*. Left to the episode's own title,
+				// three episodes of one season land in three folders called Dulcinea, The
+				// Big Empty and Remember the Cant — the same mistake a sync made once with
+				// one show in four folders.
+				const [nameable] = namedBy(
+					fakes.naming.render,
+					fakes.placement.resolve.mock.calls[0]?.[0] as { relativeName: (root: string) => string },
+				);
+
+				expect(nameable.seriesTitle).toBe('Spartacus');
+				expect(nameable.title).toBe('The Thing in the Pit');
+				// And the row says where each one went, which is what the screen reads.
+				expect((row.placements ?? []).map((one) => one.targetPath)).toEqual([
+					'/media/shows/Spartacus/Season 01/S01E02.mkv',
+					'/media/shows/Spartacus/Season 01/S01E02.mkv',
+				]);
+				expect(row.state).toBe(GrabState.PLACED);
+				expect(row.error).toBeNull();
+				// Still a copy: the torrent is seeding and a file moved out from under a
+				// client is somebody's ratio.
+				expect(fakes.mover.move.mock.calls.every(([order]) => order.keepSource)).toBe(true);
+			});
+
+			it('says which episodes it could not find, and keeps the ones it filed', async () => {
+				const { manager, fakes } = build();
+				const row = grab({
+					state: GrabState.DOWNLOADING,
+					partial: true,
+					placements: [
+						placement({ fileName: 'Spartacus.S01E02.1080p.WEB-DL-GRP/two.mkv' }),
+						placement({ itemId: 'ep-3', episodeNumber: 3, title: 'Legends', fileName: null }),
+					],
+				});
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+
+				// A season one file short is worth having; saying nothing about the one is
+				// what leaves somebody waiting for it.
+				expect(fakes.mover.move).toHaveBeenCalledTimes(1);
+				expect(row.state).toBe(GrabState.PLACED);
+				expect(row.error).toContain('Legends');
+			});
+
+			it('refuses a file name that would climb out of the download folder', async () => {
+				const { manager, fakes } = build();
+				const row = grab({
+					state: GrabState.DOWNLOADING,
+					partial: true,
+					placements: [
+						placement({ fileName: '../../etc/passwd' }),
+						placement({ itemId: 'ep-3', episodeNumber: 3, title: 'Legends', fileName: '../../elsewhere.mkv' }),
+					],
+				});
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+
+				// The name is the download client's string, and a client is not a thing to
+				// take paths from on trust.
+				expect(fakes.mover.move).not.toHaveBeenCalled();
+				expect(row.state).toBe(GrabState.FAILED);
 			});
 
 			it('places a chosen folder through the fixed-path strategy', async () => {
@@ -1460,7 +1655,11 @@ describe('ReleaseManager', () => {
 
 			it('fails the grab when nothing playable can be found under the download', async () => {
 				const { manager, fakes } = build();
-				const row = fetched();
+				// A whole-release grab, where nobody named a file: the largest one under the
+				// download is the answer, and a download with no file in it has none. A grab
+				// that *did* name its files fails for a different reason and says which ones
+				// — see above.
+				const row = grab({ state: GrabState.DOWNLOADING });
 
 				fakes.grabs.findLive.mockResolvedValue([row]);
 				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
