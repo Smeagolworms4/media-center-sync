@@ -493,6 +493,10 @@ lab/setup:
 lab/torrents:
 	@./docker/lab/seed-torrents.sh "http://localhost:$${LAB_QBITTORRENT_SEED_PORT:-8091}"
 	@./docker/lab/fake-indexer/register-in-prowlarr.sh "http://localhost:$${LAB_PROWLARR_PORT:-9696}"
+	@LAB_FAKE_INDEXER_NAME='lab fake indexer (mirror)' \
+		LAB_FAKE_INDEXER_URL=http://fake-indexer-mirror:9117 \
+		LAB_FAKE_INDEXER_PORT=$${LAB_FAKE_INDEXER_MIRROR_PORT:-9118} \
+		./docker/lab/fake-indexer/register-in-prowlarr.sh "http://localhost:$${LAB_PROWLARR_PORT:-9696}"
 
 ## Prove the release chain: search Prowlarr, grab the magnet, download it, compare the bytes
 ##

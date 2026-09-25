@@ -85,6 +85,8 @@ printf '  %-16s %-34s %s\n' \
 printf '  %-16s %-34s %s\n' \
 	'fake-indexer' "http://localhost:${LAB_FAKE_INDEXER_PORT:-9117}" 'the fixture it searches, and the tracker'
 printf '  %-16s %-34s %s\n' \
+	'fake-indexer (2)' "http://localhost:${LAB_FAKE_INDEXER_MIRROR_PORT:-9118}" 'the same fixture at a second address'
+printf '  %-16s %-34s %s\n' \
 	'qbittorrent' "http://localhost:${LAB_QBITTORRENT_PORT:-8090}" 'the client the gateway drives'
 printf '  %-16s %-34s %s\n' \
 	'qbittorrent-seed' "http://localhost:${LAB_QBITTORRENT_SEED_PORT:-8091}" 'the client that holds the files'
@@ -114,6 +116,11 @@ fi
 
 printf '  Both clients sign in as %s / %s.\n' \
 	"${LAB_QBITTORRENT_USER:-admin}" "${LAB_QBITTORRENT_PASSWORD:-lab-password}"
+printf '\n'
+printf '  There are two trackers on purpose: the same nine releases at two addresses, which\n'
+printf '  is what makes one row say "on 2 trackers" with a copy to choose between. Two\n'
+printf '  indexers pointed at one address would not do it — Prowlarr deduplicates on the\n'
+printf '  guid, which is built from the address, and folds them back into one.\n'
 printf '\n'
 printf '  The indexer answers a fixed fixture of nine releases — the names the parser has\n'
 printf '  to get right, from three qualities of one episode to a complete series in\n'

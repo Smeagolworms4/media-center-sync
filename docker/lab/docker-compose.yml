@@ -201,6 +201,32 @@ services:
             - ../../var/lab/seed/torrents:/torrents:ro
         restart: unless-stopped
 
+    # A second tracker, serving the same fixture from another address.
+    #
+    # It exists because one tracker cannot show the case the search screen is built
+    # around: the same release carried by two of them, folded into one row with a copy to
+    # choose between. Two *indexers* pointed at one address will not do — Prowlarr
+    # deduplicates on the guid, which is built from the address, so it folds them back
+    # into one and the lab quietly proves nothing.
+    #
+    # The same script and the same torrents, under another name and port, which is exactly
+    # what two trackers carrying one release look like. It seeds nothing of its own: the
+    # swarm is the same swarm, because the info hashes are the same.
+    fake-indexer-mirror:
+        image: node:24-alpine
+        ports:
+            - ${LAB_FAKE_INDEXER_MIRROR_PORT:-9118}:9117
+        user: ${USER_ID:-1000}:${USER_GID:-1000}
+        working_dir: /srv
+        command: node server.js
+        environment:
+            - PORT=9117
+            - TORRENT_DIR=/torrents
+        volumes:
+            - ./fake-indexer:/srv:ro
+            - ../../var/lab/seed/torrents:/torrents:ro
+        restart: unless-stopped
+
     # The other end of every magnet: a second qBittorrent that holds the files and does
     # nothing but upload them.
     #
