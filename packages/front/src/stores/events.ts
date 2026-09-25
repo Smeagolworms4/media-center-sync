@@ -54,6 +54,15 @@ export const useEventsStore = defineStore('events', () => {
 	let socket: WebSocket | null = null;
 	let retryTimer: ReturnType<typeof setTimeout> | null = null;
 	let wanted = false;
+	/**
+	 * A connection is being opened right now, and asking the token store first.
+	 *
+	 * The socket field alone cannot say so: it is only set once the socket exists, and
+	 * between the decision to open one and the refresh that precedes it there is a window
+	 * where a second call would start a second socket. Two sockets deliver every event
+	 * twice, which on a progress stream is a bar that jitters and a queue that flickers.
+	 */
+	let opening = false;
 
 	function dispatch (raw: string): void {
 		let event: ServerEvent;
@@ -89,12 +98,55 @@ export const useEventsStore = defineStore('events', () => {
 		}, delay);
 	}
 
+	/**
+	 * Open the stream, with a token that is actually still good.
+	 *
+	 * `accessToken` is whatever is stored, and the gateway checks the session on the
+	 * handshake like it does on every request — so fifteen minutes after signing in, every
+	 * reconnection was refused with an expired token and the backoff simply tried the same
+	 * one again. Nothing said so: the socket is not a screen, it is what makes the screens
+	 * move, and what somebody sees is progress bars that stopped.
+	 *
+	 * `getAccessToken` refreshes when the token is stale, which is the same answer the
+	 * request path gives. It is asynchronous, hence the guard below: the await opens a
+	 * window in which a second `open` could start a second socket, and a household with
+	 * two of them gets every event twice.
+	 */
 	function open (): void {
-		if (typeof WebSocket === 'undefined' || socket) {
+		if (typeof WebSocket === 'undefined' || socket || opening) {
 			return;
 		}
+
+		/*
+		 * A stale token is renewed first, and only then. The ordinary case — a token with
+		 * minutes left on it — opens the socket in this tick, which is what every caller
+		 * of `connect` expects and what keeps a reconnection immediate.
+		 */
+		if (tokenStore.session && !tokenStore.isValid) {
+			opening = true;
+			state.value = 'connecting';
+
+			void tokenStore.getAccessToken()
+				.catch(() => null)
+				.then(token => {
+					opening = false;
+
+					// Disconnected while we were asking, or a socket arrived some other way.
+					if (wanted && !socket) {
+						attach(token);
+					}
+				});
+
+			return;
+		}
+
+		attach(tokenStore.accessToken);
+	}
+
+	function attach (token: string | null): void {
 		state.value = 'connecting';
-		const next = new WebSocket(buildEventsUrl(tokenStore.accessToken));
+
+		const next = new WebSocket(buildEventsUrl(token));
 		socket = next;
 
 		next.addEventListener('open', () => {

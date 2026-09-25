@@ -95,6 +95,74 @@ describe('Caller', () => {
 		expect(headers.Authorization).toBe('Bearer access-2');
 	});
 
+	/*
+	 * The gateway checks the session on every authenticated request, so the client's own
+	 * clock is not the only thing that can end one: a gateway restarted, a session
+	 * revoked from another device, a clock a minute out. Refreshing on expiry answers
+	 * none of those, and a 401 that nothing recovered from failed every screen until
+	 * somebody reloaded the page — which reads as being signed out at random.
+	 */
+	it('renews the session and makes the call again when the gateway refuses it', async () => {
+		const tokenStore = useTokenStore();
+		tokenStore.store(session() as never);
+
+		let refused = true;
+		const stub = vi.fn((url: string) => {
+			if (url === '/api/auth/refresh') {
+				return Promise.resolve(Response.json(session({ accessToken: 'access-2' }), { status: 200 }));
+			}
+
+			if (refused) {
+				refused = false;
+
+				return Promise.resolve(new Response('{}', { status: 401 }));
+			}
+
+			return Promise.resolve(Response.json({ ok: true }, { status: 200 }));
+		});
+		globalThis.fetch = stub as unknown as typeof fetch;
+
+		await expect(getCaller('api', context.pinia).get('/services')).resolves.toEqual({ ok: true });
+
+		expect(callArgs(stub, 1).url).toBe('/api/auth/refresh');
+		// The replay carries the new bearer, which is the whole point: the same call
+		// with the same token would be refused again.
+		expect((callArgs(stub, 2).init.headers as Record<string, string>).Authorization)
+			.toBe('Bearer access-2');
+	});
+
+	it('gives up after one renewal rather than asking for ever', async () => {
+		// A gateway answering 401 to everything — a signing key changed, an account
+		// disabled — must cost one extra request and not a loop.
+		const tokenStore = useTokenStore();
+		tokenStore.store(session() as never);
+
+		const stub = vi.fn((url: string) => Promise.resolve(
+			url === '/api/auth/refresh'
+				? Response.json(session({ accessToken: 'access-2' }), { status: 200 })
+				: new Response('{}', { status: 401 }),
+		));
+		globalThis.fetch = stub as unknown as typeof fetch;
+
+		const call = getCaller('api', context.pinia).get('/services', { silentError: true });
+
+		await expect(call).rejects.toBeInstanceOf(Response);
+		// The call, the refresh, the replay: three, and no fourth.
+		expect(stub).toHaveBeenCalledTimes(3);
+	});
+
+	it('does not renew for a call that carries no bearer', async () => {
+		// The refresh itself is such a call. Retrying it here would be a loop with the
+		// one request that can end it in the middle.
+		const stub = vi.fn(() => Promise.resolve(new Response('{}', { status: 401 })));
+		globalThis.fetch = stub as unknown as typeof fetch;
+
+		const call = getCaller('api', context.pinia).get('/health', { useAuth: false, silentError: true });
+
+		await expect(call).rejects.toBeInstanceOf(Response);
+		expect(stub).toHaveBeenCalledTimes(1);
+	});
+
 	it('serialises a body and declares its type', async () => {
 		const stub = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
 		globalThis.fetch = stub as unknown as typeof fetch;

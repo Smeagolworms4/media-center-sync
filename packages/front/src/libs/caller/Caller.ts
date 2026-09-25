@@ -23,6 +23,14 @@ export interface CallerOptions extends Omit<RequestInit, 'body'> {
 	/** Only the most recent call under this key is allowed to resolve. */
 	keepLastKey?: string;
 	onAbort?: () => any;
+	/**
+	 * Internal: this call has already been replayed once after a refusal.
+	 *
+	 * Set by `request` on the retry it makes itself, and read to stop there. Without it
+	 * a gateway answering 401 to everything — a signing key changed, a session revoked
+	 * server-side — would be asked the same question for ever.
+	 */
+	retried?: boolean;
 }
 
 export class AbortCallerException extends Error {
@@ -116,6 +124,31 @@ export class Caller {
 
 			const response = await fetch(beforeEvent.url, beforeEvent.options);
 
+			/*
+			 * Refused, so the session is renewed once and the call is made again.
+			 *
+			 * The token store refreshes on its own clock, which answers the ordinary case
+			 * — a token about to expire is replaced before it is used. It cannot answer
+			 * the other one: the gateway checks the session on **every** authenticated
+			 * request, so a session that stops being accepted while the tab believes its
+			 * token good — the gateway restarted, the session revoked from another
+			 * device, a clock a minute out — produced a 401 that nothing recovered from.
+			 * Every screen then failed until somebody reloaded the page, which reads as
+			 * being signed out at random.
+			 *
+			 * Once, and never for the refresh itself: `useAuth` is false on that call, so
+			 * it cannot reach here and a gateway refusing everything costs one extra
+			 * request rather than a loop.
+			 */
+			if (
+				response.status === 401
+				&& options.useAuth
+				&& !options.retried
+				&& await this.renew()
+			) {
+				return await this.request<T>(url, { ...options, retried: true, headers: undefined });
+			}
+
 			if (response.ok) {
 				if (options.keepLastKey && this._keepLasts[options.keepLastKey]) {
 					this._keepLasts[options.keepLastKey] = this._keepLasts[options.keepLastKey].filter(keep => {
@@ -168,6 +201,22 @@ export class Caller {
 
 	public delete<T = any>(url: string, options: CallerOptions = {}): Promise<T> {
 		return this.request<T>(url, { ...options, method: 'DELETE' });
+	}
+
+	/**
+	 * Trade the refresh token for a new pair, and say whether it worked.
+	 *
+	 * Swallowed rather than thrown: a refusal here means the session is over, and the
+	 * call that provoked it should report its own 401 to the screen that made it — which
+	 * is what signs somebody out. A throw would replace that with whatever the refresh
+	 * route happened to answer.
+	 */
+	private async renew (): Promise<boolean> {
+		try {
+			return (await useTokenStore(this._pinia).refresh()) !== null;
+		} catch {
+			return false;
+		}
 	}
 
 	private async buildHeaders (options: CallerOptions = {}): Promise<Record<string, string>> {
