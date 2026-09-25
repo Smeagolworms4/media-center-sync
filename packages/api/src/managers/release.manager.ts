@@ -52,12 +52,14 @@ import {
 	orderSuggestions,
 	parseReleaseName,
 	PeerSuggestionService,
+	pinnedFolderOf,
 	PlacementService,
 	resolveReleasePreference,
 	SettingsService,
 	mappedLocalPath,
 	type SuggestionHolding,
 } from '@/services';
+import { LandingManager } from './landing.manager';
 import { LibraryManager } from './library.manager';
 import { MediaGroupManager } from './media-group.manager';
 
@@ -201,6 +203,15 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		 * way and for the same field.
 		 */
 		private readonly _peers: PeerRepository,
+		/**
+		 * Tells the media server a file has arrived, and re-reads our own index after.
+		 *
+		 * A manager rather than the repository under it, because recording a landing is
+		 * three things — the row, the rescan request, the delayed re-read — and a grab
+		 * that wrote only the row would be a file nobody ever looks for. See
+		 * `_announceLanding`.
+		 */
+		private readonly _landings: LandingManager,
 	) {}
 
 	/**
@@ -618,12 +629,30 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		const roots = client.rootMappings ?? [];
 
 		if (roots.length === 0) {
-			throw new ConflictException(ErrorKey.DOWNLOAD_PATH_UNREADABLE);
+			throw new ConflictException({
+				key: ErrorKey.DOWNLOAD_PATH_UNREADABLE,
+				detail: 'no root mapping is configured for the download client',
+			});
 		}
 
 		for (const mapping of roots) {
 			if (!(await this._filesystem.rights(mapping.localRoot)).readable) {
-				throw new ConflictException(ErrorKey.DOWNLOAD_PATH_UNREADABLE);
+				/*
+				 * The path, named, because the refusal is otherwise unactionable.
+				 *
+				 * This refusal is about **our** side of the mapping and it reads as being
+				 * about the client: somebody who has just been told the download client
+				 * cannot read a path goes and looks at the download client, where everything
+				 * is fine. What cannot be read is the folder *this gateway* was told the
+				 * client's downloads appear at — a directory the container does not mount,
+				 * or a spelling that does not exist — and saying which one turns an evening
+				 * into a minute.
+				 */
+				throw new ConflictException({
+					key: ErrorKey.DOWNLOAD_PATH_UNREADABLE,
+					detail: `this gateway cannot read ${mapping.localRoot}, `
+						+ `where it was told ${mapping.remoteRoot} appears`,
+				});
 			}
 		}
 
@@ -680,13 +709,19 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			downloadUrl: release.downloadUrl,
 			torrentFile,
 			title: release.title,
-			savePath: savePathOf(client),
+			savePath: await this._savePathFor(client),
 			category: CATEGORY,
 			paused: partial,
 		});
 
 		const grab = await this._grabs.save(
 			this._grabs.create({
+				plannedPath: await this.plannedDirectory(
+					item,
+					settings,
+					request.libraryId ?? null,
+					request.folder ?? null,
+				),
 				itemId: item.id,
 				title: release.title,
 				indexer: release.indexer,
@@ -749,6 +784,53 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		grab.targetFolder = folder;
 
 		await this._grabs.save(grab);
+		this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab));
+
+		return toGrabView(grab);
+	}
+
+	/**
+	 * Put a failed download back in the queue, once whatever failed it has been repaired.
+	 *
+	 * The case this is for, from the gateway it happened on: a root mapping named a folder
+	 * the client could not write, every grab failed, and the mapping was then corrected —
+	 * at which point there was nothing to press. The torrents were still in the client,
+	 * most of them finished, and the only way back was to search for the same release and
+	 * grab it a second time.
+	 *
+	 * It re-opens the row rather than re-sending anything, which is the whole point: the
+	 * client still holds the torrent, so the next poll reads its state and carries on from
+	 * there. A torrent that finished while the row said `failed` is filed within seconds;
+	 * one still downloading resumes its progress; one somebody removed from the client is
+	 * cancelled, which is the truth about it.
+	 *
+	 * Refused on a row with no client identifier, because there is nothing to go back to:
+	 * the grab failed before the client ever took it, and what that needs is a new grab
+	 * rather than a retry of a download that never started.
+	 */
+	public async retry(id: string): Promise<ReleaseGrabView> {
+		const grab = await this._grabs.findOne({ where: { id } });
+
+		if (grab === null) {
+			throw new NotFoundException(ErrorKey.GRAB_NOT_FOUND);
+		}
+
+		if (grab.state !== GrabState.FAILED && grab.state !== GrabState.CANCELLED) {
+			throw new ConflictException(ErrorKey.GRAB_NOT_RETRYABLE);
+		}
+
+		if (grab.clientId === null) {
+			throw new ConflictException({
+				key: ErrorKey.GRAB_NOT_RETRYABLE,
+				detail: 'the download client never took this one, so there is nothing to resume',
+			});
+		}
+
+		grab.state = GrabState.DOWNLOADING;
+		grab.error = null;
+
+		await this._grabs.save(grab);
+		this._logger.log(`Retrying ${grab.title}, which the client still holds as ${grab.clientId}`);
 		this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab));
 
 		return toGrabView(grab);
@@ -1014,15 +1096,24 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			const libraries = await this._libraries.placementLibraries();
 			const categoryKeys = await this._libraries.categoryKeysByLibrary();
 			const show = await this._showFacts(item);
+			/*
+			 * This download's folder, and failing that the one pinned on the media itself.
+			 *
+			 * Two answers to the same question, asked in the order they were given: a folder
+			 * named for this download is about this download, while a folder pinned in the
+			 * correction dialog is about the media for ever — so a one-off choice wins over
+			 * a standing one, and both win over the rule.
+			 */
+			const folder = grab.targetFolder ?? await this._pinnedFolder(item);
 			const target = await this._placement.resolve({
 				kind: item.kind as MediaKind,
 				categoryKey: categoryKeys.get(item.libraryId) ?? null,
-				settings: grab.targetFolder
+				settings: folder
 					// A folder somebody named outranks every rule, which is what naming one
 					// means. Expressed through the fixed-path strategy rather than a branch
 					// of its own, so a chosen folder and a configured one are placed by one
 					// code path and cannot disagree.
-					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: grab.targetFolder }
+					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: folder }
 					: settings,
 				libraries,
 				// Consulted after an existing copy and before the category, exactly as a
@@ -1083,6 +1174,8 @@ export class ReleaseManager implements OnApplicationBootstrap {
 
 			this._logger.log(`Placed ${grab.title} at ${target.path}`);
 			this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab));
+
+			await this._announceLanding(grab, item.id, target.libraryId, target.path, grab.bytesTotal);
 		} catch (error: unknown) {
 			// The bytes are still on the disk and the row says where, so this is
 			// recoverable by hand — which is the whole reason the failure is recorded
@@ -1147,11 +1240,14 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			}
 
 			const show = await this._showFacts(episode);
+			// See the single-file placement above: this download's folder first, then the
+			// one pinned on the media, then the rule.
+			const folder = grab.targetFolder ?? await this._pinnedFolder(episode);
 			const target = await this._placement.resolve({
 				kind: episode.kind as MediaKind,
 				categoryKey: categoryKeys.get(episode.libraryId) ?? null,
-				settings: grab.targetFolder
-					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: grab.targetFolder }
+				settings: folder
+					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: folder }
 					: settings,
 				libraries,
 				preferredLibraryId: grab.targetLibraryId,
@@ -1199,6 +1295,11 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			grab.placements = placements;
 			grab.targetPath = target.path;
 			await this._grabs.save(grab);
+
+			// Announced here rather than at the end, where the destination of each file is
+			// no longer in hand: a landing is about one file in one library, and the pack's
+			// files can be resolved into different ones.
+			await this._announceLanding(grab, episode.id, target.libraryId, target.path, 0);
 		}
 
 		if (placed === 0) {
@@ -1213,6 +1314,49 @@ export class ReleaseManager implements OnApplicationBootstrap {
 
 		this._logger.log(`Placed ${placed} file(s) of ${grab.title}`);
 		this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab));
+
+	}
+
+	/**
+	 * Tell the media server a file has arrived, and arrange to look ourselves.
+	 *
+	 * The half of a grab that was never written. A pull from a peer has done this from
+	 * the start — `LandingManager` asks the destination's server to rescan and re-reads
+	 * our own index once it has had time — and a torrent did none of it: the file was
+	 * copied into the library and nobody was told. On a server that scans on a schedule
+	 * the file stayed invisible until the small hours, unidentified, with **no metadata
+	 * and no poster**, while our own screens went on calling the media missing.
+	 *
+	 * That is where artwork comes from for a torrent, and the only place it can: a
+	 * `.torrent` carries no poster beside it, unlike a peer's copy, so the media server
+	 * identifying the file is the whole of the mechanism.
+	 *
+	 * Never fatal. The bytes are in the library and the row says so; a media server that
+	 * will not answer is a thing to log, not a reason to report a placement that happened
+	 * as a failure.
+	 */
+	private async _announceLanding(
+		grab: GrabEntity,
+		itemId: string,
+		libraryId: string | null,
+		path: string,
+		bytes: number,
+	): Promise<void> {
+		try {
+			await this._landings.recordFile({
+				itemId,
+				// No transfer behind it, which is the whole difference: there is no queue
+				// row to paint, and `LandingManager` skips that half on its own.
+				transferId: null,
+				libraryId,
+				path,
+				bytes,
+				contentId: null,
+				title: grab.title,
+			});
+		} catch (error: unknown) {
+			this._logger.warn(`${grab.title} was placed but could not be announced: ${reasonOf(error)}`);
+		}
 	}
 
 	/**
@@ -1229,6 +1373,142 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * season. A season's title is the fallback for a show row nothing reported, which is
 	 * better than the episode's own.
 	 */
+	/**
+	 * The folder the client is told to write into, asked of the client itself.
+	 *
+	 * In order: what somebody configured here, then the client's own default, then the
+	 * first root mapping's remote root.
+	 *
+	 * The middle one is the fix and it is worth the extra call. A root mapping is a
+	 * translation between two spellings of the same directory, not a claim that either
+	 * end is writable — and handing its remote side over as the folder to write into is
+	 * what told a production client to write into `/home/elewendyl`. It answered
+	 * `Permission denied`, the torrent sat in `error` at zero bytes, and the gateway went
+	 * on reporting a download in progress. The client's own default cannot have that
+	 * problem: it is where it writes everything else.
+	 *
+	 * A mapping that covers none of it is said out loud rather than left to be discovered
+	 * when the copy fails: the download will work and the filing will not, and that is a
+	 * sentence worth having in the log before anybody goes looking.
+	 */
+	private async _savePathFor(client: DownloadClientSettings): Promise<string> {
+		const configured = client.savePath?.trim();
+
+		if (configured) {
+			return configured;
+		}
+
+		const own = await this._clients.get(client.type).defaultSavePath(client);
+
+		if (own === null) {
+			return client.rootMappings?.[0]?.remoteRoot ?? '';
+		}
+
+		if (mappedLocalPath(own, client.rootMappings ?? []) === null) {
+			this._logger.warn(
+				`${client.baseUrl} writes into ${own}, which none of this client's root mappings `
+				+ 'translate — the downloads will run and the gateway will not be able to file them',
+			);
+		}
+
+		return own;
+	}
+
+	/**
+	 * Where a file for this media would go today, for a screen that has to prefill a field.
+	 *
+	 * The same chain that places it, asked without placing anything: the correction dialog
+	 * offers a folder to pin, and a folder field that opened blank made somebody type a
+	 * path the gateway had already worked out — or, worse, invent one beside the folder
+	 * the series is already in. A series we hold keeps its folder, which is exactly what
+	 * `BESIDE_EXISTING` answers here.
+	 *
+	 * Null rather than a refusal when nothing can be worked out: the field then opens
+	 * empty, which is the honest state, and the rule decides at placement as it always
+	 * did.
+	 */
+	public async plannedFolderFor(itemId: string, libraryId: string | null): Promise<string | null> {
+		const item = await this._require(itemId);
+
+		return this.plannedDirectory(item, await this._settings.get(), libraryId, null);
+	}
+
+	/**
+	 * Where a download is expected to land, worked out before it has landed.
+	 *
+	 * The same chain that will place it, run against the same libraries — a prediction and
+	 * never a decision, because it is run again with the bytes in hand and the disk it
+	 * answered against may have filled since. Nothing reads the answer to place anything.
+	 *
+	 * It exists because the queue had nothing to say for the whole length of a download:
+	 * `targetPath` is written at the end and `targetFolder` only when somebody chose one,
+	 * so a torrent running for six hours showed a library name at best — and "where is
+	 * this going to end up" is the question somebody asks while it is still running.
+	 *
+	 * Null on any failure at all, and the caller draws nothing. A prediction that refused
+	 * a download would be a prediction nobody asked for turning into a fault.
+	 */
+	public async plannedDirectory(
+		item: MediaItemEntity,
+		settings: Settings,
+		libraryId: string | null,
+		folder: string | null,
+	): Promise<string | null> {
+		try {
+			const libraries = await this._libraries.placementLibraries();
+			const categoryKeys = await this._libraries.categoryKeysByLibrary();
+			const show = await this._showFacts(item);
+			const pinned = folder ?? await this._pinnedFolder(item);
+			const target = await this._placement.resolve({
+				kind: item.kind as MediaKind,
+				categoryKey: categoryKeys.get(item.libraryId) ?? null,
+				settings: pinned
+					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: pinned }
+					: settings,
+				libraries,
+				preferredLibraryId: libraryId,
+				relativeName: (root: string) =>
+					this._naming.render(
+						settings.namingOrder,
+						{
+							kind: item.kind as MediaKind,
+							title: item.title,
+							year: item.year,
+							seasonNumber: item.seasonNumber,
+							episodeNumber: item.episodeNumber,
+							// The show and not the episode, or the folder is named after one
+							// episode — the same trap `_showFacts` exists for.
+							seriesTitle: show?.title ?? null,
+							seriesYear: show?.year ?? null,
+							// No file yet, which costs nothing here: the directory comes from
+							// the hierarchy above the file rather than from its name.
+							sourcePath: null,
+						},
+						{ libraryRoot: root, siblingPath: null },
+					),
+				requiredBytes: 0,
+			});
+
+			return target.directory;
+		} catch (error: unknown) {
+			this._logger.debug?.(`Could not work out where ${item.title} would go: ${reasonOf(error)}`);
+
+			return null;
+		}
+	}
+
+	/**
+	 * The folder pinned in the correction dialog for the show this file belongs to.
+	 *
+	 * Asked of the top of the tree, because that is where somebody pins it: the dialog
+	 * offers the field on a series or a film, and every episode of that series is filed
+	 * inside the one folder. Reading it off the episode would find nothing and place the
+	 * file by the rule, which is the bug this exists to prevent.
+	 */
+	private async _pinnedFolder(item: MediaItemEntity): Promise<string | null> {
+		return pinnedFolderOf(await this._items.topAncestor(item));
+	}
+
 	private async _showFacts(
 		item: MediaItemEntity,
 	): Promise<{ title: string; year: number | null } | null> {
@@ -1562,6 +1842,7 @@ const toGrabView = (grab: GrabEntity, rate = 0): ReleaseGrabView => ({
 	targetPath: grab.targetPath,
 	targetLibraryId: grab.targetLibraryId,
 	targetFolder: grab.targetFolder,
+	plannedPath: grab.plannedPath ?? null,
 	placements: grab.placements ?? [],
 	error: grab.error,
 	createdAt: grab.createdAt.toISOString(),

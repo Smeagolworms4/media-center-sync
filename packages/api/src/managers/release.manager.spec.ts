@@ -40,6 +40,7 @@ import type {
 	PlacementService,
 	SettingsService,
 } from '@/services';
+import type { LandingManager } from './landing.manager';
 import type { LibraryManager } from './library.manager';
 import type { MediaGroupManager } from './media-group.manager';
 import { ReleaseManager } from './release.manager';
@@ -53,7 +54,7 @@ interface Fakes {
 		findRecent: jest.Mock;
 		findForItem: jest.Mock;
 	};
-	items: { findOne: jest.Mock; find: jest.Mock };
+	items: { findOne: jest.Mock; find: jest.Mock; topAncestor: jest.Mock };
 	/** What the registry hands back, so a test can make the tracker fail on its own. */
 	indexer: { search: jest.Mock; trackers: jest.Mock };
 	indexers: { get: jest.Mock };
@@ -63,6 +64,7 @@ interface Fakes {
 		files: jest.Mock;
 		selectFiles: jest.Mock;
 		start: jest.Mock;
+		defaultSavePath: jest.Mock;
 	};
 	clients: { get: jest.Mock };
 	settings: { get: jest.Mock };
@@ -74,6 +76,7 @@ interface Fakes {
 	filesystem: { rights: jest.Mock; largestFileUnder: jest.Mock };
 	mover: { move: jest.Mock };
 	events: { emit: jest.Mock };
+	landings: { recordFile: jest.Mock };
 	/** Read for one column: whether a peer was invited by us or introduced by a friend. */
 	peers: { find: jest.Mock };
 }
@@ -369,6 +372,10 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 		files: jest.fn().mockResolvedValue([]),
 		selectFiles: jest.fn().mockResolvedValue(undefined),
 		start: jest.fn().mockResolvedValue(undefined),
+		// Null by default: a client that does not say where it writes is the case the
+		// fallback exists for, and it keeps every older test on the path it was written
+		// against.
+		defaultSavePath: jest.fn().mockResolvedValue(null),
 	};
 
 	const fakes: Fakes = {
@@ -388,6 +395,23 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 			find: jest.fn(({ where }: { where: { parentId: string } }) =>
 				Promise.resolve(WORLD.filter((one) => one.parentId === where.parentId)),
 			),
+			// The walk the real repository does, over the same little world: up to the row
+			// with no parent, which is where a pinned folder is written.
+			topAncestor: jest.fn((item: { id: string; parentId: string | null }) => {
+				let current = item;
+
+				while (current.parentId !== null) {
+					const parent = WORLD.find((one) => one.id === current.parentId);
+
+					if (parent === undefined) {
+						break;
+					}
+
+					current = parent as typeof current;
+				}
+
+				return Promise.resolve(current);
+			}),
 		},
 		indexer,
 		indexers: { get: jest.fn(() => indexer) },
@@ -395,7 +419,10 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 		clients: { get: jest.fn(() => client) },
 		settings: { get: jest.fn().mockResolvedValue(SETTINGS) },
 		cache: { get: jest.fn().mockResolvedValue(release()), set: jest.fn().mockResolvedValue(undefined) },
-		naming: { render: jest.fn().mockReturnValue('Spartacus/Season 01/S01E02.mkv') },
+		// Named the way the real service names: the show's folder, the season's folder,
+		// and a file carrying the show's name. A double that answered a bare `S01E02.mkv`
+		// would pin a shape this product never writes.
+		naming: { render: jest.fn().mockReturnValue('Spartacus/Season 01/Spartacus - S01E02.mkv') },
 		placement: {
 			// Calls the name back the way the real service does, per candidate library:
 			// a fake that never asked would leave the manager's naming untested.
@@ -433,6 +460,10 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 			}),
 		},
 		events: { emit: jest.fn() },
+		// Reading what the gateway told the media server is how the tests assert that it
+		// told it anything at all — a placed torrent that announces nothing is the defect
+		// this doubles for.
+		landings: { recordFile: jest.fn().mockResolvedValue(undefined) },
 	};
 
 	const manager = new ReleaseManager(
@@ -454,6 +485,7 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 		// answered a summary would prove nothing about it.
 		new PeerSuggestionService(new QualityService()),
 		fakes.peers as unknown as PeerRepository,
+		fakes.landings as unknown as LandingManager,
 	);
 
 	return { manager, fakes };
@@ -1250,9 +1282,9 @@ describe('ReleaseManager', () => {
 				settingsWith({ downloadClient: { ...SETTINGS.downloadClient, rootMappings: [] } }),
 			);
 
-			await expect(manager.grab({ releaseId: 'release-1', itemId: 'ep-2' })).rejects.toThrow(
-				ErrorKey.DOWNLOAD_PATH_UNREADABLE,
-			);
+			await expect(manager.grab({ releaseId: 'release-1', itemId: 'ep-2' })).rejects.toMatchObject({
+				response: { key: ErrorKey.DOWNLOAD_PATH_UNREADABLE },
+			});
 		});
 
 		it('refuses before a byte moves when a mapped local root cannot be read', async () => {
@@ -1260,9 +1292,19 @@ describe('ReleaseManager', () => {
 
 			fakes.filesystem.rights.mockResolvedValue({ readable: false, writable: false });
 
-			await expect(manager.grab({ releaseId: 'release-1', itemId: 'ep-2' })).rejects.toThrow(
-				ErrorKey.DOWNLOAD_PATH_UNREADABLE,
-			);
+			/*
+			 * The path is named, because the refusal is otherwise unactionable.
+			 *
+			 * It reads as being about the download client while what cannot be read is the
+			 * folder *this gateway* was told the client's downloads appear at — so somebody
+			 * goes and looks at a client where everything is fine.
+			 */
+			await expect(manager.grab({ releaseId: 'release-1', itemId: 'ep-2' })).rejects.toMatchObject({
+				response: {
+					key: ErrorKey.DOWNLOAD_PATH_UNREADABLE,
+					detail: expect.stringContaining('/share/torrents'),
+				},
+			});
 			expect(fakes.filesystem.rights).toHaveBeenCalledWith('/share/torrents');
 			expect(fakes.client.grab).not.toHaveBeenCalled();
 		});
@@ -1336,6 +1378,105 @@ describe('ReleaseManager', () => {
 				expect.anything(),
 				expect.objectContaining({ savePath: '/elsewhere' }),
 			);
+			// Nobody is asked anything when somebody has already said it.
+			expect(fakes.client.defaultSavePath).not.toHaveBeenCalled();
+		});
+
+		/*
+		 * Where the client writes, asked of the client.
+		 *
+		 * A root mapping translates between two spellings of a directory; it does not say
+		 * that either end is writable. Handing its remote side over as the folder to write
+		 * into is what told a production client to write into `/home/elewendyl`, which it
+		 * answered `Permission denied` to — the torrent sat in `error` at zero bytes while
+		 * every screen reported a download in progress.
+		 */
+		it('asks the client where it writes when nobody has configured a path', async () => {
+			const { manager, fakes } = build();
+
+			fakes.client.defaultSavePath.mockResolvedValue('/downloads/complete');
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			expect(fakes.client.grab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ savePath: '/downloads/complete' }),
+			);
+		});
+
+		it('falls back to the first root mapping for a client that will not say', async () => {
+			// An older build with no preferences route still has to be able to take a
+			// download, so an absent capability is not a failure.
+			const { manager, fakes } = build();
+
+			fakes.client.defaultSavePath.mockResolvedValue(null);
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			expect(fakes.client.grab).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ savePath: '/downloads' }),
+			);
+		});
+	});
+
+	describe('retry', () => {
+		/*
+		 * The gesture that did not exist, from the gateway that needed it: a root mapping
+		 * named a folder the client could not write, every grab failed, and once the mapping
+		 * was corrected there was nothing to press. The torrents were still in the client,
+		 * most of them finished.
+		 */
+		it('re-opens a failed download so the next poll carries on from the client', async () => {
+			const { manager, fakes } = build();
+			const row = grab({ state: GrabState.FAILED, error: 'the client reports error', clientId: 'hash-1' });
+
+			fakes.grabs.findOne.mockResolvedValue(row);
+
+			const view = await manager.retry('grab-1');
+
+			expect(view.state).toBe(GrabState.DOWNLOADING);
+			// The reason goes with it: keeping it would leave the row explaining a failure
+			// that is no longer the row's state.
+			expect(row.error).toBeNull();
+			expect(fakes.grabs.save).toHaveBeenCalledWith(row);
+		});
+
+		it('takes back one the client had lost, which is the other half of the same repair', async () => {
+			const { manager, fakes } = build();
+			const row = grab({ state: GrabState.CANCELLED, clientId: 'hash-1' });
+
+			fakes.grabs.findOne.mockResolvedValue(row);
+
+			expect((await manager.retry('grab-1')).state).toBe(GrabState.DOWNLOADING);
+		});
+
+		it('refuses one that is still running, which is already doing what a retry would ask', async () => {
+			const { manager, fakes } = build();
+
+			fakes.grabs.findOne.mockResolvedValue(grab({ state: GrabState.DOWNLOADING }));
+
+			await expect(manager.retry('grab-1')).rejects.toThrow(ErrorKey.GRAB_NOT_RETRYABLE);
+		});
+
+		it('refuses one the client never took, because there is nothing to resume', async () => {
+			// It failed before the download existed. What that needs is a new grab, and
+			// saying so is better than re-opening a row nothing will ever move.
+			const { manager, fakes } = build();
+
+			fakes.grabs.findOne.mockResolvedValue(grab({ state: GrabState.FAILED, clientId: null }));
+
+			await expect(manager.retry('grab-1')).rejects.toMatchObject({
+				response: { key: ErrorKey.GRAB_NOT_RETRYABLE },
+			});
+		});
+
+		it('says so when there is no such download', async () => {
+			const { manager, fakes } = build();
+
+			fakes.grabs.findOne.mockResolvedValue(null);
+
+			await expect(manager.retry('grab-1')).rejects.toThrow(ErrorKey.GRAB_NOT_FOUND);
 		});
 	});
 
@@ -1681,12 +1822,12 @@ describe('ReleaseManager', () => {
 				expect(fakes.mover.move).toHaveBeenCalledWith(
 					expect.objectContaining({
 						source: '/share/torrents/Spartacus.S01E02.1080p.WEB-DL-GRP/episode.mkv',
-						destination: '/media/shows/Spartacus/Season 01/S01E02.mkv',
+						destination: '/media/shows/Spartacus/Season 01/Spartacus - S01E02.mkv',
 						keepSource: true,
 					}),
 				);
 				expect(row.state).toBe(GrabState.PLACED);
-				expect(row.targetPath).toBe('/media/shows/Spartacus/Season 01/S01E02.mkv');
+				expect(row.targetPath).toBe('/media/shows/Spartacus/Season 01/Spartacus - S01E02.mkv');
 				expect(row.error).toBeNull();
 			});
 
@@ -1743,8 +1884,8 @@ describe('ReleaseManager', () => {
 				expect(nameable.title).toBe('The Thing in the Pit');
 				// And the row says where each one went, which is what the screen reads.
 				expect((row.placements ?? []).map((one) => one.targetPath)).toEqual([
-					'/media/shows/Spartacus/Season 01/S01E02.mkv',
-					'/media/shows/Spartacus/Season 01/S01E02.mkv',
+					'/media/shows/Spartacus/Season 01/Spartacus - S01E02.mkv',
+					'/media/shows/Spartacus/Season 01/Spartacus - S01E02.mkv',
 				]);
 				expect(row.state).toBe(GrabState.PLACED);
 				expect(row.error).toBeNull();
@@ -1876,6 +2017,48 @@ describe('ReleaseManager', () => {
 
 				expect(row.state).toBe(GrabState.FAILED);
 				expect(fakes.mover.move).not.toHaveBeenCalled();
+			});
+
+			/*
+			 * The half of a grab that did not exist: telling the media server.
+			 *
+			 * A torrent carries no poster beside it, so the artwork can only come from the
+			 * media server identifying the file — and it cannot identify a file nobody told
+			 * it about. Until this, a placed torrent sat in the library unindexed until
+			 * whatever schedule the server keeps came round, with no metadata and no poster,
+			 * while our own screens went on calling the media missing.
+			 */
+			it('tells the media server a file has arrived', async () => {
+				const { manager, fakes } = build();
+				const row = fetched();
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+
+				expect(fakes.landings.recordFile).toHaveBeenCalledWith(expect.objectContaining({
+					itemId: 'ep-2',
+					libraryId: 'lib-shows',
+					path: '/media/shows/Spartacus/Season 01/Spartacus - S01E02.mkv',
+					// No transfer behind it, which is the whole difference from a pull.
+					transferId: null,
+				}));
+			});
+
+			it('still reports the placement when the media server cannot be told', async () => {
+				// The bytes are in the library and the row says so. A server that will not
+				// answer is a thing to log, not a reason to report a placement as a failure.
+				const { manager, fakes } = build();
+				const row = fetched();
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.landings.recordFile.mockRejectedValue(new Error('jellyfin is down'));
+
+				await manager.poll();
+
+				expect(row.state).toBe(GrabState.PLACED);
 			});
 
 			it('fails the grab when the copy itself fails', async () => {

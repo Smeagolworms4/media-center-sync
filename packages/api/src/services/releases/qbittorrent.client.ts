@@ -664,6 +664,39 @@ export class QbittorrentClient implements DownloadClient {
 	}
 
 	/**
+	 * The folder qBittorrent writes into when nothing else says otherwise.
+	 *
+	 * `/app/preferences` rather than anything computed here: it is the answer the client
+	 * would give itself, in its own container's spelling, and it is by construction a
+	 * folder it can write.
+	 *
+	 * Null rather than a throw whenever it does not answer, is empty, or is not there:
+	 * this is consulted while sending a download, and a client whose preferences route is
+	 * missing must still be able to take one. The caller has a fallback and this is not
+	 * the place to refuse.
+	 */
+	public async defaultSavePath(settings: DownloadClientSettings): Promise<string | null> {
+		try {
+			const cookie = await this._login(settings);
+			const preferences = await releaseJson<{ save_path?: unknown }>(
+				settings.baseUrl,
+				'/api/v2/app/preferences',
+				{
+					headers: cookie === null ? {} : { Cookie: cookie },
+					unreachable: ErrorKey.DOWNLOAD_CLIENT_UNREACHABLE,
+				},
+			);
+			const path = typeof preferences?.save_path === 'string' ? preferences.save_path.trim() : '';
+
+			return path === '' ? null : path;
+		} catch (error: unknown) {
+			this._logger.warn(`${settings.baseUrl} would not say where it writes: ${String(error)}`);
+
+			return null;
+		}
+	}
+
+	/**
 	 * A session cookie, or none when no username is configured.
 	 *
 	 * qBittorrent answers `Fails.` with a 200 for wrong credentials rather than a 403,

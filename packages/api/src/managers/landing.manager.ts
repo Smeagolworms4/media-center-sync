@@ -48,6 +48,25 @@ import { toConnection } from './mappers';
 export type RescanListener = (serviceId: string) => void;
 
 /**
+ * One file that has just been put into a library, whoever put it there.
+ *
+ * Named apart from the transfer it usually comes from because it does not always come
+ * from one: a torrent has no row in that table and lands exactly the same way.
+ * `transferId` is null then, and the only consequence is that no queue row is painted —
+ * which is correct, since there is none.
+ */
+export interface LandedFile {
+	itemId: string;
+	transferId: string | null;
+	libraryId: string | null;
+	path: string;
+	bytes: number;
+	contentId: string | null;
+	/** For the log line, which is read by somebody looking for one file. */
+	title: string;
+}
+
+/**
  * What the gateway knows the moment a file lands, and nobody else does yet.
  *
  * ## The gap
@@ -171,23 +190,50 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 			return;
 		}
 
-		const library =
-			transfer.targetLibraryId === null
-				? null
-				: await this._libraries.findOne({ where: { id: transfer.targetLibraryId } });
+		await this.recordFile({
+			itemId: transfer.itemId,
+			transferId: transfer.id,
+			libraryId: transfer.targetLibraryId,
+			path: transfer.targetPath,
+			bytes: Number(transfer.bytesTotal),
+			contentId: transfer.contentId,
+			title: transfer.title,
+		});
+	}
 
-		const existing = await this._landings.findForItem(transfer.itemId);
+	/**
+	 * The same, for a file that arrived by a route with no transfer behind it.
+	 *
+	 * A torrent is the case this exists for, and it went without any of this for as long
+	 * as the feature existed: a grab copied its file into a library and told nobody. No
+	 * row said "waiting to be indexed", **no media server was asked to look**, and our own
+	 * index was not re-read — so the file sat there until whatever schedule the server
+	 * keeps came round, unidentified, with no metadata and no poster, while every screen
+	 * showed the media as still missing.
+	 *
+	 * That is the whole of the owner's "the metadata does not bring the posters": there
+	 * was nothing to bring. A torrent carries no artwork beside it, so the artwork can
+	 * only come from the media server identifying the file — which it cannot do until
+	 * somebody tells it there is a file.
+	 */
+	public async recordFile(landed: LandedFile): Promise<void> {
+		const library =
+			landed.libraryId === null
+				? null
+				: await this._libraries.findOne({ where: { id: landed.libraryId } });
+
+		const existing = await this._landings.findForItem(landed.itemId);
 		const landing = await this._landings.save(
 			this._landings.create({
 				// Kept rather than replaced, so a second pull of the same media updates
 				// one row instead of racing a unique index it would lose against.
 				...(existing ?? {}),
-				itemId: transfer.itemId,
-				transferId: transfer.id,
+				itemId: landed.itemId,
+				transferId: landed.transferId,
 				libraryId: library?.id ?? null,
-				path: transfer.targetPath,
-				bytes: Number(transfer.bytesTotal),
-				contentId: transfer.contentId,
+				path: landed.path,
+				bytes: landed.bytes,
+				contentId: landed.contentId,
 				state: MediaLandingState.WAITING,
 				expiresAt: new Date(Date.now() + LANDING_GRACE_MS),
 				rescanOutcome: null,
@@ -196,7 +242,7 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 
 		await this._paint([landing]);
 
-		this._logger.log(`${transfer.title} landed at ${transfer.targetPath}, awaiting index`);
+		this._logger.log(`${landed.title} landed at ${landed.path}, awaiting index`);
 
 		await this._announce(landing, library);
 	}

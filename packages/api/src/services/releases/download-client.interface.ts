@@ -142,4 +142,24 @@ export interface DownloadClient {
 
 	/** Whether the address and credentials work, for the settings screen to say so. */
 	probe(settings: DownloadClientSettings): Promise<boolean>;
+
+	/**
+	 * Where this client writes when nobody tells it otherwise.
+	 *
+	 * Asked rather than assumed, because the assumption was wrong on the gateway it
+	 * mattered on: with no save path configured here, the first root mapping's remote
+	 * root was handed over as the folder to write into — and a mapping is a translation
+	 * between two spellings of a path, not a statement that either end is writable. The
+	 * client was told to write into `/home/elewendyl`, which exists on nobody's disk
+	 * inside its container; it answered `Permission denied`, sat in `error` at zero
+	 * bytes, and the only account of it was in its own log.
+	 *
+	 * Its own default cannot have that problem: it is the folder it uses for everything
+	 * else it downloads.
+	 *
+	 * Null when the client will not say — an older version, a route this build does not
+	 * have — and then the caller falls back to what it did before. A capability that is
+	 * absent is not a failure.
+	 */
+	defaultSavePath(settings: DownloadClientSettings): Promise<string | null>;
 }
