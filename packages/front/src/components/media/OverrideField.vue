@@ -60,6 +60,15 @@
 			the one button that undoes the decision was the one button the browser would
 			no longer deliver a click to. Nothing said so, the icon simply did nothing.
 			Read-only says the same thing to somebody typing and keeps the way back.
+
+			The eraser answers `mousedown` and not `click`, which is the second half of the
+			same story. A `click` is only delivered when the press and the release land on
+			the *same* element, and this icon lives inside a field that re-renders the
+			moment it takes focus — which is what the press does. When the re-render falls
+			between the two, the browser fires no click at all and the eraser does nothing,
+			with no way for anybody to tell that from a misplaced press. Two journeys caught
+			it, in both directions, and a unit test in jsdom cannot: there the field never
+			re-renders in between.
 		-->
 		<v-textarea
 			v-if="type === 'textarea'"
@@ -79,8 +88,8 @@
 					:icon="cleared ? 'mdi-backup-restore' : 'mdi-eraser'"
 					role="button"
 					tabindex="0"
-					@click="toggleCleared"
 					@keydown.enter="toggleCleared"
+					@mousedown="toggleCleared"
 				/>
 			</template>
 		</v-textarea>
@@ -102,8 +111,8 @@
 					:icon="cleared ? 'mdi-backup-restore' : 'mdi-eraser'"
 					role="button"
 					tabindex="0"
-					@click="toggleCleared"
 					@keydown.enter="toggleCleared"
+					@mousedown="toggleCleared"
 				/>
 			</template>
 		</v-text-field>

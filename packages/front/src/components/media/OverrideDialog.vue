@@ -159,6 +159,20 @@
 		}
 	}
 
+	/**
+	 * How long the form waits for the suggestion before drawing itself anyway.
+	 *
+	 * The suggestion block sits above the fields, so it growing from a spinner into a
+	 * proposal moves every box below it — and a box that moves while somebody is reaching
+	 * for the eraser beside it is a click that lands somewhere else. Two journeys caught
+	 * exactly that, on two different fields, before anybody typed a word.
+	 *
+	 * So the form waits for it. Bounded, because the wait is the one thing that must not
+	 * depend on a route being quick: past this the block is drawn late, which is the
+	 * behaviour that was wrong only because it was the *usual* one.
+	 */
+	const SUGGESTION_GRACE_MS = 2000;
+
 	// Immediate, because a dialog can be mounted already open — and re-read on every
 	// opening rather than once: the row may have been corrected from another tab,
 	// and a stale "was" line would be a lie about what the service says. The suggestion is
@@ -168,7 +182,16 @@
 		if (!isOpen) {
 			return;
 		}
-		await Promise.all([load(), loadClassification()]);
+
+		const suggested = loadClassification();
+
+		await Promise.all([
+			load(),
+			Promise.race([
+				suggested,
+				new Promise(resolve => setTimeout(resolve, SUGGESTION_GRACE_MS)),
+			]),
+		]);
 	}, { immediate: true });
 
 	watch(() => props.item, next => {

@@ -143,6 +143,19 @@ function item (overrides: Partial<MediaItem> = {}): MediaItem {
 	} as MediaItem;
 }
 
+/**
+ * A press, both halves of it.
+ *
+ * The eraser answers the press rather than the click, because a click needs its press and
+ * its release to land on the same element and the field re-renders in between — see
+ * `OverrideField`. Sending both is what a person's hand does, and it toggles exactly once
+ * whichever of the two the component listens to, so this test says nothing about which.
+ */
+async function press (target: { trigger: (event: string) => Promise<void> }): Promise<void> {
+	await target.trigger('mousedown');
+	await target.trigger('click');
+}
+
 function mountDialog (node: MediaItem = item()) {
 	const stub = stubFetchRoutes({
 		'/api/media/m1/override': { body: { ...node, overrides: null, reported: null } },
@@ -200,7 +213,7 @@ describe('components/media/OverrideDialog', () => {
 
 		await wrapper.find('[data-test="override-title"] input').setValue('Cosmos');
 		// The eraser on the year: a documentary a scraper dated by its re-release.
-		await wrapper.find('[data-test="override-year"] .v-field__append-inner .v-icon').trigger('click');
+		await press(wrapper.find('[data-test="override-year"] .v-field__append-inner .v-icon'));
 		await settle();
 		await wrapper.find('[data-test="override-save"]').trigger('click');
 		await settle();
@@ -582,5 +595,35 @@ describe('correcting a media from the list', () => {
 
 		expect(row.wrapper.find('[data-test="media-row-override"]').exists()).toBe(false);
 		expect(card.wrapper.find('[data-test="media-card-override"]').exists()).toBe(false);
+	});
+
+	/*
+	 * Erasing a field, and taking it back.
+	 *
+	 * Two journeys caught this and nothing here did: the eraser is an icon inside the
+	 * input, and a click that reaches it has to reach the *state*, once. Toggling the
+	 * wrong way, or not at all, is a decision somebody cannot undo from the screen that
+	 * offered it.
+	 */
+	it('erases a field and takes it back, one press each way', async () => {
+		const { wrapper } = mountDialog();
+		await settle();
+
+		expect(wrapper.find('[data-test="override-year-cleared"]').exists()).toBe(false);
+
+		await press(wrapper.find('[data-test="override-year-clear"]'));
+		await settle();
+
+		expect(wrapper.find('[data-test="override-year-cleared"]').exists()).toBe(true);
+		expect((wrapper.find('[data-test="override-year"] input').element as HTMLInputElement).value)
+			.toBe('');
+
+		await press(wrapper.find('[data-test="override-year-clear"]'));
+		await settle();
+
+		// Back to what the service said, which is what "not corrected" means.
+		expect(wrapper.find('[data-test="override-year-cleared"]').exists()).toBe(false);
+		expect((wrapper.find('[data-test="override-year"] input').element as HTMLInputElement).value)
+			.toBe('1980');
 	});
 });
