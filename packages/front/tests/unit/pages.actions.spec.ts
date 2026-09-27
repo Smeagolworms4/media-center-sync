@@ -1,4 +1,5 @@
 import {
+	GrabState,
 	LibraryKind,
 	MediaServiceStatus,
 	MediaServiceType,
@@ -1020,6 +1021,125 @@ describe('pages/Transfers repairing', () => {
 
 		return { wrapper, stub };
 	}
+
+	/*
+	 * A download, as somebody asked for it: one block, one press.
+	 *
+	 * Three seasons asked for in one act were three rows, each with its own progress bar
+	 * and its own three buttons — so stopping a show was three presses, and archiving it
+	 * three more. The lot is what one press produced, and every control on the block acts
+	 * on every row of it.
+	 */
+	describe('a download of several torrents', () => {
+		function grabRow (overrides: Record<string, unknown> = {}) {
+			return {
+				id: 'g1',
+				itemId: 'm1',
+				title: 'Squid.Game.S01.PACK',
+				indexer: 'TR4KER',
+				state: GrabState.DOWNLOADING,
+				clientId: 'hash-1',
+				bytesDone: 500,
+				bytesTotal: 1000,
+				rate: 10,
+				savePath: '/downloads/complete',
+				targetPath: null,
+				targetLibraryId: null,
+				targetFolder: null,
+				plannedPath: '/media/shows/Squid Game/Season 01',
+				lot: 'lot-1',
+				partial: false,
+				placements: [],
+				error: null,
+				createdAt: '2026-09-27T00:00:00.000Z',
+				updatedAt: '2026-09-27T00:00:00.000Z',
+				...overrides,
+			};
+		}
+
+		const lot = [
+			grabRow(),
+			grabRow({ id: 'g2', title: 'Squid.Game.S02.PACK', plannedPath: '/media/shows/Squid Game/Season 02' }),
+			grabRow({ id: 'g3', title: 'Squid.Game.S03.PACK', plannedPath: '/media/shows/Squid Game/Season 03' }),
+		];
+
+		async function openBlock () {
+			const stub = stubFetchRoutes({
+				...base,
+				'/api/transfers': {
+					body: { items: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } },
+				},
+				'/api/releases/downloads': { body: lot },
+				'/api/releases/downloads/g1/pause': { body: { ...lot[0], state: GrabState.PAUSED } },
+				'/api/releases/downloads/g2/pause': { body: { ...lot[1], state: GrabState.PAUSED } },
+				'/api/releases/downloads/g3/pause': { body: { ...lot[2], state: GrabState.PAUSED } },
+				'/api/releases/downloads/g1': { body: null },
+				'/api/releases/downloads/g2': { body: null },
+				'/api/releases/downloads/g3': { body: null },
+				'/api/releases/downloads/g1/destination': { body: lot[0] },
+				'/api/releases/downloads/g2/destination': { body: lot[1] },
+				'/api/releases/downloads/g3/destination': { body: lot[2] },
+			});
+			const { wrapper } = mountWithApp(Transfers, {
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+
+			await settle(2);
+
+			return { wrapper, stub };
+		}
+
+		const calledFor = (stub: { mock: { calls: unknown[][] } }, suffix: string): number =>
+			stub.mock.calls.filter(one => String(one[0]).endsWith(suffix)).length;
+
+		it('draws one block rather than one row per torrent', async () => {
+			const { wrapper } = await openBlock();
+
+			expect(wrapper.findAll('[data-test="grab-batch"]')).toHaveLength(1);
+			// Folded: the rows are a chevron away, not three cards on the queue.
+			expect(wrapper.findAll('[data-test="release-grab-row"]')).toHaveLength(0);
+			expect(wrapper.find('[data-test="grab-batch-destination"]').text())
+				.toContain('/media/shows/Squid Game');
+		});
+
+		it('stops the whole download in one press', async () => {
+			const { wrapper, stub } = await openBlock();
+
+			await wrapper.find('[data-test="grab-batch-pause"]').trigger('click');
+			await settle(3);
+
+			expect(calledFor(stub, '/g1/pause')).toBe(1);
+			expect(calledFor(stub, '/g2/pause')).toBe(1);
+			expect(calledFor(stub, '/g3/pause')).toBe(1);
+		});
+
+		it('takes the whole download off the queue in one press', async () => {
+			const { wrapper, stub } = await openBlock();
+
+			await wrapper.find('[data-test="grab-batch-archive"]').trigger('click');
+			await settle(3);
+
+			expect(calledFor(stub, '/downloads/g1')).toBe(1);
+			expect(calledFor(stub, '/downloads/g3')).toBe(1);
+		});
+
+		it('writes one chosen destination onto every torrent of the block', async () => {
+			// Redirected one at a time, a show ends half in one library and half in
+			// another — which is the state somebody opening this dialog is repairing.
+			const { wrapper, stub } = await openBlock();
+
+			await wrapper.find('[data-test="grab-batch-retarget"]').trigger('click');
+			await settle(2);
+
+			(wrapper.vm as any).targetLibraryId = 'l1';
+			await (wrapper.vm as any).confirmRetarget();
+			await settle(2);
+
+			expect(calledFor(stub, '/g1/destination')).toBe(1);
+			expect(calledFor(stub, '/g2/destination')).toBe(1);
+			expect(calledFor(stub, '/g3/destination')).toBe(1);
+		});
+	});
 
 	/**
 	 * The full-disk case, and the correction it used to make.
