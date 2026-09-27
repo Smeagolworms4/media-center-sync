@@ -1633,7 +1633,11 @@
 		"from": "Tracker",
 		"choose_indexer": "Escolher o tracker",
 		"retry": "Recomeçar",
-		"retried": "Retomada. A gateway está a olhar de novo para o que o cliente diz."
+		"retried": "Retomada. A gateway está a olhar de novo para o que o cliente diz.",
+		"batch": {
+			"files": "{done} de {count} transferências arrumadas",
+			"failed": "{count} falhou | {count} falharam"
+		}
 	},
 	"classification": {
 		"title": "Onde isto poderia ficar",

@@ -1633,7 +1633,11 @@
 		"from": "Tracker",
 		"choose_indexer": "Choisir le tracker",
 		"retry": "Recommencer",
-		"retried": "Repris. La passerelle regarde à nouveau ce que le client en dit."
+		"retried": "Repris. La passerelle regarde à nouveau ce que le client en dit.",
+		"batch": {
+			"files": "{done} téléchargements rangés sur {count}",
+			"failed": "{count} en échec | {count} en échec"
+		}
 	},
 	"classification": {
 		"title": "Où ceci pourrait aller",

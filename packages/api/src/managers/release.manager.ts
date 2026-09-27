@@ -746,6 +746,9 @@ export class ReleaseManager implements OnApplicationBootstrap {
 
 		const grab = await this._grabs.save(
 			this._grabs.create({
+				// What somebody pressed download on, when that was more than this release:
+				// three seasons asked for in one act are one lot and three downloads.
+				lot: request.lot ?? null,
 				plannedPath: await this.plannedDirectory(
 					item,
 					settings,
@@ -2202,6 +2205,7 @@ const toGrabView = (grab: GrabEntity, rate = 0): ReleaseGrabView => ({
 	targetLibraryId: grab.targetLibraryId,
 	targetFolder: grab.targetFolder,
 	plannedPath: grab.plannedPath ?? null,
+	lot: grab.lot ?? null,
 	placements: grab.placements ?? [],
 	error: grab.error,
 	createdAt: grab.createdAt.toISOString(),

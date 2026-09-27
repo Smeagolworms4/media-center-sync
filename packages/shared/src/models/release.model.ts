@@ -487,6 +487,20 @@ export interface CoverageStep {
 
 export interface GrabRequest {
 	releaseId: string;
+	/**
+	 * What this download is part of, when it is part of something.
+	 *
+	 * A lot is what somebody pressed download on — three seasons asked for in one go are
+	 * one lot, and every screen that shows them should show them as one thing with one
+	 * progress bar and one set of controls. Without it a queue is as many rows as there
+	 * are releases, each with its own buttons, which is what somebody has to operate one
+	 * at a time when they meant to stop a show.
+	 *
+	 * Minted by whoever asked, because only they know what "in one go" meant. Absent
+	 * means this download is its own lot, which is the ordinary case of grabbing one
+	 * thing.
+	 */
+	lot?: string | null;
 	/** The media it is for. What the file is filed as, once it has arrived. */
 	itemId: string;
 	/**
@@ -543,6 +557,14 @@ export interface ReleaseGrab {
 	 * then says nothing rather than drawing an empty path.
 	 */
 	plannedPath: string | null;
+	/**
+	 * The lot this download belongs to, or null when it is its own.
+	 *
+	 * What somebody pressed download on, which is not the same as what a tracker hands
+	 * over: three season packs asked for in one act are one lot and three downloads. The
+	 * queue groups on it, and every control that acts on a block acts on its members.
+	 */
+	lot: string | null;
 	/**
 	 * The episodes this grab was taken for, and where each one landed.
 	 *

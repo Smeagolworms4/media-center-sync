@@ -20,6 +20,7 @@ function grab (overrides: Partial<ReleaseGrab> = {}): ReleaseGrab {
 		targetLibraryId: null,
 		targetFolder: null,
 		plannedPath: null,
+		lot: null,
 		partial: false,
 		placements: [],
 		error: null,

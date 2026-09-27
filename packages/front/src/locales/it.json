@@ -1633,7 +1633,11 @@
 		"from": "Tracker",
 		"choose_indexer": "Scegliere il tracker",
 		"retry": "Ricomincia",
-		"retried": "Ripreso. Il gateway guarda di nuovo che cosa ne dice il client."
+		"retried": "Ripreso. Il gateway guarda di nuovo che cosa ne dice il client.",
+		"batch": {
+			"files": "{done} di {count} download archiviati",
+			"failed": "{count} non riuscito | {count} non riusciti"
+		}
 	},
 	"classification": {
 		"title": "Dove questo potrebbe andare",

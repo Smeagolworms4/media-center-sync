@@ -12,6 +12,7 @@
 	import Rate from '@/components/common/Rate.vue';
 	import StatTile from '@/components/common/StatTile.vue';
 	import Pagination from '@/components/paginate/Pagination.vue';
+	import GrabBatch from '@/components/transfer/GrabBatch.vue';
 	import ReleaseGrabRow from '@/components/transfer/ReleaseGrabRow.vue';
 	import TransferBatch from '@/components/transfer/TransferBatch.vue';
 	import TransferRow from '@/components/transfer/TransferRow.vue';
@@ -138,6 +139,8 @@
 	const retargetBusy = ref(false);
 	/** The torrent being redirected, when the dialog was opened from one. */
 	const retargetingGrab = ref<ReleaseGrab | null>(null);
+	/** The whole block being redirected, when the press came from a block's button. */
+	const retargetingGrabs = ref<ReleaseGrab[]>([]);
 	const resumingAll = ref(false);
 
 	/**
@@ -302,6 +305,26 @@
 	 * torrent that failed was then invisible on the one screen somebody goes to when a
 	 * download has failed, which is exactly where its own row was written.
 	 */
+	/**
+	 * The downloads of this view, grouped the way somebody asked for them.
+	 *
+	 * A lot is what one press produced — three seasons asked for together are one block —
+	 * and a row with no lot is its own, which is every download made one at a time and
+	 * every row written before lots existed. Ordered by the first row of each block, so
+	 * the blocks sit where their downloads would have sat.
+	 */
+	const grabLots = computed(() => {
+		const blocks = new Map<string, ReleaseGrab[]>();
+
+		for (const row of grabs.value) {
+			const key = row.lot ?? row.id;
+
+			blocks.set(key, [...(blocks.get(key) ?? []), row]);
+		}
+
+		return [...blocks.entries()].map(([key, rows]) => ({ key, rows }));
+	});
+
 	const grabs = computed(() => {
 		const wanted = state.value === null || state.value === undefined
 			? null
@@ -539,6 +562,37 @@
 	const resumeGrab = onGrab(id => releasesStore.resume(id), 'transfer.resumed');
 	const archiveGrab = onGrab(id => releasesStore.archive(id), 'transfer.archived');
 
+	/**
+	 * One press over a whole download, applied to every row it still means something for.
+	 *
+	 * A row that cannot take the action is skipped rather than refused: pausing a lot that
+	 * is half filed means "stop the rest", and an error about the seasons that already
+	 * landed would be answering a question nobody asked. One toast for the press, not one
+	 * per row.
+	 */
+	function onBatch (act: (id: string) => Promise<unknown>, said: string) {
+		return tryCallback(async (rows: ReleaseGrab[]) => {
+			for (const row of rows) {
+				busyId.value = row.id;
+
+				try {
+					await act(row.id);
+				} catch {
+					// Kept going on purpose: the rest of the download is still worth acting
+					// on, and the row that refused says so itself.
+				}
+			}
+
+			busyId.value = null;
+			void notify(said);
+		});
+	}
+
+	const pauseBatch = onBatch(id => releasesStore.pause(id), 'transfer.paused');
+	const resumeBatch = onBatch(id => releasesStore.resume(id), 'transfer.resumed');
+	const archiveBatch = onBatch(id => releasesStore.archive(id), 'transfer.archived');
+	const retryBatch = onBatch(id => releasesStore.retry(id), 'release.retried');
+
 	const confirmRetarget = tryCallback(async () => {
 		const asked = retargeting.value;
 
@@ -561,13 +615,23 @@
 
 		// A torrent takes the same answer by a route of its own: it is not a transfer and
 		// has no row in that table, but where it lands is the very same decision.
-		if (retargetingGrab.value !== null) {
+		const rows = retargetingGrab.value === null
+			? retargetingGrabs.value
+			: [retargetingGrab.value];
+
+		if (rows.length > 0) {
 			try {
-				await releasesStore.setDestination(
-					retargetingGrab.value.id, targetLibraryId.value, folder);
+				// Every row of the block, because a destination is a property of the
+				// download: redirected one at a time, a season ends half in one library and
+				// half in another — the very state somebody opened this dialog to repair.
+				for (const row of rows) {
+					await releasesStore.setDestination(row.id, targetLibraryId.value, folder);
+				}
+
 				void notify('transfer.retarget.repointed');
 				retargeting.value = null;
 				retargetingGrab.value = null;
+				retargetingGrabs.value = [];
 			} finally {
 				retargetBusy.value = false;
 			}
@@ -604,7 +668,29 @@
 	 * answer — a library, then a folder inside it. A second control for it would be a
 	 * second way of saying one thing, and the two would drift.
 	 */
+	/**
+	 * Send a whole download of torrents elsewhere, from the block's own button.
+	 *
+	 * One dialog for the block, and the answer is written on every row of it. A lot
+	 * redirected row by row is how a season ends half in one library and half in another,
+	 * which is the state somebody pressing this is trying to get out of.
+	 */
+	function retargetBatchGrabs (rows: ReleaseGrab[]): void {
+		const first = rows[0];
+
+		if (first === undefined) {
+			return;
+		}
+
+		retargetingGrabs.value = rows;
+		retargetingGrab.value = null;
+		retargeting.value = { title: first.title, jobId: null, transfers: [] };
+		targetLibraryId.value = first.targetLibraryId;
+		targetFolder.value = first.targetFolder;
+	}
+
 	function retargetGrab (grab: ReleaseGrab): void {
+		retargetingGrabs.value = [];
 		retargetingGrab.value = grab;
 		retargeting.value = { title: grab.title, jobId: null, transfers: [] };
 		targetLibraryId.value = grab.targetLibraryId;
@@ -801,17 +887,33 @@
 					gateway started: the client is filtered on a category of ours, so
 					somebody's own torrents are never listed, tracked or filed.
 				-->
-				<ReleaseGrabRow
-					v-for="grab of grabs"
-					:key="grab.id"
-					:busy="busyId === grab.id"
-					:grab="grab"
-					@archive="archiveGrab"
-					@pause="pauseGrab"
-					@resume="resumeGrab"
-					@retarget="retargetGrab"
-					@retry="retryGrab"
-				/>
+				<template v-for="block of grabLots" :key="block.key">
+					<!--
+						A lot of one is not folded: a single row inside a container saying
+						"one file" is a frame around nothing.
+					-->
+					<ReleaseGrabRow
+						v-if="block.rows.length === 1"
+						:busy="busyId === block.rows[0].id"
+						:grab="block.rows[0]"
+						@archive="archiveGrab"
+						@pause="pauseGrab"
+						@resume="resumeGrab"
+						@retarget="retargetGrab"
+						@retry="retryGrab"
+					/>
+
+					<GrabBatch
+						v-else
+						:busy-id="busyId"
+						:grabs="block.rows"
+						@archive="archiveBatch"
+						@pause="pauseBatch"
+						@resume="resumeBatch"
+						@retarget="retargetBatchGrabs"
+						@retry="retryBatch"
+					/>
+				</template>
 
 				<template v-for="batch of batches" :key="batch.key">
 					<!--

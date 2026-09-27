@@ -1633,7 +1633,11 @@
 		"from": "Tracker",
 		"choose_indexer": "Tracker wählen",
 		"retry": "Neu starten",
-		"retried": "Fortgesetzt. Die Schnittstelle sieht erneut nach, was der Client dazu sagt."
+		"retried": "Fortgesetzt. Die Schnittstelle sieht erneut nach, was der Client dazu sagt.",
+		"batch": {
+			"files": "{done} von {count} Downloads abgelegt",
+			"failed": "{count} fehlgeschlagen | {count} fehlgeschlagen"
+		}
 	},
 	"classification": {
 		"title": "Wohin das gehören könnte",

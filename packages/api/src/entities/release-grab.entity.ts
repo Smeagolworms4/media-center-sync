@@ -98,6 +98,21 @@ export class ReleaseGrab extends Timestampable {
 	public plannedPath!: string | null;
 
 	/**
+	 * What somebody pressed download on, when that was more than this one release.
+	 *
+	 * Three season packs asked for in one act are one lot and three downloads, and every
+	 * screen that shows them shows one block: one progress bar, one set of controls. A
+	 * queue that cannot say that is as many rows as there are releases, each to be
+	 * stopped, archived and redirected on its own.
+	 *
+	 * Null means the download is its own lot, which is the ordinary case and why no
+	 * back-fill was needed: a row written before this column existed was one press.
+	 */
+	@Index()
+	@Column({ type: 'varchar', nullable: true })
+	public lot!: string | null;
+
+	/**
 	 * Whether only part of this release was asked for.
 	 *
 	 * A column and not a deduction. It was inferred from "every placement has no file

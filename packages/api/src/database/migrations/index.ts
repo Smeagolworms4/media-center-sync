@@ -4,6 +4,7 @@ import { AddSyntheticMediaItems1758412800000 } from './1758412800000-AddSyntheti
 import { AddReleaseGrabs1758499200000 } from './1758499200000-AddReleaseGrabs';
 import { AddTransferLot1758585600000 } from './1758585600000-AddTransferLot';
 import { AddGrabPlannedPath1758672000000 } from './1758672000000-AddGrabPlannedPath';
+import { AddGrabLot1758758400000 } from './1758758400000-AddGrabLot';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -42,6 +43,7 @@ export const MIGRATIONS = [
 	AddReleaseGrabs1758499200000,
 	AddTransferLot1758585600000,
 	AddGrabPlannedPath1758672000000,
+	AddGrabLot1758758400000,
 ];
 
 export * from './1758240000000-InitialSchema';
@@ -50,3 +52,4 @@ export * from './1758412800000-AddSyntheticMediaItems';
 export * from './1758499200000-AddReleaseGrabs';
 export * from './1758585600000-AddTransferLot';
 export * from './1758672000000-AddGrabPlannedPath';
+export * from './1758758400000-AddGrabLot';

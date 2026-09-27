@@ -1633,7 +1633,11 @@
 		"from": "Tracker",
 		"choose_indexer": "Choose the tracker",
 		"retry": "Start over",
-		"retried": "Resumed. The gateway is looking again at what the client says about it."
+		"retried": "Resumed. The gateway is looking again at what the client says about it.",
+		"batch": {
+			"files": "{done} of {count} downloads filed",
+			"failed": "{count} failed | {count} failed"
+		}
 	},
 	"classification": {
 		"title": "Where this might belong",

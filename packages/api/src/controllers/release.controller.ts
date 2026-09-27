@@ -134,6 +134,16 @@ class GrabDto {
 	@IsUUID()
 	public itemId!: string;
 
+	@ApiPropertyOptional({
+		description:
+			'What this download is part of. Three seasons asked for in one act share one, '
+			+ 'and the queue shows them as one block. Minted by whoever asked, since only '
+			+ 'they know what "in one go" meant.',
+	})
+	@IsOptional()
+	@IsUUID()
+	public lot?: string | null;
+
 	@ApiPropertyOptional({ description: 'Where it should land, when the rules are not what is wanted.' })
 	@IsOptional()
 	@IsUUID()

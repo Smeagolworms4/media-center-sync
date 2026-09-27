@@ -214,11 +214,22 @@
 	 * season pack cost four files rather than a season.
 	 */
 	const grabPlan = tryCallback(async () => {
+		/*
+		 * One lot for the whole plan, minted here.
+		 *
+		 * This is the press: whatever the plan holds — three seasons, four packs, a run of
+		 * singles — somebody asked for it once, and the queue has to show it as one thing
+		 * with one progress bar and one set of controls. Only this function knows that;
+		 * the gateway sees one request per release and could not tell them apart.
+		 */
+		const lot = crypto.randomUUID();
+
 		for (const step of releases.plan?.steps ?? []) {
 			await releases.grab(
 				step.releaseId,
 				props.group.id,
 				step.partial ? step.covers : undefined,
+				lot,
 			);
 		}
 

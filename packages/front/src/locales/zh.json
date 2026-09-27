@@ -1633,7 +1633,11 @@
 		"from": "Tracker",
 		"choose_indexer": "选择 tracker",
 		"retry": "重新开始",
-		"retried": "已恢复。网关正在重新查看客户端的说法。"
+		"retried": "已恢复。网关正在重新查看客户端的说法。",
+		"batch": {
+			"files": "{count} 个下载中已归位 {done} 个",
+			"failed": "{count} 个失败"
+		}
 	},
 	"classification": {
 		"title": "这可能属于哪里",

@@ -141,11 +141,16 @@ export const useReleasesStore = defineStore('releases', () => {
 		releaseId: string,
 		itemId: string,
 		wanted?: EpisodeRef[],
+		lot?: string | null,
 	): Promise<ReleaseGrab> {
 		const created = await caller('api').post<ReleaseGrab>('/releases/grab', {
 			releaseId,
 			itemId,
 			...(wanted === undefined || wanted.length === 0 ? {} : { wanted }),
+			// What somebody pressed download on, when that was more than this release.
+			// Minted where the press happens, because only there is it known what "in one
+			// go" meant — see `GrabRequest.lot`.
+			...(lot ? { lot } : {}),
 		});
 
 		merge(created);

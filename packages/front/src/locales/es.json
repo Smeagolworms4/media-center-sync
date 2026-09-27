@@ -1633,7 +1633,11 @@
 		"from": "Tracker",
 		"choose_indexer": "Elegir el tracker",
 		"retry": "Empezar de nuevo",
-		"retried": "Reanudada. La pasarela vuelve a mirar lo que dice el cliente."
+		"retried": "Reanudada. La pasarela vuelve a mirar lo que dice el cliente.",
+		"batch": {
+			"files": "{done} de {count} descargas archivadas",
+			"failed": "{count} con error | {count} con errores"
+		}
 	},
 	"classification": {
 		"title": "Dónde podría ir esto",
