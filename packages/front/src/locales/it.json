@@ -1135,6 +1135,17 @@
 			"bytes": "Dimensione",
 			"empty_title": "Niente da recuperare",
 			"empty_text": "Con queste sorgenti e questi filtri, è già tutto qui."
+		},
+		"space": {
+			"title": "Questa esecuzione è al limite dello spazio",
+			"intro": "Ecco ciò che il gateway ha misurato su ogni destinazione. Avviarla comunque intacca la riserva che hai fissato.",
+			"target": "Destinazione",
+			"free": "Libero",
+			"needed": "Necessario",
+			"left": "Rimanente dopo",
+			"confirm": "Avvia comunque",
+			"not_a_library": "Non appartiene a nessuna delle tue librerie",
+			"not_a_library_hint": "Una cartella che nessuna libreria copre non viene scansionata da alcun server multimediale: i file vi saranno invisibili, per quanto spazio ci sia. È la cartella di ripiego delle impostazioni — correggila invece di avviare."
 		}
 	},
 	"companions": {

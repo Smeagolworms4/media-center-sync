@@ -5,6 +5,7 @@
 	import { useRoute, useRouter } from 'vue-router';
 	import { useTheme } from 'vuetify';
 	import Notify from '@/components/Notify.vue';
+	import SpaceDialog from '@/components/sync/SpaceDialog.vue';
 	import BandwidthControl from '@/components/transfer/BandwidthControl.vue';
 	import { useAppInit } from '@/hooks/useAppInit';
 	import { useNotifier } from '@/hooks/useNotifier';
@@ -255,6 +256,13 @@
 				<router-view />
 			</template>
 		</v-main>
+
+		<!--
+			The question the gateway asks when a run would eat into the space reserve.
+			Mounted here because every screen that starts a run can provoke it, and a
+			refusal nobody could answer was a dead end on all of them.
+		-->
+		<SpaceDialog />
 
 		<Notify />
 	</v-app>

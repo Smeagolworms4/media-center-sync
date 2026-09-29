@@ -1135,6 +1135,17 @@
 			"bytes": "Tamanho",
 			"empty_title": "Nada a transferir",
 			"empty_text": "Com estas fontes e estes filtros, está tudo já aqui."
+		},
+		"space": {
+			"title": "Esta execução está justa de espaço",
+			"intro": "Eis o que a gateway mediu em cada destino. Lançar mesmo assim consome a reserva que definiu.",
+			"target": "Destino",
+			"free": "Livre",
+			"needed": "Necessário",
+			"left": "Restante depois",
+			"confirm": "Lançar mesmo assim",
+			"not_a_library": "Não pertence a nenhuma das suas bibliotecas",
+			"not_a_library_hint": "Uma pasta que nenhuma biblioteca cobre não é analisada por nenhum servidor de media: os ficheiros serão invisíveis lá, por muito espaço que haja. É a pasta de recurso das definições — corrija-a em vez de lançar."
 		}
 	},
 	"companions": {

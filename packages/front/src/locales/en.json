@@ -1135,6 +1135,17 @@
 			"bytes": "Size",
 			"empty_title": "Nothing to pull",
 			"empty_text": "With these sources and filters, everything is already here."
+		},
+		"space": {
+			"title": "This run is tight on space",
+			"intro": "Here is what the gateway measured on each destination. Running anyway eats into the reserve you set.",
+			"target": "Destination",
+			"free": "Free",
+			"needed": "Needed",
+			"left": "Left after",
+			"confirm": "Run anyway",
+			"not_a_library": "Belongs to none of your libraries",
+			"not_a_library_hint": "A folder no library covers is scanned by no media server: the files will be invisible there however much room it has. It is the fallback folder from the settings — correct it rather than running."
 		}
 	},
 	"companions": {

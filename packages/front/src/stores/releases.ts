@@ -173,7 +173,11 @@ export const useReleasesStore = defineStore('releases', () => {
 	 * planner drops a media we hold in another version and answers a run that plans
 	 * nothing, finishes at once and says nothing — the same trap the source list hit.
 	 */
-	async function pull (copy: PeerCopy): Promise<SyncJob> {
+	/**
+	 * Null when the gateway asked about space rather than starting: the sync store holds
+	 * the question and one dialog answers it for every screen that starts a run.
+	 */
+	async function pull (copy: PeerCopy): Promise<SyncJob | null> {
 		return useSyncStore().run({
 			scope: { itemIds: copy.itemIds },
 			sourceServiceIds: [copy.serviceId],

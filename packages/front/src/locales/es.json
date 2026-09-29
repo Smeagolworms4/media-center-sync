@@ -1135,6 +1135,17 @@
 			"bytes": "Tamaño",
 			"empty_title": "Nada que traer",
 			"empty_text": "Con estas fuentes y estos filtros, ya está todo aquí."
+		},
+		"space": {
+			"title": "Esta ejecución va justa de espacio",
+			"intro": "Esto es lo que la pasarela ha medido en cada destino. Lanzarla igualmente consume la reserva que fijó.",
+			"target": "Destino",
+			"free": "Libre",
+			"needed": "Necesario",
+			"left": "Restante después",
+			"confirm": "Lanzar igualmente",
+			"not_a_library": "No pertenece a ninguna de sus bibliotecas",
+			"not_a_library_hint": "Una carpeta que ninguna biblioteca cubre no la escanea ningún servidor multimedia: los archivos serán invisibles allí, haya el espacio que haya. Es la carpeta de reserva de los ajustes: corríjala en vez de lanzar."
 		}
 	},
 	"companions": {

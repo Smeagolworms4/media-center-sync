@@ -1135,6 +1135,17 @@
 			"bytes": "Taille",
 			"empty_title": "Rien à récupérer",
 			"empty_text": "Avec ces sources et ces filtres, tout est déjà là."
+		},
+		"space": {
+			"title": "Cette exécution est juste en espace",
+			"intro": "Voici ce que la passerelle a mesuré sur chaque destination. Lancer quand même entame la réserve que vous avez fixée.",
+			"target": "Destination",
+			"free": "Libre",
+			"needed": "Nécessaire",
+			"left": "Restant après",
+			"confirm": "Lancer quand même",
+			"not_a_library": "N'appartient à aucune de vos bibliothèques",
+			"not_a_library_hint": "Un dossier qu'aucune bibliothèque ne couvre n'est scanné par aucun serveur média : les fichiers y seront invisibles, quelle que soit la place disponible. C'est le dossier de repli des réglages — corrigez-le plutôt que de lancer."
 		}
 	},
 	"companions": {

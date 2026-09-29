@@ -12,6 +12,7 @@ import type {
 	SyncJobState,
 	SyncPlan,
 	SyncPreview,
+	TargetSpace,
 	UpdateSyncPlanRequest,
 } from '@mcs/shared';
 import { EventName } from '@mcs/shared';
@@ -147,10 +148,75 @@ export const useSyncStore = defineStore('sync', () => {
 		return caller('api').post<SyncPreview>('/sync/preview', request);
 	}
 
-	async function run (request: RunSyncRequest): Promise<SyncJob> {
-		const job = await caller('api').post<SyncJob>('/sync/run', request);
-		mergeJob(job);
-		return job;
+	/**
+	 * What the gateway refused for want of space, and the run it refused.
+	 *
+	 * The refusal carries everything needed to decide — every destination, what is free
+	 * on it, what the run would write, what would be left — and the interface dropped all
+	 * of it on the floor: a sentence saying "confirm to run it anyway" and nothing
+	 * anywhere to confirm with. The only way through was to call the API by hand, which
+	 * is what the owner ended up doing.
+	 *
+	 * Kept here rather than in a page because every screen that starts a run hits it: the
+	 * library, one media, a plan. One dialog reads this and answers for all of them.
+	 */
+	const pendingSpace = ref<{ request: RunSyncRequest; targets: TargetSpace[] } | null>(null);
+
+	async function run (request: RunSyncRequest): Promise<SyncJob | null> {
+		try {
+			const job = await caller('api').post<SyncJob>('/sync/run', request, { silentError: true });
+
+			mergeJob(job);
+
+			return job;
+		} catch (error: unknown) {
+			const refusal = await spaceRefusal(error);
+
+			if (refusal === null) {
+				throw error;
+			}
+
+			// Not an error the screen should shout about: it is a question, and the dialog
+			// below is where it gets asked.
+			pendingSpace.value = { request, targets: refusal };
+
+			return null;
+		}
+	}
+
+	/** Run it anyway, which is the one thing the refusal was asking for. */
+	async function confirmSpace (): Promise<SyncJob | null> {
+		const asked = pendingSpace.value;
+
+		pendingSpace.value = null;
+
+		if (asked === null) {
+			return null;
+		}
+
+		return run({ ...asked.request, acknowledgeSpace: true });
+	}
+
+	function dismissSpace (): void {
+		pendingSpace.value = null;
+	}
+
+	/**
+	 * The targets of a refusal that is about space, or null for anything else.
+	 *
+	 * The body is read from the `Response` the caller throws, which is what it throws for
+	 * every refusal: a 409 carrying this key is a question, and everything else is a
+	 * failure that belongs to whoever asked.
+	 */
+	async function spaceRefusal (error: unknown): Promise<TargetSpace[] | null> {
+		if (!(error instanceof Response) || error.status !== 409) {
+			return null;
+		}
+
+		const body = await error.clone().json().catch(() => null) as
+			{ key?: string; targets?: TargetSpace[] } | null;
+
+		return body?.key === 'error.sync.space_not_acknowledged' ? (body.targets ?? []) : null;
 	}
 
 	function mergeJob (job: SyncJob): void {
@@ -237,6 +303,9 @@ export const useSyncStore = defineStore('sync', () => {
 		deletePlan,
 		preview,
 		run,
+		pendingSpace,
+		confirmSpace,
+		dismissSpace,
 		loadJobs,
 		job,
 		cancelJob,
