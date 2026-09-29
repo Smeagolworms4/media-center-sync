@@ -192,14 +192,21 @@ export class PeerCatalogueService {
 	 * hundred rows of a library and reported the rest as missing, which reads as a
 	 * friend who deleted half their series.
 	 *
-	 * A page that fails ends the walk with what was collected instead of throwing. Half
-	 * a catalogue is worth having — the next refresh fills the rest — and a link that
-	 * drops in the middle of an import must not lose the pages that already crossed.
+	 * A page that fails ends the walk with what was collected, **and says so**. Half a
+	 * catalogue is worth having to an import that only adds — the next refresh fills the
+	 * rest, and a link that drops mid-import must not lose the pages that already crossed.
+	 *
+	 * But `complete` is not decoration, and leaving it out cost somebody a season. A full
+	 * scan deletes what it did not see: handed a truncated list it cannot tell "they no
+	 * longer have this" from "the link dropped before I asked", so one failed page pruned
+	 * a peer's catalogue down to whatever had arrived. Nothing had changed on their side.
+	 * The caller that deletes now refuses to act on a partial answer; the caller that only
+	 * adds keeps taking it.
 	 */
 	public async fetchCatalogue(
 		peerId: string,
 		query: { since?: string | null; libraryId?: string | null } = {},
-	): Promise<CatalogueEntry[]> {
+	): Promise<{ entries: CatalogueEntry[]; complete: boolean }> {
 		const entries: CatalogueEntry[] = [];
 
 		for (let page = 1; page <= MAX_CATALOGUE_PAGES; page += 1) {
@@ -211,7 +218,13 @@ export class PeerCatalogueService {
 					return null;
 				});
 
-			const rows = answer?.entries ?? [];
+			if (answer === null) {
+				// The walk stopped because the far end stopped answering, which says
+				// nothing whatever about what they hold.
+				return { entries, complete: false };
+			}
+
+			const rows = answer.entries ?? [];
 
 			entries.push(...rows);
 
@@ -219,12 +232,16 @@ export class PeerCatalogueService {
 			// the far end's decision, so a short page cannot be told from a full one
 			// without asking them what theirs is. A peer holding an exact multiple of
 			// their page size costs one extra round trip and nothing else.
-			if (answer === null || rows.length === 0) {
-				break;
+			if (rows.length === 0) {
+				return { entries, complete: true };
 			}
 		}
 
-		return entries;
+		// The ceiling, which is a peer answering full pages for ever. Their catalogue is
+		// bigger than this walk, so what was collected is a beginning and not the whole.
+		this._logger.warn(`Peer ${peerId} is still answering after ${MAX_CATALOGUE_PAGES} pages`);
+
+		return { entries, complete: false };
 	}
 
 	/**

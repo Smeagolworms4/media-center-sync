@@ -11,7 +11,12 @@ import {
 	type MediaServiceProbe,
 	type ServerStructure,
 } from '@mcs/shared';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+	BadRequestException,
+	Injectable,
+	NotFoundException,
+	ServiceUnavailableException,
+} from '@nestjs/common';
 import { PeerCatalogueService } from '../peer-catalogue.service';
 import { PeerLinkService } from '../peer-link.service';
 import { normalizeTitle } from '../title-normalizer';
@@ -223,9 +228,28 @@ export class PeerHandler implements MediaServiceHandler {
 		options: LibraryScanOptions = {},
 	): AsyncIterable<NormalisedMediaItem> {
 		const peerId = this._requirePeerId(connection);
-		const entries = await this._catalogue.fetchCatalogue(peerId, {
+		const answer = await this._catalogue.fetchCatalogue(peerId, {
 			libraryId: this._libraryFilter(library),
 		});
+
+		/*
+		 * A partial catalogue is not an answer to "what do they still have".
+		 *
+		 * This is a **full** scan, and the pass that follows deletes every row it did not
+		 * see. Handed the pages that happened to arrive before a link dropped, it cannot
+		 * tell "they no longer have this" from "I never got to ask" — and it prunes a
+		 * peer's catalogue down to whatever crossed. That is how a household lost a season
+		 * of a show nobody had touched: one failed page, and the rest was declared gone.
+		 *
+		 * Thrown before a single row is yielded, so the walk that would delete never
+		 * starts. The refresh beside this one keeps taking what it can get, because it only
+		 * ever adds.
+		 */
+		if (!answer.complete) {
+			throw new ServiceUnavailableException({ key: ErrorKey.PEER_UNREACHABLE });
+		}
+
+		const entries = answer.entries;
 		const wanted = options.kinds === undefined ? null : new Set<string>(options.kinds);
 		const titles = this._titles(entries);
 
@@ -260,10 +284,13 @@ export class PeerHandler implements MediaServiceHandler {
 		cursor: string | null,
 	): Promise<LibraryRefresh> {
 		const peerId = this._requirePeerId(connection);
-		const entries = await this._catalogue.fetchCatalogue(peerId, {
+		const answer = await this._catalogue.fetchCatalogue(peerId, {
 			libraryId: this._libraryFilter(library),
 			since: cursor,
 		});
+		// Whatever crossed is worth keeping here: a refresh only ever adds, and the rows
+		// that did arrive are as true as the ones that did not.
+		const entries = answer.entries;
 		const titles = this._titles(entries);
 		const items: NormalisedMediaItem[] = [];
 
@@ -275,7 +302,15 @@ export class PeerHandler implements MediaServiceHandler {
 			}
 		}
 
-		return { items, cursor: new Date().toISOString() };
+		/*
+		 * The cursor only moves on a walk that finished.
+		 *
+		 * It is a stamp saying "everything up to here has been seen", and advancing it
+		 * over pages that never arrived would skip them for ever: the next refresh asks
+		 * for what changed *after* the stamp, and those rows changed before it. A repeated
+		 * window costs one redundant page; a skipped one costs rows nobody ever sees again.
+		 */
+		return { items, cursor: answer.complete ? new Date().toISOString() : cursor };
 	}
 
 	/**

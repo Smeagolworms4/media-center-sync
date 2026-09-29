@@ -139,7 +139,7 @@ describe('PeerCatalogueService', () => {
 				.mockResolvedValueOnce({ entries: [entry()] })
 				.mockResolvedValueOnce({ entries: [] });
 
-			expect(await service.fetchCatalogue('peer-1')).toHaveLength(1);
+			expect((await service.fetchCatalogue('peer-1')).entries).toHaveLength(1);
 		});
 
 		it('walks every page rather than importing the first one', async () => {
@@ -150,9 +150,12 @@ describe('PeerCatalogueService', () => {
 				.mockResolvedValueOnce({ entries: [entry({ externalId: 'b' })] })
 				.mockResolvedValueOnce({ entries: [] });
 
-			const entries = await service.fetchCatalogue('peer-1');
+			const answer = await service.fetchCatalogue('peer-1');
 
-			expect(entries.map((row) => row.externalId)).toEqual(['a', 'b']);
+			expect(answer.entries.map((row) => row.externalId)).toEqual(['a', 'b']);
+			// An empty page is the far end saying "that is all of it", which is the one
+			// stop that means the catalogue is whole.
+			expect(answer.complete).toBe(true);
 			expect(links.request).toHaveBeenNthCalledWith(
 				2,
 				'peer-1',
@@ -161,20 +164,35 @@ describe('PeerCatalogueService', () => {
 			);
 		});
 
-		it('keeps the pages that crossed when one fails', async () => {
-			// Half a catalogue is worth having: the next refresh fills the rest, and a
-			// link that drops mid-import must not lose what already arrived.
+		/*
+		 * Half a catalogue is worth having, and saying so is what stops it destroying
+		 * anything.
+		 *
+		 * A caller that only adds keeps the pages that crossed. A full scan deletes what
+		 * it did not see, and handed this without a word it cannot tell "they no longer
+		 * have this" from "I never got to ask" — which is how a household lost a season of
+		 * a show nobody had touched.
+		 */
+		it('keeps the pages that crossed when one fails, and says it is not whole', async () => {
 			links.request
 				.mockResolvedValueOnce({ entries: [entry()] })
 				.mockRejectedValueOnce(new Error('link closed'));
 
-			expect(await service.fetchCatalogue('peer-1')).toHaveLength(1);
+			const answer = await service.fetchCatalogue('peer-1');
+
+			expect(answer.entries).toHaveLength(1);
+			expect(answer.complete).toBe(false);
 		});
 
-		it('answers with nothing when the peer does not', async () => {
+		it('answers with nothing, and not with an empty catalogue, when the peer does not', async () => {
+			// The difference that matters: "they hold nothing" and "they did not answer"
+			// are opposite facts, and only one of them is a reason to delete rows.
 			links.request.mockRejectedValue(new Error('unreachable'));
 
-			expect(await service.fetchCatalogue('peer-1')).toEqual([]);
+			const answer = await service.fetchCatalogue('peer-1');
+
+			expect(answer.entries).toEqual([]);
+			expect(answer.complete).toBe(false);
 		});
 	});
 

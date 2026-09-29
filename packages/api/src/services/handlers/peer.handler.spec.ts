@@ -1,5 +1,6 @@
 import { PassThrough } from 'node:stream';
 import {
+	ErrorKey,
 	LibraryKind,
 	MediaKind,
 	MediaServiceType,
@@ -202,6 +203,38 @@ describe('PeerHandler', () => {
 	});
 
 	describe('scanLibrary', () => {
+		/*
+		 * A full scan deletes what it did not see, so a partial catalogue is not an answer
+		 * to "what do they still have".
+		 *
+		 * One failed page used to end the walk quietly with whatever had crossed, and the
+		 * pass that follows pruned the peer's catalogue down to it: a household lost a
+		 * season of a show nobody had touched, with nothing changed on the other side.
+		 * Thrown before a single row is yielded, so the walk that would delete never
+		 * starts.
+		 */
+		it('refuses to answer at all when the catalogue came back in pieces', async () => {
+			const { handler, links } = build();
+
+			links.request.mockImplementation(async (_peerId: string, method: string) => {
+				if (method === 'catalogue.libraries') {
+					return { libraries: [shared()] };
+				}
+
+				const asked = links.request.mock.calls.filter((call) => call[1] === 'catalogue.list').length;
+
+				if (asked === 1) {
+					return { entries: [entry()] };
+				}
+
+				throw new Error('link closed');
+			});
+
+			await expect(collect(handler.scanLibrary(connection(), library()))).rejects.toMatchObject({
+				response: { key: ErrorKey.PEER_UNREACHABLE },
+			});
+		});
+
 		it('asks only for the library it was given', async () => {
 			const { handler, links } = build();
 
