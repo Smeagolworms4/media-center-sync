@@ -1145,7 +1145,12 @@
 			"left": "Rimanente dopo",
 			"confirm": "Avvia comunque",
 			"not_a_library": "Non appartiene a nessuna delle tue librerie",
-			"not_a_library_hint": "Una cartella che nessuna libreria copre non viene scansionata da alcun server multimediale: i file vi saranno invisibili, per quanto spazio ci sia. È la cartella di ripiego delle impostazioni — correggila invece di avviare."
+			"not_a_library_hint": "Una cartella che nessuna libreria copre non viene scansionata da alcun server multimediale: i file vi saranno invisibili, per quanto spazio ci sia. È la cartella di ripiego delle impostazioni — correggila invece di avviare.",
+			"title_unmeasured": "Questa destinazione non ha potuto essere misurata",
+			"intro_unmeasured": "Il gateway non è riuscito a leggere lo spazio libero di questa destinazione. Non è una questione di spazio: è un percorso che non vede — non montato nel suo container, o inesistente.",
+			"unmeasured": "Spazio illeggibile: questo percorso non è visibile dal gateway",
+			"tight": "Intaccherebbe la riserva che hai fissato",
+			"insufficient": "Non ci sta"
 		}
 	},
 	"companions": {

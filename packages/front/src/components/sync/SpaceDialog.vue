@@ -43,6 +43,33 @@
 	 */
 	const strays = computed(() => targets.value.filter(one => one.libraryId === ''));
 
+	/**
+	 * Why each destination is being asked about, which is not the same question twice.
+	 *
+	 * `TIGHT` and `UNKNOWN` both stop a run until somebody answers, and the gateway's own
+	 * code says the difference between them is what the interface says rather than
+	 * whether it asks. The interface said nothing: a destination with six hundred
+	 * gigabytes free was announced as "tight on space", because what had actually
+	 * happened was that nothing could be measured there at all. A path this gateway
+	 * cannot see is a mount that is missing or a folder that does not exist — which is
+	 * repaired in the settings, not by freeing disk.
+	 */
+	function reasonOf (verdict: SpaceVerdict): string | null {
+		if (verdict === SpaceVerdict.UNKNOWN) {
+			return 'sync.space.unmeasured';
+		}
+
+		if (verdict === SpaceVerdict.TIGHT) {
+			return 'sync.space.tight';
+		}
+
+		return verdict === SpaceVerdict.INSUFFICIENT ? 'sync.space.insufficient' : null;
+	}
+
+	/** True when nothing could be measured anywhere, which is a different sentence entirely. */
+	const unmeasured = computed(
+		() => targets.value.length > 0 && targets.value.every(one => one.verdict === SpaceVerdict.UNKNOWN));
+
 	const confirm = tryCallback(async () => {
 		const job = await syncStore.confirmSpace();
 
@@ -53,9 +80,13 @@
 </script>
 
 <template>
-	<Window v-model="open" :max-width="640" :title="$t('sync.space.title')">
+	<Window
+		v-model="open"
+		:max-width="640"
+		:title="$t(unmeasured ? 'sync.space.title_unmeasured' : 'sync.space.title')"
+	>
 		<p class="text-body-2 mb-3" data-test="space-intro">
-			{{ $t('sync.space.intro') }}
+			{{ $t(unmeasured ? 'sync.space.intro_unmeasured' : 'sync.space.intro') }}
 		</p>
 
 		<v-table class="space-dialog_table" density="compact">
@@ -87,6 +118,20 @@
 							data-test="space-stray"
 						>
 							{{ $t('sync.space.not_a_library') }}
+						</span>
+
+						<!--
+							Why this one is being asked about. A destination nothing could be
+							measured on is not a destination that is short of room, and saying
+							the second where the first is true sends somebody to free disk
+							that is already free.
+						-->
+						<span
+							v-if="reasonOf(one.verdict)"
+							class="text-caption text-medium-emphasis d-block"
+							:data-test="`space-reason-${one.verdict}`"
+						>
+							{{ $t(reasonOf(one.verdict) as string) }}
 						</span>
 					</td>
 

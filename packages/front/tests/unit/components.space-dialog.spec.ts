@@ -95,6 +95,46 @@ describe('components/sync/SpaceDialog', () => {
 		expect(wrapper.find('[data-test="space-stray"]').exists()).toBe(false);
 	});
 
+	/*
+	 * Six hundred gigabytes free, and the screen said "tight on space".
+	 *
+	 * `TIGHT` and `UNKNOWN` both stop a run until somebody answers, and the gateway's own
+	 * code says the difference between them is what the interface says rather than
+	 * whether it asks. The interface said nothing — so a destination nothing could be
+	 * measured on was announced as short of room, and the answer somebody reaches for is
+	 * to free disk that is already free.
+	 */
+	it('says a destination could not be measured, rather than calling it tight', async () => {
+		const { wrapper } = mount();
+		const store = useSyncStore();
+
+		store.pendingSpace = {
+			request: { scope: { itemIds: ['m1'] } },
+			targets: [target({
+				libraryId: '',
+				libraryName: '/share/Animes2/Series',
+				freeBytes: null,
+				remainingBytes: null,
+				verdict: SpaceVerdict.UNKNOWN,
+			})],
+		};
+		await settle();
+
+		expect(wrapper.find('[data-test="space-reason-unknown"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="space-intro"]').text()).toContain('cannot see');
+	});
+
+	it('still calls a tight destination tight', async () => {
+		const { wrapper } = mount();
+		const store = useSyncStore();
+
+		store.pendingSpace = { request: { scope: { itemIds: ['m1'] } }, targets: [target()] };
+		await settle();
+
+		expect(wrapper.find('[data-test="space-reason-tight"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="space-reason-unknown"]').exists()).toBe(false);
+	});
+
 	it('runs it anyway, which is the one thing the refusal was asking for', async () => {
 		/*
 		 * Asserted on what leaves for the gateway, because that is the whole of the fix:

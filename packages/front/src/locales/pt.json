@@ -1145,7 +1145,12 @@
 			"left": "Restante depois",
 			"confirm": "Lançar mesmo assim",
 			"not_a_library": "Não pertence a nenhuma das suas bibliotecas",
-			"not_a_library_hint": "Uma pasta que nenhuma biblioteca cobre não é analisada por nenhum servidor de media: os ficheiros serão invisíveis lá, por muito espaço que haja. É a pasta de recurso das definições — corrija-a em vez de lançar."
+			"not_a_library_hint": "Uma pasta que nenhuma biblioteca cobre não é analisada por nenhum servidor de media: os ficheiros serão invisíveis lá, por muito espaço que haja. É a pasta de recurso das definições — corrija-a em vez de lançar.",
+			"title_unmeasured": "Não foi possível medir este destino",
+			"intro_unmeasured": "A gateway não conseguiu ler o espaço livre deste destino. Não é uma questão de espaço: é um caminho que ela não vê — não montado no seu contentor, ou inexistente.",
+			"unmeasured": "Espaço ilegível: este caminho não é visível a partir da gateway",
+			"tight": "Consumiria a reserva que definiu",
+			"insufficient": "Não cabe"
 		}
 	},
 	"companions": {

@@ -1145,7 +1145,12 @@
 			"left": "Danach übrig",
 			"confirm": "Trotzdem starten",
 			"not_a_library": "Gehört zu keiner Ihrer Bibliotheken",
-			"not_a_library_hint": "Ein Ordner, den keine Bibliothek abdeckt, wird von keinem Medienserver gescannt: die Dateien bleiben dort unsichtbar, wie viel Platz auch immer da ist. Es ist der Ausweichordner aus den Einstellungen — korrigieren Sie ihn, statt zu starten."
+			"not_a_library_hint": "Ein Ordner, den keine Bibliothek abdeckt, wird von keinem Medienserver gescannt: die Dateien bleiben dort unsichtbar, wie viel Platz auch immer da ist. Es ist der Ausweichordner aus den Einstellungen — korrigieren Sie ihn, statt zu starten.",
+			"title_unmeasured": "Dieses Ziel konnte nicht gemessen werden",
+			"intro_unmeasured": "Die Schnittstelle konnte den freien Speicher dieses Ziels nicht lesen. Es geht nicht um Platz: es ist ein Pfad, den sie nicht sieht — nicht in ihren Container eingebunden oder gar nicht vorhanden.",
+			"unmeasured": "Speicher nicht lesbar: dieser Pfad ist von der Schnittstelle aus nicht sichtbar",
+			"tight": "Würde die von Ihnen gesetzte Reserve angreifen",
+			"insufficient": "Passt nicht"
 		}
 	},
 	"companions": {

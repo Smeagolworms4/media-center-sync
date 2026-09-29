@@ -1145,7 +1145,12 @@
 			"left": "Restante después",
 			"confirm": "Lanzar igualmente",
 			"not_a_library": "No pertenece a ninguna de sus bibliotecas",
-			"not_a_library_hint": "Una carpeta que ninguna biblioteca cubre no la escanea ningún servidor multimedia: los archivos serán invisibles allí, haya el espacio que haya. Es la carpeta de reserva de los ajustes: corríjala en vez de lanzar."
+			"not_a_library_hint": "Una carpeta que ninguna biblioteca cubre no la escanea ningún servidor multimedia: los archivos serán invisibles allí, haya el espacio que haya. Es la carpeta de reserva de los ajustes: corríjala en vez de lanzar.",
+			"title_unmeasured": "No se ha podido medir este destino",
+			"intro_unmeasured": "La pasarela no ha podido leer el espacio libre de este destino. No es cuestión de sitio: es una ruta que no ve — no montada en su contenedor, o inexistente.",
+			"unmeasured": "Espacio ilegible: esta ruta no es visible desde la pasarela",
+			"tight": "Consumiría la reserva que fijó",
+			"insufficient": "No cabe"
 		}
 	},
 	"companions": {

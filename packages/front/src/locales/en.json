@@ -1145,7 +1145,12 @@
 			"left": "Left after",
 			"confirm": "Run anyway",
 			"not_a_library": "Belongs to none of your libraries",
-			"not_a_library_hint": "A folder no library covers is scanned by no media server: the files will be invisible there however much room it has. It is the fallback folder from the settings — correct it rather than running."
+			"not_a_library_hint": "A folder no library covers is scanned by no media server: the files will be invisible there however much room it has. It is the fallback folder from the settings — correct it rather than running.",
+			"title_unmeasured": "This destination could not be measured",
+			"intro_unmeasured": "The gateway could not read the free space of this destination. It is not a question of room: it is a path it cannot see — not mounted in its container, or not there at all.",
+			"unmeasured": "Space unreadable: this path is not visible from the gateway",
+			"tight": "Would eat into the reserve you set",
+			"insufficient": "Does not fit"
 		}
 	},
 	"companions": {

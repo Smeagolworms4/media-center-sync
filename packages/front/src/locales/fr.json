@@ -1145,7 +1145,12 @@
 			"left": "Restant après",
 			"confirm": "Lancer quand même",
 			"not_a_library": "N'appartient à aucune de vos bibliothèques",
-			"not_a_library_hint": "Un dossier qu'aucune bibliothèque ne couvre n'est scanné par aucun serveur média : les fichiers y seront invisibles, quelle que soit la place disponible. C'est le dossier de repli des réglages — corrigez-le plutôt que de lancer."
+			"not_a_library_hint": "Un dossier qu'aucune bibliothèque ne couvre n'est scanné par aucun serveur média : les fichiers y seront invisibles, quelle que soit la place disponible. C'est le dossier de repli des réglages — corrigez-le plutôt que de lancer.",
+			"title_unmeasured": "Cette destination n'a pas pu être mesurée",
+			"intro_unmeasured": "La passerelle n'a pas réussi à lire l'espace libre de cette destination. Ce n'est pas une question de place : c'est un chemin qu'elle ne voit pas — non monté dans son conteneur, ou inexistant.",
+			"unmeasured": "Espace illisible : ce chemin n'est pas visible depuis la passerelle",
+			"tight": "Entamerait la réserve que vous avez fixée",
+			"insufficient": "Ne tient pas"
 		}
 	},
 	"companions": {
