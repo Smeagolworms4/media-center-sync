@@ -55,7 +55,13 @@ interface Fakes {
 		findForItem: jest.Mock;
 		delete: jest.Mock;
 	};
-	items: { findOne: jest.Mock; find: jest.Mock; findChildren: jest.Mock; topAncestor: jest.Mock };
+	items: {
+		findOne: jest.Mock;
+		find: jest.Mock;
+		findChildren: jest.Mock;
+		findHeldByNormalizedTitle: jest.Mock;
+		topAncestor: jest.Mock;
+	};
 	/** What the registry hands back, so a test can make the tracker fail on its own. */
 	indexer: { search: jest.Mock; trackers: jest.Mock };
 	indexers: { get: jest.Mock };
@@ -406,6 +412,9 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 			findChildren: jest.fn((parentId: string) =>
 				Promise.resolve(WORLD.filter((one) => one.parentId === parentId)),
 			),
+			// Asked when the tree says nothing, which is what a hierarchy a media server
+			// misreads looks like from here. Empty by default.
+			findHeldByNormalizedTitle: jest.fn().mockResolvedValue([]),
 			// The walk the real repository does, over the same little world: up to the row
 			// with no parent, which is where a pinned folder is written.
 			topAncestor: jest.fn((item: { id: string; parentId: string | null }) => {
@@ -2209,6 +2218,61 @@ describe('ReleaseManager', () => {
 					}),
 					expect.anything(),
 				);
+			});
+
+			/*
+			 * The episode page, which is where somebody actually presses download.
+			 *
+			 * The walk used to read the children of the row it was handed: right for a
+			 * series and for a season, and silently wrong for an episode, which has none.
+			 * So a download started from an episode found no copy of its show, was held to
+			 * no library, imitated no folders, and landed wherever the category pointed —
+			 * beside nothing.
+			 */
+			it('finds the show copy from an episode, not only from a series', async () => {
+				const { manager, fakes } = build();
+				const row = grab({ itemId: 'ep-3', state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(
+					expect.objectContaining({ existingPath: '/media/shows/S01E02.mkv' }),
+				);
+			});
+
+			/*
+			 * And when the tree cannot answer at all.
+			 *
+			 * A library organised as `SeriesTV/DC Comics/Séries TV/<show>` is read by a
+			 * media server as one series with every show beneath it as a season, so the
+			 * episodes of a show hang from a row that is not that show. The owner's report:
+			 * the new episode landed in another library while "the others were elsewhere".
+			 */
+			it('falls back to any held copy of the same show, whatever row it hangs from', async () => {
+				const { manager, fakes } = build();
+				const row = grab({ itemId: 'ep-3', state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				// Nothing under this show's own tree, which is what a misread hierarchy
+				// looks like from here.
+				fakes.items.findChildren.mockResolvedValue([]);
+				fakes.items.findHeldByNormalizedTitle.mockResolvedValue([
+					item({
+						id: 'stray',
+						libraryId: 'lib-shows',
+						file: { path: '/media/shows/DC Comics/Series TV/Spartacus/S01E01.mkv', size: 1 },
+					}),
+				]);
+
+				await manager.poll();
+
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(expect.objectContaining({
+					existingPath: '/media/shows/DC Comics/Series TV/Spartacus/S01E01.mkv',
+				}));
 			});
 
 			it('imitates the folders this library already uses, which a grab never did', async () => {

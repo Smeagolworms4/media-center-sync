@@ -1699,18 +1699,29 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * it is the same translation every other local path goes through.
 	 */
 	private async _existingCopy(root: MediaItemEntity): Promise<string | null> {
-		const seasons = root.kind === MediaKind.SERIES
-			? await this._items.findChildren(root.id)
-			: [root];
+		/*
+		 * From the top of the tree, whatever was grabbed.
+		 *
+		 * This used to read the children of the row it was handed, which is right for a
+		 * series and for a season and silently wrong for the case that matters most: an
+		 * **episode** has no children, so a download started from an episode page found no
+		 * copy at all. It then had no library to be held to and no folders to imitate, and
+		 * landed wherever the category or the default pointed — beside nothing, which is
+		 * the very thing this function exists to prevent. Reported twice before it was
+		 * understood: once on a show that was already in another library, once on an
+		 * episode that "should have landed next to the others".
+		 *
+		 * The series is where the answer is in all three cases, so that is where the walk
+		 * starts.
+		 */
+		const series = await this._items.topAncestor(root);
+		const seasons = series.kind === MediaKind.SERIES
+			? await this._items.findChildren(series.id)
+			: [series];
 
 		for (const season of seasons) {
 			for (const episode of await this._items.findChildren(season.id)) {
-				if (!episode.file?.path) {
-					continue;
-				}
-
-				const library = await this._libraries.read(episode.libraryId).catch(() => null);
-				const local = library === null ? null : toLocalPath(library, episode.file.path);
+				const local = await this._heldAt(episode);
 
 				if (local !== null) {
 					return local;
@@ -1718,7 +1729,39 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			}
 		}
 
+		/*
+		 * The tree said nothing, so ask the catalogue by name.
+		 *
+		 * A library organised as `SeriesTV/DC Comics/Séries TV/<show>` is read by a media
+		 * server as one series called `DC Comics/Séries TV`, with every show beneath it as
+		 * a season — so the episodes of a show hang from a row that is not that show, and
+		 * the walk above finds nothing whatever. The owner's report is exactly that: the
+		 * new episode landed in another library while "the others were elsewhere", in a
+		 * folder tree the walk could not reach.
+		 *
+		 * The normalised title survives that, because handlers normalise an episode under
+		 * its series' name. It is the same question a person answers by looking.
+		 */
+		for (const held of await this._items.findHeldByNormalizedTitle(series.normalizedTitle)) {
+			const local = await this._heldAt(held);
+
+			if (local !== null) {
+				return local;
+			}
+		}
+
 		return null;
+	}
+
+	/** Where one row's file is on **our** disk, or null when it is on nobody's we can read. */
+	private async _heldAt(item: MediaItemEntity): Promise<string | null> {
+		if (!item.file?.path) {
+			return null;
+		}
+
+		const library = await this._libraries.read(item.libraryId).catch(() => null);
+
+		return library === null ? null : toLocalPath(library, item.file.path);
 	}
 
 	/**
