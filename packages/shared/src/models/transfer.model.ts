@@ -295,6 +295,14 @@ export interface Transfer {
 	error: string | null;
 	/** What kind of failure it was, for what the interface offers to do about it. */
 	errorKind: TransferErrorKind | null;
+	/**
+	 * What the key cannot say: the path, the length, the server's own words.
+	 *
+	 * Never translated — a path is a path in every language — and printed under the
+	 * sentence the key produced. Null when there is nothing to add, which is most
+	 * failures.
+	 */
+	errorDetail: string | null;
 	/** Pieces re-fetched since the transfer started, across every repair pass. */
 	chunksRepaired: number;
 	lastVerifiedAt: string | null;

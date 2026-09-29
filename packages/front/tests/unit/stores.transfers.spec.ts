@@ -46,6 +46,7 @@ function transfer (overrides: Partial<Transfer> = {}): Transfer {
 		chunksDone: 1,
 		error: null,
 		errorKind: null,
+		errorDetail: null,
 		chunksRepaired: 0,
 		lastVerifiedAt: null,
 		startedAt: null,

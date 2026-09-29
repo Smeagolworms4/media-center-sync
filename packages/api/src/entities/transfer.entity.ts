@@ -142,6 +142,22 @@ export class Transfer extends Timestampable {
 	@Column({ type: 'varchar', nullable: true })
 	public errorKind!: TransferErrorKind | null;
 
+	/**
+	 * The one fact the key cannot carry: which path, which source, which number.
+	 *
+	 * `error` is a key and `errorKind` is a category, and between them they say what kind
+	 * of thing went wrong and nothing about *this* one. A row reading "the destination
+	 * folder has disappeared" sends somebody to look at a folder without saying which, and
+	 * on a gateway with five libraries that is a search rather than a repair.
+	 *
+	 * Free text, deliberately, and never translated: it is a path or a length or a
+	 * server's own words, and those are the same in every language. The interface prints
+	 * it under the sentence the key produced.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'varchar', nullable: true })
+	public errorDetail!: string | null;
+
 	@ApiProperty({ nullable: true })
 	@Column({ type: 'datetime', nullable: true })
 	public lastVerifiedAt!: Date | null;

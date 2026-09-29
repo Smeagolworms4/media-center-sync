@@ -51,6 +51,7 @@ function transfer (overrides: Partial<Transfer> = {}): Transfer {
 		chunksDone: 1,
 		error: null,
 		errorKind: null,
+		errorDetail: null,
 		chunksRepaired: 0,
 		lastVerifiedAt: null,
 		startedAt: null,
@@ -521,6 +522,43 @@ describe('components/transfer/TransferRow', () => {
 			global: { stubs: tooltipStub },
 		});
 	}
+
+	/*
+	 * The one fact the key cannot carry.
+	 *
+	 * `error` is a key and `errorKind` is a category: between them they say what kind of
+	 * thing went wrong and nothing about this one. "The destination folder has
+	 * disappeared" without naming it is a search rather than a repair on a gateway with
+	 * five libraries — and the path was in the log the whole time, where nobody looks.
+	 */
+	it('prints the path a failure was about, under the sentence', () => {
+		const one = transfer({
+			state: TransferState.FAILED,
+			errorKind: TransferErrorKind.TARGET_MISSING,
+			errorDetail: '/share/SeriesTV5/Les Schtroumpfs (1961)/Season 01',
+		});
+		const { wrapper } = mountWithApp(TransferRow, {
+			props: { transfer: one, progress: progressOf(one) },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-error-detail"]').text())
+			.toBe('/share/SeriesTV5/Les Schtroumpfs (1961)/Season 01');
+	});
+
+	it('says nothing extra when there is nothing to add, which is most failures', () => {
+		const one = transfer({
+			state: TransferState.FAILED,
+			errorKind: TransferErrorKind.NETWORK,
+			errorDetail: null,
+		});
+		const { wrapper } = mountWithApp(TransferRow, {
+			props: { transfer: one, progress: progressOf(one) },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-error-detail"]').exists()).toBe(false);
+	});
 
 	it('warns about a file no media server has indexed', () => {
 		// The serious one: the transfer succeeded, so nothing else anywhere reports it.

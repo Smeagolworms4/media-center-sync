@@ -190,6 +190,29 @@ class RateLimiter {
  * cache is for answers we can afford to recompute; a transfer's progress is not one
  * of those.
  */
+/**
+ * The one fact worth putting in front of somebody, out of whatever was thrown.
+ *
+ * A path first, because it is what nearly every failure here is about and what the key
+ * can never say: "the destination folder has disappeared" without naming it is a search
+ * rather than a repair, on a gateway with five libraries. Failing that, the message
+ * itself, trimmed to something a row can hold.
+ *
+ * Never a stack and never a class name: `ConflictException: Conflict Exception` is what
+ * this exists to stop being the whole account of a failure.
+ */
+const detailOf = (error: unknown): string | null => {
+	const path = (error as NodeJS.ErrnoException)?.path;
+
+	if (typeof path === 'string' && path !== '') {
+		return path;
+	}
+
+	const message = error instanceof Error ? error.message : String(error);
+
+	return message.trim() === '' ? null : message.slice(0, 300);
+};
+
 @Injectable()
 export class TransferEngineService implements OnApplicationBootstrap, OnModuleDestroy {
 	private readonly _logger = new Logger(TransferEngineService.name);
@@ -579,8 +602,9 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 				// read as "the move failed" and send somebody to download it all again.
 				await this._fail(
 					transfer,
-					this._classify(error),
+					this._classify(error, transfer.targetPath),
 					error instanceof FileMoveError ? error.key : ErrorKey.GENERAL,
+					detailOf(error),
 				);
 			}
 		} finally {
@@ -1070,6 +1094,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			chunksDone: 0,
 			error: transfer.error,
 			errorKind: transfer.errorKind,
+			errorDetail: transfer.errorDetail ?? null,
 			chunksRepaired: transfer.chunksRepaired,
 			lastVerifiedAt: transfer.lastVerifiedAt?.toISOString() ?? null,
 			startedAt: transfer.startedAt?.toISOString() ?? null,
@@ -1223,10 +1248,14 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		transfer: Transfer,
 		kind: TransferErrorKind,
 		key: string,
+		detail: string | null = null,
 	): Promise<void> {
 		transfer.state = TransferState.FAILED;
 		transfer.errorKind = kind;
 		transfer.error = key;
+		// The one fact the key cannot carry: which path, which length, whose words. It was
+		// in the log and nowhere anybody would look.
+		transfer.errorDetail = detail;
 		transfer.finishedAt = new Date();
 
 		await this._transfers.save(transfer);
@@ -1241,7 +1270,7 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	 * another one", a full disk offers "choose another library", and neither is a
 	 * retry button that would fail the same way.
 	 */
-	private _classify(error: unknown): TransferErrorKind {
+	private _classify(error: unknown, destination?: string | null): TransferErrorKind {
 		const message = error instanceof Error ? error.message.toLowerCase() : String(error);
 
 		if (message.includes('enospc') || message.includes('no space')) {
@@ -1253,7 +1282,25 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		}
 
 		if (message.includes('enoent')) {
-			return TransferErrorKind.TARGET_MISSING;
+			/*
+			 * Which end went missing, because they are repaired at opposite ends.
+			 *
+			 * Every `ENOENT` used to read "the destination folder has disappeared", so a
+			 * peer whose file had been deleted — or a partial thrown away by a cancellation
+			 * — sent somebody to inspect a folder that was perfectly fine. Node puts the
+			 * offending path on the error, and the destination is known here, so the
+			 * question can simply be asked.
+			 *
+			 * A path we cannot place is read as the source being gone: that is the commoner
+			 * of the two by far, and it offers "look for another source", which is the
+			 * useful button either way.
+			 */
+			const path = (error as NodeJS.ErrnoException)?.path ?? '';
+			const folder = destination ? dirname(destination) : null;
+
+			return folder !== null && path.startsWith(folder)
+				? TransferErrorKind.TARGET_MISSING
+				: TransferErrorKind.SOURCE_GONE;
 		}
 
 		if (message.includes('unauthor') || message.includes('401') || message.includes('403')) {

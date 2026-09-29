@@ -217,6 +217,20 @@
 				variant="tonal"
 			>
 				<strong>{{ $t(descriptor.labelKey) }}</strong> — {{ $t(descriptor.helpKey) }}
+
+				<!--
+					The one fact the key cannot carry: which path, which length, whose words.
+					"The destination folder has disappeared" without naming it is a search
+					rather than a repair on a gateway with five libraries — and it was in the
+					log the whole time, where nobody would look.
+				-->
+				<p
+					v-if="transfer.errorDetail"
+					class="transfer-row_detail text-caption mb-0 mt-1"
+					data-test="transfer-error-detail"
+				>
+					{{ transfer.errorDetail }}
+				</p>
 			</v-alert>
 
 			<!--
@@ -304,6 +318,11 @@
 	.transfer-row {
 		&--paused {
 			opacity: 0.88;
+		}
+
+		&_detail {
+			font-family: monospace;
+			overflow-wrap: anywhere;
 		}
 
 		&_path {

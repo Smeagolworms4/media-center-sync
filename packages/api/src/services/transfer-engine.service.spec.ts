@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
 	ChunkState,
@@ -930,7 +930,9 @@ describe('TransferEngineService', () => {
 		it.each([
 			['ENOSPC: no space left on device', TransferErrorKind.DISK_FULL],
 			['EACCES: permission denied, open', TransferErrorKind.PERMISSION_DENIED],
-			['ENOENT: no such file or directory', TransferErrorKind.TARGET_MISSING],
+			// An `ENOENT` carrying no path at all is read as the source being gone, which
+			// is the commoner of the two and offers the useful button — see below.
+			['ENOENT: no such file or directory', TransferErrorKind.SOURCE_GONE],
 			['Request failed with status 401 Unauthorized', TransferErrorKind.SOURCE_UNAUTHORIZED],
 			['Request failed with status 404', TransferErrorKind.SOURCE_GONE],
 			['checksum did not match', TransferErrorKind.CHECKSUM_MISMATCH],
@@ -951,6 +953,56 @@ describe('TransferEngineService', () => {
 
 			expect(finished.state).toBe(TransferState.FAILED);
 			expect(finished.errorKind).toBe(kind);
+		});
+
+		/*
+		 * Which end went missing, because they are repaired at opposite ends.
+		 *
+		 * Every `ENOENT` used to read "the destination folder has disappeared", so a peer
+		 * whose file had been deleted — or a partial thrown away by a cancellation — sent
+		 * somebody to inspect a folder that was perfectly fine. The owner hit exactly that
+		 * on a pull of twenty episodes.
+		 */
+		it('calls a missing destination folder a missing destination', async () => {
+			transfers.set('small', transfer({ id: 'small', bytesTotal: 1_000 }));
+
+			const gone: NodeJS.ErrnoException = new Error('ENOENT: no such file or directory, open');
+
+			gone.path = `${dirname(transfers.get('small')!.targetPath)}/whatever.part`;
+			fetchRange.mockRejectedValue(gone);
+			// Two sources, for the reason the table above gives: with one, the chunk runs
+			// out of sources before it runs out of attempts and the error is replaced by
+			// "every source failed".
+			engine.setSourceResolver(async () => [
+				source({ serviceId: 'first', serviceName: 'First' }),
+				source({ serviceId: 'second', serviceName: 'Second' }),
+			]);
+
+			await engine.enqueue('small');
+
+			expect((await runToEnd('small')).errorKind).toBe(TransferErrorKind.TARGET_MISSING);
+		});
+
+		it('calls a file that is gone somewhere else a source that is gone', async () => {
+			// A partial a cancellation threw away, a peer's copy deleted since: neither is
+			// the destination, and "look for another source" is the button that helps.
+			transfers.set('small', transfer({ id: 'small', bytesTotal: 1_000 }));
+
+			const gone: NodeJS.ErrnoException = new Error('ENOENT: no such file or directory, open');
+
+			gone.path = '/var/scratch/somewhere-else.part';
+			fetchRange.mockRejectedValue(gone);
+			// Two sources, for the reason the table above gives: with one, the chunk runs
+			// out of sources before it runs out of attempts and the error is replaced by
+			// "every source failed".
+			engine.setSourceResolver(async () => [
+				source({ serviceId: 'first', serviceName: 'First' }),
+				source({ serviceId: 'second', serviceName: 'Second' }),
+			]);
+
+			await engine.enqueue('small');
+
+			expect((await runToEnd('small')).errorKind).toBe(TransferErrorKind.SOURCE_GONE);
 		});
 	});
 

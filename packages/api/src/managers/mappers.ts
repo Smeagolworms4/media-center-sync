@@ -324,6 +324,7 @@ export const toTransfer = (
 	chunksDone: extra.chunksDone ?? 0,
 	error: transfer.error,
 	errorKind: transfer.errorKind,
+	errorDetail: transfer.errorDetail ?? null,
 	chunksRepaired: transfer.chunksRepaired,
 	lastVerifiedAt: iso(transfer.lastVerifiedAt),
 	startedAt: iso(transfer.startedAt),
