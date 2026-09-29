@@ -169,6 +169,13 @@
 			: null;
 	});
 
+	/** Whether what is on screen sits under this root, which is what marks the chip. */
+	function inside (root: string): boolean {
+		const path = listing.value?.path ?? '';
+
+		return path === root || path.startsWith(`${root}/`);
+	}
+
 	const crumbs = computed(() => {
 		const current = listing.value;
 
@@ -341,9 +348,39 @@
 		void load(listing.value?.path ?? props.path);
 	});
 
+	/**
+	 * A folder that does not exist yet, named here and created when the bytes are written.
+	 *
+	 * Nothing is made on the disk: the gateway creates the destination folder as it places
+	 * a file, recursively, so a folder chosen and never used costs nothing and leaves
+	 * nothing behind. That is what makes it safe to offer — the alternative is a browser
+	 * that creates empty folders every time somebody changes their mind, in a library
+	 * a media server is scanning.
+	 *
+	 * Appended to what is on screen rather than typed whole, because the part that must be
+	 * right is the part above it: the shelf, and the folder inside it this is going under.
+	 */
+	const newFolder = ref('');
+
+	const newFolderPath = computed<string | null>(() => {
+		const name = newFolder.value.trim().replace(/^\/+|\/+$/g, '');
+		const here = listing.value?.path ?? null;
+
+		// A name carrying a separator would be several folders at once, which the field
+		// does not say and the value would not show. One folder, made where you are.
+		if (here === null || name === '' || name.includes('/')) {
+			return null;
+		}
+
+		return `${here.replace(/\/+$/, '')}/${name}`;
+	});
+
 	function onChoose (): void {
-		if (listing.value !== null) {
-			emit('choose', listing.value.path);
+		const chosen = newFolderPath.value ?? listing.value?.path ?? null;
+
+		if (chosen !== null) {
+			emit('choose', chosen);
+			newFolder.value = '';
 			open.value = false;
 		}
 	}
@@ -478,6 +515,30 @@
 				{{ $t('browse.gateway_title') }}
 			</p>
 
+			<!--
+				The shelf's other directories, when it has more than one.
+
+				A library is not one folder: `Series TV` can be `/share/SeriesTV` and
+				`/share/SeriesTV2` on two disks. Bounded to one of them, the way up stops at
+				its root — quite correctly, since above it is somebody else's — and the
+				other roots become unreachable. They are offered here instead, which is the
+				only place they can be: the filesystem has no folder holding both.
+			-->
+			<div v-if="bounds.length > 1" class="directory-picker_roots mb-2">
+				<v-chip
+					v-for="root of bounds"
+					:key="root"
+					class="directory-picker_root"
+					:color="inside(root) ? 'primary' : undefined"
+					data-test="browse-root"
+					size="small"
+					:variant="inside(root) ? 'tonal' : 'outlined'"
+					@click="load(root)"
+				>
+					{{ root }}
+				</v-chip>
+			</div>
+
 			<div class="directory-picker_bar">
 				<v-btn
 					data-test="browse-up"
@@ -563,6 +624,26 @@
 				:label="$t('browse.show_hidden')"
 			/>
 
+			<!--
+				A folder that does not exist yet, named rather than created: the gateway
+				makes the destination as it writes the file, so nothing is left behind if
+				this is never used. A browser that created folders as somebody explored
+				would leave empty ones all over a library a media server is scanning.
+			-->
+			<v-text-field
+				v-if="!serverOnly && listing"
+				v-model="newFolder"
+				class="directory-picker_new"
+				clearable
+				data-test="browse-new-folder"
+				density="compact"
+				hide-details
+				:label="$t('browse.new_folder')"
+				prepend-inner-icon="mdi-folder-plus-outline"
+				style="max-width: 280px"
+				variant="outlined"
+			/>
+
 			<v-spacer />
 
 			<v-btn data-test="browse-cancel" variant="text" @click="open = false">
@@ -578,7 +659,7 @@
 				variant="flat"
 				@click="onChoose"
 			>
-				{{ $t('browse.choose') }}
+				{{ newFolderPath ? $t('browse.choose_new') : $t('browse.choose') }}
 			</v-btn>
 		</template>
 	</Window>
@@ -603,6 +684,16 @@
 			align-items: center;
 			gap: 4px;
 			margin-bottom: 8px;
+		}
+
+		&_roots {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+
+		&_root {
+			font-family: monospace;
 		}
 
 		&_crumbs {

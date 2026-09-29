@@ -120,7 +120,9 @@
 		"server_unavailable": "Impossible de demander au serveur où sont ses dossiers. Saisissez le chemin tel que le serveur l'annonce.",
 		"server_enter": "Regarder dans ce dossier",
 		"gateway_title": "Ce que voit cette passerelle",
-		"open": "Parcourir les dossiers"
+		"open": "Parcourir les dossiers",
+		"new_folder": "Nouveau dossier",
+		"choose_new": "Créer et utiliser"
 	},
 	"general": {
 		"byte_unit": "o"
@@ -1321,7 +1323,8 @@
 			"whole_lot": "{title} — tout le téléchargement, {count} fichiers",
 			"hint_lot_landed": "Les fichiers de ce téléchargement déjà déposés sont déplacés eux aussi, y compris ceux qu’une exécution antérieure a apportés, et les dossiers qu’ils laissent vides sont supprimés.",
 			"current": "Actuellement : {path}",
-			"into": "Vers {path}"
+			"into": "Vers {path}",
+			"outside": "Ce dossier n'est pas dans la bibliothèque choisie. Elle occupe : {roots}."
 		},
 		"revalidation": {
 			"title": "Pourquoi ce transfert a changé d'avis",

@@ -120,7 +120,9 @@
 		"server_unavailable": "Não foi possível perguntar ao servidor onde estão as suas pastas. Escreva o caminho tal como o servidor o indica.",
 		"server_enter": "Ver dentro desta pasta",
 		"gateway_title": "O que este gateway vê",
-		"open": "Percorrer pastas"
+		"open": "Percorrer pastas",
+		"new_folder": "Nova pasta",
+		"choose_new": "Criar e usar"
 	},
 	"general": {
 		"byte_unit": "B"
@@ -1321,7 +1323,8 @@
 			"whole_lot": "{title} — todo o descarregamento, {count} ficheiros",
 			"hint_lot_landed": "Os ficheiros deste descarregamento que já aterraram também são movidos, incluindo os que uma execução anterior trouxe, e as pastas que deixam vazias são removidas.",
 			"current": "Atualmente: {path}",
-			"into": "Para {path}"
+			"into": "Para {path}",
+			"outside": "Esta pasta não está na biblioteca escolhida. Ocupa: {roots}."
 		},
 		"revalidation": {
 			"title": "Porque é que esta transferência mudou de ideias",

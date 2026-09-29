@@ -292,6 +292,31 @@
 		void suggestFolder();
 	});
 
+	/**
+	 * Whether the pinned folder is inside the shelf that was chosen.
+	 *
+	 * The field takes a path, and a path can be typed as easily as browsed. A folder
+	 * belonging to another library is refused by the gateway — but only when a file is
+	 * finally placed there, which is hours later and looks like a different fault
+	 * entirely. Said here, before anything is saved.
+	 *
+	 * Empty is not an error: it is "let the rule decide", which is the ordinary answer and
+	 * what the placeholder offers.
+	 */
+	const folderError = computed<string | null>(() => {
+		const typed = draft.targetFolder?.trim() ?? '';
+
+		if (typed === '' || chosenRoots.value.length === 0) {
+			return null;
+		}
+
+		const inside = chosenRoots.value.some(
+			root => typed === root || typed.startsWith(root.endsWith('/') ? root : `${root}/`),
+		);
+
+		return inside ? null : t('transfer.retarget.outside', { roots: chosenRoots.value.join(', ') });
+	});
+
 	/** Every directory of the chosen shelf, which is as far as browsing may go. */
 	const chosenRoots = computed<string[]>(() => {
 		const chosen = destinations.value.find(one => one.id === draft.libraryId);
@@ -632,6 +657,7 @@
 					clearable
 					data-test="override-folder"
 					density="compact"
+					:error-messages="folderError ? [folderError] : []"
 					:hint="$t('override.folder_hint')"
 					:label="$t('override.folder')"
 					persistent-hint
@@ -1009,7 +1035,7 @@
 			<v-btn
 				color="primary"
 				data-test="override-save"
-				:disabled="loading || failed"
+				:disabled="loading || failed || folderError !== null"
 				:loading="form.loading"
 				@click="form.handle"
 			>

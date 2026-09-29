@@ -120,7 +120,9 @@
 		"server_unavailable": "Der Server konnte nicht nach seinen Ordnern gefragt werden. Geben Sie den Pfad so ein, wie der Server ihn meldet.",
 		"server_enter": "In diesen Ordner schauen",
 		"gateway_title": "Was dieses Gateway sieht",
-		"open": "Ordner durchsuchen"
+		"open": "Ordner durchsuchen",
+		"new_folder": "Neuer Ordner",
+		"choose_new": "Erstellen und verwenden"
 	},
 	"general": {
 		"byte_unit": "B"
@@ -1321,7 +1323,8 @@
 			"whole_lot": "{title} — der ganze Download, {count} Dateien",
 			"hint_lot_landed": "Die Dateien dieses Downloads, die schon gelandet sind, werden mitverschoben — auch die aus einem früheren Lauf — und die Ordner, die dadurch leer bleiben, werden entfernt.",
 			"current": "Derzeit: {path}",
-			"into": "Nach {path}"
+			"into": "Nach {path}",
+			"outside": "Dieser Ordner liegt nicht in der gewählten Bibliothek. Sie belegt: {roots}."
 		},
 		"revalidation": {
 			"title": "Warum diese Übertragung es sich anders überlegt hat",

@@ -406,6 +406,46 @@ describe('components/media/OverrideDialog', () => {
 		 * name belongs. Empty is the honest reading, and the line underneath says where the
 		 * media really is.
 		 */
+		/*
+		 * A path can be typed as easily as browsed, and a folder belonging to another
+		 * library is refused by the gateway — hours later, when a file is finally placed
+		 * there, where it looks like a different fault entirely.
+		 */
+		it('refuses a folder outside the chosen shelf, before anything is saved', async () => {
+			const { wrapper } = mountDialog();
+			await settle();
+
+			const select = wrapper.findComponent({ name: 'VSelect' });
+
+			await select.setValue('l1');
+			await settle();
+
+			const folder = wrapper.find('[data-test="override-folder"] input');
+
+			await folder.setValue('/somewhere/else');
+			await settle();
+
+			// The field says so, and the save is refused while it holds.
+			expect(wrapper.find('[data-test="override-folder"]').text())
+				.toContain('not in the chosen library');
+			expect(wrapper.find('[data-test="override-save"]').attributes('disabled')).toBeDefined();
+		});
+
+		it('takes a folder inside it, and lets it be saved', async () => {
+			const { wrapper } = mountDialog();
+			await settle();
+
+			await wrapper.findComponent({ name: 'VSelect' }).setValue('l1');
+			await settle();
+
+			await wrapper.find('[data-test="override-folder"] input').setValue('/media/films/Nova');
+			await settle();
+
+			const field = wrapper.find('[data-test="override-folder"]').text();
+
+			expect(field).not.toContain('not in the chosen library');
+		});
+
 		it('shows nothing rather than a raw identifier for a shelf it cannot offer', async () => {
 			const { wrapper } = mountDialog(item({ libraryId: 'l3' }));
 			await settle();

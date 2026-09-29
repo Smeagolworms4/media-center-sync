@@ -120,7 +120,9 @@
 		"server_unavailable": "The server could not be asked where its folders are. Type the path as the server reports it.",
 		"server_enter": "Look inside this folder",
 		"gateway_title": "What this gateway sees",
-		"open": "Browse folders"
+		"open": "Browse folders",
+		"new_folder": "New folder",
+		"choose_new": "Create and use"
 	},
 	"general": {
 		"byte_unit": "B"
@@ -1321,7 +1323,8 @@
 			"whole_lot": "{title} — the whole download, {count} files",
 			"hint_lot_landed": "The files of this download that have already landed are moved too, including the ones an earlier run brought in, and the folders they leave empty are removed.",
 			"current": "Currently: {path}",
-			"into": "Into {path}"
+			"into": "Into {path}",
+			"outside": "This folder is not in the chosen library. It lives at: {roots}."
 		},
 		"revalidation": {
 			"title": "Why this transfer changed its mind",

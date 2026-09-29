@@ -120,7 +120,9 @@
 		"server_unavailable": "Non è stato possibile chiedere al server dove sono le sue cartelle. Scrivi il percorso come lo indica il server.",
 		"server_enter": "Guardare dentro questa cartella",
 		"gateway_title": "Quello che vede questo gateway",
-		"open": "Sfoglia le cartelle"
+		"open": "Sfoglia le cartelle",
+		"new_folder": "Nuova cartella",
+		"choose_new": "Crea e usa"
 	},
 	"general": {
 		"byte_unit": "B"
@@ -1321,7 +1323,8 @@
 			"whole_lot": "{title} — tutto lo scaricamento, {count} file",
 			"hint_lot_landed": "Anche i file di questo scaricamento già atterrati vengono spostati, compresi quelli portati da un’esecuzione precedente, e le cartelle che lasciano vuote vengono rimosse.",
 			"current": "Attualmente: {path}",
-			"into": "Verso {path}"
+			"into": "Verso {path}",
+			"outside": "Questa cartella non è nella libreria scelta. Occupa: {roots}."
 		},
 		"revalidation": {
 			"title": "Perché questo trasferimento ha cambiato idea",

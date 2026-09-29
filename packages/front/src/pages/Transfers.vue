@@ -160,6 +160,32 @@
 	/** The run's own files, when what is being redirected is a run and not one file. */
 	const retargetCount = computed(() => retargeting.value?.transfers.length ?? 0);
 
+	/**
+	 * Whether the typed folder is inside the shelf that was chosen.
+	 *
+	 * The field takes a path, and a path can be typed as easily as browsed — so the one
+	 * thing it must not do is accept a folder belonging to another library. The gateway
+	 * refuses it, but only once the bytes have been fetched and the file is ready to be
+	 * filed, which is the worst possible moment to learn it. Said here, before anything
+	 * moves, and the confirm button is disabled while it holds.
+	 *
+	 * Empty is not an error: it means "let the rule decide", which is what the placeholder
+	 * says and the ordinary answer.
+	 */
+	const folderError = computed<string | null>(() => {
+		const typed = targetFolder.value?.trim() ?? '';
+
+		if (typed === '' || chosenRoots.value.length === 0) {
+			return null;
+		}
+
+		const inside = chosenRoots.value.some(
+			root => typed === root || typed.startsWith(root.endsWith('/') ? root : `${root}/`),
+		);
+
+		return inside ? null : t('transfer.retarget.outside', { roots: chosenRoots.value.join(', ') });
+	});
+
 	/** Every directory of the chosen shelf, which is as far as browsing may go. */
 	const chosenRoots = computed<string[]>(() => {
 		const chosen = destinations.value.find(one => one.id === targetLibraryId.value);
@@ -1026,8 +1052,9 @@
 					clearable
 					data-test="retarget-folder"
 					density="compact"
-					hide-details
+					:error-messages="folderError ? [folderError] : []"
 					:label="$t('transfer.unconfigured.folder')"
+					persistent-hint
 					:placeholder="targetRoot ?? ''"
 				>
 					<template #append-inner>
@@ -1081,7 +1108,7 @@
 				<v-btn
 					color="primary"
 					data-test="retarget-confirm"
-					:disabled="!targetLibraryId"
+					:disabled="!targetLibraryId || folderError !== null"
 					:loading="retargetBusy"
 					@click="confirmRetarget"
 				>

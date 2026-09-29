@@ -120,7 +120,9 @@
 		"server_unavailable": "无法向服务器询问其文件夹位置。请按服务器报告的形式输入路径。",
 		"server_enter": "查看此文件夹内部",
 		"gateway_title": "本网关看到的位置",
-		"open": "浏览文件夹"
+		"open": "浏览文件夹",
+		"new_folder": "新建文件夹",
+		"choose_new": "创建并使用"
 	},
 	"general": {
 		"byte_unit": "B"
@@ -1321,7 +1323,8 @@
 			"whole_lot": "{title} — 整个下载，{count} 个文件",
 			"hint_lot_landed": "本次下载中已经归位的文件也会一起移动，包括早先那次运行带来的文件，留空的目录会被删除。",
 			"current": "当前：{path}",
-			"into": "去往 {path}"
+			"into": "去往 {path}",
+			"outside": "这个文件夹不在所选的库里。该库位于：{roots}。"
 		},
 		"revalidation": {
 			"title": "此传输为何改变了主意",

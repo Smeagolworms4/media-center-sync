@@ -120,7 +120,9 @@
 		"server_unavailable": "No se ha podido preguntar al servidor dónde están sus carpetas. Escribe la ruta tal como la indica el servidor.",
 		"server_enter": "Mirar dentro de esta carpeta",
 		"gateway_title": "Lo que ve esta pasarela",
-		"open": "Explorar carpetas"
+		"open": "Explorar carpetas",
+		"new_folder": "Nueva carpeta",
+		"choose_new": "Crear y usar"
 	},
 	"general": {
 		"byte_unit": "B"
@@ -1321,7 +1323,8 @@
 			"whole_lot": "{title} — toda la descarga, {count} archivos",
 			"hint_lot_landed": "Los archivos de esta descarga que ya han aterrizado se mueven también, incluidos los que trajo una ejecución anterior, y las carpetas que dejan vacías se eliminan.",
 			"current": "Actualmente: {path}",
-			"into": "Hacia {path}"
+			"into": "Hacia {path}",
+			"outside": "Esta carpeta no está en la biblioteca elegida. Ocupa: {roots}."
 		},
 		"revalidation": {
 			"title": "Por qué esta transferencia ha cambiado de idea",
