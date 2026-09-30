@@ -65,7 +65,12 @@ function recordQueueQueries (page: Page): URL[] {
 
 	page.on('request', one => {
 		const url = new URL(one.url());
-		if (url.pathname.endsWith('/api/transfers')) {
+
+		// `/lots`, because the screen reads downloads and not files: a page is a number of
+		// downloads, so a season cannot be cut across two of them. Matched on that path and
+		// not on `/transfers` — which the dashboard also asks — so the assertions below are
+		// about what this screen asked.
+		if (url.pathname.endsWith('/api/transfers/lots')) {
 			asked.push(url);
 		}
 	});
@@ -301,6 +306,22 @@ test.describe('changing where a pull lands', () => {
 
 			if (request.method() === 'GET' && path === '/transfers') {
 				return json({ items: QUEUE, pagination: { page: 1, limit: 20, total: QUEUE.length, pages: 1 } });
+			}
+			/*
+			 * The same three, as the downloads they are: three separate pulls with no lot and
+			 * no run between them, so each is a download of one file — which the screen draws
+			 * as a row rather than folding, and these journeys press on those rows.
+			 */
+			if (request.method() === 'GET' && path === '/transfers/lots') {
+				return json({
+					items: QUEUE.map(one => ({
+						key: one.id,
+						lot: null,
+						title: one.title,
+						transfers: [one],
+					})),
+					pagination: { page: 1, limit: 20, total: QUEUE.length, pages: 1 },
+				});
 			}
 			if (request.method() === 'GET' && path === '/transfers/stats') {
 				return json({ active: 1, queued: 0, paused: 0, failed: 0, rate: 0, bytesRemaining: 0 });
