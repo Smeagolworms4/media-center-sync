@@ -10,7 +10,6 @@
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import Rate from '@/components/common/Rate.vue';
-	import StatTile from '@/components/common/StatTile.vue';
 	import Pagination from '@/components/paginate/Pagination.vue';
 	import GrabBatch from '@/components/transfer/GrabBatch.vue';
 	import ReleaseGrabRow from '@/components/transfer/ReleaseGrabRow.vue';
@@ -905,53 +904,78 @@
 			</div>
 		</v-alert>
 
-		<v-row data-test="transfer-stats" density="compact">
-			<v-col cols="6" md="3">
-				<StatTile
-					icon="mdi-play-circle-outline"
-					:title="$t('transfer.stats.active')"
-					:value="transfersStore.stats.active"
-				/>
-			</v-col>
+		<!--
+			One line, not five tiles.
 
-			<v-col cols="6" md="3">
-				<StatTile
-					icon="mdi-tray-full"
-					:title="$t('transfer.stats.queued')"
-					:value="transfersStore.stats.queued"
-				/>
-			</v-col>
+			Four of the five said `0` on a queue that was idle and took a quarter of the
+			screen doing it — "pas très utile, à part le débit à la limite". What survives is
+			what somebody reads: how fast it is coming and how much is left. The counters
+			stay as chips and only when they are not zero, so a queue with nothing wrong
+			says nothing, and the one number worth acting on — what has failed — is a click
+			through to those rows rather than a tile to look at.
+		-->
+		<div class="transfers_stats mt-1" data-test="transfer-stats">
+			<v-icon icon="mdi-speedometer" size="18" />
 
-			<v-col cols="6" md="3">
-				<StatTile
-					icon="mdi-pause-circle-outline"
-					:title="$t('transfer.stats.paused')"
-					:value="transfersStore.stats.paused"
-				/>
-			</v-col>
+			<strong data-test="transfer-stat-rate"><Rate :rate="transfersStore.stats.rate" /></strong>
 
-			<v-col cols="6" md="3">
-				<StatTile
-					icon="mdi-alert-circle-outline"
-					:title="$t('transfer.stats.failed')"
-					:tone="transfersStore.stats.failed > 0 ? 'error' : 'neutral'"
-					:value="transfersStore.stats.failed"
-				/>
-			</v-col>
+			<span class="text-caption text-medium-emphasis">
+				{{ $t('transfer.stats.remaining') }}
+				<ByteSize :bytes="transfersStore.stats.bytesRemaining" />
+			</span>
 
-			<v-col cols="6" md="3">
-				<StatTile icon="mdi-speedometer" :title="$t('transfer.stats.rate')">
-					<template #default>
-						<p class="text-caption text-medium-emphasis mb-0">
-							{{ $t('transfer.stats.remaining') }}
-							<ByteSize :bytes="transfersStore.stats.bytesRemaining" />
-						</p>
-					</template>
+			<v-spacer />
 
-					<template #value><Rate :rate="transfersStore.stats.rate" /></template>
-				</StatTile>
-			</v-col>
-		</v-row>
+			<v-chip
+				v-if="transfersStore.stats.active > 0"
+				data-test="transfer-stat-active"
+				label
+				prepend-icon="mdi-play-circle-outline"
+				size="small"
+				variant="tonal"
+			>
+				{{ $t('transfer.stats.active') }} {{ transfersStore.stats.active }}
+			</v-chip>
+
+			<v-chip
+				v-if="transfersStore.stats.queued > 0"
+				data-test="transfer-stat-queued"
+				label
+				prepend-icon="mdi-tray-full"
+				size="small"
+				variant="tonal"
+			>
+				{{ $t('transfer.stats.queued') }} {{ transfersStore.stats.queued }}
+			</v-chip>
+
+			<v-chip
+				v-if="transfersStore.stats.paused > 0"
+				data-test="transfer-stat-paused"
+				label
+				prepend-icon="mdi-pause-circle-outline"
+				size="small"
+				variant="tonal"
+			>
+				{{ $t('transfer.stats.paused') }} {{ transfersStore.stats.paused }}
+			</v-chip>
+
+			<!--
+				The one that is worth a press: it leads to the rows it counts, rather than
+				leaving somebody to work out which filter shows them.
+			-->
+			<v-chip
+				v-if="transfersStore.stats.failed > 0"
+				color="error"
+				data-test="transfer-stat-failed"
+				label
+				prepend-icon="mdi-alert-circle-outline"
+				size="small"
+				variant="tonal"
+				@click="state = TransferState.FAILED"
+			>
+				{{ $t('transfer.stats.failed') }} {{ transfersStore.stats.failed }}
+			</v-chip>
+		</div>
 
 		<ErrorState v-if="failed" @retry="load" />
 
@@ -1197,6 +1221,13 @@
 
 <style lang="scss">
 	.transfers {
+		&_stats {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			flex-wrap: wrap;
+		}
+
 		&_sort {
 			// Narrow enough to sit beside the view toggle rather than pushing it onto a
 			// line of its own on a laptop.
