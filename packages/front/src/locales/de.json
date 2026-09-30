@@ -1382,13 +1382,16 @@
 			"into": "Nach",
 			"no_season": "Ohne Staffel",
 			"per_page": "Downloads pro Seite",
+			"rename_file": "Datei umbenennen",
+			"rename_season": "Staffelordner umbenennen",
 			"season": "Staffel {number}",
 			"season_files": "{count} Datei | {count} Dateien",
 			"specials": "Spezialfolgen"
 		},
 		"archived": "Aus der Warteschlange entfernt. Die Datei wurde nicht bewegt.",
 		"paused": "Angehalten. Der Client behält, was er bereits geholt hat.",
-		"resumed": "Läuft wieder."
+		"resumed": "Läuft wieder.",
+		"renamed": "Umbenannt. Was schon abgelegt war, wurde verschoben."
 	},
 	"pages": {
 		"dashboard": "Übersicht",
@@ -1523,7 +1526,9 @@
 			"checksum_mismatch": "Die heruntergeladene Datei stimmt nicht mit ihrer Prüfsumme überein.",
 			"destination_full": "Das Ziel ist vollgelaufen, während die Datei dorthin verschoben wurde. Nichts ist verloren: Geben Sie Speicher frei und setzen Sie fort, dann läuft der Vorgang dort weiter, wo er stehen geblieben ist.",
 			"target_occupied": "Etwas anderes belegt bereits den Pfad, auf dem diese Datei landen würde, und es ließ sich kein freier Name bilden. Es wurde nichts überschrieben.",
-			"destination_invalid": "Ein Ziel muss eine Bibliothek auf einem Ihrer eigenen Dienste sein. Ein Ordner, den nichts durchsucht, nimmt die Datei an und zeigt sie niemandem."
+			"destination_invalid": "Ein Ziel muss eine Bibliothek auf einem Ihrer eigenen Dienste sein. Ein Ordner, den nichts durchsucht, nimmt die Datei an und zeigt sie niemandem.",
+			"invalid_name": "Das ist kein Name: er darf nicht leer sein, nicht „.“ oder „..“ und keinen Schrägstrich enthalten. Ein Name mit Schrägstrich würde eine Ordnerebene anlegen, um die niemand gebeten hat.",
+			"folder_not_shared": "Die Dateien dieser Staffel liegen nicht alle in einem Ordner, es gibt also keinen einzigen Ordner zum Umbenennen. Schicken Sie den Download zuerst an einen Ort."
 		},
 		"settings": {
 			"invalid": "Diese Einstellungen wurden abgelehnt.",

@@ -282,6 +282,34 @@ export const useTransfersStore = defineStore('transfers', () => {
 	const cancelLot = (key: string) => actOnLot(key, 'cancel');
 
 	/**
+	 * Rename the folder one season of a download lands in.
+	 *
+	 * The season alone, because the show's folder is shared with every other season. It
+	 * applies to the files already filed — the gateway moves them for real — which is what
+	 * makes it a rename rather than a rule for the next episode: a season half on disk would
+	 * otherwise end up in two folders.
+	 */
+	async function renameSeason (
+		key: string,
+		seasonNumber: number | null,
+		name: string,
+	): Promise<TransferLot> {
+		return replaceLot(await caller('api').post<TransferLot>(
+			`/transfers/lots/${encodeURIComponent(key)}/rename-season`,
+			{ seasonNumber, name },
+		));
+	}
+
+	/** Rename one file, keeping it in its folder. */
+	async function renameFile (id: string, name: string): Promise<Transfer> {
+		const renamed = await caller('api').post<Transfer>(`/transfers/${id}/rename`, { name });
+
+		mergeTransfer(renamed);
+
+		return renamed;
+	}
+
+	/**
 	 * Put an answered download back in the list, keeping the objects the stream writes to.
 	 *
 	 * Assigning the answer's own transfer objects would work for exactly one frame: the
@@ -545,6 +573,8 @@ export const useTransfersStore = defineStore('transfers', () => {
 		pauseLot,
 		resumeLot,
 		cancelLot,
+		renameSeason,
+		renameFile,
 		setDestination,
 		setJobDestination,
 		get,

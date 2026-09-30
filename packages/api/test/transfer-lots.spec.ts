@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { access, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import request from 'supertest';
 import {
 	LibraryKind,
@@ -35,6 +39,14 @@ describe('The queue as downloads', () => {
 	let seasonKey: string;
 	let filmKey: string;
 	let doneId: string;
+	/**
+	 * A directory that really exists and really is writable.
+	 *
+	 * The renaming probes the disk rather than trusting the row — a library whose path is not
+	 * there is refused, and rightly — so a made-up path would fail for the right reason and
+	 * prove nothing about the route.
+	 */
+	let root: string;
 
 	beforeAll(async () => {
 		context = await createTestApp();
@@ -44,6 +56,8 @@ describe('The queue as downloads', () => {
 		const items = context.app.get(MediaItemRepository);
 		const services = context.app.get(MediaServiceRepository);
 		const libraries = context.app.get(LibraryRepository);
+
+		root = mkdtempSync(join(tmpdir(), 'mcs-lots-'));
 
 		const service = await services.save(
 			services.create({
@@ -59,7 +73,7 @@ describe('The queue as downloads', () => {
 				externalId: 'shows',
 				name: 'Shows',
 				kind: LibraryKind.SHOWS,
-				localPath: '/media/shows',
+				localPath: root,
 				writable: true,
 			}),
 		);
@@ -102,9 +116,19 @@ describe('The queue as downloads', () => {
 			state: TransferState,
 			lot: string | null,
 			jobId: string | null = null,
-			targetPath = `/media/shows/${title}.mkv`,
+			targetPath = join(root, `${title}.mkv`),
 		): Promise<string> => {
 			const id = randomUUID();
+
+			/*
+			 * A file that has landed really exists on disk, because renaming one moves its
+			 * bytes: the whole point of the feature is that it applies to what is already
+			 * filed, and a fixture of rows alone would assert the easy half.
+			 */
+			if (state === TransferState.DONE) {
+				await mkdir(dirname(targetPath), { recursive: true });
+				await writeFile(targetPath, 'x'.repeat(1_000));
+			}
 
 			await transfers.save(
 				transfers.create({
@@ -147,7 +171,7 @@ describe('The queue as downloads', () => {
 				// Three nights, one download: a season pulled over several runs is one season,
 				// which is why the run may not be what groups them.
 				episode <= 4 ? 'run-1' : 'run-2',
-				`/media/shows/Les Schtroumpfs/Season 01/S01E${episode}.mkv`,
+				join(root, 'Les Schtroumpfs', 'Season 01', `S01E${episode}.mkv`),
 			);
 		}
 
@@ -162,7 +186,7 @@ describe('The queue as downloads', () => {
 				TransferState.QUEUED,
 				seasonKey,
 				'run-2',
-				`/media/shows/Les Schtroumpfs/Season 02/S02E${episode}.mkv`,
+				join(root, 'Les Schtroumpfs', 'Season 02', `S02E${episode}.mkv`),
 			);
 		}
 
@@ -262,6 +286,91 @@ describe('The queue as downloads', () => {
 		expect(paused).toHaveLength(22);
 		expect(paused.filter(one => one.state === TransferState.PAUSED)).toHaveLength(21);
 		expect(paused.find(one => one.id === doneId)?.state).toBe(TransferState.DONE);
+	});
+
+	describe('renaming', () => {
+		/*
+		 * Asked for in these words: "on the season part one can rename the season folder's
+		 * name only", and "renaming applies afterwards too — really moving what is already
+		 * filed". Both halves are asserted, because a rename that only changed where the rest
+		 * would go would leave one season in two folders.
+		 */
+		it('renames the folder of one season, and of that season alone', async () => {
+			const answer = await request(context.app.getHttpServer())
+				.post(`/api/transfers/lots/${seasonKey}/rename-season`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ seasonNumber: 1, name: 'Saison 1' })
+				.expect(200);
+			const renamed = (answer.body as TransferLot).transfers;
+			const first = renamed.filter(one => one.seasonNumber === 1);
+			const second = renamed.filter(one => one.seasonNumber === 2);
+
+			expect(first.every(one => one.targetPath.includes('/Saison 1/'))).toBe(true);
+
+			/*
+			 * And the bytes with them. This is the half that cannot be faked: the episode that
+			 * had already landed is on the disk, and a rename that only rewrote rows would
+			 * leave it in `Season 01` while everything still coming went to `Saison 1`.
+			 */
+			const landed = first.find(one => one.id === doneId);
+
+			await expect(access(landed?.targetPath as string)).resolves.toBeUndefined();
+			await expect(access(join(root, 'Les Schtroumpfs', 'Season 01'))).rejects.toThrow();
+			// The other season is untouched, and so is the show's folder above both.
+			expect(second.every(one => one.targetPath.includes('/Season 02/'))).toBe(true);
+			expect(renamed.every(one => one.targetPath.includes('/Les Schtroumpfs/'))).toBe(true);
+		});
+
+		it('refuses a name that is a path, rather than creating folders nobody asked for',
+			async () => {
+				const answer = await request(context.app.getHttpServer())
+					.post(`/api/transfers/lots/${seasonKey}/rename-season`)
+					.set('Authorization', `Bearer ${manager.token}`)
+					.send({ seasonNumber: 2, name: 'Saison 2/VF' })
+					.expect(400);
+
+				expect(answer.body.message).toBe('error.transfer.invalid_name');
+			});
+
+		it('renames one file and keeps it in its folder, extension included', async () => {
+			const page = await lots();
+			const target = page.items
+				.find(one => one.key === seasonKey)
+				?.transfers.find(one => one.seasonNumber === 2) as { id: string; targetPath: string };
+
+			const answer = await request(context.app.getHttpServer())
+				.post(`/api/transfers/${target.id}/rename`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ name: 'Les Schtroumpfs - 2x01' })
+				.expect(200);
+
+			// The extension is kept although the new name carries none: a file a media server
+			// cannot recognise is intact, invisible, and reports no fault.
+			expect(answer.body.targetPath)
+				.toBe(join(root, 'Les Schtroumpfs', 'Season 02', 'Les Schtroumpfs - 2x01.mkv'));
+		});
+
+		it('refuses to rename a file that is in no library', async () => {
+			/*
+			 * The landing record is written against a library, and inventing one would tell a
+			 * media server to scan a folder it has never heard of. Explicit rather than a
+			 * failure further down, and actionable where it is raised: sending the file to a
+			 * library first is a button away.
+			 */
+			const transfers = context.app.get(TransferRepository);
+			const row = (await transfers.find({ where: { lot: filmKey } }))[0];
+
+			row.targetLibraryId = null;
+			await transfers.save(row);
+
+			const answer = await request(context.app.getHttpServer())
+				.post(`/api/transfers/${row.id}/rename`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.send({ name: 'Le Cinquieme Element.mkv' })
+				.expect(409);
+
+			expect(answer.body.message).toBe('error.transfer.destination_invalid');
+		});
 	});
 
 	it('refuses a download nobody has', async () => {

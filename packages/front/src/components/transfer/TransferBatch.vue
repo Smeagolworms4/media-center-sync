@@ -41,9 +41,52 @@
 		'lot-action': [action: 'pause' | 'resume' | 'cancel', key: string];
 		/** Send the whole download elsewhere, files already landed included. */
 		'retarget': [transfers: Transfer[]];
+		/** Rename the folder one season lands in — that folder alone. */
+		'rename-season': [seasonNumber: number | null, name: string];
+		/** Rename one file, keeping it in its folder. */
+		'rename-file': [transfer: Transfer, name: string];
 	}>();
 
 	const expanded = ref(false);
+
+	/**
+	 * What is being renamed, and to what.
+	 *
+	 * One field at a time and held here rather than per row, so opening a second closes the
+	 * first: two open fields over the same season would be two answers to one question, and
+	 * whichever was submitted last would silently win.
+	 */
+	const renaming = ref<{ key: string; value: string } | null>(null);
+
+	function edit (key: string, current: string): void {
+		renaming.value = { key, value: current };
+	}
+
+	/** Nothing is sent for a name nobody changed, so confirming twice is harmless. */
+	function submitSeason (seasonNumber: number | null, current: string | null): void {
+		const asked = renaming.value;
+
+		renaming.value = null;
+
+		if (asked !== null && asked.value.trim() !== '' && asked.value.trim() !== current) {
+			emit('rename-season', seasonNumber, asked.value.trim());
+		}
+	}
+
+	function submitFile (transfer: Transfer): void {
+		const asked = renaming.value;
+
+		renaming.value = null;
+
+		if (asked !== null && asked.value.trim() !== '' && asked.value.trim() !== fileNameOf(transfer)) {
+			emit('rename-file', transfer, asked.value.trim());
+		}
+	}
+
+	/** The name on disk, which is not the title: a title is a sentence about the media. */
+	function fileNameOf (transfer: Transfer): string {
+		return transfer.targetPath.split('/').at(-1) ?? '';
+	}
 
 	const transfers = computed(() => props.lot.transfers);
 
@@ -375,28 +418,102 @@
 										: $t('transfer.batch.season', { number: season.seasonNumber }) }}
 							</strong>
 
-							<span
-								v-if="season.folder"
-								class="transfer-batch_path text-caption text-medium-emphasis"
-								data-test="transfer-batch-season-folder"
-							>
-								{{ season.folder }}
-							</span>
+							<!--
+								The folder's name, and the one thing on this card that can be
+								typed into. Asked for in those words: the season folder only. The
+								show's folder is shared with every other season and with whatever
+								was filed there before, so renaming that here would move
+								somebody else's episodes.
+							-->
+							<v-text-field
+								v-if="renaming?.key === `season:${season.key}`"
+								v-model="renaming.value"
+								autofocus
+								data-test="transfer-batch-season-field"
+								density="compact"
+								hide-details
+								variant="outlined"
+								@blur="submitSeason(season.seasonNumber, season.folder)"
+								@keyup.enter="submitSeason(season.seasonNumber, season.folder)"
+								@keyup.esc="renaming = null"
+							/>
 
-							<span class="text-caption text-medium-emphasis">
-								{{ $t('transfer.batch.season_files', { count: season.transfers.length },
-									season.transfers.length) }}
-							</span>
+							<template v-else>
+								<span
+									v-if="season.folder"
+									class="transfer-batch_path text-caption text-medium-emphasis"
+									data-test="transfer-batch-season-folder"
+								>
+									{{ season.folder }}
+								</span>
+
+								<v-btn
+									v-if="season.folder"
+									data-test="transfer-batch-season-rename"
+									:disabled="busy"
+									icon="mdi-pencil-outline"
+									size="x-small"
+									:title="$t('transfer.batch.rename_season')"
+									variant="text"
+									@click="edit(`season:${season.key}`, season.folder)"
+								/>
+
+								<span class="text-caption text-medium-emphasis">
+									{{ $t('transfer.batch.season_files', { count: season.transfers.length },
+										season.transfers.length) }}
+								</span>
+							</template>
 						</div>
 
-						<TransferRow
-							v-for="transfer of season.transfers"
-							:key="transfer.id"
-							:busy="busyId === transfer.id"
-							:progress="progress(transfer)"
-							:transfer="transfer"
-							@action="(action, one) => emit('action', action, one)"
-						/>
+						<template v-for="transfer of season.transfers" :key="transfer.id">
+							<TransferRow
+								:busy="busyId === transfer.id"
+								:progress="progress(transfer)"
+								:transfer="transfer"
+								@action="(action, one) => emit('action', action, one)"
+							/>
+
+							<!--
+								The name on disk, under the row rather than in it: the row's
+								title is a sentence about the media — "Les Schtroumpfs — S01E02 —
+								L'Œuf et les Schtroumpfs" — and the file is called something else
+								entirely. Somebody renaming a file has to see the name they are
+								changing.
+							-->
+							<div class="transfer-batch_file">
+								<v-text-field
+									v-if="renaming?.key === `file:${transfer.id}`"
+									v-model="renaming.value"
+									autofocus
+									data-test="transfer-batch-file-field"
+									density="compact"
+									hide-details
+									variant="outlined"
+									@blur="submitFile(transfer)"
+									@keyup.enter="submitFile(transfer)"
+									@keyup.esc="renaming = null"
+								/>
+
+								<template v-else>
+									<span
+										class="transfer-batch_path text-caption text-medium-emphasis"
+										data-test="transfer-batch-file-name"
+									>
+										{{ fileNameOf(transfer) }}
+									</span>
+
+									<v-btn
+										data-test="transfer-batch-file-rename"
+										:disabled="busyId === transfer.id"
+										icon="mdi-pencil-outline"
+										size="x-small"
+										:title="$t('transfer.batch.rename_file')"
+										variant="text"
+										@click="edit(`file:${transfer.id}`, fileNameOf(transfer))"
+									/>
+								</template>
+							</div>
+						</template>
 					</template>
 				</div>
 			</v-expand-transition>
@@ -432,6 +549,15 @@
 
 		&_files > * + * {
 			margin-top: 8px;
+		}
+
+		&_file {
+			display: flex;
+			align-items: center;
+			gap: 4px;
+			/* Tucked under its row rather than spaced like one, so it reads as its detail. */
+			margin-top: 2px;
+			padding-left: 28px;
 		}
 
 		&_season {

@@ -343,6 +343,27 @@ export const ErrorKey = {
 	 */
 	TRANSFER_BEING_PLACED: 'error.transfer.being_placed',
 
+	/**
+	 * A folder or file name that is not one.
+	 *
+	 * Empty, `.` or `..`, or carrying a separator: the last of those is the one worth
+	 * refusing loudly, because a name like `Saison 1/VF` typed into a rename field would
+	 * silently create a level of folders nobody asked for and file half a season one
+	 * directory deeper than the other half.
+	 */
+	TRANSFER_INVALID_NAME: 'error.transfer.invalid_name',
+	/**
+	 * The files being renamed do not all live in the same folder, so there is no one folder
+	 * to rename.
+	 *
+	 * It happens: a season half filed beside an existing copy and half under a path
+	 * somebody typed. Refused rather than guessed, and said rather than half-applied —
+	 * renaming the folder of whichever file came back first would move some of the season
+	 * and leave the rest where it was, which is the state a rename is being used to get out
+	 * of.
+	 */
+	TRANSFER_FOLDER_NOT_SHARED: 'error.transfer.folder_not_shared',
+
 	USER_NOT_FOUND: 'error.user.not_found',
 	USER_LAST_ADMIN: 'error.user.last_admin',
 

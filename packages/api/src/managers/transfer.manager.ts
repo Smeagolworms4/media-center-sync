@@ -1,4 +1,4 @@
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, join, relative, resolve } from 'node:path';
 import {
 	ChunkState,
 	ErrorKey,
@@ -23,6 +23,7 @@ import type {
 	UnconfiguredPlacement,
 } from '@mcs/shared';
 import {
+	BadRequestException,
 	ConflictException,
 	Injectable,
 	Logger,
@@ -62,6 +63,30 @@ import {
 	toTransfer,
 	toTransferChunk,
 } from './mappers';
+
+/**
+ * A name, checked to be one.
+ *
+ * A separator is the dangerous one: `Saison 1/VF` typed into a rename field would create a
+ * level of folders nobody asked for and file half a season one directory deeper than the
+ * other half, with nothing reporting a fault. `.` and `..` are refused for the same reason
+ * one step further — they resolve to a directory above the one being renamed.
+ */
+const folderName = (name: string): string => {
+	const trimmed = name.trim();
+
+	if (
+		trimmed === '' ||
+		trimmed === '.' ||
+		trimmed === '..' ||
+		trimmed.includes('/') ||
+		trimmed.includes('\\')
+	) {
+		throw new BadRequestException(ErrorKey.TRANSFER_INVALID_NAME);
+	}
+
+	return trimmed;
+};
 
 /** Nothing can be done to a transfer that has already finished one way or another. */
 const FINISHED = [TransferState.DONE, TransferState.FAILED, TransferState.CANCELLED];
@@ -575,6 +600,142 @@ export class TransferManager implements OnApplicationBootstrap {
 		}
 
 		return this.readLot(key);
+	}
+
+	/**
+	 * Rename the folder one season of a download lands in.
+	 *
+	 * Asked for, and restricted on purpose: the show's folder is shared with every other
+	 * season and with whatever was already filed there, so this renames one directory and
+	 * leaves the layout around it alone.
+	 *
+	 * Built on the same machinery as sending a download elsewhere, which is what makes it
+	 * apply to what has already landed: `_sendTo` moves the bytes of a finished file for
+	 * real, re-records the landing so the media server is asked to look at the new folder,
+	 * and prunes the folder the file left once it is empty. A rename that only rewrote the
+	 * planned paths would leave the episodes that arrived last night in `Season 01` and put
+	 * tonight's in `Saison 1` — one season in two folders, which is the state somebody
+	 * renaming it is trying to get out of.
+	 *
+	 * Refused when that season's files are not in one folder to begin with: renaming the
+	 * folder of whichever came back first would move part of the season and leave the rest.
+	 */
+	public async renameSeason(
+		key: string,
+		request: { seasonNumber: number | null; name: string },
+	): Promise<TransferLot> {
+		const name = folderName(request.name);
+		const transfers = await this._transfers.findByLotKeys([key]);
+
+		if (transfers.length === 0) {
+			throw new NotFoundException(ErrorKey.TRANSFER_NOT_FOUND);
+		}
+
+		const items = await this._items.find({
+			where: { id: In(transfers.map((transfer) => transfer.itemId)) },
+		});
+		const seasons = new Map(items.map((item) => [item.id, item.seasonNumber ?? null]));
+		const wanted = transfers.filter(
+			(transfer) => (seasons.get(transfer.itemId) ?? null) === request.seasonNumber,
+		);
+
+		if (wanted.length === 0) {
+			throw new NotFoundException(ErrorKey.TRANSFER_NOT_FOUND);
+		}
+
+		const folders = new Set(wanted.map((transfer) => dirname(resolve(transfer.targetPath))));
+
+		if (folders.size !== 1) {
+			throw new ConflictException(ErrorKey.TRANSFER_FOLDER_NOT_SHARED);
+		}
+
+		const [folder] = folders;
+
+		if (basename(folder) === name) {
+			// Already called that. Answering the download unchanged beats refusing it.
+			return this.readLot(key);
+		}
+
+		await this._moveEach(wanted, (path) => join(dirname(dirname(path)), name, basename(path)));
+
+		return this.readLot(key);
+	}
+
+	/**
+	 * Rename one file of a download, keeping it in its folder.
+	 *
+	 * The extension is kept when the new name has none: a household that renames
+	 * `S01E02.mkv` to `S01E02` would otherwise own a file no media server plays, and
+	 * nothing would report a fault — the copy is perfectly intact and simply invisible.
+	 */
+	public async renameFile(id: string, name: string): Promise<Transfer> {
+		const transfer = await this._require(id);
+		const wanted = folderName(name);
+		const current = resolve(transfer.targetPath);
+		const suffix = extname(current);
+		const next = extname(wanted) === '' ? `${wanted}${suffix}` : wanted;
+
+		if (basename(current) === next) {
+			return this.read(id);
+		}
+
+		await this._moveEach([transfer], (path) => join(dirname(path), next));
+
+		return this.read(id);
+	}
+
+	/**
+	 * Move a set of files to the paths a rule computes, or move none of them.
+	 *
+	 * Every destination is checked before anything is touched, which is the difference
+	 * between a rename and half a rename: a season whose fourth file would land on
+	 * something already there stops with an error naming it, rather than four files moved
+	 * and eighteen where they were. The same reason `changeJobDestination` plans first.
+	 */
+	private async _moveEach(
+		transfers: TransferEntity[],
+		pathOf: (current: string) => string,
+	): Promise<void> {
+		const planned: { transfer: TransferEntity; library: LibraryEntity; path: string }[] = [];
+
+		for (const transfer of transfers) {
+			if (transfer.state === TransferState.PLACING) {
+				throw new ConflictException(ErrorKey.TRANSFER_BEING_PLACED);
+			}
+
+			const path = pathOf(resolve(transfer.targetPath));
+
+			if (path === resolve(transfer.targetPath)) {
+				continue;
+			}
+
+			if ((await this._libraryManager.probe(path)).exists) {
+				throw new ConflictException(ErrorKey.TRANSFER_TARGET_OCCUPIED);
+			}
+
+			/*
+			 * A file in no library cannot be renamed, and the refusal names that rather than
+			 * failing later: the landing record is written against a library, and inventing
+			 * one here would tell a media server to scan a folder it has never heard of. It
+			 * is actionable where it is raised — "send it elsewhere" puts the file in a
+			 * library, and renaming it then works.
+			 */
+			if (transfer.targetLibraryId === null) {
+				throw new ConflictException(ErrorKey.TRANSFER_DESTINATION_INVALID);
+			}
+
+			// The library the file is already in: a rename changes the last components of a
+			// path and must never be the operation that moves a file out of its library.
+			planned.push({
+				transfer,
+				library: await this._requireDestination(transfer.targetLibraryId),
+				path,
+			});
+		}
+
+		for (const one of planned) {
+			await this._sendTo(one.transfer, one.library, one.path);
+		}
 	}
 
 	/** One download by its key, as `lots` would have presented it. */

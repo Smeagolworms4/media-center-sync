@@ -1382,13 +1382,16 @@
 			"into": "Into",
 			"no_season": "No season",
 			"per_page": "Downloads per page",
+			"rename_file": "Rename the file",
+			"rename_season": "Rename the season folder",
 			"season": "Season {number}",
 			"season_files": "{count} file | {count} files",
 			"specials": "Specials"
 		},
 		"archived": "Taken off the queue. The file has not moved.",
 		"paused": "Paused. The client keeps what it has already fetched.",
-		"resumed": "Running again."
+		"resumed": "Running again.",
+		"renamed": "Renamed. What was already filed has been moved."
 	},
 	"pages": {
 		"dashboard": "Dashboard",
@@ -1523,7 +1526,9 @@
 			"checksum_mismatch": "The downloaded file does not match its checksum.",
 			"destination_full": "The destination filled up while the file was being moved into it. Nothing is lost: free some space and resume, and the move carries on from where it stopped.",
 			"target_occupied": "Something else already occupies the path this file would land on, and no free name could be built. Nothing was overwritten.",
-			"destination_invalid": "A destination has to be a library on one of your own services. A folder nothing scans accepts the file and then shows it to nobody."
+			"destination_invalid": "A destination has to be a library on one of your own services. A folder nothing scans accepts the file and then shows it to nobody.",
+			"invalid_name": "That is not a name: it cannot be empty, \".\" or \"..\", and it cannot contain a slash. A name with a slash would create a level of folders nobody asked for.",
+			"folder_not_shared": "The files of that season are not all in one folder, so there is no single folder to rename. Send the download to one place first."
 		},
 		"settings": {
 			"invalid": "These settings were refused.",

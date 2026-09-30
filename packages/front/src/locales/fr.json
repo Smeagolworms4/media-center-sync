@@ -1382,13 +1382,16 @@
 			"into": "Dans",
 			"no_season": "Sans saison",
 			"per_page": "Téléchargements par page",
+			"rename_file": "Renommer le fichier",
+			"rename_season": "Renommer le dossier de la saison",
 			"season": "Saison {number}",
 			"season_files": "{count} fichier | {count} fichiers",
 			"specials": "Épisodes spéciaux"
 		},
 		"archived": "Retiré de la file. Le fichier n'a pas bougé.",
 		"paused": "Mis en pause. Le client garde ce qu'il a déjà récupéré.",
-		"resumed": "Reparti."
+		"resumed": "Reparti.",
+		"renamed": "Renommé. Ce qui était déjà rangé a été déplacé."
 	},
 	"pages": {
 		"dashboard": "Tableau de bord",
@@ -1523,7 +1526,9 @@
 			"checksum_mismatch": "Le fichier téléchargé ne correspond pas à son empreinte.",
 			"destination_full": "La destination s’est remplie pendant le déplacement du fichier. Rien n’est perdu : libérez de l’espace et reprenez, le déplacement repartira d’où il s’est arrêté.",
 			"target_occupied": "Un autre fichier occupe déjà le chemin où celui-ci devait arriver, et aucun nom libre n’a pu être construit. Rien n’a été écrasé.",
-			"destination_invalid": "Une destination doit être une bibliothèque sur l’un de vos propres services. Un dossier que rien n’analyse accepte le fichier et ne le montre à personne."
+			"destination_invalid": "Une destination doit être une bibliothèque sur l’un de vos propres services. Un dossier que rien n’analyse accepte le fichier et ne le montre à personne.",
+			"invalid_name": "Ce nom n'en est pas un : il ne peut pas être vide, ni « . » ou « .. », ni contenir de barre oblique. Un nom avec une barre oblique créerait un niveau de dossiers que personne n'a demandé.",
+			"folder_not_shared": "Les fichiers de cette saison ne sont pas tous dans le même dossier, il n'y a donc pas un dossier à renommer. Envoyez d'abord le téléchargement à un seul endroit."
 		},
 		"settings": {
 			"invalid": "Ces paramètres ont été refusés.",

@@ -768,6 +768,94 @@ describe('components/transfer/TransferBatch', () => {
 		expect(wrapper.find('[data-test="transfer-batch-season"]').exists()).toBe(false);
 	});
 
+	it('renames the season folder alone, and only when the name changed', async () => {
+		/*
+		 * Asked for in those words: the season folder only. The show's folder above it is
+		 * shared with every other season and with whatever was filed there before, so it is
+		 * not offered here at all.
+		 */
+		const transfers = [
+			transfer({
+				id: 't1',
+				seasonNumber: 1,
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 01/S01E01.mkv',
+			}),
+			transfer({
+				id: 't2',
+				seasonNumber: 1,
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 01/S01E02.mkv',
+			}),
+		];
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(transfers), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+		await wrapper.find('[data-test="transfer-batch-season-rename"]').trigger('click');
+
+		const field = wrapper.find('[data-test="transfer-batch-season-field"] input');
+
+		await field.setValue('Saison 1');
+		await field.trigger('keyup.enter');
+
+		expect(wrapper.emitted('rename-season')?.[0]).toEqual([1, 'Saison 1']);
+	});
+
+	it('sends nothing for a season folder nobody renamed', async () => {
+		// Confirming twice, or opening the field and thinking better of it, is not a request.
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: {
+				lot: download([transfer({
+					id: 't1',
+					seasonNumber: 1,
+					targetPath: '/share/SeriesTV/Spartacus (2012)/Season 01/S01E01.mkv',
+				}), transfer({
+					id: 't2',
+					seasonNumber: 1,
+					targetPath: '/share/SeriesTV/Spartacus (2012)/Season 01/S01E02.mkv',
+				})]),
+				progress,
+			},
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+		await wrapper.find('[data-test="transfer-batch-season-rename"]').trigger('click');
+		await wrapper.find('[data-test="transfer-batch-season-field"] input').trigger('keyup.enter');
+
+		expect(wrapper.emitted('rename-season')).toBeUndefined();
+	});
+
+	it('shows the name on disk beside each file, and lets it be renamed', async () => {
+		/*
+		 * The name and not the title. The row above says "Spartacus — S02E09 — Monstres",
+		 * which is a sentence about the media; the file is called something else entirely, and
+		 * somebody renaming it has to see what they are changing.
+		 */
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(season()), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+
+		expect(wrapper.findAll('[data-test="transfer-batch-file-name"]').map(one => one.text()))
+			.toEqual(['S02E09.mkv', 'S02E10.mkv']);
+
+		await wrapper.findAll('[data-test="transfer-batch-file-rename"]')[0].trigger('click');
+
+		const field = wrapper.find('[data-test="transfer-batch-file-field"] input');
+
+		await field.setValue('Spartacus - 2x09.mkv');
+		await field.trigger('keyup.enter');
+
+		const emitted = wrapper.emitted('rename-file')?.[0] as [Transfer, string];
+
+		expect(emitted[0].id).toBe('t1');
+		expect(emitted[1]).toBe('Spartacus - 2x09.mkv');
+	});
+
 	it('offers to start a download again once every file of it is stopped', async () => {
 		// And not while one is still moving: a play button on a season that is running is a
 		// button that appears to do nothing.

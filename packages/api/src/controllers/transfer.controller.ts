@@ -109,6 +109,37 @@ class ChangeDestinationDto {
 }
 
 /**
+ * A new name for the folder one season of a download lands in.
+ *
+ * A name and not a path, and the validation says so rather than sanitising it quietly: a
+ * name carrying a separator would create a level of folders nobody asked for, and the
+ * household would find half a season one directory deeper than the other half with nothing
+ * anywhere reporting a fault.
+ */
+class RenameSeasonDto {
+	@ApiPropertyOptional({
+		description: 'Which season, as the catalogue numbers it. Null for the files with none.',
+	})
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	public seasonNumber?: number | null;
+
+	@ApiProperty()
+	@IsString()
+	@MaxLength(255)
+	public name!: string;
+}
+
+/** A new name for one file, keeping it in its folder. */
+class RenameFileDto {
+	@ApiProperty()
+	@IsString()
+	@MaxLength(255)
+	public name!: string;
+}
+
+/**
  * The queue.
  *
  * `verify` and `repair` are two routes rather than one because they answer two
@@ -269,6 +300,28 @@ export class TransferController {
 		return this._transfers.actOnLot(key, 'resume');
 	}
 
+	@Post('lots/:key/rename-season')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Rename the folder one season of a download lands in',
+		description:
+			'The season folder alone: the show’s folder is shared with every other season. It '
+			+ 'applies to the files already filed — they are moved for real, the folder they leave '
+			+ 'is removed once empty, and the media server is asked to look at the new one. '
+			+ 'Refused when that season’s files are not all in one folder.',
+	})
+	@ApiOkResponse({ description: 'TransferLot' })
+	public renameSeason(
+		@Param('key') key: string,
+		@Body() body: RenameSeasonDto,
+	): Promise<TransferLot> {
+		return this._transfers.renameSeason(key, {
+			seasonNumber: body.seasonNumber ?? null,
+			name: body.name,
+		});
+	}
+
 	@Post('lots/:key/cancel')
 	@Granted(Right.TRANSFER_MANAGE)
 	@HttpCode(HttpStatus.OK)
@@ -342,6 +395,23 @@ export class TransferController {
 	@ApiConflictResponse({ description: 'error.transfer.not_resumable' })
 	public retry(@Param('id', ParseUUIDPipe) id: string): Promise<Transfer> {
 		return this._transfers.retry(id);
+	}
+
+	@Post(':id/rename')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Rename one file, keeping it where it is',
+		description:
+			'The extension is kept when the new name has none: a file renamed to something a '
+			+ 'media server cannot recognise is intact, invisible, and reports no fault.',
+	})
+	@ApiOkResponse({ description: 'Transfer' })
+	public rename(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: RenameFileDto,
+	): Promise<Transfer> {
+		return this._transfers.renameFile(id, body.name);
 	}
 
 	@Post(':id/verify')

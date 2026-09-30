@@ -547,6 +547,34 @@
 	});
 
 	/**
+	 * Rename the folder one season of a download lands in.
+	 *
+	 * It applies to the files already filed, and that is the whole of why it is a request to
+	 * the gateway rather than a preference stored somewhere: the episodes that arrived last
+	 * night are on the disk under the old name, and a rename that only changed where the
+	 * rest would go would leave one season in two folders.
+	 */
+	const renameSeason = tryCallback(async (key: string, season: number | null, name: string) => {
+		busyKey.value = key;
+		try {
+			await transfersStore.renameSeason(key, season, name);
+			void notify('transfer.renamed');
+		} finally {
+			busyKey.value = null;
+		}
+	});
+
+	const renameFile = tryCallback(async (transfer: Transfer, name: string) => {
+		busyId.value = transfer.id;
+		try {
+			await transfersStore.renameFile(transfer.id, name);
+			void notify('transfer.renamed');
+		} finally {
+			busyId.value = null;
+		}
+	});
+
+	/**
 	 * Send this transfer somewhere else, rather than planning the item again.
 	 *
 	 * Re-planning was what this button used to do, and it was the wrong answer to the
@@ -1001,6 +1029,8 @@
 						:progress="progressOf"
 						@action="handle"
 						@lot-action="handleLot"
+						@rename-file="renameFile"
+						@rename-season="(season, name) => renameSeason(batch.key, season, name)"
 						@retarget="retargetBatch"
 					/>
 				</template>

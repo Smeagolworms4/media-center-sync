@@ -1382,13 +1382,16 @@
 			"into": "In",
 			"no_season": "Senza stagione",
 			"per_page": "Download per pagina",
+			"rename_file": "Rinomina il file",
+			"rename_season": "Rinomina la cartella della stagione",
 			"season": "Stagione {number}",
 			"season_files": "{count} file | {count} file",
 			"specials": "Speciali"
 		},
 		"archived": "Tolto dalla coda. Il file non si è mosso.",
 		"paused": "In pausa. Il client conserva ciò che ha già scaricato.",
-		"resumed": "Riavviato."
+		"resumed": "Riavviato.",
+		"renamed": "Rinominato. Ciò che era già sistemato è stato spostato."
 	},
 	"pages": {
 		"dashboard": "Dashboard",
@@ -1523,7 +1526,9 @@
 			"checksum_mismatch": "Il file scaricato non corrisponde al suo checksum.",
 			"destination_full": "La destinazione si è riempita mentre il file veniva spostato. Nulla è perduto: libera spazio e riprendi, lo spostamento ripartirà da dove si era fermato.",
 			"target_occupied": "Qualcos’altro occupa già il percorso su cui questo file sarebbe arrivato e non è stato possibile costruire un nome libero. Nulla è stato sovrascritto.",
-			"destination_invalid": "Una destinazione deve essere una libreria su uno dei tuoi servizi. Una cartella che nulla analizza accetta il file e non lo mostra a nessuno."
+			"destination_invalid": "Una destinazione deve essere una libreria su uno dei tuoi servizi. Una cartella che nulla analizza accetta il file e non lo mostra a nessuno.",
+			"invalid_name": "Questo non è un nome: non può essere vuoto, né «.» o «..», né contenere una barra. Un nome con una barra creerebbe un livello di cartelle che nessuno ha chiesto.",
+			"folder_not_shared": "I file di questa stagione non sono tutti nella stessa cartella, quindi non c’è una cartella da rinominare. Manda prima il download in un solo posto."
 		},
 		"settings": {
 			"invalid": "Queste impostazioni sono state rifiutate.",

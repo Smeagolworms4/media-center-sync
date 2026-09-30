@@ -1382,13 +1382,16 @@
 			"into": "En",
 			"no_season": "Sin temporada",
 			"per_page": "Descargas por página",
+			"rename_file": "Renombrar el archivo",
+			"rename_season": "Renombrar la carpeta de la temporada",
 			"season": "Temporada {number}",
 			"season_files": "{count} archivo | {count} archivos",
 			"specials": "Especiales"
 		},
 		"archived": "Retirado de la cola. El archivo no se ha movido.",
 		"paused": "En pausa. El cliente conserva lo que ya ha descargado.",
-		"resumed": "En marcha de nuevo."
+		"resumed": "En marcha de nuevo.",
+		"renamed": "Renombrado. Lo que ya estaba colocado se ha movido."
 	},
 	"pages": {
 		"dashboard": "Panel",
@@ -1523,7 +1526,9 @@
 			"checksum_mismatch": "El archivo descargado no coincide con su suma de comprobación.",
 			"destination_full": "El destino se llenó mientras se movía el archivo. No se ha perdido nada: libere espacio y reanude, y el traslado continuará donde se detuvo.",
 			"target_occupied": "Otro archivo ya ocupa la ruta donde este iba a aterrizar y no se pudo construir un nombre libre. No se sobrescribió nada.",
-			"destination_invalid": "Un destino tiene que ser una biblioteca en uno de sus propios servicios. Una carpeta que nada analiza acepta el archivo y no se lo muestra a nadie."
+			"destination_invalid": "Un destino tiene que ser una biblioteca en uno de sus propios servicios. Una carpeta que nada analiza acepta el archivo y no se lo muestra a nadie.",
+			"invalid_name": "Eso no es un nombre: no puede estar vacío, ser «.» o «..», ni contener una barra. Un nombre con barra crearía un nivel de carpetas que nadie ha pedido.",
+			"folder_not_shared": "Los archivos de esa temporada no están todos en la misma carpeta, así que no hay una única carpeta que renombrar. Envíe primero la descarga a un solo sitio."
 		},
 		"settings": {
 			"invalid": "Estos ajustes han sido rechazados.",

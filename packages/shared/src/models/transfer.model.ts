@@ -534,6 +534,41 @@ export enum TransferSort {
 	TITLE = 'title',
 }
 
+/**
+ * Rename the folder one season of a download lands in, and nothing else.
+ *
+ * Asked for in those words — "on the season part one can rename the season folder's name
+ * only" — and the restriction is the point. The show's folder is shared with every other
+ * season and with whatever was already filed there; the file names are their own field.
+ * This renames one directory: `Season 01` to `Saison 1`, on the season somebody is looking
+ * at.
+ *
+ * **It applies to what is already filed.** Half a season on disk and half still coming is
+ * the normal case, and a rename that only changed where the rest would go would split the
+ * season in two. The files that have landed are moved for real, the folder they leave is
+ * removed once it is empty, and the media server is asked to look at the new one.
+ */
+export interface RenameSeasonRequest {
+	/**
+	 * Which season of the download, as the catalogue numbers it. Null renames the folder of
+	 * the files that have no season — specials are season zero and are not this.
+	 */
+	seasonNumber: number | null;
+	/** The folder's new name. A name, not a path: see `TRANSFER_INVALID_NAME`. */
+	name: string;
+}
+
+/**
+ * Rename one file of a download, keeping it where it is.
+ *
+ * The other half of the same request. A name and not a path, for the same reason, and the
+ * extension is part of it: a household that renames `S01E02.mkv` to `S01E02` would have a
+ * file no media server plays, so a name with no extension keeps the one it had.
+ */
+export interface RenameFileRequest {
+	name: string;
+}
+
 export interface ChangeDestinationRequest {
 	/**
 	 * Which library receives it, and the answer is never a bare path.

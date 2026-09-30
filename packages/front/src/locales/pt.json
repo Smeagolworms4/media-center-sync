@@ -1382,13 +1382,16 @@
 			"into": "Para",
 			"no_season": "Sem temporada",
 			"per_page": "Transferências por página",
+			"rename_file": "Renomear o ficheiro",
+			"rename_season": "Renomear a pasta da temporada",
 			"season": "Temporada {number}",
 			"season_files": "{count} ficheiro | {count} ficheiros",
 			"specials": "Especiais"
 		},
 		"archived": "Retirado da fila. O ficheiro não se moveu.",
 		"paused": "Em pausa. O cliente mantém o que já obteve.",
-		"resumed": "A correr de novo."
+		"resumed": "A correr de novo.",
+		"renamed": "Renomeado. O que já estava arrumado foi movido."
 	},
 	"pages": {
 		"dashboard": "Painel",
@@ -1523,7 +1526,9 @@
 			"checksum_mismatch": "O ficheiro transferido não corresponde à sua soma de verificação.",
 			"destination_full": "O destino ficou sem espaço enquanto o ficheiro estava a ser movido. Nada se perdeu: liberte espaço e retome, e a mudança continua de onde parou.",
 			"target_occupied": "Outro ficheiro já ocupa o caminho onde este iria aterrar e não foi possível construir um nome livre. Nada foi sobrescrito.",
-			"destination_invalid": "Um destino tem de ser uma biblioteca num dos seus próprios serviços. Uma pasta que nada analisa aceita o ficheiro e não o mostra a ninguém."
+			"destination_invalid": "Um destino tem de ser uma biblioteca num dos seus próprios serviços. Uma pasta que nada analisa aceita o ficheiro e não o mostra a ninguém.",
+			"invalid_name": "Isso não é um nome: não pode estar vazio, ser «.» ou «..», nem conter uma barra. Um nome com uma barra criaria um nível de pastas que ninguém pediu.",
+			"folder_not_shared": "Os ficheiros dessa temporada não estão todos na mesma pasta, por isso não há uma única pasta para renomear. Envie primeiro a transferência para um só lugar."
 		},
 		"settings": {
 			"invalid": "Estas definições foram recusadas.",
