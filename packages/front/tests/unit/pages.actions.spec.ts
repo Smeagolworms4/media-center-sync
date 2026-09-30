@@ -1270,6 +1270,130 @@ describe('pages/Transfers repairing', () => {
 	 * repair. The already-landed files go with it, and the folders they empty are
 	 * removed on the gateway's side.
 	 */
+	it('acts on a whole download in one request, rather than once per file', async () => {
+		/*
+		 * Twenty requests racing each other and the engine is how pressing pause on a season
+		 * answered a column of errors about the files that had finished in between.
+		 */
+		const stub = stubFetchRoutes({
+			...base,
+			...queueRoutes([
+				transferRow({ id: 't1', lot: 'season-1', state: TransferState.DOWNLOADING, error: null, errorKind: null }),
+				transferRow({ id: 't2', lot: 'season-1', state: TransferState.QUEUED, error: null, errorKind: null }),
+			], { page: 1, limit: 20, total: 2, pages: 1 }),
+			'/api/transfers/lots/season-1/pause': {
+				body: { key: 'season-1', lot: 'season-1', title: 'Scrubs', transfers: [] },
+			},
+		});
+		const { wrapper } = mountWithApp(Transfers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="transfer-batch-pause"]').trigger('click');
+		await settle(2);
+
+		expect(stub.mock.calls.filter(one => String(one[0]).includes('/pause'))).toHaveLength(1);
+		expect(called(stub, '/transfers/lots/season-1/pause')).toBe(true);
+		expect(called(stub, '/transfers/t1/pause')).toBe(false);
+	});
+
+	it('renames the season folder through the gateway, so filed copies move with it', async () => {
+		// The rename is a request and not a preference because it applies to what is already
+		// on disk: a season half landed would otherwise end up in two folders.
+		const stub = stubFetchRoutes({
+			...base,
+			...queueRoutes([
+				transferRow({
+					id: 't1',
+					lot: 'season-1',
+					seasonNumber: 1,
+					state: TransferState.QUEUED,
+					targetPath: '/media/shows/Scrubs/Season 01/S01E01.mkv',
+					error: null,
+					errorKind: null,
+				}),
+				transferRow({
+					id: 't2',
+					lot: 'season-1',
+					seasonNumber: 1,
+					state: TransferState.QUEUED,
+					targetPath: '/media/shows/Scrubs/Season 01/S01E02.mkv',
+					error: null,
+					errorKind: null,
+				}),
+			], { page: 1, limit: 20, total: 2, pages: 1 }),
+			'/api/transfers/lots/season-1/rename-season': {
+				body: { key: 'season-1', lot: 'season-1', title: 'Scrubs', transfers: [] },
+			},
+		});
+		const { wrapper } = mountWithApp(Transfers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+		await settle();
+		await wrapper.find('[data-test="transfer-batch-season-rename"]').trigger('click');
+		await settle();
+
+		const field = wrapper.find('[data-test="transfer-batch-season-field"] input');
+
+		await field.setValue('Saison 1');
+		await field.trigger('keyup.enter');
+		await settle(2);
+
+		const call = stub.mock.calls.find(one => String(one[0]).includes('/rename-season'));
+
+		expect(JSON.parse(String(call?.[1]?.body))).toEqual({ seasonNumber: 1, name: 'Saison 1' });
+	});
+
+	it('renames one file through the gateway, keeping it in its folder', async () => {
+		const stub = stubFetchRoutes({
+			...base,
+			...queueRoutes([
+				transferRow({
+					id: 't1',
+					lot: 'season-1',
+					seasonNumber: 1,
+					state: TransferState.QUEUED,
+					targetPath: '/media/shows/Scrubs/Season 01/S01E01.mkv',
+					error: null,
+					errorKind: null,
+				}),
+				transferRow({
+					id: 't2',
+					lot: 'season-1',
+					seasonNumber: 1,
+					state: TransferState.QUEUED,
+					targetPath: '/media/shows/Scrubs/Season 01/S01E02.mkv',
+					error: null,
+					errorKind: null,
+				}),
+			], { page: 1, limit: 20, total: 2, pages: 1 }),
+			'/api/transfers/t1/rename': { body: transferRow({ id: 't1' }) },
+		});
+		const { wrapper } = mountWithApp(Transfers, {
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+		await settle();
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+		await settle();
+		await wrapper.findAll('[data-test="transfer-batch-file-rename"]')[0].trigger('click');
+		await settle();
+
+		const field = wrapper.find('[data-test="transfer-batch-file-field"] input');
+
+		await field.setValue('Scrubs - 1x01.mkv');
+		await field.trigger('keyup.enter');
+		await settle(2);
+
+		const call = stub.mock.calls.find(one => String(one[0]).includes('/t1/rename'));
+
+		expect(JSON.parse(String(call?.[1]?.body))).toEqual({ name: 'Scrubs - 1x01.mkv' });
+	});
+
 	it('sends a whole run in one request, rather than a request per file', async () => {
 		const stub = stubFetchRoutes({
 			...base,

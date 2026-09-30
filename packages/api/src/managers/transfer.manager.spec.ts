@@ -44,6 +44,8 @@ interface Fakes {
 		findUnfinishedFromService: jest.Mock;
 		findByJob: jest.Mock;
 		findByLots: jest.Mock;
+		findByLotKeys: jest.Mock;
+		pageOfLots: jest.Mock;
 		delete: jest.Mock;
 	};
 	chunks: {
@@ -64,6 +66,8 @@ interface Fakes {
 	verification: { verify: jest.Mock };
 	events: { emit: jest.Mock; publishProgress: jest.Mock; flushProgress: jest.Mock };
 	libraries: { findOne: jest.Mock; find: jest.Mock };
+	/** The media behind the files: their kind, and which season each belongs to. */
+	items: { find: jest.Mock };
 	lines: { findLine: jest.Mock; save: jest.Mock };
 	libraryManager: { probe: jest.Mock; categories: jest.Mock };
 	mover: { move: jest.Mock };
@@ -146,7 +150,16 @@ const build = (
 			// The rest of the lots the run named — another night's episodes of the same
 			// season. Empty by default, so a test that never mentions a lot gets a run.
 			findByLots: jest.fn().mockResolvedValue([]),
+			// The files of a download, which is what every action on one reads. One file by
+			// default: a test about a season says what is in it.
+			findByLotKeys: jest.fn().mockResolvedValue([row]),
+			pageOfLots: jest.fn().mockResolvedValue([['transfer-1'], 1]),
 			delete: jest.fn().mockResolvedValue({ affected: 1 }),
+		},
+		items: {
+			find: jest
+				.fn()
+				.mockResolvedValue([{ id: 'item-1', kind: MediaKind.EPISODE, libraryId: 'lib-source' }]),
 		},
 		chunks: {
 			findByTransfer: jest.fn().mockResolvedValue([
@@ -242,11 +255,7 @@ const build = (
 		fakes.transfers as unknown as TransferRepository,
 		fakes.chunks as unknown as TransferChunkRepository,
 		{ findForTransfer: jest.fn().mockResolvedValue([]) } as unknown as RevalidationRepository,
-		{
-			find: jest
-				.fn()
-				.mockResolvedValue([{ id: 'item-1', kind: MediaKind.EPISODE, libraryId: 'lib-source' }]),
-		} as unknown as MediaItemRepository,
+		fakes.items as unknown as MediaItemRepository,
 		fakes.services as unknown as MediaServiceRepository,
 		fakes.libraries as unknown as LibraryRepository,
 		fakes.lines as unknown as SyncJobItemRepository,
@@ -628,6 +637,170 @@ describe('TransferManager', () => {
 			fakes.engine.pause.mockRejectedValueOnce(new Error('busy'));
 
 			expect(await manager.pauseAll()).toBe(1);
+		});
+	});
+
+	describe('renaming', () => {
+		/**
+		 * A season on disk, in one folder, with its media numbered.
+		 *
+		 * Two files rather than one because the rule being pinned is about a folder several
+		 * files share, and a fixture of one would pass whatever the code did with the rest.
+		 */
+		const season = (world: ReturnType<typeof build>, folder = 'Season 01'): void => {
+			world.fakes.transfers.findByLotKeys.mockResolvedValue([
+				transfer({ id: 't-1', itemId: 'item-1', targetPath: `/media/shows/Scrubs/${folder}/S01E01.mkv` }),
+				transfer({ id: 't-2', itemId: 'item-2', targetPath: `/media/shows/Scrubs/${folder}/S01E02.mkv` }),
+			]);
+			world.fakes.items.find.mockResolvedValue([
+				{ id: 'item-1', kind: MediaKind.EPISODE, libraryId: 'lib-shows', seasonNumber: 1 },
+				{ id: 'item-2', kind: MediaKind.EPISODE, libraryId: 'lib-shows', seasonNumber: 1 },
+			]);
+		};
+
+		it('renames the folder the season shares, and nothing above it', async () => {
+			const world = build();
+
+			season(world);
+
+			await world.manager.renameSeason('lot-1', { seasonNumber: 1, name: 'Saison 1' });
+
+			const written = world.fakes.transfers.save.mock.calls.map(([one]: [Transfer]) => one.targetPath);
+
+			expect(written).toEqual([
+				'/media/shows/Scrubs/Saison 1/S01E01.mkv',
+				'/media/shows/Scrubs/Saison 1/S01E02.mkv',
+			]);
+		});
+
+		it('does nothing at all for the name it already has', async () => {
+			// So confirming a field somebody opened and thought better of costs no move.
+			const world = build();
+
+			season(world);
+
+			await world.manager.renameSeason('lot-1', { seasonNumber: 1, name: 'Season 01' });
+
+			expect(world.fakes.transfers.save).not.toHaveBeenCalled();
+		});
+
+		it.each([['', 'empty'], ['.', 'the folder itself'], ['..', 'the folder above'], ['a/b', 'a path']])(
+			'refuses %p, which names %s rather than a folder',
+			async (name: string) => {
+				/*
+				 * The separator is the dangerous one: `Saison 1/VF` would create a level of
+				 * folders nobody asked for and file half a season one directory deeper than the
+				 * other half, with nothing reporting a fault.
+				 */
+				const world = build();
+
+				season(world);
+
+				await expect(world.manager.renameSeason('lot-1', { seasonNumber: 1, name }))
+					.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_INVALID_NAME } });
+				expect(world.fakes.transfers.save).not.toHaveBeenCalled();
+			},
+		);
+
+		it('refuses a season whose files are not in one folder, rather than moving some', async () => {
+			// It happens: half a season filed beside an existing copy and half under a path
+			// somebody typed. Renaming the folder of whichever came back first would move part
+			// of it and leave the rest, which is the state a rename is used to get out of.
+			const world = build();
+
+			season(world);
+			world.fakes.transfers.findByLotKeys.mockResolvedValue([
+				transfer({ id: 't-1', itemId: 'item-1', targetPath: '/media/shows/Scrubs/Season 01/S01E01.mkv' }),
+				transfer({ id: 't-2', itemId: 'item-2', targetPath: '/media/shows/Scrubs/Saison 1/S01E02.mkv' }),
+			]);
+
+			await expect(world.manager.renameSeason('lot-1', { seasonNumber: 1, name: 'Saison 1' }))
+				.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_FOLDER_NOT_SHARED } });
+			expect(world.fakes.transfers.save).not.toHaveBeenCalled();
+		});
+
+		it('refuses a download it does not hold, and a season nothing in it belongs to', async () => {
+			const world = build();
+
+			world.fakes.transfers.findByLotKeys.mockResolvedValue([]);
+
+			await expect(world.manager.renameSeason('lot-1', { seasonNumber: 1, name: 'Saison 1' }))
+				.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_NOT_FOUND } });
+
+			season(world);
+
+			await expect(world.manager.renameSeason('lot-1', { seasonNumber: 4, name: 'Saison 4' }))
+				.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_NOT_FOUND } });
+		});
+
+		it('keeps the extension when the new name has none', async () => {
+			// A file renamed to something no media server recognises is intact, invisible, and
+			// reports no fault.
+			const { manager, fakes } = build();
+
+			await manager.renameFile('transfer-1', 'Scrubs - 1x03');
+
+			const [saved] = fakes.transfers.save.mock.calls[0] as [Transfer];
+
+			expect(saved.targetPath).toBe('/media/shows/Scrubs - 1x03.mkv');
+		});
+
+		it('takes the extension it was given', async () => {
+			const { manager, fakes } = build();
+
+			await manager.renameFile('transfer-1', 'Scrubs - 1x03.mp4');
+
+			const [saved] = fakes.transfers.save.mock.calls[0] as [Transfer];
+
+			expect(saved.targetPath).toBe('/media/shows/Scrubs - 1x03.mp4');
+		});
+
+		it('leaves a file called what it is already called alone', async () => {
+			const { manager, fakes } = build();
+
+			await manager.renameFile('transfer-1', 'S01E03.mkv');
+
+			expect(fakes.transfers.save).not.toHaveBeenCalled();
+		});
+
+		it('refuses to rename a file that is in no library', async () => {
+			/*
+			 * The landing record is written against a library, and inventing one would tell a
+			 * media server to scan a folder it has never heard of. Actionable where it is
+			 * raised: sending the file to a library first is a button away.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.transfers.findOne.mockResolvedValue(transfer({ targetLibraryId: null }));
+
+			await expect(manager.renameFile('transfer-1', 'Scrubs - 1x03.mkv'))
+				.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_DESTINATION_INVALID } });
+		});
+
+		it('refuses while the file is being placed, rather than racing the copy', async () => {
+			const { manager, fakes } = build(TransferState.PLACING);
+
+			fakes.transfers.findOne.mockResolvedValue(transfer({ state: TransferState.PLACING }));
+
+			await expect(manager.renameFile('transfer-1', 'Scrubs - 1x03.mkv'))
+				.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_BEING_PLACED } });
+		});
+
+		it('refuses a name something else already occupies, and moves nothing', async () => {
+			// Landing on somebody else's file is the loss this whole area exists to prevent,
+			// and it would be silent.
+			const world = build();
+
+			season(world);
+			world.fakes.libraryManager.probe.mockResolvedValue({
+				exists: true,
+				readable: true,
+				writable: true,
+			});
+
+			await expect(world.manager.renameSeason('lot-1', { seasonNumber: 1, name: 'Saison 1' }))
+				.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_TARGET_OCCUPIED } });
+			expect(world.fakes.transfers.save).not.toHaveBeenCalled();
 		});
 	});
 
