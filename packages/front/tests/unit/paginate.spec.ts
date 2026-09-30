@@ -111,6 +111,22 @@ describe('paginate/Pagination', () => {
 
 		expect(wrapper.text()).toContain('11-20 / 25');
 	});
+
+	it('never counts past the total, however large the page size is', () => {
+		/*
+		 * "1-20 / 6" is three numbers that cannot all be true, and it is what the queue drew
+		 * the day it started counting downloads rather than rows: six downloads under a page
+		 * size of twenty. It went unnoticed while every list was longer than one page.
+		 */
+		const { wrapper } = mountWithApp(Pagination, { props: { page: 0, limit: 20, total: 6 } });
+
+		expect(wrapper.text()).toContain('1-6 / 6');
+
+		// And an empty list says so rather than claiming a first row.
+		const { wrapper: empty } = mountWithApp(Pagination, { props: { page: 0, limit: 20, total: 0 } });
+
+		expect(empty.text()).toContain('0-0 / 0');
+	});
 });
 
 describe('Window and Confirm', () => {

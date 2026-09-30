@@ -37,7 +37,14 @@
 		/>
 
 		<span data-test="pagination-range">
-			{{ page_sync * limit_sync + 1 }}-{{ page_sync * limit_sync + limit_sync }} / {{ total }}
+			<!--
+				Bounded by the total, and not by the page size. A last page of six under a
+				limit of twenty read "1-20 / 6", which is three numbers that cannot all be
+				true — it went unnoticed while every list was longer than one page, and the
+				queue counting downloads rather than rows is what made it the ordinary case.
+			-->
+			{{ Math.min(page_sync * limit_sync + 1, total) }}-{{
+				Math.min(page_sync * limit_sync + limit_sync, total) }} / {{ total }}
 		</span>
 
 		<span class="paginate-pagination-action">
