@@ -1666,6 +1666,10 @@
 		"batch": {
 			"files": "{done} of {count} downloads filed",
 			"failed": "{count} failed | {count} failed"
+		},
+		"off_target": {
+			"hint": "These names announce another season or another episode than the one asked for. They are still offered: a badly formed name can be read wrongly.",
+			"title": "Set aside"
 		}
 	},
 	"classification": {

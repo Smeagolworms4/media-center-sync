@@ -92,6 +92,7 @@ const group = (overrides: Partial<ReleaseGroup> = {}): ReleaseGroup => ({
 	fills: [ref(1)],
 	brings: [],
 	heldAlready: false,
+	offTarget: false,
 	...overrides,
 });
 

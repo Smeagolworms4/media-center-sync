@@ -1666,6 +1666,10 @@
 		"batch": {
 			"files": "{done} di {count} download archiviati",
 			"failed": "{count} non riuscito | {count} non riusciti"
+		},
+		"off_target": {
+			"hint": "Questi nomi annunciano un'altra stagione o un altro episodio rispetto a quello chiesto. Restano proposti: un nome mal formato può essere letto male.",
+			"title": "Messi da parte"
 		}
 	},
 	"classification": {

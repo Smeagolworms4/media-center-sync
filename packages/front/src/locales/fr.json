@@ -1666,6 +1666,10 @@
 		"batch": {
 			"files": "{done} téléchargements rangés sur {count}",
 			"failed": "{count} en échec | {count} en échec"
+		},
+		"off_target": {
+			"hint": "Ces noms annoncent une autre saison ou un autre épisode que celui demandé. Ils restent proposés : un nom mal formé peut être mal lu.",
+			"title": "Écartés"
 		}
 	},
 	"classification": {

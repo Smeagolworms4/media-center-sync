@@ -67,6 +67,7 @@ function group (overrides: Partial<ReleaseGroup> = {}): ReleaseGroup {
 				languages: ['VO'],
 				coverage: { seasonNumber: 1, episodeNumbers: [1], wholeSeason: false, wholeSeries: false },
 				heldAlready: false,
+				offTarget: false,
 				flags: [],
 			},
 		],
@@ -76,6 +77,7 @@ function group (overrides: Partial<ReleaseGroup> = {}): ReleaseGroup {
 		fills: [],
 		brings: [],
 		heldAlready: false,
+		offTarget: false,
 		...overrides,
 	};
 }
@@ -159,6 +161,40 @@ async function mountWithResult (result = searchResult(), media = mediaGroup()) {
 }
 
 describe('components/media/ReleaseSearch', () => {
+	it('sets aside the rows that name another episode, under a heading of their own',
+		async () => {
+			/*
+			 * Reported from use: a search for one episode answers every episode of the show
+			 * — trackers match on words — and those rows sat among the right ones looking
+			 * exactly like them. They are shown rather than dropped because what was read is
+			 * a release *name*, and tracker naming is not a standard: the row somebody wants
+			 * may well be one the reading got wrong.
+			 */
+			const { wrapper } = await mountWithResult(searchResult({
+				suggestions: [
+					{ source: SuggestionSource.INDEXER, key: 'right', release: group({ key: 'right' }) },
+					{
+						source: SuggestionSource.INDEXER,
+						key: 'wrong',
+						release: group({ key: 'wrong', offTarget: true }),
+					},
+				],
+			}));
+
+			expect(wrapper.find('[data-test="release-off-target"]').exists()).toBe(true);
+
+			const rows = wrapper.findAll('[data-test="release-row"][data-source="indexer"]');
+
+			// The heading is drawn once, and everything from it down is set aside.
+			expect(rows.map(one => one.attributes('data-off-target'))).toEqual(['false', 'true']);
+		});
+
+	it('draws no heading when everything answers what was asked', async () => {
+		const { wrapper } = await mountWithResult();
+
+		expect(wrapper.find('[data-test="release-off-target"]').exists()).toBe(false);
+	});
+
 	beforeEach(() => {
 		// Mounting loads what has already been grabbed for this media; nothing under test
 		// here cares what that answers, and an unstubbed call would reach the network.

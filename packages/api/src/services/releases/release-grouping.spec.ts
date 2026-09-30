@@ -64,6 +64,7 @@ function release(sketch: Sketch = {}): Release {
 			wholeSeries: sketch.wholeSeries ?? false,
 		},
 		heldAlready: sketch.heldAlready ?? false,
+		offTarget: false,
 		flags: sketch.flags ?? [],
 	};
 }

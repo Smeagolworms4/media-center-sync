@@ -1666,6 +1666,10 @@
 		"batch": {
 			"files": "{done} de {count} descargas archivadas",
 			"failed": "{count} con error | {count} con errores"
+		},
+		"off_target": {
+			"hint": "Estos nombres anuncian otra temporada u otro episodio que el pedido. Se siguen ofreciendo: un nombre mal formado puede leerse mal.",
+			"title": "Apartados"
 		}
 	},
 	"classification": {

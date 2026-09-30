@@ -120,6 +120,9 @@ export const groupReleases = (releases: Release[]): ReleaseGroup[] => {
 			fills: [],
 			brings: [],
 			heldAlready: sorted.some((one) => one.heldAlready),
+			// Every copy in a group shares its coverage — the key is built from it — so
+			// they cannot disagree about naming the wrong episode.
+			offTarget: first.offTarget,
 		});
 	}
 

@@ -43,6 +43,7 @@ function group (overrides: Partial<ReleaseGroup> = {}): ReleaseGroup {
 		fills: [],
 		brings: [],
 		heldAlready: false,
+		offTarget: false,
 		...overrides,
 	};
 }

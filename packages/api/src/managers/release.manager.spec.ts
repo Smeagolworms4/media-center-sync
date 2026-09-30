@@ -292,6 +292,7 @@ const release = (overrides: Partial<Release> = {}): Release => ({
 	languages: ['VO'],
 	coverage: { seasonNumber: 1, episodeNumbers: [2], wholeSeason: false, wholeSeries: false },
 	heldAlready: false,
+	offTarget: false,
 	// Most public trackers report none, which is the ordinary case and not a statement
 	// that a release costs full ratio.
 	flags: [],
@@ -567,6 +568,175 @@ describe('ReleaseManager', () => {
 			// The gaps are still answered: the screen has to say what is missing even when
 			// nobody could be asked for it.
 			expect(found.missing).toHaveLength(4);
+		});
+
+		/**
+		 * What a tracker sends back is not what was asked for.
+		 *
+		 * Reported from use: a search for one episode answers other episodes of the show,
+		 * and a row a season away sits in the list looking exactly like the right one.
+		 * Indexers match on words, so every episode of the series answers the same query —
+		 * and picking the wrong row costs a download, a file filed under the wrong episode,
+		 * and a gap that still reads as missing afterwards.
+		 *
+		 * Marked and sunk, never removed: what is being read is a release *name*, tracker
+		 * naming is not a standard, and a row this parser misreads would otherwise vanish
+		 * with no way to see that it had.
+		 */
+		describe('what comes back that was not asked for', () => {
+			const found = async (rows: Release[]) => {
+				const { manager, fakes } = build();
+
+				fakes.indexer.search.mockResolvedValue(rows);
+
+				const answer = await manager.search({ itemId: 'ep-2' });
+
+				return {
+					// In the order the screen draws them.
+					order: answer.suggestions
+						.filter(one => !isPeerSuggestion(one))
+						.map(one => ({ id: one.release.releases[0].id, offTarget: one.release.offTarget })),
+				};
+			};
+
+			it('marks a release that names another episode of the same season, and sinks it',
+				async () => {
+					const { order } = await found([
+						release({ id: 'right', title: 'Spartacus.S01E02.1080p-GRP' }),
+						release({
+							id: 'wrong',
+							title: 'Spartacus.S01E05.1080p-GRP',
+							episodeNumber: 5,
+							coverage: { seasonNumber: 1, episodeNumbers: [5], wholeSeason: false, wholeSeries: false },
+						}),
+					]);
+
+					// Still offered — somebody who can see the name is right and the reading is
+					// wrong can still take it — but under everything else.
+					expect(order).toEqual([
+						{ id: 'right', offTarget: false },
+						{ id: 'wrong', offTarget: true },
+					]);
+				});
+
+			it('marks a release that names another season', async () => {
+				const { order } = await found([
+					release({
+						id: 'wrong-season',
+						title: 'Spartacus.S02E02.1080p-GRP',
+						seasonNumber: 2,
+						coverage: { seasonNumber: 2, episodeNumbers: [2], wholeSeason: false, wholeSeries: false },
+					}),
+				]);
+
+				expect(order).toEqual([{ id: 'wrong-season', offTarget: true }]);
+			});
+
+			it('leaves a season pack alone, which contains the episode asked for', async () => {
+				// And the grab machinery takes one file out of a pack — see `wanted`.
+				const { order } = await found([
+					release({
+						id: 'pack',
+						title: 'Spartacus.S01.COMPLETE.1080p-GRP',
+						episodeNumber: null,
+						coverage: { seasonNumber: 1, episodeNumbers: [], wholeSeason: true, wholeSeries: false },
+					}),
+				]);
+
+				expect(order).toEqual([{ id: 'pack', offTarget: false }]);
+			});
+
+			it('leaves a complete-series pack alone whatever it names', async () => {
+				const { order } = await found([
+					release({
+						id: 'series',
+						title: 'Spartacus.COMPLETE.SERIES.1080p-GRP',
+						seasonNumber: null,
+						episodeNumber: null,
+						coverage: {
+							seasonNumber: null,
+							episodeNumbers: [],
+							wholeSeason: false,
+							wholeSeries: true,
+						},
+					}),
+				]);
+
+				expect(order).toEqual([{ id: 'series', offTarget: false }]);
+			});
+
+			it('leaves a release whose name says nothing alone', async () => {
+				/*
+				 * The narrowness is the point. Tracker naming is not a standard and plenty
+				 * of real releases spell neither a season nor an episode; marking those would
+				 * sink exactly the shows whose releases are named worst, which is the
+				 * opposite of the fault being fixed.
+				 */
+				const { order } = await found([
+					release({
+						id: 'unnamed',
+						title: 'Spartacus.Blood.and.Sand.1080p-GRP',
+						seasonNumber: null,
+						episodeNumber: null,
+						coverage: {
+							seasonNumber: null,
+							episodeNumbers: [],
+							wholeSeason: false,
+							wholeSeries: false,
+						},
+					}),
+				]);
+
+				expect(order).toEqual([{ id: 'unnamed', offTarget: false }]);
+			});
+
+			it('reads a multi-episode release by what it lists', async () => {
+				const { order } = await found([
+					release({
+						id: 'double',
+						title: 'Spartacus.S01E01E02.1080p-GRP',
+						coverage: {
+							seasonNumber: 1,
+							episodeNumbers: [1, 2],
+							wholeSeason: false,
+							wholeSeries: false,
+						},
+					}),
+					release({
+						id: 'other-double',
+						title: 'Spartacus.S01E03E04.1080p-GRP',
+						coverage: {
+							seasonNumber: 1,
+							episodeNumbers: [3, 4],
+							wholeSeason: false,
+							wholeSeries: false,
+						},
+					}),
+				]);
+
+				expect(order).toEqual([
+					{ id: 'double', offTarget: false },
+					{ id: 'other-double', offTarget: true },
+				]);
+			});
+
+			it('marks nothing when nothing specific was asked', async () => {
+				// A film, or words somebody typed: there is no season and no episode for a
+				// release to contradict.
+				const { manager, fakes } = build();
+
+				fakes.indexer.search.mockResolvedValue([
+					release({
+						id: 'a',
+						seasonNumber: 4,
+						coverage: { seasonNumber: 4, episodeNumbers: [9], wholeSeason: false, wholeSeries: false },
+					}),
+				]);
+
+				const answer = await manager.search({ term: 'Spartacus' });
+
+				expect(trackerGroups(answer).map(one => one.offTarget)).toEqual([false]);
+			});
 		});
 
 		it('searches a series by its own title and the season asked for', async () => {

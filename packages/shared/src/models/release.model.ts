@@ -159,6 +159,24 @@ export interface Release {
 	/** True when this gateway already holds a file of that exact size. */
 	heldAlready: boolean;
 	/**
+	 * Whether this names a season or an episode other than the one that was asked for.
+	 *
+	 * Trackers match on words, so a search for one episode answers every episode of the
+	 * show: "Spartacus S01E05" comes back for a search for S01E02 and sits in the list
+	 * looking exactly like the right row. Picking it costs a download, a file filed under
+	 * the wrong episode, and a gap that still reads as missing afterwards.
+	 *
+	 * Marked rather than removed, and that is the decision: a release that says nothing
+	 * about its season or episode cannot contradict anything and is never marked, while a
+	 * filter that dropped rows would hide whatever the parser reads wrongly — and tracker
+	 * naming is not a standard. So these sink to the bottom under a heading of their own,
+	 * where they can still be taken by somebody who can see the name is right and the
+	 * parser is not.
+	 *
+	 * Answered by the manager, which is the only layer that knows what was asked.
+	 */
+	offTarget: boolean;
+	/**
 	 * What the tracker says about this one, in the indexer's normalised words.
 	 *
 	 * `freeleech`, `halfleech`, `internal`, `scene`, `nuked` — whatever it reported,
@@ -261,6 +279,8 @@ export interface ReleaseGroup {
 	 */
 	brings: { seasonNumber: number | null; episodeNumber: number | null }[];
 	heldAlready: boolean;
+	/** True when its releases name another season or another episode. See `Release`. */
+	offTarget: boolean;
 }
 
 /**

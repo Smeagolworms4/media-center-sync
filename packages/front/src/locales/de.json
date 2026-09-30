@@ -1666,6 +1666,10 @@
 		"batch": {
 			"files": "{done} von {count} Downloads abgelegt",
 			"failed": "{count} fehlgeschlagen | {count} fehlgeschlagen"
+		},
+		"off_target": {
+			"hint": "Diese Namen nennen eine andere Staffel oder eine andere Folge als die gesuchte. Sie bleiben angeboten: ein schlecht gebildeter Name kann falsch gelesen werden.",
+			"title": "Beiseitegelegt"
 		}
 	},
 	"classification": {

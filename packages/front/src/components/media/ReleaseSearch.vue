@@ -242,6 +242,19 @@
 
 	const suggestions = computed(() => (forThisMedia.value ? releases.suggestions : []));
 
+	/**
+	 * The first row that names something other than what was asked for.
+	 *
+	 * Used to draw one heading above the tail of the list rather than a badge on every
+	 * row. The gateway has already sunk them to the bottom — see `Release.offTarget` — so
+	 * everything from here down is off target, and the heading says so once.
+	 *
+	 * They are shown at all because what was read is a release *name*: tracker naming is
+	 * not a standard, so the row somebody wants may well be one this reading got wrong.
+	 */
+	const firstOffTarget = computed(() => suggestions.value.find(
+		one => one.source === SuggestionSource.INDEXER && one.release.offTarget)?.key ?? null);
+
 	const failures = computed(() =>
 		forThisMedia.value ? (releases.result?.failed ?? []) : []);
 
@@ -438,6 +451,25 @@
 		<div v-if="suggestions.length > 0" class="release-search_results mt-4">
 			<template v-for="one of suggestions" :key="one.key">
 				<!--
+					Said once, over the tail of the list. A search for one episode answers
+					every episode of the show — trackers match on words — and those rows
+					used to sit among the right ones looking exactly like them.
+				-->
+				<div
+					v-if="one.key === firstOffTarget"
+					class="release-search_aside"
+					data-test="release-off-target"
+				>
+					<v-icon icon="mdi-tray-arrow-down" size="16" />
+
+					<strong class="text-caption">{{ $t('release.off_target.title') }}</strong>
+
+					<span class="text-caption text-medium-emphasis">
+						{{ $t('release.off_target.hint') }}
+					</span>
+				</div>
+
+				<!--
 					**A copy somebody already has.**
 
 					No seeders, no tracker and no download client anywhere on this row, and
@@ -537,6 +569,7 @@
 					v-else
 					class="release-search_row"
 					:data-held="one.release.heldAlready"
+					:data-off-target="one.release.offTarget"
 					:data-source="one.source"
 					data-test="release-row"
 				>
@@ -697,6 +730,21 @@
 			justify-content: space-between;
 			flex-wrap: wrap;
 			gap: 8px;
+		}
+
+		&_aside {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			flex-wrap: wrap;
+			margin-top: 12px;
+			padding-top: 8px;
+			border-top: 1px solid rgb(var(--v-border-color), var(--v-border-opacity));
+		}
+
+		// Set back rather than hidden: still readable, plainly not the answer.
+		&_row[data-off-target='true'] {
+			opacity: 0.72;
 		}
 
 		&_row {

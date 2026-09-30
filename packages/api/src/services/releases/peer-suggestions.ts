@@ -270,13 +270,29 @@ export const orderSuggestions = (
 		),
 	];
 
+	/*
+	 * Off target first, which means last on the screen: a row that names another episode
+	 * is not a choice at all, while one that brings nothing is a copy of something we
+	 * already hold — worth showing, worth sinking, not worth sinking as far. See
+	 * `Release.offTarget` for why these are sunk rather than dropped.
+	 */
 	return suggestions.sort(
 		(left, right) =>
+			Number(isOffTarget(left)) - Number(isOffTarget(right)) ||
 			Number(bringsNothing(left)) - Number(bringsNothing(right)) ||
 			Number(left.source === SuggestionSource.INDEXER) -
 				Number(right.source === SuggestionSource.INDEXER),
 	);
 };
+
+/**
+ * An offer that names the wrong thing.
+ *
+ * Only a tracker release can be: a peer copy is one of our own catalogue rows on somebody
+ * else's server, so it is the media it says it is rather than a name to be read.
+ */
+const isOffTarget = (suggestion: ReleaseSuggestion): boolean =>
+	suggestion.source === SuggestionSource.INDEXER && suggestion.release.offTarget;
 
 /**
  * An offer with nothing to bring, in whichever vocabulary its kind states that.

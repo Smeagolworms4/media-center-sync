@@ -188,8 +188,10 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 			source: parsed.source,
 			languages: parsed.languages,
 			coverage: parsed.coverage,
-			// Answered by the manager, which is the only layer that knows what we hold.
+			// Both answered by the manager, the only layer that knows what we hold and what
+			// was asked for.
 			heldAlready: false,
+			offTarget: false,
 			flags: Array.isArray(row.indexerFlags)
 				? row.indexerFlags
 					.filter((flag): flag is string => typeof flag === 'string')

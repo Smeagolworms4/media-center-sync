@@ -47,6 +47,7 @@ import {
 	releaseBytes,
 	groupReleases,
 	IndexerRegistry,
+	type IndexerQuery,
 	NamingService,
 	type NameableItem,
 	orderGroupsByPreference,
@@ -156,6 +157,34 @@ const resolveMagnet = async (
 	}
 
 	return null;
+};
+
+/**
+ * Whether a release names a season or an episode other than the one asked for.
+ *
+ * Its own function rather than a method because it is a reading of two names and nothing
+ * else: no catalogue, no settings, no gateway state. See `Release.offTarget` for why the
+ * answer marks a row instead of removing it.
+ */
+const offTarget = (release: Release, season: number | null, episode: number | null): boolean => {
+	const { coverage } = release;
+
+	// Everything, by definition. Whatever it is named, it holds what was asked.
+	if (coverage.wholeSeries) {
+		return false;
+	}
+
+	if (season !== null && coverage.seasonNumber !== null && coverage.seasonNumber !== season) {
+		return true;
+	}
+
+	if (episode === null || coverage.wholeSeason) {
+		return false;
+	}
+
+	// A name that spells its episodes has said exactly what it holds, so it is either in
+	// it or it is the wrong row. One that spells none has said nothing to be wrong about.
+	return coverage.episodeNumbers.length > 0 && !coverage.episodeNumbers.includes(episode);
 };
 
 @Injectable()
@@ -315,7 +344,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		}
 
 		const sizes = await this._sizesHeld(item);
-		const marked = releases.map((release) => ({
+		const marked = this._markOffTarget(releases, asked).map((release) => ({
 			...release,
 			// A release whose size matches a file we hold to the byte is the file we
 			// hold. It is a guess and it is labelled as one — the row is still grabbable,
@@ -379,6 +408,42 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			missing,
 			failed,
 		};
+	}
+
+	/**
+	 * Mark what the tracker sent back that is not what was asked for.
+	 *
+	 * Reported from use: a search for one episode answers other episodes of the show, and
+	 * a row a season away from the one wanted sits in the list looking exactly like the
+	 * right one. Indexers match on words, so "Les Schtroumpfs S02E36" and "Les Schtroumpfs
+	 * S01E05" both answer the same query — and picking the wrong row costs a download, a
+	 * file filed under the wrong episode, and a gap that still reads as missing.
+	 *
+	 * **Marked and sunk, never removed.** Dropping them was the first answer and it was
+	 * the wrong one: what is being read here is a release *name*, tracker naming is not a
+	 * standard, and every row this parser misreads would vanish with no way to see that it
+	 * had. Sinking them under a heading of their own costs a scroll and keeps the escape
+	 * hatch — somebody who can see the name is right and the reading is wrong can still
+	 * take it.
+	 *
+	 * Only contradictions are marked, never silence: a name that says nothing about its
+	 * season or its episode cannot be wrong about either.
+	 *
+	 * A season pack is not off target for an episode search, and that is not an oversight:
+	 * a pack of season two contains episode thirty-six, and the grab machinery already
+	 * takes one file out of a pack — see `wanted` in `GrabRequest`.
+	 */
+	private _markOffTarget(releases: Release[], asked: IndexerQuery): Release[] {
+		const season = asked.seasonNumber ?? null;
+		const episode = asked.episodeNumber ?? null;
+
+		// Nothing specific was asked, so nothing can contradict it — a film, or a search
+		// somebody typed by hand.
+		if (season === null && episode === null) {
+			return releases;
+		}
+
+		return releases.map((release) => ({ ...release, offTarget: offTarget(release, season, episode) }));
 	}
 
 	/**

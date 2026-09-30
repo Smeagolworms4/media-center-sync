@@ -66,6 +66,7 @@ function release(sketch: Sketch = {}): Release {
 		languages: sketch.languages ?? [],
 		coverage: { seasonNumber: 1, episodeNumbers: [1], wholeSeason: false, wholeSeries: false },
 		heldAlready: sketch.heldAlready ?? false,
+		offTarget: false,
 		flags: sketch.flags ?? [],
 	};
 }
@@ -91,6 +92,7 @@ function group(sketch: Sketch = {}): ReleaseGroup {
 		fills: [],
 		brings: [],
 		heldAlready: one.heldAlready,
+		offTarget: one.offTarget,
 	};
 }
 
