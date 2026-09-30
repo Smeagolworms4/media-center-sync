@@ -303,106 +303,139 @@ describe('stores/transfers', () => {
 	});
 
 	/**
-	 * How the queue turns files into downloads, which is the whole of what a household
-	 * reads off that screen.
+	 * The queue read as downloads, which is the whole of what a household reads off that
+	 * screen.
 	 *
-	 * The complaint that produced this: a season was moved, and the episodes that had
-	 * already arrived from an earlier run showed up as a separate block. They are the same
-	 * season going to the same folder, and nothing on the screen said so, because the only
-	 * thing a row carried about its origin was the run it came from.
+	 * The grouping itself is the gateway's now, and deliberately: this store grouped
+	 * whatever a page of twenty files happened to hold, so a season of twenty-two arrived as
+	 * two blocks on two pages — two percentages, two sets of buttons, and a queue of nine
+	 * downloads announcing a hundred and eighty-seven rows. What is pinned here is what the
+	 * store still owes the screen: the objects the stream writes to, and a download that
+	 * grows while somebody watches it.
 	 */
-	describe('grouping the queue into downloads', () => {
-		async function batchesOf (items: Transfer[]) {
-			stubFetch([{ body: { items, pagination: { page: 1, limit: 20, total: items.length, pages: 1 } } }]);
-
-			const store = useTransfersStore();
-
-			await store.load();
-
-			return store.batches;
+	describe('reading the queue as downloads', () => {
+		function lot (key: string, transfers: Transfer[], title = 'Les Schtroumpfs') {
+			return { key, lot: key, title, transfers };
 		}
 
-		it('keeps a season together across the runs that pulled it', async () => {
-			const batches = await batchesOf([
-				transfer({ id: 'tonight', jobId: 'job-2', lot: 'season-1' }),
-				transfer({ id: 'last-night', jobId: 'job-1', lot: 'season-1', state: TransferState.DONE }),
-			]);
-
-			expect(batches).toHaveLength(1);
-			expect(batches[0].lot).toBe('season-1');
-			expect(batches[0].transfers.map(one => one.id)).toEqual(['tonight', 'last-night']);
-		});
-
-		it('splits a run that fetched two things into the two downloads it was', async () => {
-			// The other half of the same rule. Asking for two shows at once is two
-			// downloads, and a block grouped on the run could never be taken apart again.
-			const batches = await batchesOf([
-				transfer({ id: 't1', jobId: 'job-1', lot: 'show-expanse' }),
-				transfer({ id: 't2', jobId: 'job-1', lot: 'show-scrubs' }),
-			]);
-
-			expect(batches.map(one => one.lot)).toEqual(['show-expanse', 'show-scrubs']);
-		});
-
-		it('falls back to the run for rows written before the lot existed', async () => {
-			/*
-			 * A gateway upgrading in place has a table full of transfers whose lot is null.
-			 * Grouping those on the lot would fuse every download in its history into one
-			 * nameless block — so the run, which is what the screen used before, is the
-			 * answer, and only for them.
-			 */
-			const batches = await batchesOf([
-				transfer({ id: 'old-1', jobId: 'job-old', lot: null }),
-				transfer({ id: 'old-2', jobId: 'job-old', lot: null }),
-				transfer({ id: 'other', jobId: 'job-other', lot: null }),
-				transfer({ id: 'new', jobId: 'job-new', lot: 'season-1' }),
-			]);
-
-			expect(batches).toHaveLength(3);
-			expect(batches[0].transfers.map(one => one.id)).toEqual(['old-1', 'old-2']);
-			expect(batches[0].lot).toBeNull();
-			expect(batches[1].transfers.map(one => one.id)).toEqual(['other']);
-			expect(batches[2].lot).toBe('season-1');
-		});
-
-		it('gives a pull that belongs to no run and no lot a block of its own', async () => {
-			const batches = await batchesOf([
-				transfer({ id: 'alone-1', jobId: null, lot: null }),
-				transfer({ id: 'alone-2', jobId: null, lot: null }),
-			]);
-
-			expect(batches.map(one => one.transfers.map(row => row.id))).toEqual([
-				['alone-1'],
-				['alone-2'],
-			]);
-		});
-
-		it('does not let a pushed frame knock a row out of its block', async () => {
-			// The engine announces a transfer from what it holds about bytes moving and
-			// carries no lot. A row that lost its lot on a state change would jump out of
-			// the block somebody is watching it in.
+		async function load (lots: ReturnType<typeof lot>[]) {
 			stubFetch([{
-				body: {
-					items: [transfer({ id: 't1', jobId: 'job-1', lot: 'season-1' })],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
+				body: { items: lots, pagination: { page: 1, limit: 20, total: lots.length, pages: 1 } },
 			}]);
 
 			const store = useTransfersStore();
 
-			await store.load();
-			connectFakeSocket(pinia);
+			await store.loadLots();
 
-			const { lot: _lot, ...withoutLot } = transfer({
-				id: 't1',
-				jobId: 'job-1',
-				state: TransferState.DONE,
+			return store;
+		}
+
+		it('holds each download whole, with its files flattened for everything else', async () => {
+			const store = await load([
+				lot('season-1', [
+					transfer({ id: 'e1', lot: 'season-1' }),
+					transfer({ id: 'e2', lot: 'season-1' }),
+				]),
+				lot('season-2', [transfer({ id: 'e3', lot: 'season-2' })], 'Scrubs'),
+			]);
+
+			expect(store.lots.map(one => one.transfers.length)).toEqual([2, 1]);
+			expect(store.lots[1].title).toBe('Scrubs');
+			// The flat list is what the progress record, `byId` and the failed count read.
+			expect(store.transfers.map(one => one.id)).toEqual(['e1', 'e2', 'e3']);
+			expect(store.progress.e2).toBeDefined();
+		});
+
+		it('moves a bar inside a card, because the card holds the very object a frame patches',
+			async () => {
+				// The one mistake that would break the live progress without breaking a
+				// rendering test: copying the transfers into the lots instead of holding them.
+				const store = await load([
+					lot('season-1', [transfer({ id: 'e1', lot: 'season-1' })]),
+				]);
+
+				connectFakeSocket(pinia);
+				emitServerEvent(EventName.TRANSFER_STATE, transfer({
+					id: 'e1',
+					lot: 'season-1',
+					state: TransferState.DONE,
+				}));
+
+				expect(store.lots[0].transfers[0].state).toBe(TransferState.DONE);
 			});
 
-			emitServerEvent(EventName.TRANSFER_STATE, withoutLot);
+		it('adds a file the run plans while somebody is watching to the download it belongs to',
+			async () => {
+				/*
+				 * A run plans its files one at a time, so a season being fetched grows on
+				 * screen. Without this the card said `4 files` while the counters said twenty,
+				 * until the page was reloaded.
+				 */
+				const store = await load([
+					lot('season-1', [transfer({ id: 'e1', lot: 'season-1' })]),
+				]);
 
-			expect(store.byId.t1.state).toBe(TransferState.DONE);
-			expect(store.batches[0].lot).toBe('season-1');
+				connectFakeSocket(pinia);
+				emitServerEvent(EventName.TRANSFER_STATE, transfer({ id: 'e2', lot: 'season-1' }));
+
+				expect(store.lots[0].transfers.map(one => one.id)).toEqual(['e1', 'e2']);
+			});
+
+		it('leaves a pushed row that belongs to no download on screen alone', async () => {
+			const store = await load([lot('season-1', [transfer({ id: 'e1', lot: 'season-1' })])]);
+
+			connectFakeSocket(pinia);
+			emitServerEvent(EventName.TRANSFER_STATE, transfer({ id: 'other', lot: 'elsewhere' }));
+
+			expect(store.lots).toHaveLength(1);
+			expect(store.byId.other).toBeDefined();
 		});
+
+		it('takes an archived file out of its download, and an emptied download off the screen',
+			async () => {
+				const store = await load([
+					lot('season-1', [
+						transfer({ id: 'e1', lot: 'season-1' }),
+						transfer({ id: 'e2', lot: 'season-1' }),
+					]),
+					lot('season-2', [transfer({ id: 'e3', lot: 'season-2' })]),
+				]);
+
+				stubFetch([{ body: {} }]);
+				await store.archive('e3');
+
+				expect(store.lots.map(one => one.key)).toEqual(['season-1']);
+
+				stubFetch([{ body: {} }]);
+				await store.archive('e1');
+
+				expect(store.lots[0].transfers.map(one => one.id)).toEqual(['e2']);
+			});
+
+		it('acts on a whole download in one request, and keeps the objects the stream writes to',
+			async () => {
+				/*
+				 * Twenty requests racing each other and the engine is how pressing pause on a
+				 * season answered a column of errors about the files that had finished in
+				 * between. One request, and the answer replaces the card.
+				 */
+				const store = await load([
+					lot('season-1', [transfer({ id: 'e1', lot: 'season-1' })]),
+				]);
+				const held = store.lots[0].transfers[0];
+
+				stubFetch([{
+					body: lot('season-1', [transfer({
+						id: 'e1',
+						lot: 'season-1',
+						state: TransferState.PAUSED,
+					})]),
+				}]);
+
+				await store.pauseLot('season-1');
+
+				expect(store.lots[0].transfers[0]).toBe(held);
+				expect(held.state).toBe(TransferState.PAUSED);
+			});
 	});
 });

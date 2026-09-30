@@ -300,6 +300,8 @@ export const toTransfer = (
 		etaSeconds?: number | null;
 		sources?: TransferSource[];
 		landing?: MediaLandingState | null;
+		seasonNumber?: number | null;
+		episodeNumber?: number | null;
 	} = {},
 ): TransferModel => ({
 	id: transfer.id,
@@ -313,6 +315,8 @@ export const toTransfer = (
 	targetLibraryId: transfer.targetLibraryId ?? null,
 	placedBy: transfer.placedBy ?? null,
 	lot: transfer.lot ?? null,
+	seasonNumber: extra.seasonNumber ?? null,
+	episodeNumber: extra.episodeNumber ?? null,
 	landing: extra.landing ?? null,
 	bytesTotal: bytes(transfer.bytesTotal),
 	bytesDone: bytes(transfer.bytesDone),

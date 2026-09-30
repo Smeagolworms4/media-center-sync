@@ -3,6 +3,7 @@ import {
 	ChunkState,
 	ErrorKey,
 	EventName,
+	lotKeyOf,
 	MediaServiceMode,
 	PlacedBy,
 	TransferErrorKind,
@@ -15,6 +16,7 @@ import type {
 	Revalidation,
 	Transfer,
 	TransferChunk,
+	TransferLot,
 	TransferQueueStats,
 	TransferSort,
 	TransferVerification,
@@ -217,6 +219,180 @@ export class TransferManager implements OnApplicationBootstrap {
 	}
 
 	/**
+	 * One page of **downloads**, each carrying its files.
+	 *
+	 * What the queue screen reads. The file-by-file listing above stays for the dashboard
+	 * and for anything counting rows, but a household does not think in files: it asked
+	 * for a season, and a season is one thing arriving. See `TransferLot` for what it cost
+	 * to answer this from a page of files instead, which is what the interface did — and
+	 * for why the page size is now a number of downloads rather than a number of rows.
+	 */
+	public async lots(query: {
+		page?: number;
+		limit?: number;
+		state?: TransferState;
+		view?: HistoryView;
+		sort?: TransferSort;
+	}): Promise<ResultList<TransferLot>> {
+		const { page, limit } = pageBounds(query.page, query.limit);
+		const [keys, total] = await this._transfers.pageOfLots({
+			page,
+			limit,
+			state: query.state,
+			view: query.view,
+			sort: query.sort,
+		});
+		const presented = await this._present(await this._transfers.findByLotKeys(keys));
+		const titles = await this._lotTitles(presented);
+		const byKey = new Map<string, Transfer[]>();
+
+		for (const transfer of presented) {
+			const key = lotKeyOf(transfer);
+			const held = byKey.get(key);
+
+			if (held === undefined) {
+				byKey.set(key, [transfer]);
+			} else {
+				held.push(transfer);
+			}
+		}
+
+		/*
+		 * Built from the keys and not from the grouping, so the page keeps the order the
+		 * database put the downloads in. Reading the map's own order would order them by
+		 * whichever file happened to come back first, which is creation order — and that is
+		 * a different sort from the one that was asked for.
+		 */
+		const rows = keys.map((key) => {
+			const transfers = byKey.get(key) ?? [];
+
+			return {
+				key,
+				lot: transfers[0]?.lot ?? null,
+				title: titles.get(key) ?? transfers[0]?.title ?? '',
+				transfers,
+			};
+		});
+
+		return paginate(rows, total, page, limit);
+	}
+
+	/**
+	 * What each download is fetching, by lot key.
+	 *
+	 * The show and not the episode. A download's files are episodes, and a card headed
+	 * with the first of them — "Les Schtroumpfs — S01E02 — L'Œuf et les Schtroumpfs" over
+	 * twenty files — reads as one episode with something badly wrong about it.
+	 *
+	 * Resolved by walking the catalogue upwards, in one query per depth for the whole page
+	 * rather than per lot: an episode's parent is a season and its parent is the show, so
+	 * three rounds cover everything we index. The deepest ancestor every file of the lot
+	 * shares is the download; where that is the file itself — a lot of one — the file's own
+	 * title is the honest answer and the title of a season nobody is fetching whole is not.
+	 */
+	private async _lotTitles(transfers: Transfer[]): Promise<Map<string, string>> {
+		const chains = await this._ancestries(transfers.map((transfer) => transfer.itemId));
+		const byKey = new Map<string, string[][]>();
+
+		for (const transfer of transfers) {
+			const chain = chains.get(transfer.itemId) ?? [transfer.title];
+			const key = lotKeyOf(transfer);
+
+			byKey.set(key, [...(byKey.get(key) ?? []), chain]);
+		}
+
+		const titles = new Map<string, string>();
+
+		for (const [key, held] of byKey) {
+			const [first, ...rest] = held;
+			let depth = first.length;
+
+			for (const other of rest) {
+				let index = 0;
+
+				while (index < depth && index < other.length && first[index] === other[index]) {
+					index += 1;
+				}
+
+				depth = index;
+			}
+
+			/*
+			 * The root of what they share rather than the deepest of it, once there is more
+			 * than one file: twenty episodes of one season share the season, and a card
+			 * headed "Saison 1" says less than one headed with the show — the seasons are
+			 * the headings inside it. A single file keeps its own name.
+			 */
+			const shared = held.length === 1 ? first.at(-1) : first.slice(0, depth).at(0);
+
+			if (shared !== undefined && shared !== '') {
+				titles.set(key, shared);
+			}
+		}
+
+		return titles;
+	}
+
+	/**
+	 * The titles from the top of the catalogue down to each media, by identifier.
+	 *
+	 * Bounded at four rounds, which is one more than anything we index needs — show,
+	 * season, episode — because a cycle in `parentId` would otherwise be an endless loop
+	 * in a queue read. A malformed catalogue costs a card headed with less than it could
+	 * be; it must not cost the page.
+	 */
+	private async _ancestries(itemIds: string[]): Promise<Map<string, string[]>> {
+		const unique = [...new Set(itemIds)];
+
+		if (unique.length === 0) {
+			return new Map();
+		}
+
+		const known = new Map<string, { title: string; parentId: string | null }>();
+		let wanted = unique;
+
+		for (let round = 0; round < 4 && wanted.length > 0; round += 1) {
+			const items = await this._items.find({ where: { id: In(wanted) } });
+
+			for (const item of items) {
+				known.set(item.id, { title: item.title, parentId: item.parentId });
+			}
+
+			wanted = [
+				...new Set(
+					items
+						.map((item) => item.parentId)
+						.filter((parentId): parentId is string => parentId !== null && !known.has(parentId)),
+				),
+			];
+		}
+
+		const chains = new Map<string, string[]>();
+
+		for (const itemId of unique) {
+			const chain: string[] = [];
+			let at: string | null = itemId;
+
+			while (at !== null && chain.length < 8) {
+				const item = known.get(at);
+
+				if (item === undefined) {
+					break;
+				}
+
+				chain.unshift(item.title);
+				at = item.parentId;
+			}
+
+			if (chain.length > 0) {
+				chains.set(itemId, chain);
+			}
+		}
+
+		return chains;
+	}
+
+	/**
 	 * The queue counters.
 	 *
 	 * The counts come from the database and the rate from the engine, because neither
@@ -292,6 +468,13 @@ export class TransferManager implements OnApplicationBootstrap {
 	 * transfer they had not noticed.
 	 */
 	public async pauseAll(): Promise<number> {
+		/*
+		 * The state first, the rows second, and in that order on purpose: between the two
+		 * the engine may finish a file and ask for the next, and a gate that was not closed
+		 * yet would let it through — so the queue somebody just stopped starts one more.
+		 */
+		await this._settings.update({ queuePaused: true });
+
 		// Everything not already over, which is the same set `_requireLive` guards one row
 		// with. A queued transfer counts: left alone it starts the moment a slot frees.
 		const live = await this._transfers.find({ where: { state: Not(In(FINISHED)) } });
@@ -315,6 +498,120 @@ export class TransferManager implements OnApplicationBootstrap {
 		}
 
 		return stopped;
+	}
+
+	/**
+	 * Let the queue run again, and everything that was stopped with it.
+	 *
+	 * The counterpart of `pauseAll`, and it exists for the same reason: resuming used to be
+	 * a loop in the browser over the rows it had on screen, so a queue of a hundred and
+	 * eighty-seven files resumed twenty of them — and it resumed them one HTTP call at a
+	 * time, each of which could refuse, which is where the errors came from.
+	 *
+	 * Only what is paused. A failed transfer is resumable and deliberately not resumed
+	 * here: it stopped for a reason, and starting a hundred failures again because somebody
+	 * pressed play is not what they asked.
+	 */
+	public async resumeAll(): Promise<number> {
+		await this._settings.update({ queuePaused: false });
+
+		const paused = await this._transfers.find({ where: { state: TransferState.PAUSED } });
+		let started = 0;
+
+		for (const transfer of paused) {
+			try {
+				await this._engine.resume(transfer.id);
+				started += 1;
+			} catch (error: unknown) {
+				this._logger.warn(`Could not resume ${transfer.title}: ${String(error)}`);
+			}
+		}
+
+		if (started > 0) {
+			this._logger.log(`Resumed ${started} transfers at once`);
+		}
+
+		return started;
+	}
+
+	/**
+	 * One action over a whole download.
+	 *
+	 * Here rather than as a loop in the interface, and that is the fix rather than a
+	 * tidying. A card that pressed pause on twenty files sent twenty requests, each racing
+	 * the others and the engine: a file that finished in between answered `409`, one
+	 * already paused answered `409`, and what somebody saw for pausing a season was a
+	 * column of red notices over a queue that had in fact mostly stopped. One request, one
+	 * answer, and a file it does not apply to is skipped rather than refused — pressing
+	 * pause on a season that is half done means "stop the rest".
+	 *
+	 * Answers the download as it stands afterwards, so the card redraws from the truth
+	 * instead of from twenty guesses.
+	 */
+	public async actOnLot(key: string, action: 'pause' | 'resume' | 'cancel'): Promise<TransferLot> {
+		const transfers = await this._transfers.findByLotKeys([key]);
+
+		if (transfers.length === 0) {
+			throw new NotFoundException(ErrorKey.TRANSFER_NOT_FOUND);
+		}
+
+		for (const transfer of transfers) {
+			if (!this._applies(transfer, action)) {
+				continue;
+			}
+
+			try {
+				await (action === 'pause'
+					? this._engine.pause(transfer.id)
+					: action === 'resume'
+						? this._engine.resume(transfer.id)
+						: this._engine.cancel(transfer.id));
+			} catch (error: unknown) {
+				// Logged and passed over: the intent is to act on the download, and refusing
+				// the lot over one file leaves somebody with half a season stopped and an
+				// error about a file they had not singled out.
+				this._logger.warn(`Could not ${action} ${transfer.title}: ${String(error)}`);
+			}
+		}
+
+		return this.readLot(key);
+	}
+
+	/** One download by its key, as `lots` would have presented it. */
+	public async readLot(key: string): Promise<TransferLot> {
+		const transfers = await this._transfers.findByLotKeys([key]);
+
+		if (transfers.length === 0) {
+			throw new NotFoundException(ErrorKey.TRANSFER_NOT_FOUND);
+		}
+
+		const presented = await this._present(transfers);
+		const titles = await this._lotTitles(presented);
+
+		return {
+			key,
+			lot: presented[0]?.lot ?? null,
+			title: titles.get(key) ?? presented[0]?.title ?? '',
+			transfers: presented,
+		};
+	}
+
+	/**
+	 * Whether an action means anything for this file.
+	 *
+	 * The whole point of a lot action: what is already over is left alone, and a resume
+	 * takes in a failed file because its verified pieces are still on disk.
+	 */
+	private _applies(transfer: TransferEntity, action: 'pause' | 'resume' | 'cancel'): boolean {
+		if (action === 'resume') {
+			return transfer.state === TransferState.PAUSED || transfer.state === TransferState.FAILED;
+		}
+
+		if (action === 'pause') {
+			return !FINISHED.includes(transfer.state) && transfer.state !== TransferState.PAUSED;
+		}
+
+		return transfer.state !== TransferState.DONE && transfer.state !== TransferState.CANCELLED;
 	}
 
 	public async resume(id: string): Promise<Transfer> {
@@ -1127,6 +1424,10 @@ export class TransferManager implements OnApplicationBootstrap {
 			where: { id: In(transfers.map((transfer) => transfer.itemId)) },
 		});
 		const kinds = new Map(items.map((item) => [item.id, item.kind as string]));
+		// Kept as the whole media rather than another three maps: the numbers, the kind and
+		// the parent are all read off it, and a map per field is a map that can fall out of
+		// step with the others.
+		const byId = new Map(items.map((item) => [item.id, item]));
 		// Where each file has got to after its bytes. Read here rather than off the row
 		// because a landing outlives nothing: it is deleted the moment a media server
 		// indexes the file, so there is no column that could hold it in step.
@@ -1138,6 +1439,8 @@ export class TransferManager implements OnApplicationBootstrap {
 			transfers.map(async (transfer) =>
 				toTransfer(transfer, {
 					kind: kinds.get(transfer.itemId),
+					seasonNumber: byId.get(transfer.itemId)?.seasonNumber ?? null,
+					episodeNumber: byId.get(transfer.itemId)?.episodeNumber ?? null,
 					landing: landings.get(transfer.id) ?? null,
 					chunksDone: (await this._chunks.countByState(transfer.id))[ChunkState.DONE],
 					...(this._engine.progressOf(transfer.id) ?? {}),

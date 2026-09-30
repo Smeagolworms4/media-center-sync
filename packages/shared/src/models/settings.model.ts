@@ -168,6 +168,21 @@ export interface Settings {
 	/** How many transfers run at once. */
 	maxParallelTransfers: number;
 	/**
+	 * Whether the queue is stopped, as a state rather than as an act.
+	 *
+	 * Pausing used to be a loop over the rows that existed at that instant, and it did
+	 * not work: the run that is filling the queue keeps planning files, each new one is
+	 * created queued, and the engine starts it — so a household that pressed pause
+	 * watched the counter climb back to seventy-five waiting and the line stay saturated
+	 * at forty-seven megabytes a second. Whatever a loop stops, it cannot stop what does
+	 * not exist yet.
+	 *
+	 * Held here, in the settings, for the same reason it is not held in memory: it has to
+	 * survive a restart. A gateway rebooted while paused that came up pumping would empty
+	 * the disk somebody paused it to protect.
+	 */
+	queuePaused: boolean;
+	/**
 	 * Free space the gateway will not knowingly eat into.
 	 *
 	 * A disk filled to the last byte does not fail politely: the transfer dies at

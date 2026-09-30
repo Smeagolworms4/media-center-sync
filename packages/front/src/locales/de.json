@@ -1379,7 +1379,12 @@
 		},
 		"batch": {
 			"files": "{done} von {total} Dateien",
-			"into": "Nach"
+			"into": "Nach",
+			"no_season": "Ohne Staffel",
+			"per_page": "Downloads pro Seite",
+			"season": "Staffel {number}",
+			"season_files": "{count} Datei | {count} Dateien",
+			"specials": "Spezialfolgen"
 		},
 		"archived": "Aus der Warteschlange entfernt. Die Datei wurde nicht bewegt.",
 		"paused": "Angehalten. Der Client behält, was er bereits geholt hat.",

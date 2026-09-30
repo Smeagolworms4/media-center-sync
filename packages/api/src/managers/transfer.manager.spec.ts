@@ -115,8 +115,18 @@ const transfer = (overrides: Partial<Transfer> = {}): Transfer =>
 		...overrides,
 	}) as Transfer;
 
-const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; fakes: Fakes } => {
+const build = (
+	state = TransferState.DOWNLOADING,
+): { manager: TransferManager; fakes: Fakes; settings: { update: jest.Mock } } => {
 	const row = transfer({ state });
+	const settings = {
+		get: jest
+			.fn()
+			.mockResolvedValue({ diskReserveBytes: 0, defaultTargetPath: '/media/incoming' }),
+		// Pausing the queue writes a setting, because a pause has to outlive the rows it
+		// found: see `Settings.queuePaused`.
+		update: jest.fn().mockResolvedValue({}),
+	};
 	const fakes: Fakes = {
 		transfers: {
 			// Everything still moving, which is what a global pause asks for. Empty by
@@ -242,11 +252,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 		fakes.lines as unknown as SyncJobItemRepository,
 		fakes.libraryManager as unknown as LibraryManager,
 		fakes.landings as unknown as LandingManager,
-		{
-			get: jest
-				.fn()
-				.mockResolvedValue({ diskReserveBytes: 0, defaultTargetPath: '/media/incoming' }),
-		} as unknown as SettingsService,
+		settings as unknown as SettingsService,
 		fakes.mover as unknown as FileMoveService,
 		fakes.filesystem as unknown as FilesystemService,
 		fakes.engine as unknown as TransferEngineService,
@@ -255,7 +261,7 @@ const build = (state = TransferState.DOWNLOADING): { manager: TransferManager; f
 		fakes.serviceManager as unknown as ServiceManager,
 	);
 
-	return { manager, fakes };
+	return { manager, fakes, settings };
 };
 
 describe('TransferManager', () => {
@@ -566,6 +572,38 @@ describe('TransferManager', () => {
 			expect(await manager.pauseAll()).toBe(2);
 			expect(fakes.engine.pause).toHaveBeenCalledWith('t-1');
 			expect(fakes.engine.pause).toHaveBeenCalledWith('t-2');
+		});
+
+		it('closes the queue before it stops the rows, so nothing starts behind it', async () => {
+			/*
+			 * The half that the loop could never do, and the reason a household watched the
+			 * counter climb back to seventy-five waiting at forty-seven megabytes a second
+			 * after pressing pause: a run goes on planning files while the queue is stopped,
+			 * and each new one is created queued and started. The state comes first because
+			 * between the two the engine may finish a file and ask for the next.
+			 */
+			const { manager, fakes, settings } = build(TransferState.DOWNLOADING);
+
+			fakes.transfers.find.mockResolvedValue([]);
+
+			await manager.pauseAll();
+
+			expect(settings.update).toHaveBeenCalledWith({ queuePaused: true });
+		});
+
+		it('lifts it again, and starts what was paused rather than what had failed', async () => {
+			// A failed transfer is resumable and deliberately not resumed here: it stopped for
+			// a reason, and starting a hundred failures again is not what play means.
+			const { manager, fakes, settings } = build(TransferState.PAUSED);
+
+			fakes.transfers.find.mockResolvedValue([transfer({ id: 't-1', state: TransferState.PAUSED })]);
+
+			expect(await manager.resumeAll()).toBe(1);
+			expect(settings.update).toHaveBeenCalledWith({ queuePaused: false });
+			expect(fakes.engine.resume).toHaveBeenCalledWith('t-1');
+			expect(fakes.transfers.find).toHaveBeenCalledWith({
+				where: { state: TransferState.PAUSED },
+			});
 		});
 
 		it('leaves one that is already paused alone', async () => {

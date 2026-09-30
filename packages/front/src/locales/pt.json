@@ -1379,7 +1379,12 @@
 		},
 		"batch": {
 			"files": "{done} de {total} ficheiros",
-			"into": "Para"
+			"into": "Para",
+			"no_season": "Sem temporada",
+			"per_page": "Transferências por página",
+			"season": "Temporada {number}",
+			"season_files": "{count} ficheiro | {count} ficheiros",
+			"specials": "Especiais"
 		},
 		"archived": "Retirado da fila. O ficheiro não se moveu.",
 		"paused": "Em pausa. O cliente mantém o que já obteve.",

@@ -1277,6 +1277,34 @@ describe('pages/SettingsShares', () => {
 });
 
 describe('pages/Transfers actions', () => {
+	/** The one file this queue holds, named so both reads of it stay the same file. */
+	const row = {
+		id: 't1',
+		jobId: null,
+		itemId: 'm1',
+		contentId: null,
+		title: 'Pilot',
+		kind: 'episode',
+		state: 'downloading',
+		targetPath: '/media/shows/pilot.mkv',
+		bytesTotal: 1000,
+		bytesDone: 100,
+		rate: 10,
+		etaSeconds: 30,
+		sources: [],
+		chunkSize: 100,
+		chunksTotal: 10,
+		chunksDone: 1,
+		error: null,
+		errorKind: null,
+		chunksRepaired: 0,
+		lastVerifiedAt: null,
+		startedAt: null,
+		finishedAt: null,
+		createdAt: '2026-01-01T00:00:00.000Z',
+		updatedAt: '2026-01-01T00:00:00.000Z',
+	};
+
 	const base = {
 		'/api/libraries/check': { body: [] },
 		'/api/libraries': { body: [{ ...library, writable: true }] },
@@ -1287,32 +1315,17 @@ describe('pages/Transfers actions', () => {
 		'/api/transfers/t1/pause': { body: { id: 't1', state: 'paused' } },
 		'/api/transfers': {
 			body: {
-				items: [{
-					id: 't1',
-					jobId: null,
-					itemId: 'm1',
-					contentId: null,
-					title: 'Pilot',
-					kind: 'episode',
-					state: 'downloading',
-					targetPath: '/media/shows/pilot.mkv',
-					bytesTotal: 1000,
-					bytesDone: 100,
-					rate: 10,
-					etaSeconds: 30,
-					sources: [],
-					chunkSize: 100,
-					chunksTotal: 10,
-					chunksDone: 1,
-					error: null,
-					errorKind: null,
-					chunksRepaired: 0,
-					lastVerifiedAt: null,
-					startedAt: null,
-					finishedAt: null,
-					createdAt: '2026-01-01T00:00:00.000Z',
-					updatedAt: '2026-01-01T00:00:00.000Z',
-				}],
+				items: [row],
+				pagination: { page: 1, limit: 20, total: 1, pages: 1 },
+			},
+		},
+		/*
+		 * The queue screen reads downloads and not files. A download of one file is drawn as
+		 * a row rather than folded, which is what the tests below press on.
+		 */
+		'/api/transfers/lots': {
+			body: {
+				items: [{ key: 't1', lot: null, title: 'Pilot', transfers: [row] }],
 				pagination: { page: 1, limit: 20, total: 1, pages: 1 },
 			},
 		},

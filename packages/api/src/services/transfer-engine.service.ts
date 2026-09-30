@@ -311,11 +311,25 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 		});
 
 		for (const transfer of resumable) {
+			if (transfer.state === TransferState.PAUSED) {
+				continue;
+			}
+
+			/*
+			 * A gateway that comes up on a paused queue comes up paused. What was mid-flight
+			 * is recorded as paused rather than left queued behind the gate: it is what the
+			 * household asked for, and a row reading `queued` that nothing will ever start
+			 * is the kind of stall somebody spends an evening looking for.
+			 */
+			if (settings.queuePaused) {
+				await this._setState(transfer.id, TransferState.PAUSED);
+
+				continue;
+			}
+
 			// A transfer that was mid-flight is queued, not marked failed: nothing about
 			// it is wrong, the process simply stopped.
-			if (transfer.state !== TransferState.PAUSED) {
-				this._queue.push(transfer.id);
-			}
+			this._queue.push(transfer.id);
 		}
 
 		if (resumable.length > 0) {
@@ -331,6 +345,20 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			this._starting.has(transferId) ||
 			this._queue.includes(transferId)
 		) {
+			return;
+		}
+
+		/*
+		 * Paused outright rather than queued behind the pause, because a run goes on
+		 * planning files while the queue is stopped and each of them arrives here. Left
+		 * queued they are honest about nothing: the screen said "seventy-five waiting"
+		 * under a banner saying the queue was paused, which reads as a pause that failed —
+		 * and it also meant that resuming started seventy-five transfers somebody had
+		 * never seen, instead of the twenty-six they had paused.
+		 */
+		if ((await this._settings.get()).queuePaused) {
+			await this._setState(transferId, TransferState.PAUSED);
+
 			return;
 		}
 
@@ -500,6 +528,17 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 			const settings = await this._settings.get();
 
 			this._limiter.limit = settings.downloadRateLimit;
+
+			/*
+			 * The one place a paused queue is enforced rather than described. Everything else
+			 * — the button, the rows, the banner — is a consequence of this line: a pause
+			 * implemented by walking the rows stops what exists at that instant and nothing
+			 * that arrives a second later, which is why the line stayed saturated after
+			 * somebody pressed it. See `Settings.queuePaused`.
+			 */
+			if (settings.queuePaused) {
+				return;
+			}
 
 			while (
 				this._running.size + this._starting.size < settings.maxParallelTransfers &&

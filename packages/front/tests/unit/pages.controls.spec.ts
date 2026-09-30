@@ -357,6 +357,27 @@ const ROUTES: Record<string, { status?: number; body?: unknown }> = {
 	'/api/transfers/t1/cancel': { body: transfer },
 	'/api/transfers/t1/retry': { body: transfer },
 	'/api/transfers': { body: { items: [transfer], pagination: { page: 1, limit: 20, total: 1, pages: 1 } } },
+	/*
+	 * The queue screen reads downloads and not files: a season is one entry carrying every
+	 * one of its files. Both are stubbed from the same row, because the counters still read
+	 * files.
+	 */
+	'/api/transfers/lots': {
+		body: {
+			items: [{ key: 't1', lot: null, title: 'Pilot', transfers: [transfer] }],
+			pagination: { page: 1, limit: 20, total: 1, pages: 1 },
+		},
+	},
+	'/api/transfers/lots/t1/pause': {
+		body: { key: 't1', lot: null, title: 'Pilot', transfers: [transfer] },
+	},
+	'/api/transfers/lots/t1/resume': {
+		body: { key: 't1', lot: null, title: 'Pilot', transfers: [transfer] },
+	},
+	'/api/transfers/lots/t1/cancel': {
+		body: { key: 't1', lot: null, title: 'Pilot', transfers: [transfer] },
+	},
+	'/api/transfers/resume': { body: { resumed: 1 } },
 	'/api/shares/audit/p1': { body: { peerId: 'p1', peerName: 'Bob', trust: 'friend', libraries: [{ libraryId: 'l1', name: 'Shows', itemCount: 10 }] } },
 	'/api/shares/l1': { body: policy },
 	'/api/shares': { body: [policy] },

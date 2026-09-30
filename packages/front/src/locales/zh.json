@@ -1379,7 +1379,12 @@
 		},
 		"batch": {
 			"files": "{total} 个文件中的 {done} 个",
-			"into": "到"
+			"into": "到",
+			"no_season": "无季",
+			"per_page": "每页下载数",
+			"season": "第 {number} 季",
+			"season_files": "{count} 个文件",
+			"specials": "特别篇"
 		},
 		"archived": "已从队列移除。文件没有动。",
 		"paused": "已暂停。客户端会保留已经取得的部分。",

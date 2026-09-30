@@ -949,7 +949,33 @@ describe('pages/Transfers', () => {
 		'/api/services': { body: [] },
 		'/api/transfers/stats': EMPTY_STATS,
 		'/api/transfers': EMPTY_LIST,
+		'/api/transfers/lots': EMPTY_LIST,
 	};
+
+	/**
+	 * The queue as the screen reads it: downloads, each carrying its files.
+	 *
+	 * A page is a number of downloads and not a number of rows, so a season can no longer
+	 * be cut in half by a page boundary. The file list is stubbed alongside because the
+	 * counters and the dashboard still read files — and from the same rows, so a test cannot
+	 * describe two different queues.
+	 */
+	const queue = (items: Record<string, unknown>[]) => ({
+		'/api/transfers': {
+			body: { items, pagination: { page: 1, limit: 20, total: items.length, pages: 1 } },
+		},
+		'/api/transfers/lots': {
+			body: {
+				items: items.map(one => ({
+					key: String(one.id),
+					lot: null,
+					title: String(one.title ?? ''),
+					transfers: [one],
+				})),
+				pagination: { page: 1, limit: 20, total: items.length, pages: 1 },
+			},
+		},
+	});
 
 	it('shows the empty state when nothing is being pulled', async () => {
 		stubFetchRoutes(base);
@@ -963,16 +989,11 @@ describe('pages/Transfers', () => {
 	it('offers another source for a transfer whose source is gone', async () => {
 		stubFetchRoutes({
 			...base,
-			'/api/transfers': {
-				body: {
-					items: [transfer({
-						state: TransferState.FAILED,
-						errorKind: TransferErrorKind.SOURCE_GONE,
-						error: 'error.sync.no_source',
-					})],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			...queue([transfer({
+				state: TransferState.FAILED,
+				errorKind: TransferErrorKind.SOURCE_GONE,
+				error: 'error.sync.no_source',
+			})]),
 		});
 		const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
 		await settle();
@@ -987,12 +1008,7 @@ describe('pages/Transfers', () => {
 	it('offers another library for a transfer that ran out of room', async () => {
 		stubFetchRoutes({
 			...base,
-			'/api/transfers': {
-				body: {
-					items: [transfer({ state: TransferState.FAILED, errorKind: TransferErrorKind.DISK_FULL })],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			...queue([transfer({ state: TransferState.FAILED, errorKind: TransferErrorKind.DISK_FULL })]),
 		});
 		const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
 		await settle();
@@ -1006,12 +1022,7 @@ describe('pages/Transfers', () => {
 			'/api/transfers/stats': {
 				body: { active: 0, queued: 0, paused: 1, failed: 0, rate: 0, bytesRemaining: 500 },
 			},
-			'/api/transfers': {
-				body: {
-					items: [transfer({ state: TransferState.PAUSED })],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			...queue([transfer({ state: TransferState.PAUSED })]),
 		});
 		const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
 		await settle();
@@ -1032,7 +1043,7 @@ describe('pages/Transfers', () => {
 		const queueCalls = (stub: { mock: { calls: unknown[][] } }): string[] =>
 			stub.mock.calls
 				.map(call => String(typeof call[0] === 'string' ? call[0] : (call[0] as any)?.url ?? ''))
-				.filter(url => url.includes('/api/transfers?') || /\/api\/transfers$/.test(url));
+				.filter(url => url.includes('/api/transfers/lots'));
 
 		it('asks for the live half, not for everything', async () => {
 			const stub = stubFetchRoutes(base);
@@ -1084,12 +1095,7 @@ describe('pages/Transfers', () => {
 		it('tells a non-empty live list that the rest is elsewhere', async () => {
 			stubFetchRoutes({
 				...base,
-				'/api/transfers': {
-					body: {
-						items: [transfer({ state: TransferState.DOWNLOADING })],
-						pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-					},
-				},
+				...queue([transfer({ state: TransferState.DOWNLOADING })]),
 			});
 			const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
 			await settle();
@@ -1101,17 +1107,12 @@ describe('pages/Transfers', () => {
 	it('says how many sources are feeding one file without being expanded', async () => {
 		stubFetchRoutes({
 			...base,
-			'/api/transfers': {
-				body: {
-					items: [transfer({
-						sources: [
-							{ serviceId: 's1', serviceName: 'A', peerId: null, peerName: null, transport: 'swarm', rate: 1, bytesDone: 1, connections: 1, healthy: true },
-							{ serviceId: 's2', serviceName: 'B', peerId: 'p1', peerName: 'Bob', transport: 'swarm', rate: 1, bytesDone: 1, connections: 1, healthy: false },
-						],
-					})],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			...queue([transfer({
+				sources: [
+					{ serviceId: 's1', serviceName: 'A', peerId: null, peerName: null, transport: 'swarm', rate: 1, bytesDone: 1, connections: 1, healthy: true },
+					{ serviceId: 's2', serviceName: 'B', peerId: 'p1', peerName: 'Bob', transport: 'swarm', rate: 1, bytesDone: 1, connections: 1, healthy: false },
+				],
+			})]),
 		});
 		const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
 		await settle();

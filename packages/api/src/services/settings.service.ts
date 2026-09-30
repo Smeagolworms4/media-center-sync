@@ -52,6 +52,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	writeNfo: false,
 	preferSourceMetadata: false,
 	maxParallelTransfers: 3,
+	queuePaused: false,
 	// Five gigabytes, which is roughly one film and comfortably more than the
 	// companions, the thumbnails and the filesystem's own bookkeeping. Low enough that
 	// it does not refuse a run on a modest disk, high enough that a library filled to

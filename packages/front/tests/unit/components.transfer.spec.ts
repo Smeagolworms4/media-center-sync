@@ -605,6 +605,20 @@ describe('components/transfer/TransferBatch', () => {
 		sourceCount: 1,
 	});
 
+	/**
+	 * The download the card is given, which is what the gateway answers.
+	 *
+	 * A title of its own, because that is the fix it carries: the card used to head itself
+	 * with its first file — "Spartacus — S02E09 — Monstres" over eleven episodes — which
+	 * reads as one episode with something wrong about it.
+	 */
+	const download = (transfers: Transfer[], title = 'Spartacus') => ({
+		key: 'lot-1',
+		lot: 'lot-1',
+		title,
+		transfers,
+	});
+
 	const season = (): Transfer[] => [
 		transfer({
 			id: 't1',
@@ -626,7 +640,7 @@ describe('components/transfer/TransferBatch', () => {
 
 	it('adds the files up into one percentage and one size', () => {
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers: season(), progress },
+			props: { lot: download(season()), progress },
 			global: { stubs: tooltipStub },
 		});
 
@@ -638,7 +652,7 @@ describe('components/transfer/TransferBatch', () => {
 	it('names the folder the whole run shares, once', () => {
 		// Eleven lines saying the same folder are eleven lines nobody reads.
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers: season(), progress },
+			props: { lot: download(season()), progress },
 			global: { stubs: tooltipStub },
 		});
 
@@ -651,10 +665,10 @@ describe('components/transfer/TransferBatch', () => {
 		// `/share/Media`, which is how a run reports a folder it is not going to.
 		const { wrapper } = mountWithApp(TransferBatch, {
 			props: {
-				transfers: [
+				lot: download([
 					transfer({ id: 't1', jobId: 'j', targetPath: '/share/Media/a.mkv' }),
 					transfer({ id: 't2', jobId: 'j', targetPath: '/share/Media2/b.mkv' }),
-				],
+				]),
 				progress,
 			},
 			global: { stubs: tooltipStub },
@@ -665,31 +679,108 @@ describe('components/transfer/TransferBatch', () => {
 
 	it('keeps the files out of sight until somebody asks for them', () => {
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers: season(), progress },
+			props: { lot: download(season()), progress },
 			global: { stubs: tooltipStub },
 		});
 
 		expect(wrapper.findAllComponents({ name: 'TransferRow' })).toHaveLength(0);
 	});
 
-	it('acts on every file the action still makes sense for', async () => {
+	it('asks for the whole download in one act, rather than once per file', async () => {
 		/*
-		 * A finished file is skipped rather than refused: pressing pause on a season
-		 * that is half done means "stop the rest", and an error about the four that
-		 * already landed answers a question nobody asked.
+		 * The card used to emit one action per file, and the page answered with one request
+		 * each: twenty requests racing each other and the engine, so pausing a season came
+		 * back as a column of errors about the files that had finished in between. Which
+		 * files it applies to is the gateway's to decide — pressing pause on a season that
+		 * is half done means "stop the rest".
 		 */
 		const transfers = [
 			...season(),
 			transfer({ id: 't3', jobId: 'job-1', state: TransferState.DONE }),
 		];
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers, progress },
+			props: { lot: download(transfers), progress },
 			global: { stubs: tooltipStub },
 		});
 
 		await wrapper.find('[data-test="transfer-batch-pause"]').trigger('click');
 
-		expect(wrapper.emitted('action')).toHaveLength(2);
+		expect(wrapper.emitted('action')).toBeUndefined();
+		expect(wrapper.emitted('lot-action')?.[0]).toEqual(['pause', 'lot-1']);
+	});
+
+	it('heads itself with the show and not with its first episode', () => {
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(season()), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-title"]').text()).toBe('Spartacus');
+	});
+
+	it('groups the episodes by season, and names the folder each season lands in', async () => {
+		/*
+		 * Asked for in those words. Twenty files under one card is a list nobody reads;
+		 * four seasons of five is the shape of the thing on the disk. The number comes from
+		 * the catalogue and never from the title — see `Transfer.seasonNumber`.
+		 */
+		const transfers = [
+			transfer({
+				id: 't1',
+				seasonNumber: 2,
+				episodeNumber: 9,
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 02/S02E09.mkv',
+			}),
+			transfer({
+				id: 't2',
+				seasonNumber: 1,
+				episodeNumber: 1,
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 01/S01E01.mkv',
+			}),
+		];
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(transfers), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+
+		const headings = wrapper.findAll('[data-test="transfer-batch-season"]');
+
+		// Season order, which is not the order a pack's files were planned in.
+		expect(headings.map(one => one.text())).toEqual([
+			expect.stringContaining('Season 1'),
+			expect.stringContaining('Season 2'),
+		]);
+		expect(wrapper.findAll('[data-test="transfer-batch-season-folder"]').map(one => one.text()))
+			.toEqual(['Season 01', 'Season 02']);
+	});
+
+	it('draws no season heading over a download that has no season', async () => {
+		// A film, or a single episode: a heading over one group is a frame around nothing.
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(season()), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+
+		expect(wrapper.find('[data-test="transfer-batch-season"]').exists()).toBe(false);
+	});
+
+	it('offers to start a download again once every file of it is stopped', async () => {
+		// And not while one is still moving: a play button on a season that is running is a
+		// button that appears to do nothing.
+		const stopped = season().map(one => ({ ...one, state: TransferState.PAUSED }));
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(stopped), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-resume"]').trigger('click');
+
+		expect(wrapper.emitted('lot-action')?.[0]).toEqual(['resume', 'lot-1']);
+		expect(wrapper.find('[data-test="transfer-batch-pause"]').exists()).toBe(false);
 	});
 
 	it('asks for the whole run when the destination is changed, not one file', async () => {
@@ -697,7 +788,7 @@ describe('components/transfer/TransferBatch', () => {
 		// which is the state somebody pressing this is trying to get out of.
 		const transfers = season();
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers, progress },
+			props: { lot: download(transfers), progress },
 			global: { stubs: tooltipStub },
 		});
 
@@ -716,7 +807,7 @@ describe('components/transfer/TransferBatch', () => {
 		const [tonight, lastNight] = season();
 		const transfers = [tonight, { ...lastNight, jobId: 'job-0', state: TransferState.DONE }];
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers, progress },
+			props: { lot: download(transfers), progress },
 			global: { stubs: tooltipStub },
 		});
 
@@ -734,7 +825,7 @@ describe('components/transfer/TransferBatch', () => {
 		 */
 		const landed = season().map(one => ({ ...one, state: TransferState.DONE }));
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers: landed, progress },
+			props: { lot: download(landed), progress },
 			global: { stubs: tooltipStub },
 		});
 
@@ -755,7 +846,7 @@ describe('components/transfer/TransferBatch', () => {
 			landing: MediaLandingState.WAITING,
 		}));
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers: waiting, progress },
+			props: { lot: download(waiting), progress },
 			global: { stubs: tooltipStub },
 		});
 		const card = wrapper.find('[data-test="transfer-batch"]');
@@ -775,7 +866,7 @@ describe('components/transfer/TransferBatch', () => {
 			bytesDone: 1000,
 		}));
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers: indexed, progress },
+			props: { lot: download(indexed), progress },
 			global: { stubs: tooltipStub },
 		});
 
@@ -792,7 +883,7 @@ describe('components/transfer/TransferBatch', () => {
 			{ ...second, state: TransferState.DONE, landing: MediaLandingState.STALE },
 		];
 		const { wrapper } = mountWithApp(TransferBatch, {
-			props: { transfers, progress },
+			props: { lot: download(transfers), progress },
 			global: { stubs: tooltipStub },
 		});
 

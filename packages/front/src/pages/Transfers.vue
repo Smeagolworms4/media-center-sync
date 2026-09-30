@@ -118,6 +118,14 @@
 	const failed = ref(false);
 	const busyId = ref<string | null>(null);
 	/**
+	 * The download an action is running on, which is not one of its files.
+	 *
+	 * Its own reference rather than `busyId` set to something: a download's key is a lot
+	 * and a file's is an identifier, and one field holding either would eventually disable
+	 * the wrong card.
+	 */
+	const busyKey = ref<string | null>(null);
+	/**
 	 * What is being sent elsewhere: one file, or a whole run.
 	 *
 	 * The same dialog for both because it is the same question, and because a run
@@ -235,7 +243,13 @@
 		failed.value = false;
 		try {
 			await Promise.all([
-				transfersStore.load({
+				/*
+				 * Downloads and not files. The page size is therefore a number of downloads:
+				 * twenty entries may be four hundred files, and that is the point — a season
+				 * is one entry, so it can no longer be cut in half by a page boundary the way
+				 * it was.
+				 */
+				transfersStore.loadLots({
 					// The pagination control counts from zero; the API counts from one.
 					page: (page.value ?? 0) + 1,
 					limit: limit.value ?? 20,
@@ -372,14 +386,11 @@
 	});
 
 	/**
-	 * The queue as downloads rather than as files — the store's grouping, not a second
-	 * one. See `QueueBatch`: the lot decides, the run is its fallback for rows written
-	 * before the lot was recorded.
+	 * The queue as downloads rather than as files — the gateway's grouping, not this
+	 * screen's. See `TransferLot`: a download arrives whole, every file of it, whatever page
+	 * those files would have fallen on.
 	 */
-	const batches = computed(() => transfersStore.batches);
-
-	const pausedTransfers = computed(
-		() => transfers.value.filter(one => one.state === TransferState.PAUSED));
+	const batches = computed(() => transfersStore.lots);
 
 	/**
 	 * A queue that is entirely paused is a state, not an empty one: nothing moves,
@@ -389,12 +400,18 @@
 	const queuePaused = computed(
 		() => transfersStore.stats.paused > 0 && transfersStore.stats.active === 0);
 
+	/**
+	 * One request, and not a loop over the rows this page happens to be showing.
+	 *
+	 * That loop was the bug: a queue of a hundred and eighty-seven files resumed the twenty
+	 * on screen, one call at a time, and every row whose state had moved in between answered
+	 * an error nobody could act on. The queue's own pause is a state on the gateway now, so
+	 * this is what lifts it.
+	 */
 	const resumeAll = tryCallback(async () => {
 		resumingAll.value = true;
 		try {
-			for (const transfer of pausedTransfers.value) {
-				await transfersStore.resume(transfer.id);
-			}
+			await transfersStore.resumeAll();
 			void notify('transfer.resumed_all');
 		} finally {
 			resumingAll.value = false;
@@ -504,6 +521,28 @@
 			}
 		} finally {
 			busyId.value = null;
+		}
+	});
+
+	/**
+	 * One action over a whole download, in one request.
+	 *
+	 * The card used to loop over its files and this page used to answer with one call each:
+	 * twenty requests racing each other and the engine, so pausing a season came back as a
+	 * column of notices about the files that had finished in between — which is what
+	 * somebody saw for pressing pause. The gateway decides per file which the action
+	 * applies to, and skips the ones it does not.
+	 */
+	const handleLot = tryCallback(async (action: 'pause' | 'resume' | 'cancel', key: string) => {
+		busyKey.value = key;
+		try {
+			await (action === 'pause'
+				? transfersStore.pauseLot(key)
+				: (action === 'resume'
+					? transfersStore.resumeLot(key)
+					: transfersStore.cancelLot(key)));
+		} finally {
+			busyKey.value = null;
 		}
 	});
 
@@ -826,7 +865,7 @@
 				<v-btn
 					color="primary"
 					data-test="transfer-resume-all"
-					:disabled="pausedTransfers.length === 0"
+					:disabled="transfersStore.stats.paused === 0"
 					:loading="resumingAll"
 					prepend-icon="mdi-play"
 					size="small"
@@ -943,7 +982,7 @@
 
 				<template v-for="batch of batches" :key="batch.key">
 					<!--
-						A run of one file is not folded: a single row inside a container
+						A download of one file is not folded: a single row inside a container
 						saying "one file" is a frame around nothing.
 					-->
 					<TransferRow
@@ -957,21 +996,28 @@
 					<TransferBatch
 						v-else
 						:busy-id="busyId"
+						:busy-key="busyKey"
+						:lot="batch"
 						:progress="progressOf"
-						:transfers="batch.transfers"
 						@action="handle"
+						@lot-action="handleLot"
 						@retarget="retargetBatch"
 					/>
 				</template>
 			</div>
 
+			<!--
+				Downloads and not rows, which is why the label says so: a page of twenty here
+				can be four hundred files. The total said `187` for nine downloads before, and
+				the pages it offered cut seasons in half.
+			-->
 			<Pagination
-				v-if="transfers.length > 0"
+				v-if="batches.length > 0"
 				v-model:limit="limitModel"
 				v-model:page="pageModel"
 				class="mt-2"
-				:label="$t('components.paginate.table.lines_per_page')"
-				:total="transfersStore.pagination.total"
+				:label="$t('transfer.batch.per_page')"
+				:total="transfersStore.lotsPagination.total"
 			/>
 
 			<p

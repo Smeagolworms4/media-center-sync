@@ -5,6 +5,7 @@ import type {
 	Revalidation,
 	Transfer,
 	TransferChunk,
+	TransferLot,
 	TransferProgress,
 	TransferQueueStats,
 	TransferSort,
@@ -12,7 +13,7 @@ import type {
 	TransferVerification,
 	UnconfiguredPlacement,
 } from '@mcs/shared';
-import { EventName } from '@mcs/shared';
+import { EventName, lotKeyOf } from '@mcs/shared';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { useCaller } from '@/hooks/useCaller';
@@ -46,44 +47,23 @@ export interface TransferQuery {
 }
 
 /**
- * One block on the queue screen: the files of one download.
+ * A query as a suffix, with only what was actually asked for.
  *
- * `lot` is null for a block that is not one — a legacy row, or a run from a gateway
- * that does not send the lot yet — and the screen has nothing to do differently about
- * it, which is the point of carrying it rather than re-deriving it.
+ * An empty parameter is not the same as none: `?state=` reads as a state nobody has, and a
+ * gateway validating it answers a `400` for a filter somebody cleared.
  */
-export interface QueueBatch {
-	key: string;
-	lot: string | null;
-	transfers: Transfer[];
-}
+function queryString (query: TransferQuery): string {
+	const params = new URLSearchParams();
 
-/**
- * What a transfer is grouped under, and why it is asked in this order.
- *
- * The lot first, because the lot is the download: a season is one block whichever runs
- * pulled it, which is the whole complaint — a season fetched over three nights read as
- * three unrelated blocks going to the same folder, and the episodes that had already
- * landed looked like somebody else's work.
- *
- * `jobId` second, and only as a fallback. A gateway upgrading in place has a table full
- * of transfers whose lot is null, and grouping those on the lot would fuse every
- * download in its history into one nameless block. The run is the best answer that
- * exists for them, and it is the answer the screen gave before lots existed.
- *
- * The identifier last: a transfer belonging to no run and no lot is its own block, which
- * is what a single pull is.
- */
-function keyOf (transfer: Transfer): { key: string; lot: string | null } {
-	const lot = transfer.lot ?? null;
-
-	if (lot !== null) {
-		return { key: `lot:${lot}`, lot };
+	for (const [key, value] of Object.entries(query)) {
+		if (value !== undefined && value !== null && value !== '') {
+			params.set(key, String(value));
+		}
 	}
 
-	const run = transfer.jobId;
+	const encoded = params.toString();
 
-	return { key: run === null ? `one:${transfer.id}` : `job:${run}`, lot: null };
+	return encoded ? `?${encoded}` : '';
 }
 
 /** A transfer the list does not hold yet has to show something before its first frame. */
@@ -157,47 +137,22 @@ export const useTransfersStore = defineStore('transfers', () => {
 	const failed = computed(() => transfers.value.filter(one => one.errorKind !== null));
 
 	/**
-	 * The queue as downloads rather than as files.
+	 * The queue as downloads rather than as files, as the gateway groups them.
 	 *
-	 * Fetching a season produced eleven rows, each with its own destination and its own
-	 * three buttons, so "how far is Spartacus" was eleven numbers to add up. One download
-	 * is one piece of work; the files are its detail.
+	 * Not derived here any more, and that is the fix. Grouping whatever a page of twenty
+	 * files happened to contain meant a season of twenty-two arrived as two blocks on two
+	 * pages: its progress was two percentages, stopping it was two cards, and a queue of
+	 * nine downloads announced a hundred and eighty-seven rows. The gateway paginates on
+	 * the download now — see `TransferLot` — so a page is nine downloads and each carries
+	 * every one of its files, whatever page they would have fallen on.
 	 *
-	 * Here rather than on the page because it is derived state and nothing else: the page
-	 * renders it, and a second screen wanting the same blocks — or a test wanting to know
-	 * that a row from before the lot existed still ends up in a readable one — would
-	 * otherwise have to reimplement the fallback chain in `keyOf` and get it subtly
-	 * different.
-	 *
-	 * **Grouped over what the page holds**, deliberately. Paginating by download instead
-	 * would give a page of one block and a page of eighty, and a screen that cannot say
-	 * how many rows it will draw. A download longer than a page therefore shows as two
-	 * blocks; sorting by activity keeps its files adjacent, since they were created in one
-	 * act. First appearance decides the order, so the blocks follow the sort the list was
-	 * asked for.
+	 * The files inside are the very objects held in `transfers`, not copies: a frame off
+	 * the stream patches one object and both the flat list and the card it is drawn in see
+	 * it. Replacing them with copies here is the one change that would break the live
+	 * progress without breaking a single test.
 	 */
-	const batches = computed<QueueBatch[]>(() => {
-		const grouped: QueueBatch[] = [];
-		const byKey = new Map<string, QueueBatch>();
-
-		for (const transfer of transfers.value) {
-			const { key, lot } = keyOf(transfer);
-			const batch = byKey.get(key);
-
-			if (batch === undefined) {
-				const created: QueueBatch = { key, lot, transfers: [transfer] };
-
-				byKey.set(key, created);
-				grouped.push(created);
-
-				continue;
-			}
-
-			batch.transfers.push(transfer);
-		}
-
-		return grouped;
-	});
+	const lots = ref<TransferLot[]>([]);
+	const lotsPagination = ref<Pagination>({ ...EMPTY_PAGINATION });
 
 	function seedProgress (list: Transfer[]): void {
 		const next: Record<string, TransferProgress> = {};
@@ -233,6 +188,17 @@ export const useTransfersStore = defineStore('transfers', () => {
 			});
 		} else {
 			transfers.value = [transfer, ...transfers.value];
+			/*
+			 * Into the download it belongs to, when this screen is holding it. A run plans
+			 * its files one at a time, so a season being fetched grows while somebody
+			 * watches it — and without this the card kept saying `4 files` while the queue
+			 * counted twenty, until the page was reloaded.
+			 */
+			const lot = lots.value.find(one => one.key === lotKeyOf(transfer));
+
+			if (lot !== undefined) {
+				lot.transfers = [...lot.transfers, transfers.value[0]];
+			}
 		}
 		progress.value[transfer.id] = progress.value[transfer.id]
 			? Object.assign(progress.value[transfer.id], progressOf(transfer))
@@ -243,25 +209,8 @@ export const useTransfersStore = defineStore('transfers', () => {
 		loading.value = true;
 		error.value = null;
 		try {
-			const params = new URLSearchParams();
-			if (query.page !== undefined) {
-				params.set('page', String(query.page));
-			}
-			if (query.limit !== undefined) {
-				params.set('limit', String(query.limit));
-			}
-			if (query.state) {
-				params.set('state', query.state);
-			}
-			if (query.view) {
-				params.set('view', query.view);
-			}
-			if (query.sort) {
-				params.set('sort', query.sort);
-			}
-			const serialized = params.toString();
 			const result = await caller('api').get<ResultList<Transfer>>(
-				`/transfers${serialized ? `?${serialized}` : ''}`,
+				`/transfers${queryString(query)}`,
 				{ keepLastKey: 'transfers|list' },
 			);
 			transfers.value = result?.items ?? [];
@@ -275,6 +224,83 @@ export const useTransfersStore = defineStore('transfers', () => {
 		} finally {
 			loading.value = false;
 		}
+	}
+
+	/**
+	 * One page of downloads, which is what the queue screen reads.
+	 *
+	 * `load` above is kept for the dashboard and for anything counting rows: the two
+	 * questions are different, and answering "what has failed" out of a page of downloads
+	 * would mean fetching every file of every one of them to look inside.
+	 *
+	 * The flat list is filled from the same objects so that everything already built on it
+	 * — the progress record, `byId`, the stream patching a row in place — goes on working
+	 * untouched.
+	 */
+	async function loadLots (query: TransferQuery = {}): Promise<ResultList<TransferLot>> {
+		loading.value = true;
+		error.value = null;
+
+		try {
+			const result = await caller('api').get<ResultList<TransferLot>>(
+				`/transfers/lots${queryString(query)}`,
+				{ keepLastKey: 'transfers|lots' },
+			);
+
+			lots.value = result?.items ?? [];
+			lotsPagination.value = result?.pagination ?? { ...EMPTY_PAGINATION };
+			transfers.value = lots.value.flatMap(one => one.transfers);
+			seedProgress(transfers.value);
+			loaded.value = true;
+
+			return result;
+		} catch (loadError) {
+			error.value = loadError;
+
+			throw loadError;
+		} finally {
+			loading.value = false;
+		}
+	}
+
+	/**
+	 * One action over a whole download, in one request.
+	 *
+	 * The card used to loop: twenty files meant twenty requests racing each other and the
+	 * engine, so pausing a season answered a column of `409`s about the files that had
+	 * finished in between — which is what somebody saw when they pressed pause. The gateway
+	 * decides per file which the action applies to and answers the download as it stands.
+	 */
+	async function actOnLot (key: string, action: 'pause' | 'resume' | 'cancel'): Promise<TransferLot> {
+		return replaceLot(
+			await caller('api').post<TransferLot>(`/transfers/lots/${encodeURIComponent(key)}/${action}`),
+		);
+	}
+
+	const pauseLot = (key: string) => actOnLot(key, 'pause');
+	const resumeLot = (key: string) => actOnLot(key, 'resume');
+	const cancelLot = (key: string) => actOnLot(key, 'cancel');
+
+	/**
+	 * Put an answered download back in the list, keeping the objects the stream writes to.
+	 *
+	 * Assigning the answer's own transfer objects would work for exactly one frame: the
+	 * progress record still points at the previous ones, so every bar in the card would
+	 * freeze at the value it had when the button was pressed.
+	 */
+	function replaceLot (lot: TransferLot): TransferLot {
+		for (const transfer of lot.transfers) {
+			mergeTransfer(transfer);
+		}
+
+		const held = lot.transfers
+			.map(one => transfers.value.find(other => other.id === one.id))
+			.filter((one): one is Transfer => one !== undefined);
+		const next = { ...lot, transfers: held };
+
+		lots.value = lots.value.map(one => (one.key === lot.key ? next : one));
+
+		return next;
 	}
 
 	async function loadStats (): Promise<TransferQueueStats> {
@@ -316,9 +342,25 @@ export const useTransfersStore = defineStore('transfers', () => {
 	async function pauseAll (): Promise<number> {
 		const { paused } = await caller('api').post<{ paused: number }>('/transfers/pause', {});
 
-		await load(pagination.value ? { page: pagination.value.page } : {});
+		await loadLots({ page: lotsPagination.value.page });
 
 		return paused;
+	}
+
+	/**
+	 * Let the queue run again, in one request.
+	 *
+	 * This was a loop in the browser over the paused rows it had on screen, which is two
+	 * bugs in one line: a queue of a hundred and eighty-seven files resumed the twenty the
+	 * page was showing, and it did it one call at a time so a row that had changed state in
+	 * the meantime answered an error nobody could act on. Answers how many were started.
+	 */
+	async function resumeAll (): Promise<number> {
+		const { resumed } = await caller('api').post<{ resumed: number }>('/transfers/resume', {});
+
+		await loadLots({ page: lotsPagination.value.page });
+
+		return resumed;
 	}
 
 	async function setDestination (
@@ -471,6 +513,11 @@ export const useTransfersStore = defineStore('transfers', () => {
 		await caller('api').delete(`/transfers/${id}`);
 
 		transfers.value = transfers.value.filter(one => one.id !== id);
+		// And out of the download it was part of, or the card would go on offering buttons
+		// for a row the gateway has forgotten.
+		lots.value = lots.value
+			.map(one => ({ ...one, transfers: one.transfers.filter(other => other.id !== id) }))
+			.filter(one => one.transfers.length > 0);
 	}
 
 	return {
@@ -487,11 +534,17 @@ export const useTransfersStore = defineStore('transfers', () => {
 		unconfigured,
 		byId,
 		failed,
-		batches,
+		lots,
+		lotsPagination,
 		load,
+		loadLots,
 		loadStats,
 		loadUnconfigured,
 		pauseAll,
+		resumeAll,
+		pauseLot,
+		resumeLot,
+		cancelLot,
 		setDestination,
 		setJobDestination,
 		get,

@@ -953,6 +953,41 @@ describe('pages/Library syncing a selection', () => {
 	});
 });
 
+/**
+ * The two reads of the queue this screen makes, from one list of files.
+ *
+ * The page asks the gateway for **downloads** — a season is one entry carrying every one
+ * of its files, whatever page those files would have fallen on — while the dashboard and
+ * the counters still read files. Both are stubbed from the same list here so a test
+ * cannot describe a queue that holds one thing and a download that holds another.
+ */
+function queueRoutes (items: Record<string, unknown>[], pagination?: unknown) {
+	const paging = pagination ?? { page: 1, limit: 20, total: items.length, pages: 1 };
+	const groups = new Map<string, Record<string, unknown>[]>();
+
+	for (const one of items) {
+		const key = String(one.lot ?? one.jobId ?? one.id);
+
+		groups.set(key, [...(groups.get(key) ?? []), one]);
+	}
+
+	return {
+		'/api/transfers': { body: { items, pagination: paging } },
+		'/api/transfers/lots': {
+			body: {
+				items: [...groups.entries()].map(([key, transfers]) => ({
+					key,
+					lot: transfers[0].lot ?? null,
+					// The show, which is what the gateway resolves from the catalogue.
+					title: String(transfers[0].title ?? ''),
+					transfers,
+				})),
+				pagination: paging,
+			},
+		},
+	};
+}
+
 describe('pages/Transfers repairing', () => {
 	function transferRow (overrides: Record<string, unknown> = {}) {
 		return {
@@ -1009,9 +1044,7 @@ describe('pages/Transfers repairing', () => {
 	async function openQueue (transfer: Record<string, unknown>) {
 		const stub = stubFetchRoutes({
 			...base,
-			'/api/transfers': {
-				body: { items: [transfer], pagination: { page: 1, limit: 20, total: 1, pages: 1 } },
-			},
+			...queueRoutes([transfer], { page: 1, limit: 20, total: 1, pages: 1 }),
 			'/api/transfers/t1/destination': { body: { ...transfer, targetLibraryId: 'l1' } },
 		});
 		const { wrapper } = mountWithApp(Transfers, {
@@ -1066,9 +1099,7 @@ describe('pages/Transfers repairing', () => {
 		async function openBlock () {
 			const stub = stubFetchRoutes({
 				...base,
-				'/api/transfers': {
-					body: { items: [], pagination: { page: 1, limit: 20, total: 0, pages: 0 } },
-				},
+				...queueRoutes([], { page: 1, limit: 20, total: 0, pages: 0 }),
 				'/api/releases/downloads': { body: lot },
 				'/api/releases/downloads/g1/pause': { body: { ...lot[0], state: GrabState.PAUSED } },
 				'/api/releases/downloads/g2/pause': { body: { ...lot[1], state: GrabState.PAUSED } },
@@ -1187,12 +1218,7 @@ describe('pages/Transfers repairing', () => {
 			'/api/services': {
 				body: [service, { ...service, id: 's2', name: 'A friend', filesMounted: false }],
 			},
-			'/api/transfers': {
-				body: {
-					items: [transferRow()],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			...queueRoutes([transferRow()], { page: 1, limit: 20, total: 1, pages: 1 }),
 		});
 		const { wrapper } = mountWithApp(Transfers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
@@ -1247,15 +1273,10 @@ describe('pages/Transfers repairing', () => {
 	it('sends a whole run in one request, rather than a request per file', async () => {
 		const stub = stubFetchRoutes({
 			...base,
-			'/api/transfers': {
-				body: {
-					items: [
-						transferRow({ id: 't1', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
-						transferRow({ id: 't2', jobId: 'job-1', state: TransferState.QUEUED, error: null, errorKind: null }),
-					],
-					pagination: { page: 1, limit: 20, total: 2, pages: 1 },
-				},
-			},
+			...queueRoutes([
+				transferRow({ id: 't1', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
+				transferRow({ id: 't2', jobId: 'job-1', state: TransferState.QUEUED, error: null, errorKind: null }),
+			], { page: 1, limit: 20, total: 2, pages: 1 }),
 			'/api/transfers/jobs/job-1/destination': { body: [] },
 		});
 		const { wrapper } = mountWithApp(Transfers, {
@@ -1282,15 +1303,10 @@ describe('pages/Transfers repairing', () => {
 	it('warns that a run’s landed files are moved for real', async () => {
 		stubFetchRoutes({
 			...base,
-			'/api/transfers': {
-				body: {
-					items: [
-						transferRow({ id: 't1', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
-						transferRow({ id: 't2', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
-					],
-					pagination: { page: 1, limit: 20, total: 2, pages: 1 },
-				},
-			},
+			...queueRoutes([
+				transferRow({ id: 't1', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
+				transferRow({ id: 't2', jobId: 'job-1', state: TransferState.DONE, error: null, errorKind: null }),
+			], { page: 1, limit: 20, total: 2, pages: 1 }),
 		});
 		const { wrapper } = mountWithApp(Transfers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
@@ -1331,12 +1347,7 @@ describe('pages/Transfers repairing', () => {
 	it('sends somebody to the service whose credentials were refused', async () => {
 		stubFetchRoutes({
 			...base,
-			'/api/transfers': {
-				body: {
-					items: [transferRow({ errorKind: TransferErrorKind.SOURCE_UNAUTHORIZED })],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			...queueRoutes([transferRow({ errorKind: TransferErrorKind.SOURCE_UNAUTHORIZED })], { page: 1, limit: 20, total: 1, pages: 1 }),
 		});
 		const { wrapper, router } = mountWithApp(Transfers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
@@ -1358,12 +1369,7 @@ describe('pages/Transfers repairing', () => {
 			'/api/transfers/t1/verify': {
 				body: { transferId: 't1', ok: true, chunksChecked: 10, chunksCorrupt: 0, bytesToRepair: 0, checkedAt: '2026-02-02T00:00:00.000Z' },
 			},
-			'/api/transfers': {
-				body: {
-					items: [transferRow({ state: TransferState.DONE, errorKind: null, error: null })],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			...queueRoutes([transferRow({ state: TransferState.DONE, errorKind: null, error: null })], { page: 1, limit: 20, total: 1, pages: 1 }),
 		});
 		const { wrapper } = mountWithApp(Transfers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
@@ -1378,19 +1384,14 @@ describe('pages/Transfers repairing', () => {
 		expect(wrapper.find('[data-test="transfer-verification"]').text()).toContain('intact');
 	});
 
-	it('resumes a whole queue that is holding', async () => {
+	it('resumes a whole queue in one request, not one per row on screen', async () => {
 		const stub = stubFetchRoutes({
 			...base,
 			'/api/transfers/stats': {
 				body: { active: 0, queued: 0, paused: 1, failed: 0, rate: 0, bytesRemaining: 900 },
 			},
-			'/api/transfers/t1/resume': { body: transferRow({ state: TransferState.DOWNLOADING, errorKind: null }) },
-			'/api/transfers': {
-				body: {
-					items: [transferRow({ state: TransferState.PAUSED, errorKind: null, error: null })],
-					pagination: { page: 1, limit: 20, total: 1, pages: 1 },
-				},
-			},
+			'/api/transfers/resume': { body: { resumed: 1 } },
+			...queueRoutes([transferRow({ state: TransferState.PAUSED, errorKind: null, error: null })], { page: 1, limit: 20, total: 1, pages: 1 }),
 		});
 		const { wrapper } = mountWithApp(Transfers, {
 			global: { stubs: { ...tooltipStub, ...dialogStub } },
@@ -1400,7 +1401,13 @@ describe('pages/Transfers repairing', () => {
 		await wrapper.find('[data-test="transfer-resume-all"]').trigger('click');
 		await settle();
 
-		expect(called(stub, '/transfers/t1/resume')).toBe(true);
+		/*
+		 * The queue and not the rows. A loop over what the page was showing resumed twenty
+		 * files out of a hundred and eighty-seven, one call at a time, and every row whose
+		 * state had moved in between answered an error nobody could act on.
+		 */
+		expect(called(stub, '/transfers/resume')).toBe(true);
+		expect(called(stub, '/transfers/t1/resume')).toBe(false);
 	});
 });
 
@@ -1419,7 +1426,7 @@ describe('App shell actions', () => {
 			'/api/transfers/stats': {
 				body: { active: 0, queued: 0, paused: 0, failed: 0, rate: 0, bytesRemaining: 0 },
 			},
-			'/api/transfers': { body: { items: [], pagination: null } },
+			...queueRoutes([], null),
 			'/api/sync/jobs': { body: { items: [], pagination: null } },
 			'/api/media': { body: { items: [], pagination: null } },
 		});

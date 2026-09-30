@@ -7,6 +7,7 @@ import {
 	type Revalidation,
 	type Transfer,
 	type TransferChunk,
+	type TransferLot,
 	type TransferQueueStats,
 	type TransferVerification,
 	type UnconfiguredPlacement,
@@ -133,6 +134,24 @@ export class TransferController {
 		return this._transfers.list(query);
 	}
 
+	/**
+	 * Before `:id`, like `stats` below: a literal segment declared after it is read as an
+	 * identifier and answers a validation error about a malformed UUID.
+	 */
+	@Get('lots')
+	@Granted(Right.TRANSFER_READ)
+	@ApiOperation({
+		summary: 'One page of downloads, each with its files inside',
+		description:
+			'A page here is a number of downloads and not a number of files: a season is one '
+			+ 'entry whatever it is made of. `limit` therefore bounds the entries and not the '
+			+ 'rows — twenty entries may be four hundred files.',
+	})
+	@ApiOkResponse({ description: 'ResultList<TransferLot>' })
+	public lots(@Query() query: TransferQueryDto): Promise<ResultList<TransferLot>> {
+		return this._transfers.lots(query);
+	}
+
 	/** Before `:id`, which would otherwise read `stats` as an identifier. */
 	@Get('stats')
 	@Granted(Right.TRANSFER_READ)
@@ -196,6 +215,70 @@ export class TransferController {
 	@ApiOkResponse({ description: 'How many transfers were paused' })
 	public async pauseAll(): Promise<{ paused: number }> {
 		return { paused: await this._transfers.pauseAll() };
+	}
+
+	@Post('resume')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Let the queue run again',
+		description:
+			'Everything that is paused, in one act, and the queue itself. Resuming row by row '
+			+ 'from a screen resumes the rows that screen happens to be showing. Failed transfers '
+			+ 'are left alone: they stopped for a reason. Answers how many were started.',
+	})
+	@ApiOkResponse({ description: 'How many transfers were resumed' })
+	public async resumeAll(): Promise<{ resumed: number }> {
+		return { resumed: await this._transfers.resumeAll() };
+	}
+
+	/*
+	 * A download's key and not a UUID: it is the lot, failing that the run, failing that a
+	 * file's identifier, so it is validated as a string and looked up as one. A `ParseUUID`
+	 * here would happen to work for all three and refuse whatever a future grouping used.
+	 */
+	@Get('lots/:key')
+	@Granted(Right.TRANSFER_READ)
+	@ApiOperation({ summary: 'One download and its files' })
+	@ApiOkResponse({ description: 'TransferLot' })
+	public lot(@Param('key') key: string): Promise<TransferLot> {
+		return this._transfers.readLot(key);
+	}
+
+	@Post('lots/:key/pause')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Pause a whole download',
+		description:
+			'One request for every file of it. A file it does not apply to — already finished, '
+			+ 'already paused — is skipped rather than refused: pressing pause on a season that is '
+			+ 'half done means stop the rest.',
+	})
+	@ApiOkResponse({ description: 'TransferLot' })
+	public pauseLot(@Param('key') key: string): Promise<TransferLot> {
+		return this._transfers.actOnLot(key, 'pause');
+	}
+
+	@Post('lots/:key/resume')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({ summary: 'Start a whole download again, from where each file stopped' })
+	@ApiOkResponse({ description: 'TransferLot' })
+	public resumeLot(@Param('key') key: string): Promise<TransferLot> {
+		return this._transfers.actOnLot(key, 'resume');
+	}
+
+	@Post('lots/:key/cancel')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Give up a whole download and drop its partial files',
+		description: 'Files already placed in a library are left where they are.',
+	})
+	@ApiOkResponse({ description: 'TransferLot' })
+	public cancelLot(@Param('key') key: string): Promise<TransferLot> {
+		return this._transfers.actOnLot(key, 'cancel');
 	}
 
 	@Post(':id/pause')

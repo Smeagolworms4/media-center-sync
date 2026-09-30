@@ -21,6 +21,23 @@ const LIVE_STATES = [
 ];
 
 /**
+ * What a file is grouped under to make a download, rendered by both engines.
+ *
+ * The lot, failing that the run, failing that the file itself — the same order the
+ * interface used when it did this grouping on its own, kept identical on purpose: the two
+ * answering differently would move a row from one block to another the instant a progress
+ * frame arrived.
+ *
+ * Every term is cast, and that is not decoration. `lot` is a `varchar` and `jobId` is a
+ * `uuid`, and PostgreSQL refuses `COALESCE` over the two outright — "types character
+ * varying and uuid cannot be matched" — while SQLite, which has no uuid type, accepts the
+ * uncast version happily. So the mistake runs green through every test here and fails
+ * only on somebody's PostgreSQL deployment.
+ */
+const LOT_KEY =
+	'COALESCE(transfer.lot, CAST(transfer.jobId AS varchar), CAST(transfer.id AS varchar))';
+
+/**
  * Which states a listing may return, or `null` for "no restriction at all".
  *
  * A paused transfer counts as live here although it is not moving: somebody stopped
@@ -316,5 +333,132 @@ export class TransferRepository extends Repository<Transfer> {
 		}
 
 		return query.getManyAndCount();
+	}
+
+	/**
+	 * One page of **downloads**, as the keys of the lots on it.
+	 *
+	 * Keys and not rows, in two queries rather than one, because the two questions are
+	 * genuinely different: which downloads belong on this page is a question about groups,
+	 * and what a download is made of is a question about files. Answering both at once
+	 * means `GROUP BY` with the rows attached, which no portable SQL does — and the
+	 * version that limits the files instead is the bug this replaces, where a page of
+	 * twenty files cut a season of twenty-two into two blocks.
+	 *
+	 * The filter chooses which lots appear and never which of their files do. A live view
+	 * showing a season minus the four episodes that already landed would report `16 files`
+	 * for a season of twenty and a percentage computed against the wrong total, and the
+	 * files somebody is looking for would be the ones missing.
+	 */
+	public async pageOfLots(options: {
+		page: number;
+		limit: number;
+		state?: TransferState;
+		view?: HistoryView;
+		sort?: TransferSort;
+	}): Promise<[string[], number]> {
+		const allowed = statesInView(options.view, options.state);
+
+		if (allowed !== null && allowed.length === 0) {
+			return [[], 0];
+		}
+
+		const query = this.createQueryBuilder('transfer')
+			.select(LOT_KEY, 'key')
+			.groupBy(LOT_KEY)
+			// `offset`/`limit` and not `skip`/`take`: the latter pair make TypeORM wrap the
+			// statement in a subquery to paginate entities, and there are no entities here.
+			.offset((options.page - 1) * options.limit)
+			.limit(options.limit);
+
+		if (allowed !== null) {
+			query.where('transfer.state IN (:...allowed)', { allowed });
+		}
+
+		/*
+		 * The same orders as a page of files, read over the group: a download is as recent
+		 * as its newest file, as large as the sum of them, and as live as the liveliest one
+		 * of them. `MIN` over the ranking `CASE` is what puts a season with one file still
+		 * moving above a download that finished last night.
+		 */
+		switch (options.sort ?? TransferSort.ACTIVITY) {
+			case TransferSort.OLDEST: {
+				query.orderBy('MIN(transfer.createdAt)', 'ASC');
+
+				break;
+			}
+
+			case TransferSort.LARGEST: {
+				query.orderBy('SUM(transfer.bytesTotal)', 'DESC');
+
+				break;
+			}
+
+			case TransferSort.TITLE: {
+				query.orderBy('MIN(transfer.title)', 'ASC');
+
+				break;
+			}
+
+			case TransferSort.NEWEST: {
+				query.orderBy('MAX(transfer.createdAt)', 'DESC');
+
+				break;
+			}
+
+			default: {
+				query
+					.setParameter('live', LIVE_STATES)
+					.orderBy(
+						'MIN(CASE WHEN transfer.state IN (:...live) THEN 0 ELSE 1 END)',
+						'ASC',
+					)
+					.addOrderBy('MAX(transfer.createdAt)', 'DESC');
+			}
+		}
+
+		const rows = await query.getRawMany<{ key: string }>();
+
+		return [rows.map((row) => row.key), await this._countLots(allowed)];
+	}
+
+	/**
+	 * Every file of the named downloads, whatever page it would have fallen on.
+	 *
+	 * Ordered by creation and then by title so that a season reads in the order it was
+	 * planned, which for a pack is episode order — the interface groups by season on top
+	 * of this and does not re-sort, so this order is the one somebody sees.
+	 */
+	public findByLotKeys(keys: string[]): Promise<Transfer[]> {
+		if (keys.length === 0) {
+			return Promise.resolve([]);
+		}
+
+		return this.createQueryBuilder('transfer')
+			.where(`${LOT_KEY} IN (:...keys)`, { keys })
+			.orderBy('transfer.createdAt', 'ASC')
+			.addOrderBy('transfer.title', 'ASC')
+			.getMany();
+	}
+
+	/**
+	 * How many downloads the filter holds, which is not how many rows it holds.
+	 *
+	 * Counted apart from the page because `GROUP BY` with a `LIMIT` counts the page and
+	 * not the set, and a pagination built on that figure says "1-20 of 20" forever.
+	 */
+	private async _countLots(allowed: TransferState[] | null): Promise<number> {
+		const counter = this.createQueryBuilder('transfer').select(
+			`COUNT(DISTINCT ${LOT_KEY})`,
+			'total',
+		);
+
+		if (allowed !== null) {
+			counter.where('transfer.state IN (:...allowed)', { allowed });
+		}
+
+		const row = await counter.getRawOne<{ total: number | string }>();
+
+		return Number(row?.total ?? 0);
 	}
 }

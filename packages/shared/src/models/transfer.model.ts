@@ -269,6 +269,23 @@ export interface Transfer {
 	 */
 	lot?: string | null;
 	/**
+	 * Which season and which episode this file is, as the catalogue knows it.
+	 *
+	 * Read off the media rather than parsed out of the title: the title is a sentence
+	 * assembled for a human — "Les Schtroumpfs — S01E02 — L'Œuf et les Schtroumpfs" — and
+	 * a screen that grouped on a regular expression over it would put a show whose
+	 * episodes are named differently into one heap and blame the household's files.
+	 *
+	 * Null for anything that is not an episode, and for an episode whose numbers the
+	 * source never declared. A reader must treat that as "no season" and not as season
+	 * zero: specials are genuinely season zero on every service we read.
+	 *
+	 * Optional for the same reason as `lot` above: an older gateway does not say, and
+	 * absent means exactly what null means.
+	 */
+	seasonNumber?: number | null;
+	episodeNumber?: number | null;
+	/**
 	 * Where the file has got to after the bytes, or null once there is nothing left
 	 * to wait for.
 	 *
@@ -311,6 +328,66 @@ export interface Transfer {
 	createdAt: string;
 	updatedAt: string;
 }
+
+/**
+ * One download, with its files inside it.
+ *
+ * The unit the queue is read in, and the unit it is **paginated** in. That second half
+ * is the whole point and was got wrong once: the gateway answered a page of twenty
+ * files and the interface grouped whatever that page happened to contain, so a season
+ * of twenty episodes arrived as four blocks on four pages, its progress was four
+ * percentages nobody could add up, and a queue of nine downloads reported a hundred and
+ * eighty-seven rows. A download is one thing being fetched, so it is one row, whatever
+ * it is made of and however long it takes.
+ *
+ * The cost of paginating this way, and the reason it was avoided: a page no longer has a
+ * known number of rows — twenty lots may be twenty files or four hundred. That is the
+ * right trade. A page of twenty downloads is a page somebody can read; a page of twenty
+ * files out of a season is a page that cannot answer a single question asked of it.
+ *
+ * `key` is what the files were grouped on, and the only handle an action on the whole
+ * download has: the lot, failing that the run, failing that the file's own identifier.
+ * It is not a stored row and nothing points at it — a lot exists only as the thing its
+ * files agree on.
+ */
+export interface TransferLot {
+	key: string;
+	/**
+	 * The lot proper, or null for a block that is not one — a row written before lots
+	 * existed, gathered under its run or alone rather than heaped with every other
+	 * orphan.
+	 */
+	lot: string | null;
+	/**
+	 * What is being fetched: the show, not the first episode of it.
+	 *
+	 * Resolved from the media's ancestry rather than from the files' titles. A card
+	 * headed "Les Schtroumpfs — S01E02 — L'Œuf et les Schtroumpfs" over twenty files
+	 * reads as one episode that has gone wrong, which is exactly how it was read.
+	 */
+	title: string;
+	/** Every file of it, in the order they were created, whatever page they fall on. */
+	transfers: Transfer[];
+}
+
+/**
+ * Which download a file belongs to.
+ *
+ * Here, in the shared package, because three things group on it — the gateway's `GROUP BY`,
+ * the gateway's assembling of a page, and the interface applying a pushed frame to a block
+ * — and the three disagreeing is not a visible bug but a moving one: a row jumps out of the
+ * card somebody is watching the moment its state changes, and jumps back on the next read.
+ *
+ * The run is the fallback rather than the answer. A season pulled over three nights is one
+ * download and three runs; three shows asked for in one press are one run and three
+ * downloads. `lot` says which, and rows written before it existed have to be grouped on
+ * something — their run, and failing that themselves, never with each other.
+ */
+export const lotKeyOf = (transfer: {
+	id: string;
+	jobId: string | null;
+	lot?: string | null;
+}): string => transfer.lot ?? transfer.jobId ?? transfer.id;
 
 /** The compact shape pushed on the progress stream, many times a second. */
 export interface TransferProgress {

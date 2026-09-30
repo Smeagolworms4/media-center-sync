@@ -573,6 +573,18 @@ export class UpdateSettingsDto {
 	@Max(32)
 	public maxParallelTransfers?: number;
 
+	/*
+	 * Declared although no settings screen offers it: the queue's pause is pressed on the
+	 * queue, not typed in a form. It is here because the validation pipe rejects what a DTO
+	 * does not declare, and the settings form sends back the fields it holds — a household
+	 * that paused the queue and then saved an unrelated preference would have got a
+	 * validation error naming a field they had never seen.
+	 */
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsBoolean()
+	public queuePaused?: boolean;
+
 	@ApiPropertyOptional({
 		minimum: 0,
 		maximum: 1099511627776,

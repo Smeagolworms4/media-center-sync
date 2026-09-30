@@ -58,6 +58,7 @@ const SETTINGS: Settings = {
 	writeNfo: false,
 	preferSourceMetadata: false,
 	maxParallelTransfers: 3,
+	queuePaused: false,
 	diskReserveBytes: 1_000_000,
 	maxConnectionsPerSource: 4,
 	chunkSize: 8 * 1024 * 1024,

@@ -1379,7 +1379,12 @@
 		},
 		"batch": {
 			"files": "{done} of {total} files",
-			"into": "Into"
+			"into": "Into",
+			"no_season": "No season",
+			"per_page": "Downloads per page",
+			"season": "Season {number}",
+			"season_files": "{count} file | {count} files",
+			"specials": "Specials"
 		},
 		"archived": "Taken off the queue. The file has not moved.",
 		"paused": "Paused. The client keeps what it has already fetched.",

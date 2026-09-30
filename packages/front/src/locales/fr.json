@@ -1379,7 +1379,12 @@
 		},
 		"batch": {
 			"files": "{done} fichiers sur {total}",
-			"into": "Dans"
+			"into": "Dans",
+			"no_season": "Sans saison",
+			"per_page": "Téléchargements par page",
+			"season": "Saison {number}",
+			"season_files": "{count} fichier | {count} fichiers",
+			"specials": "Épisodes spéciaux"
 		},
 		"archived": "Retiré de la file. Le fichier n'a pas bougé.",
 		"paused": "Mis en pause. Le client garde ce qu'il a déjà récupéré.",
