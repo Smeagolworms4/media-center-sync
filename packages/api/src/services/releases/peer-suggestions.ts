@@ -85,6 +85,12 @@ const ORIGIN_DISTANCE: Record<MediaOrigin, number> = {
 	[MediaOrigin.DIRECT]: 1,
 	[MediaOrigin.FRIEND]: 2,
 	[MediaOrigin.FRIEND_OF_FRIEND]: 3,
+	/*
+	 * Last, and it never competes: a requested media is the statement that nobody holds
+	 * it, so it is never a source to pull from. The rank exists because the table has to
+	 * name every origin — leaving one out is how a new one silently sorts as `undefined`.
+	 */
+	[MediaOrigin.REQUESTED]: 4,
 };
 
 @Injectable()

@@ -159,7 +159,7 @@ describe('components/media/MediaFilters', () => {
 	 * screen rather than behind a menu: telling a friend from a friend of a friend is
 	 * the distinction the whole thing exists for.
 	 */
-	it('offers the four origins as something to read, not a select to open', () => {
+	it('offers every origin as something to read, not a select to open', () => {
 		const { wrapper } = mountWithApp(MediaFilters, {
 			props: { services: [service()], categories },
 			global: { stubs: tooltipStub },

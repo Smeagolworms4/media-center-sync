@@ -14,6 +14,7 @@ import {
 	TransferEngineService,
 } from '@/services';
 import { LibraryManager } from './library.manager';
+import { ServiceManager } from './service.manager';
 
 /**
  * Reading and writing the gateway's settings.
@@ -47,6 +48,12 @@ export class SettingsManager {
 		private readonly _engine: TransferEngineService,
 		private readonly _bandwidth: BandwidthService,
 		private readonly _libraries: LibraryManager,
+		/**
+		 * Told when the request source changes, because the source is registered as a
+		 * service and a service is what the rest of the product reads. See
+		 * `ServiceManager.reconcileRequestSource`.
+		 */
+		private readonly _services: ServiceManager,
 	) {}
 
 	/**
@@ -154,6 +161,12 @@ export class SettingsManager {
 		if (patch.refreshIntervalMinutes !== undefined || patch.fullScanCron !== undefined) {
 			await this._scheduler.reload();
 			this._logger.log('Schedules reloaded after a settings change');
+		}
+
+		if (patch.requestSource !== undefined) {
+			// After the write, on the settings the write produced: acting on the patch would
+			// register a service for an address the merge may have replaced.
+			await this._services.reconcileRequestSource(settings);
 		}
 
 		if (patch.downloadRateLimit !== undefined || patch.uploadRateLimit !== undefined) {

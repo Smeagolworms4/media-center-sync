@@ -332,13 +332,15 @@
 			"direct": "Direto",
 			"friend": "Amigos",
 			"friend_of_friend": "Amigos de amigos",
-			"unknown": "Outro gateway"
+			"unknown": "Outro gateway",
+			"requested": "Pedido"
 		},
 		"origin_help": {
 			"local": "Um servidor onde este gateway pode escrever.",
 			"direct": "Um servidor remoto registado aqui — uma segunda máquina sua, ou um servidor público.",
 			"friend": "Através de um par a que se ligou você mesmo.",
-			"friend_of_friend": "Através de um par apresentado por um dos seus amigos. Ninguém aqui alguma vez lhe deu o seu acordo."
+			"friend_of_friend": "Através de um par apresentado por um dos seus amigos. Ninguém aqui alguma vez lhe deu o seu acordo.",
+			"requested": "Pedido ou seguido na sua fonte de pedidos. Ninguém o tem: não existe ficheiro, nem aqui nem noutro lado."
 		},
 		"source": {
 			"title": "Transferir de",
@@ -526,7 +528,8 @@
 		"peer_note": "Configura-se na sua própria página: nome, alcance em saltos e se pode ler de si.",
 		"type": {
 			"jellyfin": "Jellyfin",
-			"plex": "Plex"
+			"plex": "Plex",
+			"requests": "Pedidos"
 		},
 		"discovery": {
 			"intro": "Inicie sessão em plex.tv e este gateway lista todos os servidores Plex a que a sua conta chega — os seus e os que amigos partilham consigo — sem escrever nenhum endereço.",

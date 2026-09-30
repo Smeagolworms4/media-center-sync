@@ -332,13 +332,15 @@
 			"direct": "Direct",
 			"friend": "Friends",
 			"friend_of_friend": "Friends of friends",
-			"unknown": "Another gateway"
+			"unknown": "Another gateway",
+			"requested": "Requested"
 		},
 		"origin_help": {
 			"local": "A server this gateway can write into.",
 			"direct": "A remote server registered here — a second machine of yours, or a public one.",
 			"friend": "Through a peer you linked to yourself.",
-			"friend_of_friend": "Through a peer one of your friends introduced. Nobody here ever agreed to them."
+			"friend_of_friend": "Through a peer one of your friends introduced. Nobody here ever agreed to them.",
+			"requested": "Asked for or followed on your request source. Nobody holds it: there is no file, here or anywhere else."
 		},
 		"source": {
 			"title": "Pull from",
@@ -526,7 +528,8 @@
 		"peer_note": "Configured on its own page: name, hop limit, and whether it may read from you.",
 		"type": {
 			"jellyfin": "Jellyfin",
-			"plex": "Plex"
+			"plex": "Plex",
+			"requests": "Requests"
 		},
 		"discovery": {
 			"intro": "Sign in to plex.tv and this gateway lists every Plex server your account reaches — your own and the ones friends share with you — with no address to type.",

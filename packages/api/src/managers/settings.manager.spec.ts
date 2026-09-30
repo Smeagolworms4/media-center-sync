@@ -7,6 +7,7 @@ import {
 	type TransferEngineService,
 } from '@/services';
 import type { LibraryManager } from './library.manager';
+import type { ServiceManager } from './service.manager';
 import { SettingsManager } from './settings.manager';
 
 interface Fakes {
@@ -15,6 +16,7 @@ interface Fakes {
 	engine: { applyRateLimits: jest.Mock };
 	bandwidth: { apply: jest.Mock };
 	libraries: { probe: jest.Mock; mergeCategoryInto: jest.Mock; categories: jest.Mock };
+	services: { reconcileRequestSource: jest.Mock };
 }
 
 const build = (): { manager: SettingsManager; fakes: Fakes } => {
@@ -42,6 +44,9 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 				error: null,
 			}),
 		},
+		// The request source is registered as a service, so configuring it is a write on
+		// both sides — see `ServiceManager.reconcileRequestSource`.
+		services: { reconcileRequestSource: jest.fn().mockResolvedValue(undefined) },
 	};
 
 	return {
@@ -51,6 +56,7 @@ const build = (): { manager: SettingsManager; fakes: Fakes } => {
 			fakes.engine as unknown as TransferEngineService,
 			fakes.bandwidth as unknown as BandwidthService,
 			fakes.libraries as unknown as LibraryManager,
+			fakes.services as unknown as ServiceManager,
 		),
 		fakes,
 	};

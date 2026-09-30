@@ -332,13 +332,15 @@
 			"direct": "Directo",
 			"friend": "Amigos",
 			"friend_of_friend": "Amigos de amigos",
-			"unknown": "Otra pasarela"
+			"unknown": "Otra pasarela",
+			"requested": "Pedido"
 		},
 		"origin_help": {
 			"local": "Un servidor en el que esta pasarela puede escribir.",
 			"direct": "Un servidor remoto registrado aquí — una segunda máquina tuya, o uno público.",
 			"friend": "A través de un par al que te has enlazado tú mismo.",
-			"friend_of_friend": "A través de un par que presentó uno de tus amigos. Nadie de aquí le ha dado nunca su acuerdo."
+			"friend_of_friend": "A través de un par que presentó uno de tus amigos. Nadie de aquí le ha dado nunca su acuerdo.",
+			"requested": "Pedido o seguido en su fuente de peticiones. Nadie lo tiene: no hay ningún archivo, ni aquí ni en otra parte."
 		},
 		"source": {
 			"title": "Traer desde",
@@ -526,7 +528,8 @@
 		"peer_note": "Se configura en su propia página: nombre, alcance en saltos y si puede leerte.",
 		"type": {
 			"jellyfin": "Jellyfin",
-			"plex": "Plex"
+			"plex": "Plex",
+			"requests": "Peticiones"
 		},
 		"discovery": {
 			"intro": "Inicia sesión en plex.tv y esta pasarela listará todos los servidores Plex a los que llega tu cuenta — los tuyos y los que tus amigos comparten contigo — sin escribir ninguna dirección.",

@@ -4,15 +4,16 @@ import {
 	EventName,
 	LibraryKind,
 	MediaServiceStatus,
+	MediaServiceType,
 	normaliseRootPath,
 	type CreateMediaServiceRequest,
 	type MediaCompanions,
 	type Library,
 	type MediaService,
 	type MediaServiceProbe,
-	type MediaServiceType,
 	type RootMapping,
 	type ServerStructure,
+	type Settings,
 	type ServerStructureRequest,
 	type UpdateMediaServiceRequest,
 } from '@mcs/shared';
@@ -373,6 +374,76 @@ export class ServiceManager implements OnApplicationBootstrap {
 		this._events.emit(EventName.SERVICE_CHANGED, { id: saved.id });
 
 		return this._present(await this._require(saved.id));
+	}
+
+	/**
+	 * The request source, kept registered as a service for exactly as long as it is
+	 * configured.
+	 *
+	 * What the household asks for is a place media comes from — see
+	 * `MediaServiceType.REQUESTS` — and a service is what the whole product is built to
+	 * read. Registering it by hand was rejected: its address and key already live in the
+	 * settings beside everything else that talks to it, and two copies of one address is
+	 * two things to keep in step and one to forget.
+	 *
+	 * So this mirrors the settings and nothing else. Turning the source off removes the
+	 * service, which removes its libraries and its rows with it — and that is the honest
+	 * outcome: a gateway that has stopped asking Seerr anything has no business showing a
+	 * wall of shows nobody here holds.
+	 *
+	 * Nothing is probed here. The row is created and the ordinary probe picks it up, adopts
+	 * its library and scans it, exactly as it does for a server somebody registered — which
+	 * is the point of doing it this way rather than writing a second path.
+	 */
+	public async reconcileRequestSource(settings: Settings): Promise<void> {
+		const configured = settings.requestSource ?? null;
+		const wanted = configured !== null && configured.enabled;
+		const existing = (await this._services.find()).find(
+			(service) => service.type === MediaServiceType.REQUESTS,
+		);
+
+		if (!wanted) {
+			if (existing !== undefined) {
+				await this.remove(existing.id);
+				this._logger.log('Request source unconfigured: its service and its rows are gone');
+			}
+
+			return;
+		}
+
+		const baseUrl = configured.baseUrl;
+
+		if (existing === undefined) {
+			const created = await this._services.save(
+				this._services.create({
+					name: 'Requests',
+					type: MediaServiceType.REQUESTS,
+					// Never offered to friends: these rows are a statement that nobody here
+					// holds the file, which is the least useful thing a peer could be shown.
+					shared: false,
+					baseUrl,
+					// Last, behind every service that might actually hold a copy: the
+					// ordering decides which source a pull reads from, and this one has none.
+					priority: 1000,
+					status: MediaServiceStatus.UNKNOWN,
+				}),
+			);
+
+			this._events.emit(EventName.SERVICE_CHANGED, { id: created.id });
+			this._logger.log('Request source registered as a service');
+
+			return;
+		}
+
+		if (existing.baseUrl === baseUrl) {
+			return;
+		}
+
+		existing.baseUrl = baseUrl;
+
+		const moved = await this._services.save(existing);
+
+		this._events.emit(EventName.SERVICE_CHANGED, { id: moved.id });
 	}
 
 	public async remove(id: string): Promise<void> {

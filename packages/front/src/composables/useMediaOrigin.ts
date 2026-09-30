@@ -5,9 +5,9 @@ import { usePeersStore } from '@/stores/peers';
 /**
  * Where a copy comes from, drawn so the shape alone tells them apart.
  *
- * The four are the terms people actually think in — mine, a server I registered,
- * a friend, a friend of a friend — and the last two are the pair that matters
- * most: a friend of a friend is somebody nobody in this house has ever agreed to,
+ * The terms people actually think in — mine, a server I registered, a friend, a friend
+ * of a friend, and one nobody holds at all — and the two that matter most are the pair in
+ * the middle: a friend of a friend is somebody nobody in this house has ever agreed to,
  * and a screen that draws them identically is one where that distinction cannot be
  * made at a glance. So the icons are not four shades of the same cloud: one disk,
  * one server, one person, two people.
@@ -17,6 +17,8 @@ export const MEDIA_ORIGIN_ICON: Record<MediaOrigin, string> = {
 	[MediaOrigin.DIRECT]: 'mdi-server-network',
 	[MediaOrigin.FRIEND]: 'mdi-account-outline',
 	[MediaOrigin.FRIEND_OF_FRIEND]: 'mdi-account-multiple-outline',
+	// Nobody holds it, so it is not a disk, a server or a person: it is an ask.
+	[MediaOrigin.REQUESTED]: 'mdi-playlist-star',
 };
 
 export interface MediaOriginDescriptor {
@@ -37,12 +39,20 @@ export function describeMediaOrigin (origin: MediaOrigin): MediaOriginDescriptor
 	};
 }
 
-/** The order the filter offers them in: closest to us first. */
+/**
+ * The order the filter offers them in: closest to us first, and last what nobody holds.
+ *
+ * `REQUESTED` is at the end because it is the only one that is not a place a copy comes
+ * from — it is the statement that there is no copy. It is on the list all the same, and
+ * that is how somebody reaches what they have asked for: the same wall, the same filters,
+ * one more origin.
+ */
 export const MEDIA_ORIGINS: MediaOrigin[] = [
 	MediaOrigin.LOCAL,
 	MediaOrigin.DIRECT,
 	MediaOrigin.FRIEND,
 	MediaOrigin.FRIEND_OF_FRIEND,
+	MediaOrigin.REQUESTED,
 ];
 
 /**

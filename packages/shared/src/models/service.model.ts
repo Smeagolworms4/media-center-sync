@@ -122,6 +122,24 @@ export enum MediaServiceType {
 	JELLYFIN = 'jellyfin',
 	PLEX = 'plex',
 	/**
+	 * What the household has asked for, as a place media comes from.
+	 *
+	 * Overseerr knows about shows nobody here holds, and that is exactly what made them
+	 * invisible: the index is a mirror of what media servers declare, so a series waiting
+	 * on a request had no row, appeared in no library, was counted by nothing and could not
+	 * be filtered, corrected or searched for. It was a screen of its own listing numbers.
+	 *
+	 * Declaring it a service type is what makes it stop being a special case. Its libraries
+	 * hold ordinary rows that happen to have no file, so a requested show reads as a show:
+	 * the same wall, the same filters, the same missing counts, the same corrections, the
+	 * same release search. The alternative was a parallel path beside every one of those.
+	 *
+	 * Nobody registers it by hand, like `PEER`: configuring a request source creates it and
+	 * turning that off removes it, because its address and key already live in the
+	 * settings and asking for them twice would let the two disagree.
+	 */
+	REQUESTS = 'requests',
+	/**
 	 * Another gateway's shared libraries, reached over the peer link.
 	 *
 	 * A peer is a media service with an introduction service bolted on: it has

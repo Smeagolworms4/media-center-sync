@@ -332,13 +332,15 @@
 			"direct": "Diretto",
 			"friend": "Amici",
 			"friend_of_friend": "Amici di amici",
-			"unknown": "Un altro gateway"
+			"unknown": "Un altro gateway",
+			"requested": "Richiesto"
 		},
 		"origin_help": {
 			"local": "Un server in cui questo gateway può scrivere.",
 			"direct": "Un server remoto registrato qui — una tua seconda macchina, o uno pubblico.",
 			"friend": "Tramite un peer che hai collegato tu stesso.",
-			"friend_of_friend": "Tramite un peer presentato da uno dei tuoi amici. Qui nessuno li ha mai accettati."
+			"friend_of_friend": "Tramite un peer presentato da uno dei tuoi amici. Qui nessuno li ha mai accettati.",
+			"requested": "Richiesto o seguito sulla tua sorgente di richieste. Nessuno lo possiede: non c’è alcun file, né qui né altrove."
 		},
 		"source": {
 			"title": "Recupera da",
@@ -526,7 +528,8 @@
 		"peer_note": "Si configura nella sua pagina: nome, portata in salti e se può leggerti.",
 		"type": {
 			"jellyfin": "Jellyfin",
-			"plex": "Plex"
+			"plex": "Plex",
+			"requests": "Richieste"
 		},
 		"discovery": {
 			"intro": "Accedi a plex.tv e questo gateway elenca ogni server Plex che il tuo account raggiunge — i tuoi e quelli che gli amici condividono con te — senza indirizzi da digitare.",

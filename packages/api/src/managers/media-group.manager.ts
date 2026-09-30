@@ -771,6 +771,16 @@ export class MediaGroupManager {
 
 	/** Where a service's copies come from, in the terms the filter is written in. */
 	private _originOf(service: MediaServiceEntity, context: GroupContext): MediaOrigin {
+		/*
+		 * Before the rest, because it is not a place a copy comes from: a request source
+		 * holds no files at all. Read after `local` it would answer `direct` — a server we
+		 * registered — and a household filtering for what it actually has would be handed
+		 * every show it has merely asked for.
+		 */
+		if (service.type === MediaServiceType.REQUESTS) {
+			return MediaOrigin.REQUESTED;
+		}
+
 		if (context.local.has(service.id)) {
 			return MediaOrigin.LOCAL;
 		}

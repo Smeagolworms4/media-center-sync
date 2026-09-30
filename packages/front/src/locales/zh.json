@@ -332,13 +332,15 @@
 			"direct": "直连",
 			"friend": "朋友",
 			"friend_of_friend": "朋友的朋友",
-			"unknown": "另一个网关"
+			"unknown": "另一个网关",
+			"requested": "已请求"
 		},
 		"origin_help": {
 			"local": "此网关可以写入的服务器。",
 			"direct": "在这里注册的远程服务器——你的另一台机器，或一台公开的服务器。",
 			"friend": "通过你自己连接的对等网关。",
-			"friend_of_friend": "通过你某位朋友引荐的对等网关。这里没有人直接同意过他们。"
+			"friend_of_friend": "通过你某位朋友引荐的对等网关。这里没有人直接同意过他们。",
+			"requested": "在你的请求源中请求或关注。无人持有：这里和别处都没有文件。"
 		},
 		"source": {
 			"title": "拉取来源",
@@ -526,7 +528,8 @@
 		"peer_note": "在它自己的页面上配置：名称、跳数上限，以及能否读取你的内容。",
 		"type": {
 			"jellyfin": "Jellyfin",
-			"plex": "Plex"
+			"plex": "Plex",
+			"requests": "请求"
 		},
 		"discovery": {
 			"intro": "登录 plex.tv，本网关就会列出你的账户能访问的所有 Plex 服务器——你自己的，以及朋友共享给你的——无需输入任何地址。",

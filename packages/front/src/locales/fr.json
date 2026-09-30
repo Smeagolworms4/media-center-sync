@@ -332,13 +332,15 @@
 			"direct": "Direct",
 			"friend": "Amis",
 			"friend_of_friend": "Amis d'amis",
-			"unknown": "Une autre passerelle"
+			"unknown": "Une autre passerelle",
+			"requested": "Demandé"
 		},
 		"origin_help": {
 			"local": "Un serveur dans lequel cette passerelle peut écrire.",
 			"direct": "Un serveur distant enregistré ici — une deuxième machine à vous, ou un serveur public.",
 			"friend": "Via un pair auquel vous vous êtes lié vous-même.",
-			"friend_of_friend": "Via un pair présenté par l'un de vos amis. Personne ici ne lui a jamais donné son accord."
+			"friend_of_friend": "Via un pair présenté par l'un de vos amis. Personne ici ne lui a jamais donné son accord.",
+			"requested": "Demandé ou suivi sur votre source de demandes. Personne ne le détient : il n'y a aucun fichier, ici ni ailleurs."
 		},
 		"source": {
 			"title": "Récupérer depuis",
@@ -526,7 +528,8 @@
 		"peer_note": "Se configure sur sa propre page : nom, portée en sauts, et droit de vous lire.",
 		"type": {
 			"jellyfin": "Jellyfin",
-			"plex": "Plex"
+			"plex": "Plex",
+			"requests": "Demandes"
 		},
 		"discovery": {
 			"intro": "Connectez-vous à plex.tv et cette passerelle liste tous les serveurs Plex que votre compte atteint — les vôtres et ceux que des amis partagent avec vous — sans adresse à saisir.",

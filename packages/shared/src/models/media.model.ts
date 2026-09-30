@@ -485,6 +485,15 @@ export enum MediaOrigin {
 	FRIEND = 'friend',
 	/** Through a peer one of our friends introduced. */
 	FRIEND_OF_FRIEND = 'friend_of_friend',
+	/**
+	 * Asked for or followed, and held by nobody — see `MediaServiceType.REQUESTS`.
+	 *
+	 * Its own origin rather than a flag on the side, because it answers the question the
+	 * others answer: where would a copy come from. The answer here is "from nowhere yet",
+	 * which is what a household filtering its library on this wants to see — and what
+	 * every other filter has to be able to leave out.
+	 */
+	REQUESTED = 'requested',
 }
 
 /**
