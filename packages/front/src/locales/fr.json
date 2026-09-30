@@ -1775,6 +1775,10 @@
 		"search_title": "Chercher une copie",
 		"search_intro": "La recherche que cette demande suggère. Rien n’est cherché avant que vous n’appuyiez, et rien n’est récupéré ici.",
 		"search_season": "Saison",
-		"search_no_grab": "Ce sont des noms sur un tracker. Récupérez une copie depuis la page du média, là où elle a un endroit où se poser."
+		"search_no_grab": "Ce sont des noms sur un tracker. Récupérez une copie depuis la page du média, là où elle a un endroit où se poser.",
+		"watch": {
+			"action": "Suivre sur la source de demandes"
+		},
+		"watched": "Suivi : la source de demandes le connaît maintenant."
 	}
 }

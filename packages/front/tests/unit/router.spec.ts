@@ -1,4 +1,4 @@
-import { Right, UserRole } from '@mcs/shared';
+import { MediaOrigin, Right, UserRole } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from 'vue';
 import { useCheckRoute } from '@/hooks/useCheckRoute';
@@ -57,8 +57,28 @@ describe('router', () => {
 
 	it('loads every page on demand', () => {
 		for (const route of routes) {
+			// A route that redirects has no page of its own to load: `/requests` is the
+			// library under a filter now, and the address is kept because it is in
+			// people's history and in the menu.
+			if (route.redirect !== undefined) {
+				continue;
+			}
+
 			expect(typeof route.component).toBe('function');
 		}
+	});
+
+	it('sends the requests address to the library, filtered on what was asked for', async () => {
+		// The list it replaces read somebody else's table: rows of identifiers and states,
+		// with no poster, no season and nothing to press. What the household asks for is
+		// media, so the screen that reads media reads it.
+		//
+		// Pushed rather than resolved: `resolve` answers the record that was addressed and
+		// does not follow a redirect, so it would pass whatever the redirect said.
+		await context.router.push({ name: 'requests' });
+
+		expect(context.router.currentRoute.value.name).toBe('library');
+		expect(context.router.currentRoute.value.query).toEqual({ origins: MediaOrigin.REQUESTED });
 	});
 
 	it('sends a visitor with no session to the sign-in page', async () => {

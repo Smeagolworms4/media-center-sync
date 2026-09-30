@@ -1775,6 +1775,10 @@
 		"search_title": "搜索副本",
 		"search_intro": "这条请求建议的搜索。在您按下之前不会搜索，这里也不会下载任何内容。",
 		"search_season": "季",
-		"search_no_grab": "这些只是 tracker 上的名字。请从媒体页面获取副本，那里才有落脚的地方。"
+		"search_no_grab": "这些只是 tracker 上的名字。请从媒体页面获取副本，那里才有落脚的地方。",
+		"watch": {
+			"action": "在请求源中关注"
+		},
+		"watched": "已关注：请求源现在知道它了。"
 	}
 }

@@ -1775,6 +1775,10 @@
 		"search_title": "Procurar uma cópia",
 		"search_intro": "A pesquisa que este pedido sugere. Nada é procurado até premir, e aqui nada é descarregado.",
 		"search_season": "Temporada",
-		"search_no_grab": "Estes são nomes num tracker. Descarregue uma cópia a partir da página do media, onde há um lugar para ela aterrar."
+		"search_no_grab": "Estes são nomes num tracker. Descarregue uma cópia a partir da página do media, onde há um lugar para ela aterrar.",
+		"watch": {
+			"action": "Seguir na fonte de pedidos"
+		},
+		"watched": "Seguido: a fonte de pedidos já o conhece."
 	}
 }

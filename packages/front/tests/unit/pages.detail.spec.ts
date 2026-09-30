@@ -163,6 +163,127 @@ describe('pages/LibraryItem', () => {
 		},
 	};
 
+	/**
+	 * The request source, from the page the decision is made on.
+	 *
+	 * These two lived on a list of their own that read somebody else's table: rows of
+	 * identifiers and states, with no poster, no season, no quality and nothing to press.
+	 * What the household asks for is media, so it is read on the screen that reads media —
+	 * and the actions belong beside the show they are about.
+	 */
+	describe('what the household has asked for', () => {
+		const request = (overrides: Record<string, unknown> = {}) => ({
+			id: 'r-1',
+			mediaId: 'md-1',
+			kind: MediaKind.SERIES,
+			title: 'The Expanse',
+			tmdbId: '42',
+			tvdbId: null,
+			state: 'pending',
+			seasons: [],
+			requestedBy: 'Smeagol',
+			requestedAt: '2026-01-01T00:00:00.000Z',
+			holdings: [],
+			heldAlready: false,
+			fulfillable: false,
+			missingSeasons: [],
+			suggestion: null,
+			details: null,
+			...overrides,
+		});
+
+		const open = async (requests: unknown[], group = mediaGroup({ externalIds: { tmdb: '42' } })) => {
+			const stub = stubFetchRoutes({
+				...routes,
+				'/api/media/groups/m1': { body: group },
+				'/api/requests': { body: requests },
+				'/api/requests/r-1/fulfil': { body: request({ fulfillable: false }) },
+			});
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+
+			await settle(2);
+
+			return { wrapper, stub };
+		};
+
+		it('offers to follow a show the source knows nothing about yet', async () => {
+			const { wrapper } = await open([]);
+
+			expect(wrapper.find('[data-test="item-watch"]').exists()).toBe(true);
+			expect(wrapper.find('[data-test="item-fulfil"]').exists()).toBe(false);
+		});
+
+		it('offers to close an ask a copy of ours answers, and not one it does not', async () => {
+			const { wrapper } = await open([request({ fulfillable: true })]);
+
+			expect(wrapper.find('[data-test="item-fulfil"]').exists()).toBe(true);
+			// Already asked for: offering to ask again would open a second ask over there.
+			expect(wrapper.find('[data-test="item-watch"]').exists()).toBe(false);
+
+			const { wrapper: nothing } = await open([request({ fulfillable: false })]);
+
+			expect(nothing.find('[data-test="item-fulfil"]').exists()).toBe(false);
+		});
+
+		it('offers neither when no request source is configured', async () => {
+			// Said by the gateway answering the listing with a refusal, which is what a
+			// gateway with nothing configured answers.
+			const stub = stubFetchRoutes({
+				...routes,
+				'/api/media/groups/m1': { body: mediaGroup({ externalIds: { tmdb: '42' } }) },
+				'/api/requests': { status: 409, body: { message: 'error.request_source.not_configured' } },
+			});
+			const { wrapper } = mountWithApp(LibraryItem, {
+				props: { itemId: 'm1' },
+				global: { stubs: { ...tooltipStub, ...dialogStub } },
+			});
+
+			await settle(2);
+
+			expect(wrapper.find('[data-test="item-watch"]').exists()).toBe(false);
+			expect(stub).toBeDefined();
+		});
+
+		it('offers nothing to follow for a media no provider identifies', async () => {
+			// An identifier is the only thing an ask can name, and the only thing a local
+			// copy could later be matched on.
+			const { wrapper } = await open([], mediaGroup({ externalIds: {} }));
+
+			expect(wrapper.find('[data-test="item-watch"]').exists()).toBe(false);
+		});
+
+		it('says nothing about what sits beside a file when nothing holds one', async () => {
+			/*
+			 * A requested media has no copy anywhere, so the companions block would read
+			 * "never inspected" — which sounds like a gateway that has not got round to it
+			 * rather than the plain fact that there is nothing there yet.
+			 */
+			const { wrapper } = await open([], mediaGroup({
+				externalIds: { tmdb: '42' },
+				sources: [{
+					itemId: 'm1',
+					serviceId: 's-requests',
+					serviceName: 'Requests',
+					serviceType: MediaServiceType.JELLYFIN,
+					shared: false,
+					filesMounted: false,
+					peerId: null,
+					peerName: null,
+					quality: null,
+					companions: null,
+					bytes: null,
+					local: false,
+					sync: SyncState.MISSING,
+				}],
+			}));
+
+			expect(wrapper.find('[data-test="item-companions"]').exists()).toBe(false);
+		});
+	});
+
 	/** The whole point of the page: what is missing is listed, not hidden. */
 	it('lists the missing children beside the ones we hold, and marks them as missing', async () => {
 		stubFetchRoutes(routes);

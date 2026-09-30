@@ -1775,6 +1775,10 @@
 		"search_title": "Buscar una copia",
 		"search_intro": "La búsqueda que sugiere esta solicitud. Nada se busca hasta que usted pulse, y aquí nada se descarga.",
 		"search_season": "Temporada",
-		"search_no_grab": "Estos son nombres en un tracker. Descargue una copia desde la página del medio, donde tiene un sitio donde aterrizar."
+		"search_no_grab": "Estos son nombres en un tracker. Descargue una copia desde la página del medio, donde tiene un sitio donde aterrizar.",
+		"watch": {
+			"action": "Seguir en la fuente de peticiones"
+		},
+		"watched": "Seguido: la fuente de peticiones ya lo conoce."
 	}
 }

@@ -32,6 +32,7 @@
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 	import { usePeersStore } from '@/stores/peers';
+	import { useRequestsStore } from '@/stores/requests';
 	import { useServicesStore } from '@/stores/services';
 	import { useSyncStore } from '@/stores/sync';
 	import { useTransfersStore } from '@/stores/transfers';
@@ -172,6 +173,12 @@
 			transfersStore.loaded
 				? Promise.resolve()
 				: transfersStore.load({ page: 1, limit: 100 }).catch(() => undefined),
+			// What the household has asked for, so the page can offer to follow this and
+			// to close an ask that is answered. Swallowed like the rest: a gateway with no
+			// request source configured simply has none, and the two buttons stay away.
+			requestsStore.loaded
+				? Promise.resolve()
+				: requestsStore.load().catch(() => undefined),
 		]);
 		await load();
 	});
@@ -216,6 +223,16 @@
 	 */
 	const ownCopy = computed(
 		() => group.value?.sources.find(one => one.local) ?? group.value?.sources[0] ?? null);
+
+	/**
+	 * Whether anything here actually holds bytes.
+	 *
+	 * A requested media has no copy anywhere — see `MediaServiceType.REQUESTS` — so every
+	 * block that describes a file has nothing to describe, and saying so in the vocabulary
+	 * of a file that has not been read yet is worse than saying nothing.
+	 */
+	const holdsAFile = computed(
+		() => (group.value?.sources ?? []).some(one => (one.bytes ?? 0) > 0 || one.quality !== null));
 
 	const companions = computed(() => ownCopy.value?.companions ?? null);
 	const companionsUnknown = computed(() => ownCopy.value !== null && companions.value === null);
@@ -488,6 +505,89 @@
 	const askable = computed(() =>
 		group.value?.kind === MediaKind.SERIES || group.value?.kind === MediaKind.SEASON);
 
+	const requestsStore = useRequestsStore();
+
+	/**
+	 * The ask the household has open on its request source for this media, if any.
+	 *
+	 * Matched on the metadata identifier and not on the title: a request carries no title
+	 * at all half the time, and two shows with one name is the ordinary case rather than
+	 * the exception. A request whose holdings already name this media answers too — that
+	 * match was made by the gateway against both catalogues, and it is a better one than
+	 * anything computable here.
+	 */
+	const request = computed(() => {
+		const tmdb = group.value?.externalIds?.tmdb ?? null;
+		const id = group.value?.id ?? null;
+
+		return requestsStore.requests.find(one => {
+			if (tmdb !== null && one.tmdbId === tmdb) {
+				return true;
+			}
+
+			return id !== null && one.holdings.some(holding => holding.itemId === id);
+		}) ?? null;
+	});
+
+	/**
+	 * Whether this is something a request could be opened for at all.
+	 *
+	 * Films and shows only, because those are the two a request source deals in: asking
+	 * for one episode is asking for the show, and a button that silently asked for
+	 * something larger than what it sits on would be a button nobody could trust.
+	 */
+	const askableOfSource = computed(() =>
+		requestsStore.notConfigured === false
+		&& (group.value?.kind === MediaKind.MOVIE || group.value?.kind === MediaKind.SERIES)
+		&& (group.value?.externalIds?.tmdb ?? null) !== null);
+
+	const watching = ref(false);
+
+	/**
+	 * Follow this on the request source, from the page the decision is made on.
+	 *
+	 * Asked for plainly: somebody looking at a show that is three episodes short should be
+	 * able to say "watch this" without leaving for another application and finding it
+	 * again there by name.
+	 */
+	const watch_ = tryCallback(async () => {
+		watching.value = true;
+
+		try {
+			await requestsStore.create({
+				kind: group.value?.kind as MediaKind.MOVIE | MediaKind.SERIES,
+				tmdbId: group.value?.externalIds?.tmdb as string,
+			});
+
+			// Read back rather than invented here: the source decides what it made of the
+			// ask, including the case where the same one was already open.
+			await requestsStore.load().catch(() => undefined);
+			void notify('request.watched');
+		} finally {
+			watching.value = false;
+		}
+	});
+
+	const fulfilling = ref(false);
+
+	/** Close the ask over there, from the page that can see it is answered. */
+	const fulfil = tryCallback(async () => {
+		const open = request.value;
+
+		if (open === null) {
+			return;
+		}
+
+		fulfilling.value = true;
+
+		try {
+			await requestsStore.markFulfilled(open.id);
+			void notify('request.fulfilled');
+		} finally {
+			fulfilling.value = false;
+		}
+	});
+
 	const keepable = computed(() => group.value !== null && [
 		MediaKind.SERIES,
 		MediaKind.SEASON,
@@ -551,6 +651,33 @@
 						@click="discoverEpisodes"
 					>
 						{{ $t('media.episodes.action') }}
+					</v-btn>
+
+					<!--
+						The request source, from the page the decision is made on. Both of
+						these lived on a list of their own that showed numbers and no media;
+						they belong beside the show they are about.
+					-->
+					<v-btn
+						v-if="askableOfSource && request === null"
+						data-test="item-watch"
+						:loading="watching"
+						prepend-icon="mdi-playlist-star"
+						variant="text"
+						@click="watch_"
+					>
+						{{ $t('request.watch.action') }}
+					</v-btn>
+
+					<v-btn
+						v-if="request !== null && request.fulfillable"
+						data-test="item-fulfil"
+						:loading="fulfilling"
+						prepend-icon="mdi-check-decagram-outline"
+						variant="text"
+						@click="fulfil"
+					>
+						{{ $t('request.fulfil') }}
 					</v-btn>
 
 					<v-btn
@@ -656,7 +783,18 @@
 							</span>
 						</p>
 
-						<div class="library-item_companions mt-3" data-test="item-companions">
+						<!--
+							Only where there is a file for something to sit beside. A media
+							nobody holds — one the household has merely asked for — would
+							otherwise carry "never inspected", which reads as a gateway that
+							has not got round to it rather than as the plain fact that there
+							is nothing there yet.
+						-->
+						<div
+							v-if="holdsAFile"
+							class="library-item_companions mt-3"
+							data-test="item-companions"
+						>
 							<span class="text-caption text-medium-emphasis">
 								{{ $t('companions.title') }}
 							</span>

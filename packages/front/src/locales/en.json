@@ -1775,6 +1775,10 @@
 		"search_title": "Search for a copy",
 		"search_intro": "The search this request suggests. Nothing is searched until you press, and nothing here is fetched.",
 		"search_season": "Season",
-		"search_no_grab": "These are names on a tracker. Fetch a copy from the media page, where there is somewhere for it to land."
+		"search_no_grab": "These are names on a tracker. Fetch a copy from the media page, where there is somewhere for it to land.",
+		"watch": {
+			"action": "Follow on the request source"
+		},
+		"watched": "Followed: the request source knows about it now."
 	}
 }

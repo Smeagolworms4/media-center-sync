@@ -1775,6 +1775,10 @@
 		"search_title": "Nach einer Kopie suchen",
 		"search_intro": "Die Suche, die diese Anfrage vorschlägt. Es wird nichts gesucht, bis Sie drücken, und hier wird nichts geholt.",
 		"search_season": "Staffel",
-		"search_no_grab": "Das sind Namen auf einem Tracker. Holen Sie eine Kopie von der Medienseite, wo sie auch einen Platz zum Landen hat."
+		"search_no_grab": "Das sind Namen auf einem Tracker. Holen Sie eine Kopie von der Medienseite, wo sie auch einen Platz zum Landen hat.",
+		"watch": {
+			"action": "Auf der Anfragequelle verfolgen"
+		},
+		"watched": "Verfolgt: die Anfragequelle kennt es jetzt."
 	}
 }

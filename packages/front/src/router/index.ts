@@ -1,6 +1,6 @@
 import type { Pinia } from 'pinia';
 import type { App } from 'vue';
-import { Right } from '@mcs/shared';
+import { MediaOrigin, Right } from '@mcs/shared';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useCheckRoute } from '@/hooks/useCheckRoute';
 import { useAuthStore } from '@/stores/auth';
@@ -134,7 +134,21 @@ export const routes: RouteRecordRaw[] = [
 		 */
 		path: '/requests',
 		name: 'requests',
-		component: () => import('@/pages/Requests.vue'),
+		/*
+		 * The library, filtered, and not a page of its own any more.
+		 *
+		 * What the household has asked for is media — see `MediaServiceType.REQUESTS` — so
+		 * the screen that reads media is the screen that reads it. The list it replaces
+		 * showed rows of identifiers and states with no poster, no season, no quality and
+		 * nothing to press, because it was reading somebody else's table rather than the
+		 * catalogue.
+		 *
+		 * Kept as a route rather than removed outright: the address is in people's history
+		 * and in the menu, and a dead link is a worse answer than a redirect. The Overseerr
+		 * actions it used to carry — closing an ask, opening one — now live on the media's
+		 * own page, which is where the decision is made.
+		 */
+		redirect: { name: 'library', query: { origins: MediaOrigin.REQUESTED } },
 		meta: {
 			title: 'pages.requests',
 			icon: 'mdi-playlist-star',
