@@ -1729,6 +1729,87 @@ describe('SyncManager', () => {
 			});
 		});
 
+		/**
+		 * What the owner was told, and what was wrong with it.
+		 *
+		 * The refusal named `/share/Animes2/Series` as belonging to none of his libraries —
+		 * it is his Animés / Séries TV shelf — and said the free space could not be read, over
+		 * a disk with six hundred gigabytes on it. Two false statements in the one message
+		 * somebody reads while deciding what to do, and nothing to investigate behind either.
+		 */
+		it('names the library a destination is on, even one the run could not write into',
+			async () => {
+				/*
+				 * The placement fell back to the path itself because that shelf was left out of
+				 * the placement's own list — the last probe of it said it was not writable — so
+				 * the target carries no library identifier. Which shelf the path is *on* is a
+				 * different question, and it has an answer.
+				 */
+				const world = build({
+					libraries: [
+						{ id: 'library-anime', name: 'Animés / Séries TV', localPath: '/share/Animes2' },
+						{ id: 'library-local', name: 'Shows', localPath: '/media/shows' },
+					],
+				});
+
+				world.fakes.placement.resolve.mockResolvedValue({
+					libraryId: '',
+					libraryName: '/share/Animes2/Series',
+					root: '/share/Animes2/Series',
+					directory: '/share/Animes2/Series/Les Schtroumpfs (1961)',
+					path: '/share/Animes2/Series/Les Schtroumpfs (1961)/S01E01.mkv',
+					strategy: PlacementStrategy.BESIDE_EXISTING,
+					fallback: false,
+				});
+
+				const planning = await world.manager.plan({});
+
+				expect(planning.targets[0]).toMatchObject({
+					libraryId: 'library-anime',
+					libraryName: 'Animés / Séries TV',
+				});
+			});
+
+		it('measures the room on a destination folder that does not exist yet', async () => {
+			/*
+			 * A first pull creates `…/Les Schtroumpfs (1961)` when the bytes are written, so
+			 * probing it beforehand answers "unreadable" — which the verdict reads as a disk
+			 * nobody could measure, and the run is held for an acknowledgement over nothing.
+			 * Free space is a property of the filesystem, so the nearest directory that exists
+			 * answers the same question.
+			 */
+			const world = build();
+			const seen: (string | null)[] = [];
+
+			world.fakes.libraryManager.probe.mockImplementation((path: string | null) => {
+				seen.push(path);
+
+				return Promise.resolve(
+					path === '/media/shows'
+						? { exists: true, readable: true, writable: true, freeBytes: 622_000_000_000, error: null }
+						: { exists: false, readable: false, writable: false, freeBytes: null, error: 'x' },
+				);
+			});
+			world.fakes.placement.resolve.mockResolvedValue({
+				libraryId: 'library-local',
+				libraryName: 'Shows',
+				root: '/media/shows',
+				directory: '/media/shows/Les Schtroumpfs (1961)',
+				path: '/media/shows/Les Schtroumpfs (1961)/S01E01.mkv',
+				strategy: PlacementStrategy.BESIDE_EXISTING,
+				fallback: false,
+			});
+
+			const planning = await world.manager.plan({});
+
+			expect(planning.targets[0]).toMatchObject({
+				freeBytes: 622_000_000_000,
+				verdict: SpaceVerdict.FITS,
+			});
+			// It walked up rather than giving up, and it did look at the folder itself first.
+			expect(seen).toContain('/media/shows/Les Schtroumpfs (1961)');
+		});
+
 		it('reports the room left on every destination it would write into', async () => {
 			const { manager } = withFreeBytes(100_000_000);
 			const planning = await manager.plan({});

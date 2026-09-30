@@ -80,6 +80,7 @@ import {
 	applyCeilings,
 	editionOf,
 	episodeLabel,
+	isInside,
 	needsAcknowledgement,
 	refusesRun,
 	sameContent,
@@ -1737,13 +1738,28 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			});
 		}
 
+		/*
+		 * Every library and not only the ones a run may write into, purely to name them.
+		 *
+		 * The dialog told the owner that `/share/Animes2/Series` "belongs to none of your
+		 * libraries", which was false: it is his Animés / Séries TV shelf, and it had been
+		 * left out of the placement's own list because the last probe of it said it was not
+		 * writable. A refusal is read by somebody deciding what to do, and a false statement
+		 * about their own setup is worse than no statement — so what is reported is which
+		 * shelf the path is on, whatever the placement was able to use.
+		 */
+		const all = await this._libraries.find();
+
 		return Promise.all(
 			[...grouped.entries()].map(async ([libraryId, group]) => {
-				const probe = await this._libraryManager.probe(group.path);
+				const holder = libraryId === '' ? this._holding(all, group.path) : null;
+				const probe = await this._libraryManager.probe(
+					await this._nearestExisting(group.path),
+				);
 
 				return targetSpace({
-					libraryId,
-					libraryName: group.name,
+					libraryId: holder?.id ?? libraryId,
+					libraryName: holder?.name ?? group.name,
 					localPath: group.path,
 					freeBytes: probe.freeBytes,
 					requiredBytes: group.bytes,
@@ -1751,6 +1767,61 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				});
 			}),
 		);
+	}
+
+	/** The library whose own root holds this path, deepest first, or null for none. */
+	private _holding(
+		libraries: { id: string; name: string; localPath: string | null }[],
+		path: string | null,
+	): { id: string; name: string } | null {
+		if (path === null) {
+			return null;
+		}
+
+		const held = libraries
+			.filter((library) => library.localPath !== null && isInside(path, library.localPath))
+			// Deepest first, for the reason `mappedLocalPath` prefers the longest prefix:
+			// nested shelves are a real setup, and the shallower one is not the answer.
+			.sort((left, right) => (right.localPath as string).length - (left.localPath as string).length);
+
+		return held[0] ?? null;
+	}
+
+	/**
+	 * The path itself, or the closest directory above it that exists.
+	 *
+	 * Free space is a property of the filesystem, and the destination directory of a first
+	 * pull does not exist yet — `/share/Animes2/Series/Les Schtroumpfs (1961)` is created
+	 * when the bytes are written. Probed as it stands it answers "unreadable", so the run was
+	 * refused with "the gateway could not read the free space on it" over a disk with six
+	 * hundred gigabytes free, and there was nothing to investigate because nothing was wrong.
+	 *
+	 * Bounded by the root, and it stops at the first directory that answers: walking to `/`
+	 * would report the free space of the wrong filesystem for a path whose whole mount is
+	 * missing, which is a real failure and must go on saying so.
+	 */
+	private async _nearestExisting(path: string | null): Promise<string | null> {
+		if (path === null || path === '') {
+			return path;
+		}
+
+		let at = path;
+
+		for (let depth = 0; depth < 16; depth += 1) {
+			if ((await this._libraryManager.probe(at)).exists) {
+				return at;
+			}
+
+			const above = dirname(at);
+
+			if (above === at) {
+				return path;
+			}
+
+			at = above;
+		}
+
+		return path;
 	}
 
 	/**
