@@ -53,6 +53,23 @@ export const routes: RouteRecordRaw[] = [
 		},
 	},
 	{
+		/*
+		 * Under the library in the menu, because it is the library asking one question: what
+		 * has come out for the shows this household follows. A page rather than a filter
+		 * because the answer splits in two — what is missing, and what is held in a worse
+		 * copy than exists elsewhere — and those are two different decisions.
+		 */
+		path: '/new-releases',
+		name: 'news',
+		component: () => import('@/pages/NewReleases.vue'),
+		meta: {
+			title: 'pages.news',
+			icon: 'mdi-new-box',
+			nav: true,
+			granted: [Right.MEDIA_READ],
+		},
+	},
+	{
 		path: '/library/:itemId',
 		name: 'library-item',
 		component: () => import('@/pages/LibraryItem.vue'),

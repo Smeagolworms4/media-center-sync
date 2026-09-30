@@ -1412,7 +1412,8 @@
 		"settings_users": "Usuarios",
 		"not_found": "Página no encontrada",
 		"not_found_text": "No hay nada en esta dirección.",
-		"requests": "Solicitudes"
+		"requests": "Solicitudes",
+		"news": "Novedades"
 	},
 	"components": {
 		"paginate": {
@@ -1780,5 +1781,15 @@
 			"action": "Seguir en la fuente de peticiones"
 		},
 		"watched": "Seguido: la fuente de peticiones ya lo conoce."
+	},
+	"news": {
+		"empty_text": "No falta ningún episodio emitido de las series que sigue — ni por un plan de sincronización ni por una petición.",
+		"empty_title": "Nada nuevo",
+		"hint": "El más reciente salió",
+		"missing": "Faltan ({count})",
+		"missing_help": "Emitidos y que aquí no tiene nadie. Abra uno para buscar una copia.",
+		"subtitle": "Lo que ha salido para las series que sigue.",
+		"upgrades": "Mejoras de versión ({count})",
+		"upgrades_help": "Los tiene, pero existe una copia mejor en otro sitio. No faltan."
 	}
 }

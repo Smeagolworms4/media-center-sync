@@ -309,6 +309,16 @@ export class MediaGroupManager {
 		const parentIds =
 			query.parentId === undefined ? undefined : await this._parentScope(query.parentId, context);
 		const followed = query.followed === true ? await this._followedScope() : null;
+		const watched = query.watched === true ? await this._watchedScope() : null;
+		// Both narrow the same way — a membership test on the seed — so two of them is an
+		// intersection and never a contradiction. A caller asking for both gets what a plan
+		// follows *and* what was asked for, which is a reasonable question to ask.
+		const scope = followed === null || watched === null
+			? (followed ?? watched)
+			: {
+				ids: followed.ids.filter(id => watched.ids.includes(id)),
+				underIds: followed.underIds.filter(id => watched.underIds.includes(id)),
+			};
 
 		const seedQuery: GroupSeedQuery = {
 			serviceIds: this._servicesFor(query, context),
@@ -323,8 +333,8 @@ export class MediaGroupManager {
 			// Folded before the query sees them, because the index only ever holds the
 			// folded spelling and `hevc` is what somebody will actually type.
 			videoCodecs: this._codecsFor(query),
-			coveredIds: followed?.ids,
-			coveredParentIds: followed?.underIds,
+			coveredIds: scope?.ids,
+			coveredParentIds: scope?.underIds,
 		};
 		const seeds = await this._items.findGroupSeeds(seedQuery);
 
@@ -665,6 +675,38 @@ export class MediaGroupManager {
 		const children = await this._items.findChildDigests(roots);
 
 		return { ids: [...ids], underIds: [...roots, ...children.map((child) => child.id)] };
+	}
+
+	/**
+	 * Everything the household has said it cares about, in either of the two ways it can.
+	 *
+	 * A sync plan is one way of saying it. Asking for the show on the request source is the
+	 * other, and it is the one most of a household's shows are said with — nobody writes a
+	 * plan for a series they have just asked a friend's Seerr for. The new releases screen
+	 * reads this, and reading plans alone would have left that screen almost empty while
+	 * the request list was full.
+	 *
+	 * A union and not a second filter beside the first: the seed query narrows by
+	 * membership, so "followed or requested" is one set, and nothing in the query layer has
+	 * to learn about a second kind of covering.
+	 */
+	private async _watchedScope(): Promise<{ ids: string[]; underIds: string[] }> {
+		const followed = await this._followedScope();
+		const services = (await this._services.find()).filter(
+			(service) => service.type === MediaServiceType.REQUESTS,
+		);
+
+		if (services.length === 0) {
+			return followed;
+		}
+
+		// Everything on the request source is watched by definition: a row exists there
+		// because somebody asked for it.
+		const requested = await this._items.findByServices(services.map((service) => service.id));
+		const ids = new Set([...followed.ids, ...requested.map((item) => item.id)]);
+		const underIds = new Set([...followed.underIds, ...requested.map((item) => item.id)]);
+
+		return { ids: [...ids], underIds: [...underIds] };
 	}
 
 	/**

@@ -221,6 +221,11 @@ const build = (
 		findByIds: jest.fn((ids: string[]) =>
 			Promise.resolve(full.items.filter((row) => ids.includes(row.id))),
 		),
+		// Everything a set of services reports, which is how the whole request source is
+		// scoped: a row exists there because somebody asked for it.
+		findByServices: jest.fn((serviceIds: string[]) =>
+			Promise.resolve(full.items.filter((row) => serviceIds.includes(row.serviceId))),
+		),
 		// The children of a set of parents, which is how a folder is worked out for a
 		// row that carries no file of its own. TypeORM's `In` is a value object here, so
 		// the fake reads the identifiers back off it rather than pretending to be a
@@ -1661,6 +1666,50 @@ describe('MediaGroupManager', () => {
 	describe('the followed filter', () => {
 		const show = (id: string, title: string, overrides: Partial<MediaItem> = {}): MediaItem =>
 			item({ id, title, kind: MediaKind.SERIES, file: null, quality: null, ...overrides });
+
+		/**
+		 * The other way a household says it cares about a show.
+		 *
+		 * Nobody writes a sync plan for a series they have just asked Seerr for, so a
+		 * screen reading plans alone was almost empty while the request list was full.
+		 * Asking for something *is* watching it.
+		 */
+		it('counts what the request source holds as watched, with no plan anywhere', async () => {
+			const { manager } = build({
+				items: [
+					show('asked', 'Alpha', { serviceId: 'requests' }),
+					show('ignored', 'Bravo'),
+				],
+				services: [
+					service(),
+					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
+				],
+				plans: [],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, watched: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['asked']);
+		});
+
+		it('takes both ways of saying it, not one or the other', async () => {
+			const { manager } = build({
+				items: [
+					show('asked', 'Alpha', { serviceId: 'requests' }),
+					show('planned', 'Bravo'),
+					show('neither', 'Charlie'),
+				],
+				services: [
+					service(),
+					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
+				],
+				plans: [plan({ scope: { rootItemIds: ['planned'] } })],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, watched: true }));
+
+			expect(page.items.map((one) => one.id).sort()).toEqual(['asked', 'planned']);
+		});
 
 		it('keeps only the media a sync plan covers', async () => {
 			const { manager } = build({

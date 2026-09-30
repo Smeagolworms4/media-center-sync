@@ -31,7 +31,7 @@ describe('router', () => {
 		const paths = routes.map(route => route.path);
 
 		expect(paths).toEqual([
-			'/login', '/setup', '/', '/library', '/library/:itemId',
+			'/login', '/setup', '/', '/library', '/new-releases', '/library/:itemId',
 			'/services', '/services/:id', '/peers', '/peers/:id',
 			'/sync', '/sync/plans/:id', '/transfers', '/requests',
 			'/settings', '/settings/shares', '/settings/users',

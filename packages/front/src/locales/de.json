@@ -1412,7 +1412,8 @@
 		"settings_users": "Benutzer",
 		"not_found": "Seite nicht gefunden",
 		"not_found_text": "Unter dieser Adresse gibt es nichts.",
-		"requests": "Anfragen"
+		"requests": "Anfragen",
+		"news": "Neuheiten"
 	},
 	"components": {
 		"paginate": {
@@ -1780,5 +1781,15 @@
 			"action": "Auf der Anfragequelle verfolgen"
 		},
 		"watched": "Verfolgt: die Anfragequelle kennt es jetzt."
+	},
+	"news": {
+		"empty_text": "Keine erschienene Folge fehlt bei den Serien, denen Sie folgen — weder per Sync-Plan noch per Anfrage.",
+		"empty_title": "Nichts Neues",
+		"hint": "Die neueste erschien",
+		"missing": "Fehlend ({count})",
+		"missing_help": "Erschienen und hier von niemandem vorhanden. Öffnen Sie eine, um eine Kopie zu suchen.",
+		"subtitle": "Was für die Serien erschienen ist, denen Sie folgen.",
+		"upgrades": "Versionsverbesserungen ({count})",
+		"upgrades_help": "Sie haben diese, aber anderswo gibt es eine bessere Kopie. Sie fehlen nicht."
 	}
 }

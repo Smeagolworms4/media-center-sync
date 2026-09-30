@@ -857,7 +857,13 @@ export class MediaManager {
 				artworkUrl: null,
 				file: null,
 				syncState: SyncState.UNKNOWN,
-				addedAt: null,
+				/*
+				 * The air date, which is the only date this row has and the one the new
+				 * releases screen is ordered by. Not when a server added it — no server has
+				 * it, which is the whole reason this row exists — so a reader must not take
+				 * it for a shelf date.
+				 */
+				addedAt: episode.airDate === null ? null : new Date(episode.airDate),
 				ignored: false,
 				childCount: 0,
 			}),

@@ -1412,7 +1412,8 @@
 		"settings_users": "Users",
 		"not_found": "Page not found",
 		"not_found_text": "There is nothing at this address.",
-		"requests": "Requests"
+		"requests": "Requests",
+		"news": "New releases"
 	},
 	"components": {
 		"paginate": {
@@ -1780,5 +1781,15 @@
 			"action": "Follow on the request source"
 		},
 		"watched": "Followed: the request source knows about it now."
+	},
+	"news": {
+		"empty_text": "No aired episode is missing from the shows you follow — whether by a sync plan or by an ask on your request source.",
+		"empty_title": "Nothing new",
+		"hint": "The most recent came out",
+		"missing": "Missing ({count})",
+		"missing_help": "Aired, and held by nobody here. Open one to look for a copy.",
+		"subtitle": "What has come out for the shows you follow.",
+		"upgrades": "Version upgrades ({count})",
+		"upgrades_help": "You have these, but a better copy exists elsewhere. They are not missing."
 	}
 }

@@ -607,6 +607,16 @@ export interface MediaGroupQuery {
 	 */
 	followed?: boolean;
 	/**
+	 * Keep only media the household has said it cares about, in either of the two ways.
+	 *
+	 * Wider than `followed` on purpose: a plan is one way of saying "keep this in step",
+	 * and asking for it on the request source is the other. The new releases screen reads
+	 * this — "a series comes up if a new episode has aired and it is being watched" — and
+	 * answering it with plans alone would leave out everything somebody followed on Seerr
+	 * and never wrote a plan for, which is most of it.
+	 */
+	watched?: boolean;
+	/**
 	 * Keep only media there is something to do about.
 	 *
 	 * Two things, either of which counts: a gap beneath it — children known somewhere

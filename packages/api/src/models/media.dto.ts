@@ -251,6 +251,19 @@ export class MediaGroupQueryDto {
 	@IsBoolean()
 	public followed?: boolean;
 
+	/**
+	 * Only what the household has said it cares about, either way it can say it.
+	 *
+	 * Wider than `followed`: a plan is one way of saying "keep this in step", asking for it
+	 * on the request source is the other, and most of a household's shows are said with the
+	 * second. Transformed like the booleans around it.
+	 */
+	@ApiPropertyOptional({ description: 'Only media a plan covers or the request source holds.' })
+	@IsOptional()
+	@Transform(({ value }) => value === true || value === 'true' || value === '1')
+	@IsBoolean()
+	public watched?: boolean;
+
 	/** Only what there is something to do about. Transformed like the two booleans above. */
 	@ApiPropertyOptional({ description: 'Only media with a gap beneath them or something newer elsewhere.' })
 	@IsOptional()

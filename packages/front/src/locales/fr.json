@@ -1412,7 +1412,8 @@
 		"settings_users": "Utilisateurs",
 		"not_found": "Page introuvable",
 		"not_found_text": "Il n'y a rien à cette adresse.",
-		"requests": "Demandes"
+		"requests": "Demandes",
+		"news": "Nouveautés"
 	},
 	"components": {
 		"paginate": {
@@ -1780,5 +1781,15 @@
 			"action": "Suivre sur la source de demandes"
 		},
 		"watched": "Suivi : la source de demandes le connaît maintenant."
+	},
+	"news": {
+		"empty_text": "Aucun épisode paru ne manque parmi les séries que vous suivez — par un plan de synchro, ou par une demande sur votre source.",
+		"empty_title": "Rien de nouveau",
+		"hint": "Le plus récent est paru",
+		"missing": "Manquants ({count})",
+		"missing_help": "Parus et détenus par personne ici. Ouvrez-en un pour chercher une copie.",
+		"subtitle": "Ce qui est sorti pour les séries que vous suivez.",
+		"upgrades": "Montées en version ({count})",
+		"upgrades_help": "Vous les avez, mais une meilleure copie existe ailleurs. Ce ne sont pas des manquants."
 	}
 }

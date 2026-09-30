@@ -1412,7 +1412,8 @@
 		"settings_users": "用户",
 		"not_found": "页面未找到",
 		"not_found_text": "此地址下没有任何内容。",
-		"requests": "请求"
+		"requests": "请求",
+		"news": "新内容"
 	},
 	"components": {
 		"paginate": {
@@ -1780,5 +1781,15 @@
 			"action": "在请求源中关注"
 		},
 		"watched": "已关注：请求源现在知道它了。"
+	},
+	"news": {
+		"empty_text": "你关注的剧集中没有已播出却缺失的剧集——无论是通过同步计划还是通过请求。",
+		"empty_title": "没有新内容",
+		"hint": "最新的一集播出于",
+		"missing": "缺失（{count}）",
+		"missing_help": "已播出，且这里无人持有。打开其中一项来查找副本。",
+		"subtitle": "你关注的剧集有哪些新内容。",
+		"upgrades": "版本升级（{count}）",
+		"upgrades_help": "你已拥有，但别处有更好的副本。它们并不缺失。"
 	}
 }

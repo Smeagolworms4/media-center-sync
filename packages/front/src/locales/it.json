@@ -1412,7 +1412,8 @@
 		"settings_users": "Utenti",
 		"not_found": "Pagina non trovata",
 		"not_found_text": "A questo indirizzo non c'è nulla.",
-		"requests": "Richieste"
+		"requests": "Richieste",
+		"news": "Novità"
 	},
 	"components": {
 		"paginate": {
@@ -1780,5 +1781,15 @@
 			"action": "Segui sulla sorgente di richieste"
 		},
 		"watched": "Seguito: la sorgente di richieste ora lo conosce."
+	},
+	"news": {
+		"empty_text": "Nessun episodio uscito manca tra le serie che segui — né per un piano di sincronizzazione né per una richiesta.",
+		"empty_title": "Niente di nuovo",
+		"hint": "Il più recente è uscito",
+		"missing": "Mancanti ({count})",
+		"missing_help": "Usciti e che qui non ha nessuno. Aprine uno per cercare una copia.",
+		"subtitle": "Che cosa è uscito per le serie che segui.",
+		"upgrades": "Passaggi di versione ({count})",
+		"upgrades_help": "Li hai, ma altrove esiste una copia migliore. Non mancano."
 	}
 }
