@@ -756,6 +756,55 @@ describe('components/transfer/TransferBatch', () => {
 			.toEqual(['Season 01', 'Season 02']);
 	});
 
+	it('opens its seasons closed, and says where a closed one has got to', async () => {
+		/*
+		 * Asked for: foldable, and folded to begin with. The numbers are why — one card in
+		 * the owner's queue holds a hundred and four files with fifty-two under a single
+		 * season, so a card that opened onto all of them would be the same wall of rows the
+		 * download itself was split out of.
+		 *
+		 * Tolerable only because the fold hides the files and not the facts: the heading
+		 * keeps the folder, the count and the progress.
+		 */
+		const transfers = [
+			transfer({
+				id: 't1',
+				seasonNumber: 1,
+				state: TransferState.DONE,
+				bytesDone: 1000,
+				bytesTotal: 1000,
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 01/S01E01.mkv',
+			}),
+			transfer({
+				id: 't2',
+				seasonNumber: 1,
+				bytesDone: 0,
+				bytesTotal: 1000,
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 01/S01E02.mkv',
+			}),
+		];
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(transfers), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
+
+		const heading = wrapper.find('[data-test="transfer-batch-season"]');
+
+		expect(heading.attributes('data-open')).toBe('no');
+		expect(wrapper.findAllComponents({ name: 'TransferRow' })).toHaveLength(0);
+		// Closed, and still saying it: one file of two, and half the bytes.
+		expect(heading.text()).toContain('1 of 2 files');
+		expect(wrapper.find('[data-test="transfer-batch-season-progress"]').attributes('aria-valuenow'))
+			.toBe('50');
+
+		await wrapper.find('[data-test="transfer-batch-season-toggle"]').trigger('click');
+
+		expect(wrapper.find('[data-test="transfer-batch-season"]').attributes('data-open')).toBe('yes');
+		expect(wrapper.findAllComponents({ name: 'TransferRow' })).toHaveLength(2);
+	});
+
 	it('draws no season heading over a download that has no season', async () => {
 		// A film, or a single episode: a heading over one group is a frame around nothing.
 		const { wrapper } = mountWithApp(TransferBatch, {
@@ -827,11 +876,12 @@ describe('components/transfer/TransferBatch', () => {
 		expect(wrapper.emitted('rename-season')).toBeUndefined();
 	});
 
-	it('shows the name on disk beside each file, and lets it be renamed', async () => {
+	it('shows the name on disk on each row, and lets it be renamed', async () => {
 		/*
-		 * The name and not the title. The row above says "Spartacus — S02E09 — Monstres",
-		 * which is a sentence about the media; the file is called something else entirely, and
-		 * somebody renaming it has to see what they are changing.
+		 * The name and not the title. The row says "Spartacus — S02E09 — Monstres", which is a
+		 * sentence about the media; the file is called something else entirely — and under one
+		 * season, fifty-two rows carry the same sentence and the same two source names, so the
+		 * file name is the only thing that tells them apart.
 		 */
 		const { wrapper } = mountWithApp(TransferBatch, {
 			props: { lot: download(season()), progress },
@@ -840,7 +890,7 @@ describe('components/transfer/TransferBatch', () => {
 
 		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
 
-		expect(wrapper.findAll('[data-test="transfer-batch-file-name"]').map(one => one.text()))
+		expect(wrapper.findAll('[data-test="transfer-file-name"]').map(one => one.text()))
 			.toEqual(['S02E09.mkv', 'S02E10.mkv']);
 
 		await wrapper.findAll('[data-test="transfer-batch-file-rename"]')[0].trigger('click');

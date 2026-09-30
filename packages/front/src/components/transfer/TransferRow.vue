@@ -27,11 +27,28 @@
 		transfer: Transfer;
 		progress: TransferProgressShape;
 		busy?: boolean;
+		/**
+		 * Drawn as one line, for a row that sits inside a download.
+		 *
+		 * A season is fifty-two of these, and the full row answers questions the card above
+		 * it has already answered: where it lands is the download's destination, and its
+		 * sources are the same sources. What is left is what differs between one file and
+		 * the next — which file, how far, and what can be done to it — on one line, with the
+		 * actions as icons that carry their labels in a tooltip.
+		 *
+		 * Never for a row of its own: a download of one file is the whole thing somebody is
+		 * looking at, and there is nothing above it to have said any of that.
+		 */
+		compact?: boolean;
 	}>(), {
 		busy: false,
+		compact: false,
 	});
 
 	const emit = defineEmits<{ action: [action: TransferAction, transfer: Transfer] }>();
+
+	/** What this file is called where it lands, which is not what the media is called. */
+	const fileName = computed(() => props.transfer.targetPath.split('/').at(-1) ?? '');
 
 	const transfersStore = useTransfersStore();
 	const librariesStore = useLibrariesStore();
@@ -100,7 +117,7 @@
 <template>
 	<v-card
 		class="transfer-row"
-		:class="{ 'transfer-row--paused': paused }"
+		:class="{ 'transfer-row--paused': paused, 'transfer-row--compact': compact }"
 		:data-state="transfer.state"
 		data-test="transfer-row"
 		variant="tonal"
@@ -119,7 +136,30 @@
 				<div class="transfer-row_title">
 					<p class="text-subtitle-2 mb-0 text-break-anywhere">{{ transfer.title }}</p>
 
-					<p class="text-caption text-medium-emphasis mb-0">
+					<!--
+						Inside a download, the name on disk rather than the sources.
+						Fifty-two rows under one season all read "Les Schtroumpfs — S02E36 —
+						Episode 36" and all name the same two servers: the file is the one
+						thing that tells them apart, and it was the one thing not on screen.
+					-->
+					<div v-if="compact" class="transfer-row_fileLine">
+						<p
+							class="transfer-row_file text-caption text-medium-emphasis mb-0"
+							data-test="transfer-file-name"
+						>
+							{{ fileName }}
+						</p>
+
+						<!--
+							Whatever the download wants to offer about this file's name — the
+							pencil that renames it, and the field it opens. A slot rather than a
+							prop because renaming is the card's business: this row knows what the
+							file is called and nothing about moving it.
+						-->
+						<slot name="name" />
+					</div>
+
+					<p v-else class="text-caption text-medium-emphasis mb-0">
 						<template v-if="sources.length === 0">{{ $t('transfer.no_source') }}</template>
 
 						<template v-for="(source, index) of sources" :key="source.serviceId">
@@ -175,14 +215,33 @@
 					{{ $t('transfer.unhealthy_sources', { count: unhealthy }) }}
 				</v-chip>
 
-				<span class="transfer-row_rate text-caption">
-					<Rate :rate="progress.rate" />
-				</span>
+				<!--
+					Not inside a download, where the line under the bar already carries the rate
+					and the estimate: the head repeating them is the same two numbers twice on
+					one row, fifty-two times over.
+				-->
+				<template v-if="!compact">
+					<span class="transfer-row_rate text-caption">
+						<Rate :rate="progress.rate" />
+					</span>
 
-				<span class="transfer-row_eta text-caption text-medium-emphasis">
-					<Duration v-if="progress.etaSeconds !== null" :seconds="progress.etaSeconds" />
-					<template v-else>{{ $t('transfer.no_eta') }}</template>
-				</span>
+					<span class="transfer-row_eta text-caption text-medium-emphasis">
+						<Duration v-if="progress.etaSeconds !== null" :seconds="progress.etaSeconds" />
+						<template v-else>{{ $t('transfer.no_eta') }}</template>
+					</span>
+				</template>
+
+				<!--
+					The actions on the head line rather than below it, which is what makes a
+					row one line. Icons with their labels in a tooltip — see `TransferActions`.
+				-->
+				<TransferActions
+					v-if="compact"
+					:busy="busy"
+					compact
+					:transfer="transfer"
+					@action="emit('action', $event, transfer)"
+				/>
 			</div>
 
 			<TransferProgress class="mt-2" :progress="progress" />
@@ -193,7 +252,11 @@
 				from their media server; the folder is where the bytes actually land, and
 				it is the thing worth checking before a twenty-gigabyte file arrives.
 			-->
-			<p class="text-caption text-medium-emphasis mt-1 mb-0 text-break-anywhere" data-test="transfer-destination-name">
+			<p
+				v-if="!compact"
+				class="text-caption text-medium-emphasis mt-1 mb-0 text-break-anywhere"
+				data-test="transfer-destination-name"
+			>
 				{{ destination
 					? $t('transfer.going_to', { library: destination })
 					: $t('transfer.going_to_folder', { path: transfer.targetPath }) }}
@@ -279,6 +342,7 @@
 			</v-alert>
 
 			<TransferActions
+				v-if="!compact"
 				:busy="busy"
 				class="mt-2"
 				:transfer="transfer"
@@ -320,6 +384,27 @@
 			opacity: 0.88;
 		}
 
+		&--compact {
+			// Tighter, because what is being read here is a list. The default padding is
+			// right for a row that is the whole subject of the screen, and wrong for the
+			// fifty-second file of a season.
+			.v-card-text {
+				padding: 8px 12px;
+			}
+		}
+
+		&_fileLine {
+			display: flex;
+			align-items: center;
+			gap: 4px;
+			min-width: 0;
+		}
+
+		&_file {
+			font-family: monospace;
+			overflow-wrap: anywhere;
+		}
+
 		&_detail {
 			font-family: monospace;
 			overflow-wrap: anywhere;
@@ -341,6 +426,11 @@
 		}
 
 		&_title {
+			// Allowed to shrink, and that is the whole of it: without a `flex` the title
+			// keeps its natural width, the line overflows, and the actions are laid out
+			// past the card's edge — where `v-card` clips them. They were in the page,
+			// focusable and invisible, which is the worst of the three outcomes.
+			flex: 1 1 200px;
 			min-width: 0;
 		}
 

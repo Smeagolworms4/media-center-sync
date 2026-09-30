@@ -58,6 +58,27 @@
 	 */
 	const renaming = ref<{ key: string; value: string } | null>(null);
 
+	/**
+	 * The seasons somebody has opened. Empty to begin with: every season is closed.
+	 *
+	 * Asked for in those words, and the numbers say why: one card here holds a hundred and
+	 * four files, fifty-two of them in one season. Opening the card to be given that list is
+	 * the same wall of rows the download itself was split out of — four season headings, one
+	 * of which somebody actually wants, is the readable answer.
+	 *
+	 * Which is only tolerable because a closed season still carries its folder, its count and
+	 * its progress: the fold hides the files, not the facts.
+	 */
+	const open = ref(new Set<string>());
+
+	function toggle (key: string): void {
+		if (open.value.has(key)) {
+			open.value.delete(key);
+		} else {
+			open.value.add(key);
+		}
+	}
+
 	function edit (key: string, current: string): void {
 		renaming.value = { key, value: current };
 	}
@@ -205,6 +226,14 @@
 				 * every file under it.
 				 */
 				folder: folderOf(held),
+				/*
+				 * How far this season has got, on the heading, because the heading is what a
+				 * closed season leaves on screen. A fold that hid the progress would trade one
+				 * unreadable list for a row of names that answer nothing, and somebody would
+				 * open all four seasons every time — which is the state this fold exists to
+				 * get out of.
+				 */
+				...progressOfSeason(held),
 			}))
 			// `sort` and not `toSorted`: the interface's TypeScript target does not declare the
 			// latter, and `map` above has already produced an array of our own to order.
@@ -217,6 +246,28 @@
 				return right.seasonNumber === null ? -1 : left.seasonNumber - right.seasonNumber;
 			});
 	});
+
+	/** What a season comes to: its bytes, and the files of it that are properly over. */
+	function progressOfSeason (held: Transfer[]) {
+		const bytes = held.reduce(
+			(total, one) => {
+				const live = props.progress(one);
+
+				return { done: total.done + live.bytesDone, total: total.total + live.bytesTotal };
+			},
+			{ done: 0, total: 0 },
+		);
+
+		return {
+			bytes,
+			percent: bytes.total > 0 ? Math.min(100, (bytes.done / bytes.total) * 100) : 0,
+			// The same rule as the card's own count: a file whose bytes are in but which no
+			// media server has indexed is not finished. See `finished` above.
+			done: held.filter(
+				one => props.progress(one).state === TransferState.DONE && (one.landing ?? null) === null,
+			).length,
+		};
+	}
 
 	/** The directory a set of files shares, by its own name alone. */
 	function folderOf (held: Transfer[]): string | null {
@@ -406,11 +457,32 @@
 						<div
 							v-if="grouped"
 							class="transfer-batch_season"
+							:data-open="open.has(season.key) ? 'yes' : 'no'"
 							data-test="transfer-batch-season"
 						>
-							<v-icon icon="mdi-folder-outline" size="16" />
+							<!--
+								Closed to begin with, and every one of them. One card here holds a
+								hundred and four files with fifty-two under a single season, so a
+								card that opened onto all of them would be the same wall of rows
+								the download was split out of.
+							-->
+							<v-btn
+								data-test="transfer-batch-season-toggle"
+								:icon="open.has(season.key) ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+								size="x-small"
+								variant="text"
+								@click="toggle(season.key)"
+							/>
 
-							<strong class="text-caption">
+							<!--
+								The label opens it too. A four-pixel chevron is not the target
+								somebody aims at, and everything else on this line is either a
+								fact or a field.
+							-->
+							<strong
+								class="text-caption transfer-batch_seasonName"
+								@click="toggle(season.key)"
+							>
 								{{ season.seasonNumber === null
 									? $t('transfer.batch.no_season')
 									: season.seasonNumber === 0
@@ -447,72 +519,100 @@
 									{{ season.folder }}
 								</span>
 
-								<v-btn
+								<v-tooltip
 									v-if="season.folder"
-									data-test="transfer-batch-season-rename"
-									:disabled="busy"
-									icon="mdi-pencil-outline"
-									size="x-small"
-									:title="$t('transfer.batch.rename_season')"
-									variant="text"
-									@click="edit(`season:${season.key}`, season.folder)"
-								/>
+									location="top"
+									:text="$t('transfer.batch.rename_season')"
+								>
+									<template #activator="{ props: tip }">
+										<v-btn
+											data-test="transfer-batch-season-rename"
+											:disabled="busy"
+											icon="mdi-pencil-outline"
+											size="x-small"
+											variant="text"
+											v-bind="tip"
+											@click="edit(`season:${season.key}`, season.folder)"
+										/>
+									</template>
+								</v-tooltip>
 
 								<span class="text-caption text-medium-emphasis">
-									{{ $t('transfer.batch.season_files', { count: season.transfers.length },
-										season.transfers.length) }}
+									{{ $t('transfer.batch.files', {
+										done: season.done,
+										total: season.transfers.length,
+									}) }}
 								</span>
+
+								<!--
+									And its bytes, which is what the fold would otherwise take away:
+									a season closed on "5 files" says nothing about whether it is
+									nearly here or has not started.
+								-->
+								<span class="text-caption text-medium-emphasis">
+									<ByteSize :bytes="season.bytes.done" /> /
+									<ByteSize :bytes="season.bytes.total" />
+								</span>
+
+								<v-progress-linear
+									class="transfer-batch_seasonBar"
+									data-test="transfer-batch-season-progress"
+									height="4"
+									:model-value="season.percent"
+									rounded
+								/>
 							</template>
 						</div>
 
-						<template v-for="transfer of season.transfers" :key="transfer.id">
+						<template
+							v-for="transfer of (grouped && !open.has(season.key) ? [] : season.transfers)"
+							:key="transfer.id"
+						>
+							<!--
+								Compact, because this is a list: the destination and the sources
+								belong to the download and are said once above, so what is left on
+								the line is what tells one file from the next.
+
+								The rename goes in the row's own `name` slot, beside the file name
+								it changes — under the row it read as a control belonging to
+								nothing.
+							-->
 							<TransferRow
 								:busy="busyId === transfer.id"
+								compact
 								:progress="progress(transfer)"
 								:transfer="transfer"
 								@action="(action, one) => emit('action', action, one)"
-							/>
-
-							<!--
-								The name on disk, under the row rather than in it: the row's
-								title is a sentence about the media — "Les Schtroumpfs — S01E02 —
-								L'Œuf et les Schtroumpfs" — and the file is called something else
-								entirely. Somebody renaming a file has to see the name they are
-								changing.
-							-->
-							<div class="transfer-batch_file">
-								<v-text-field
-									v-if="renaming?.key === `file:${transfer.id}`"
-									v-model="renaming.value"
-									autofocus
-									data-test="transfer-batch-file-field"
-									density="compact"
-									hide-details
-									variant="outlined"
-									@blur="submitFile(transfer)"
-									@keyup.enter="submitFile(transfer)"
-									@keyup.esc="renaming = null"
-								/>
-
-								<template v-else>
-									<span
-										class="transfer-batch_path text-caption text-medium-emphasis"
-										data-test="transfer-batch-file-name"
-									>
-										{{ fileNameOf(transfer) }}
-									</span>
-
-									<v-btn
-										data-test="transfer-batch-file-rename"
-										:disabled="busyId === transfer.id"
-										icon="mdi-pencil-outline"
-										size="x-small"
-										:title="$t('transfer.batch.rename_file')"
-										variant="text"
-										@click="edit(`file:${transfer.id}`, fileNameOf(transfer))"
+							>
+								<template #name>
+									<v-text-field
+										v-if="renaming?.key === `file:${transfer.id}`"
+										v-model="renaming.value"
+										autofocus
+										data-test="transfer-batch-file-field"
+										density="compact"
+										hide-details
+										variant="outlined"
+										@blur="submitFile(transfer)"
+										@keyup.enter="submitFile(transfer)"
+										@keyup.esc="renaming = null"
 									/>
+
+									<v-tooltip v-else location="top" :text="$t('transfer.batch.rename_file')">
+										<template #activator="{ props: tip }">
+											<v-btn
+												data-test="transfer-batch-file-rename"
+												:disabled="busyId === transfer.id"
+												icon="mdi-pencil-outline"
+												size="x-small"
+												variant="text"
+												v-bind="tip"
+												@click="edit(`file:${transfer.id}`, fileNameOf(transfer))"
+											/>
+										</template>
+									</v-tooltip>
 								</template>
-							</div>
+							</TransferRow>
 						</template>
 					</template>
 				</div>
@@ -551,13 +651,15 @@
 			margin-top: 8px;
 		}
 
-		&_file {
-			display: flex;
-			align-items: center;
-			gap: 4px;
-			/* Tucked under its row rather than spaced like one, so it reads as its detail. */
-			margin-top: 2px;
-			padding-left: 28px;
+		&_seasonName {
+			cursor: pointer;
+		}
+
+		&_seasonBar {
+			/* Last on the line and taking what is left of it, so the headings line up. */
+			flex: 1 1 80px;
+			min-width: 60px;
+			max-width: 200px;
 		}
 
 		&_season {

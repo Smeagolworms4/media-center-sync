@@ -1380,6 +1380,9 @@ describe('pages/Transfers repairing', () => {
 
 		await wrapper.find('[data-test="transfer-batch-expand"]').trigger('click');
 		await settle();
+		// Seasons open closed, so the files are one fold further in than the card.
+		await wrapper.find('[data-test="transfer-batch-season-toggle"]').trigger('click');
+		await settle();
 		await wrapper.findAll('[data-test="transfer-batch-file-rename"]')[0].trigger('click');
 		await settle();
 

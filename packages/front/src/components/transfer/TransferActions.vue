@@ -89,111 +89,197 @@
 </script>
 
 <template>
+	<!--
+		Every button keeps its label, and in compact form keeps it as a tooltip rather than
+		losing it. Inside a download the rows are drawn tight — a season is fifty-two of them
+		— so the labels come off, and what that leaves is a row of unexplained icons: an
+		archive box, a shield and a folder with an arrow, guessed at by whoever is deciding
+		which one not to press. The tooltip and the label are the same string, so the two can
+		never come to say different things.
+
+		Disabled rather than omitted when the label is on the button: a tooltip repeating the
+		word next to it is noise that follows the pointer around.
+
+		`v-if` sits on the tooltip and not on the button inside it. On the button it would
+		leave a tooltip wrapped around nothing, which Vuetify mounts and positions all the
+		same.
+
+		The label's `v-if` sits on a `#default` template, and that is not cosmetic: a
+		`<template v-if>` with no slot name compiles to a default slot that always exists and
+		merely renders nothing, and `v-btn` draws no icon at all when it has a default slot.
+		The compact buttons were laid out at full size, focusable, announced to a screen
+		reader — and blank.
+	-->
 	<div class="transfer-actions" data-test="transfer-actions">
-		<v-btn
+		<v-tooltip
 			v-if="running"
-			data-test="transfer-pause"
-			:disabled="busy"
-			:icon="compact ? ICONS[TransferAction.PAUSE] : undefined"
-			:prepend-icon="compact ? undefined : ICONS[TransferAction.PAUSE]"
-			size="small"
-			variant="text"
-			@click="emit('action', TransferAction.PAUSE)"
+			:disabled="!compact"
+			location="top"
+			:text="$t('transfer.action.pause')"
 		>
-			<template v-if="!compact">{{ $t('transfer.action.pause') }}</template>
-		</v-btn>
+			<template #activator="{ props: tip }">
+				<v-btn
+					data-test="transfer-pause"
+					:disabled="busy"
+					:icon="compact ? ICONS[TransferAction.PAUSE] : undefined"
+					:prepend-icon="compact ? undefined : ICONS[TransferAction.PAUSE]"
+					size="small"
+					variant="text"
+					v-bind="tip"
+					@click="emit('action', TransferAction.PAUSE)"
+				>
+					<template v-if="!compact" #default>{{ $t('transfer.action.pause') }}</template>
+				</v-btn>
+			</template>
+		</v-tooltip>
 
 		<!--
 			Resume is the filled button on a paused row: pausing is the first thing
 			people try, and the way back has to be the obvious one.
 		-->
-		<v-btn
+		<v-tooltip
 			v-if="paused"
-			color="primary"
-			data-test="transfer-resume"
-			:disabled="busy"
-			:icon="compact ? ICONS[TransferAction.RESUME] : undefined"
-			:prepend-icon="compact ? undefined : ICONS[TransferAction.RESUME]"
-			size="small"
-			variant="tonal"
-			@click="emit('action', TransferAction.RESUME)"
+			:disabled="!compact"
+			location="top"
+			:text="$t('transfer.action.resume')"
 		>
-			<template v-if="!compact">{{ $t('transfer.action.resume') }}</template>
-		</v-btn>
+			<template #activator="{ props: tip }">
+				<v-btn
+					color="primary"
+					data-test="transfer-resume"
+					:disabled="busy"
+					:icon="compact ? ICONS[TransferAction.RESUME] : undefined"
+					:prepend-icon="compact ? undefined : ICONS[TransferAction.RESUME]"
+					size="small"
+					variant="tonal"
+					v-bind="tip"
+					@click="emit('action', TransferAction.RESUME)"
+				>
+					<template v-if="!compact" #default>{{ $t('transfer.action.resume') }}</template>
+				</v-btn>
+			</template>
+		</v-tooltip>
 
 		<!--
 			Offered on every row, in every state, because that is the point: a queue nobody
-			can take anything off stops being read. It is last and quiet — text, no colour —
-			since it is the one action here that is about the list rather than about the
-			download.
+			can take anything off stops being read. It is quiet — text, no colour — since it
+			is the one action here that is about the list rather than about the download.
 		-->
-		<v-btn
-			data-test="transfer-archive"
-			:disabled="busy"
-			:icon="compact ? ICONS[TransferAction.ARCHIVE] : undefined"
-			:prepend-icon="compact ? undefined : ICONS[TransferAction.ARCHIVE]"
-			size="small"
-			:title="$t('transfer.action.archive')"
-			variant="text"
-			@click="emit('action', TransferAction.ARCHIVE)"
-		>
-			<template v-if="!compact">{{ $t('transfer.action.archive') }}</template>
-		</v-btn>
+		<v-tooltip :disabled="!compact" location="top" :text="$t('transfer.action.archive')">
+			<template #activator="{ props: tip }">
+				<v-btn
+					data-test="transfer-archive"
+					:disabled="busy"
+					:icon="compact ? ICONS[TransferAction.ARCHIVE] : undefined"
+					:prepend-icon="compact ? undefined : ICONS[TransferAction.ARCHIVE]"
+					size="small"
+					variant="text"
+					v-bind="tip"
+					@click="emit('action', TransferAction.ARCHIVE)"
+				>
+					<template v-if="!compact" #default>{{ $t('transfer.action.archive') }}</template>
+				</v-btn>
+			</template>
+		</v-tooltip>
 
-		<v-btn
+		<v-tooltip
 			v-if="terminal"
-			data-test="transfer-verify"
-			:disabled="busy"
-			:prepend-icon="ICONS[TransferAction.VERIFY]"
-			size="small"
-			variant="text"
-			@click="emit('action', TransferAction.VERIFY)"
+			:disabled="!compact"
+			location="top"
+			:text="$t('transfer.action.verify')"
 		>
-			{{ $t('transfer.action.verify') }}
-		</v-btn>
+			<template #activator="{ props: tip }">
+				<v-btn
+					data-test="transfer-verify"
+					:disabled="busy"
+					:icon="compact ? ICONS[TransferAction.VERIFY] : undefined"
+					:prepend-icon="compact ? undefined : ICONS[TransferAction.VERIFY]"
+					size="small"
+					variant="text"
+					v-bind="tip"
+					@click="emit('action', TransferAction.VERIFY)"
+				>
+					<template v-if="!compact" #default>{{ $t('transfer.action.verify') }}</template>
+				</v-btn>
+			</template>
+		</v-tooltip>
 
+		<!--
+			What a failure offers, which is the one place the buttons are not fixed: a full
+			disk offers another library, an unreachable source offers another source. Compact
+			like the rest, because a failed row inside a season is still a row in a list of
+			fifty-two.
+		-->
 		<template v-if="descriptor">
-			<v-btn
+			<v-tooltip
 				v-for="(action, index) of descriptor.actions"
 				:key="action"
-				:color="index === 0 ? 'primary' : undefined"
-				:data-test="`transfer-${action}`"
-				:disabled="busy"
-				:prepend-icon="ICONS[action]"
-				size="small"
-				:variant="index === 0 ? 'tonal' : 'text'"
-				@click="emit('action', action)"
+				:disabled="!compact"
+				location="top"
+				:text="$t(`transfer.action.${action}`)"
 			>
-				{{ $t(`transfer.action.${action}`) }}
-			</v-btn>
+				<template #activator="{ props: tip }">
+					<v-btn
+						:color="index === 0 ? 'primary' : undefined"
+						:data-test="`transfer-${action}`"
+						:disabled="busy"
+						:icon="compact ? ICONS[action] : undefined"
+						:prepend-icon="compact ? undefined : ICONS[action]"
+						size="small"
+						:variant="index === 0 ? 'tonal' : 'text'"
+						v-bind="tip"
+						@click="emit('action', action)"
+					>
+						<template v-if="!compact" #default>{{ $t(`transfer.action.${action}`) }}</template>
+					</v-btn>
+				</template>
+			</v-tooltip>
 		</template>
 
-		<v-btn
+		<v-tooltip
 			v-if="retargetable && !offeredByFailure"
-			data-test="transfer-retarget"
-			:disabled="busy"
-			:icon="compact ? ICONS[TransferAction.ANOTHER_TARGET] : undefined"
-			:prepend-icon="compact ? undefined : ICONS[TransferAction.ANOTHER_TARGET]"
-			size="small"
-			variant="text"
-			@click="emit('action', TransferAction.ANOTHER_TARGET)"
+			:disabled="!compact"
+			location="top"
+			:text="$t('transfer.action.another_target')"
 		>
-			<template v-if="!compact">{{ $t('transfer.action.another_target') }}</template>
-		</v-btn>
+			<template #activator="{ props: tip }">
+				<v-btn
+					data-test="transfer-retarget"
+					:disabled="busy"
+					:icon="compact ? ICONS[TransferAction.ANOTHER_TARGET] : undefined"
+					:prepend-icon="compact ? undefined : ICONS[TransferAction.ANOTHER_TARGET]"
+					size="small"
+					variant="text"
+					v-bind="tip"
+					@click="emit('action', TransferAction.ANOTHER_TARGET)"
+				>
+					<template v-if="!compact" #default>{{ $t('transfer.action.another_target') }}</template>
+				</v-btn>
+			</template>
+		</v-tooltip>
 
-		<v-btn
+		<v-tooltip
 			v-if="!terminal && !failed"
-			color="error"
-			data-test="transfer-cancel"
-			:disabled="busy"
-			:icon="compact ? ICONS[TransferAction.CANCEL] : undefined"
-			:prepend-icon="compact ? undefined : ICONS[TransferAction.CANCEL]"
-			size="small"
-			variant="text"
-			@click="emit('action', TransferAction.CANCEL)"
+			:disabled="!compact"
+			location="top"
+			:text="$t('transfer.action.cancel')"
 		>
-			<template v-if="!compact">{{ $t('transfer.action.cancel') }}</template>
-		</v-btn>
+			<template #activator="{ props: tip }">
+				<v-btn
+					color="error"
+					data-test="transfer-cancel"
+					:disabled="busy"
+					:icon="compact ? ICONS[TransferAction.CANCEL] : undefined"
+					:prepend-icon="compact ? undefined : ICONS[TransferAction.CANCEL]"
+					size="small"
+					variant="text"
+					v-bind="tip"
+					@click="emit('action', TransferAction.CANCEL)"
+				>
+					<template v-if="!compact" #default>{{ $t('transfer.action.cancel') }}</template>
+				</v-btn>
+			</template>
+		</v-tooltip>
 	</div>
 </template>
 
