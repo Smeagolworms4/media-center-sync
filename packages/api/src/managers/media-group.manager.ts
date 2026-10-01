@@ -6,6 +6,7 @@ import {
 	PeerTrust,
 	MediaKind,
 	MediaServiceType,
+	RequestLibrary,
 	SyncState,
 	type ExternalIds,
 	type MediaGroup,
@@ -748,9 +749,25 @@ export class MediaGroupManager {
 			return followed;
 		}
 
-		// Everything on the request source is watched by definition: a row exists there
-		// because somebody asked for it.
-		const requested = await this._items.findByServices(services.map((service) => service.id));
+		/*
+		 * The watchlist, and not everything the request source holds.
+		 *
+		 * The source keeps two lists and they mean different things: a request is answered
+		 * once and done with, a watchlist entry is the standing statement that more of this
+		 * is wanted. Counting requests as watched would fill the new releases screen with
+		 * shows somebody asked for a year ago and has not thought about since — which is
+		 * what the owner meant by "new releases is only on what is followed, not requests".
+		 */
+		const listed = await Promise.all(services.map((one) => this._libraries.list(one.id)));
+		const libraries = listed
+			.flat()
+			.filter((library) => library.externalId === RequestLibrary.WATCHLIST);
+
+		if (libraries.length === 0) {
+			return followed;
+		}
+
+		const requested = await this._items.findByLibraries(libraries.map((one) => one.id));
 		const ids = new Set([...followed.ids, ...requested.map((item) => item.id)]);
 		const underIds = new Set([...followed.underIds, ...requested.map((item) => item.id)]);
 
@@ -1093,7 +1110,16 @@ export class MediaGroupManager {
 	): MediaGroup {
 		const ranked = this._rank(members, context);
 		const representative = ranked[0];
-		const sources = ranked.map((item) => this._source(item, context));
+		/*
+		 * Never the request source. Its rows are the statement that nobody holds the file,
+		 * so listing one as a copy offered it on "fetch from" — with an unknown quality and
+		 * a `direct` badge, as though Seerr could serve bytes. The row still counts for
+		 * everything else a member counts for: it is what makes the media exist at all when
+		 * nothing else reports it.
+		 */
+		const sources = ranked
+			.filter((item) => context.services.get(item.serviceId)?.type !== MediaServiceType.REQUESTS)
+			.map((item) => this._source(item, context));
 		const qualities = sources.map((source) => source.quality);
 		const childGroups = this._childGroups(ranked, children, context);
 		// Title and normalised title come from the same copy or the group contradicts

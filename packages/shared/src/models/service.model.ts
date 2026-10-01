@@ -156,6 +156,21 @@ export enum MediaServiceType {
 }
 
 /**
+ * The two lists a request source keeps, as the libraries they are reported as.
+ *
+ * Named here rather than in the handler because two layers read them: the handler decides
+ * which list to scan, and the catalogue decides what "watched" means. A string duplicated
+ * across those two is a filter that silently matches nothing the day one of them is
+ * edited.
+ */
+export enum RequestLibrary {
+	/** "Fetch me this", answered once. */
+	REQUESTS = 'requests',
+	/** "Tell me when there is more of this", never answered. */
+	WATCHLIST = 'watchlist',
+}
+
+/**
  * The three kinds of thing this gateway talks to.
  *
  * Read, never declared. It used to be read off a field somebody chose in the

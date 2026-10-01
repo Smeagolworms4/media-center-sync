@@ -6,6 +6,7 @@ import type {
 	RequestOrder,
 	RequestQuery,
 	RequestSourceSettings,
+	WatchlistEntry,
 } from '@mcs/shared';
 
 /**
@@ -94,6 +95,20 @@ export interface RequestSource {
 		providerId: string,
 		seasonNumber: number,
 	): Promise<RequestEpisode[]>;
+
+	/**
+	 * What the household follows, which is a different list from what it has asked for.
+	 *
+	 * The source keeps both and they mean different things: a request is "fetch me this"
+	 * and is answered once, a watchlist entry is "tell me when there is more of this" and
+	 * never is. The new releases screen is built on the second — a series somebody
+	 * requested last year is done, while one they follow keeps producing episodes.
+	 *
+	 * An empty list rather than a throw when the source cannot answer: not every source
+	 * has the notion, and one that does not must leave the rest of the feature working
+	 * rather than failing a scan.
+	 */
+	watchlist(settings: RequestSourceSettings): Promise<WatchlistEntry[]>;
 
 	/** Whether the address and key work, for the settings screen to say so. */
 	probe(settings: RequestSourceSettings): Promise<boolean>;

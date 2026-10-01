@@ -3,6 +3,7 @@ import {
 	LibraryKind,
 	MediaKind,
 	MediaServiceType,
+	RequestLibrary,
 	ServerStructureSupport,
 	type MediaServiceProbe,
 	type RequestSourceSettings,
@@ -66,7 +67,22 @@ export class RequestsHandler implements MediaServiceHandler {
 	 * all again under the new, which reads as the whole request list vanishing and coming
 	 * back.
 	 */
-	private static readonly LIBRARY = 'requests';
+	/**
+	 * Two libraries, because the source keeps two lists that mean different things.
+	 *
+	 * A request is "fetch me this" and is answered once. A watchlist entry is "tell me when
+	 * there is more of this" and never is. Keeping them apart here is what lets the new
+	 * releases screen read one and the library filter read the other, without inventing a
+	 * flag on a media row for something that is really a question of where it came from.
+	 *
+	 * The identifiers are fixed: the gateway keys a library on what the service called it,
+	 * and a value that changed between two scans would orphan every row under the old one
+	 * and write them all again under the new — which reads as the whole list vanishing and
+	 * coming back.
+	 */
+	private static readonly REQUESTS = RequestLibrary.REQUESTS;
+
+	private static readonly WATCHLIST = RequestLibrary.WATCHLIST;
 
 	public readonly type = MediaServiceType.REQUESTS;
 
@@ -105,7 +121,7 @@ export class RequestsHandler implements MediaServiceHandler {
 			// are, so a source that answers at all has accepted it.
 			authenticated: true,
 			serverName: connection.baseUrl,
-			libraries: [this._library()],
+			libraries: this._libraries(),
 		};
 	}
 
@@ -122,7 +138,7 @@ export class RequestsHandler implements MediaServiceHandler {
 	}
 
 	public async listLibraries(): Promise<NormalisedLibrary[]> {
-		return [this._library()];
+		return this._libraries();
 	}
 
 	/**
@@ -161,19 +177,41 @@ export class RequestsHandler implements MediaServiceHandler {
 	 */
 	public async *scanLibrary(
 		_connection: ServiceConnection,
-		_library: NormalisedLibrary,
+		library: NormalisedLibrary,
 		_options?: LibraryScanOptions,
 	): AsyncIterable<NormalisedMediaItem> {
 		const configured = await this._configured();
 		const source = this._sources.get(configured.type);
+		const watchlist = library.externalId === RequestsHandler.WATCHLIST;
 
 		/*
-		 * Everything, settled included. The default drops what the source calls available —
-		 * which is precisely a series the household follows and already holds, and the whole
-		 * reason this catalogue exists. Left on the default the scan wrote almost nothing
-		 * and reported it as "0 items", which reads as a feature that does not work.
+		 * Two lists, and which one is read depends on which library is being scanned.
+		 *
+		 * Requests include the settled ones, because the default drops what the source
+		 * calls available — precisely a series the household follows and already holds, and
+		 * the whole reason this catalogue exists. Left on the default the scan wrote almost
+		 * nothing and reported it as "0 items", which reads as a feature that does not work.
 		 */
-		for (const request of await source.list(configured, { includeSettled: true })) {
+		const asked: { kind: MediaKind.MOVIE | MediaKind.SERIES; tmdbId: string | null; tvdbId: string | null; seasons: { seasonNumber: number }[]; requestedAt: string | null }[] =
+			watchlist
+				? (await source.watchlist(configured)).map((entry) => ({
+					kind: entry.kind,
+					tmdbId: entry.tmdbId,
+					tvdbId: null,
+					// A watchlist says nothing about seasons: following a show is following
+					// all of it, which is the difference between it and a request.
+					seasons: [],
+					requestedAt: null,
+				}))
+				: (await source.list(configured, { includeSettled: true })).map((one) => ({
+					kind: one.kind,
+					tmdbId: one.tmdbId,
+					tvdbId: one.tvdbId,
+					seasons: one.seasons,
+					requestedAt: one.requestedAt,
+				}));
+
+		for (const request of asked) {
 			const providerId = request.tmdbId;
 
 			if (providerId === null) {
@@ -188,7 +226,13 @@ export class RequestsHandler implements MediaServiceHandler {
 				continue;
 			}
 
-			const seriesId = `${request.kind}:${providerId}`;
+			/*
+			 * Prefixed by the list it came from, because a show can be on both and the
+			 * gateway keys a row on what the service called it: one identifier across two
+			 * libraries would collide into a single row that changed library on every scan
+			 * and belonged properly to neither.
+			 */
+			const seriesId = `${library.externalId}:${request.kind}:${providerId}`;
 			const externalIds = {
 				...(request.tmdbId === null ? {} : { tmdb: request.tmdbId }),
 				...(request.tvdbId === null ? {} : { tvdb: request.tvdbId }),
@@ -314,7 +358,7 @@ export class RequestsHandler implements MediaServiceHandler {
 		connection: ServiceConnection,
 		externalId: string,
 	): Promise<NormalisedMediaItem | null> {
-		for await (const item of this.scanLibrary(connection, this._library())) {
+		for await (const item of this._everything(connection)) {
 			if (item.externalId === externalId) {
 				return item;
 			}
@@ -345,18 +389,21 @@ export class RequestsHandler implements MediaServiceHandler {
 		return null;
 	}
 
-	private _library(): NormalisedLibrary {
-		return {
-			externalId: RequestsHandler.LIBRARY,
-			name: 'Requests',
-			// Mixed, because a request list holds films and shows together and nothing
-			// chooses between them: a kind per library would mean two libraries and a
-			// household deciding which one a request belongs in.
-			kind: LibraryKind.MIXED,
-			// No path, which is what keeps it out of every placement: a destination has to
-			// be a directory this gateway can write into, and there is none here.
-			paths: [],
-		};
+	/** Both lists, for the one caller that addresses an item without saying which. */
+	private async *_everything(connection: ServiceConnection): AsyncIterable<NormalisedMediaItem> {
+		for (const library of this._libraries()) {
+			yield* this.scanLibrary(connection, library);
+		}
+	}
+
+	private _libraries(): NormalisedLibrary[] {
+		// Mixed, because both lists hold films and shows together and nothing chooses
+		// between them. No path, which is what keeps them out of every placement: a
+		// destination has to be a directory this gateway can write into.
+		return [
+			{ externalId: RequestsHandler.REQUESTS, name: 'Requests', kind: LibraryKind.MIXED, paths: [] },
+			{ externalId: RequestsHandler.WATCHLIST, name: 'Watchlist', kind: LibraryKind.MIXED, paths: [] },
+		];
 	}
 
 	private async _configured(): Promise<RequestSourceSettings> {

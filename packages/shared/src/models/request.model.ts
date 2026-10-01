@@ -165,6 +165,24 @@ export interface RequestSuggestion {
 }
 
 /** What a listing asks for. */
+/**
+ * Something the household follows on its request source, which is not a request.
+ *
+ * Seerr keeps two lists and they mean different things: a request is "fetch me this", a
+ * watchlist entry is "tell me when there is more of this". The second is what the new
+ * releases screen is about — a series somebody asked for once is answered and done, while
+ * a series they follow keeps producing episodes.
+ *
+ * It carries almost nothing, because that is all the list carries: what it is and which
+ * work it points at. Everything readable about it comes from `details`.
+ */
+export interface WatchlistEntry {
+	kind: MediaKind.MOVIE | MediaKind.SERIES;
+	tmdbId: string;
+	/** What the source calls it, when it says. Often absent, like a request's. */
+	title: string | null;
+}
+
 export interface RequestQuery {
 	/** Only requests in this state. Omitted means the open ones, which is the default. */
 	state?: MediaRequestState;

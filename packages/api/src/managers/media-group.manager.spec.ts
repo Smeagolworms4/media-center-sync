@@ -122,6 +122,7 @@ interface World {
 	items: MediaItem[];
 	matches: Correlation[];
 	services: MediaService[];
+	libraries: { id: string; serviceId: string; externalId: string }[];
 	peers: Peer[];
 	plans: SyncPlan[];
 	threshold: number;
@@ -172,6 +173,7 @@ const build = (
 		items: [],
 		matches: [],
 		services: [service(), service({ id: 'remote', name: 'Cabin', filesMounted: false, priority: 200 })],
+		libraries: [],
 		peers: [],
 		plans: [],
 		threshold: 0.8,
@@ -225,6 +227,11 @@ const build = (
 		// scoped: a row exists there because somebody asked for it.
 		findByServices: jest.fn((serviceIds: string[]) =>
 			Promise.resolve(full.items.filter((row) => serviceIds.includes(row.serviceId))),
+		),
+		// One list of a source rather than the whole of it: a watchlist entry is followed,
+		// a request is merely asked for, and they sit in different libraries.
+		findByLibraries: jest.fn((libraryIds: string[]) =>
+			Promise.resolve(full.items.filter((row) => libraryIds.includes(row.libraryId))),
 		),
 		// The children of a set of parents, which is how a folder is worked out for a
 		// row that carries no file of its own. TypeORM's `In` is a value object here, so
@@ -280,6 +287,11 @@ const build = (
 			// library identifier, which never reaches it.
 			{
 				librariesOfCategory: jest.fn(() => Promise.resolve([])),
+				// The watched filter reads which list of a request source a row is in: a
+				// watchlist entry is followed, a request is merely asked for.
+				list: jest.fn((serviceId: string) =>
+					Promise.resolve(full.libraries.filter((one) => one.serviceId === serviceId)),
+				),
 			} as unknown as LibraryManager,
 			// Following is a sync plan covering a media and nothing else, so the plans are
 			// the whole of what the followed filter reads.
@@ -1663,6 +1675,27 @@ describe('MediaGroupManager', () => {
 	 * everything here is read off `SyncScope.rootItemIds` — the same reading the media's
 	 * own page uses when it says a plan already speaks for it.
 	 */
+	it('never offers the request source as somewhere to fetch from', async () => {
+		/*
+		 * Its rows are the statement that nobody holds the file. Listed as a copy it was
+		 * offered on "fetch from" with an unknown quality and a `direct` badge, as though
+		 * Seerr could serve bytes. It still counts as a member — it is what makes the media
+		 * exist at all when nothing else reports it.
+		 */
+		const { manager } = build({
+			items: [item({ id: 'asked', title: 'Alpha', serviceId: 'requests', file: null, quality: null })],
+			services: [
+				service(),
+				service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
+			],
+		});
+
+		const page = await manager.groups(query({}));
+
+		expect(page.items).toHaveLength(1);
+		expect(page.items[0].sources).toEqual([]);
+	});
+
 	it('names the show on an episode, for a list read outside that show', async () => {
 		/*
 		 * The new releases screen draws episodes from across the library, and a row reading
@@ -1700,28 +1733,41 @@ describe('MediaGroupManager', () => {
 		 * screen reading plans alone was almost empty while the request list was full.
 		 * Asking for something *is* watching it.
 		 */
-		it('counts what the request source holds as watched, with no plan anywhere', async () => {
+		it('counts what the household follows, and not what it merely asked for', async () => {
+			/*
+			 * The source keeps two lists and they are not the same statement. "Fetch me
+			 * this" is answered once and done with; "tell me when there is more of this"
+			 * never is. Counting requests here filled the new releases screen with shows
+			 * somebody asked for a year ago and has not thought about since.
+			 */
 			const { manager } = build({
 				items: [
-					show('asked', 'Alpha', { serviceId: 'requests' }),
-					show('ignored', 'Bravo'),
+					show('followed-there', 'Alpha', { serviceId: 'requests', libraryId: 'watchlist' }),
+					show('asked-there', 'Bravo', { serviceId: 'requests', libraryId: 'requested' }),
+					show('elsewhere', 'Charlie'),
 				],
 				services: [
 					service(),
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
+				],
+				libraries: [
+					{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist' },
+					{ id: 'requested', serviceId: 'requests', externalId: 'requests' },
 				],
 				plans: [],
 			});
 
 			const page = await manager.groups(query({ rootsOnly: true, watched: true }));
 
-			expect(page.items.map((one) => one.id)).toEqual(['asked']);
+			expect(page.items.map((one) => one.id)).toEqual(['followed-there']);
 		});
 
 		it('takes both ways of saying it, not one or the other', async () => {
+			// A plan here, a watchlist entry over there: two ways of saying the household
+			// cares, and nobody writes a plan for a series they have just followed on Seerr.
 			const { manager } = build({
 				items: [
-					show('asked', 'Alpha', { serviceId: 'requests' }),
+					show('followed-there', 'Alpha', { serviceId: 'requests', libraryId: 'watchlist' }),
 					show('planned', 'Bravo'),
 					show('neither', 'Charlie'),
 				],
@@ -1729,12 +1775,13 @@ describe('MediaGroupManager', () => {
 					service(),
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
 				],
+				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist' }],
 				plans: [plan({ scope: { rootItemIds: ['planned'] } })],
 			});
 
 			const page = await manager.groups(query({ rootsOnly: true, watched: true }));
 
-			expect(page.items.map((one) => one.id).sort()).toEqual(['asked', 'planned']);
+			expect(page.items.map((one) => one.id).sort()).toEqual(['followed-there', 'planned']);
 		});
 
 		it('keeps only the media a sync plan covers', async () => {

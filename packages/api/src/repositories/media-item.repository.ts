@@ -681,6 +681,11 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		return this._chunked(serviceIds, (chunk) => this.find({ where: { serviceId: In(chunk) } }));
 	}
 
+	/** Everything a set of libraries holds, which is how one list of a source is scoped. */
+	public findByLibraries(libraryIds: string[]): Promise<MediaItem[]> {
+		return this._chunked(libraryIds, (chunk) => this.find({ where: { libraryId: In(chunk) } }));
+	}
+
 	/**
 	 * Raw rows carry the engine's idea of a boolean, so it is normalised once here.
 	 *

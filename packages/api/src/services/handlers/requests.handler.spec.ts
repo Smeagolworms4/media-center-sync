@@ -74,6 +74,7 @@ const episode = (number: number, airDate: string | null): RequestEpisode => ({
 
 interface Fakes {
 	list: jest.Mock;
+	watchlist: jest.Mock;
 	details: jest.Mock;
 	episodes: jest.Mock;
 	probe: jest.Mock;
@@ -82,6 +83,11 @@ interface Fakes {
 const build = (source: RequestSourceSettings | null = SOURCE) => {
 	const fakes: Fakes = {
 		list: jest.fn().mockResolvedValue([request()]),
+		// The other list the source keeps: what the household follows, which is never
+		// answered the way a request is.
+		watchlist: jest.fn().mockResolvedValue([
+			{ kind: MediaKind.SERIES, tmdbId: '777', title: 'Sonic X' },
+		]),
 		details: jest.fn().mockResolvedValue(details()),
 		episodes: jest.fn().mockResolvedValue([
 			episode(1, '2026-01-01T00:00:00.000Z'),
@@ -102,10 +108,14 @@ const build = (source: RequestSourceSettings | null = SOURCE) => {
 	return { handler, fakes };
 };
 
-const scan = async (handler: RequestsHandler): Promise<NormalisedMediaItem[]> => {
+const scan = async (
+	handler: RequestsHandler,
+	list: 'requests' | 'watchlist' = 'requests',
+): Promise<NormalisedMediaItem[]> => {
 	const items: NormalisedMediaItem[] = [];
+	const library = (await handler.listLibraries()).find(one => one.externalId === list);
 
-	for await (const item of handler.scanLibrary(connection(), (await handler.listLibraries())[0])) {
+	for await (const item of handler.scanLibrary(connection(), library as never)) {
 		items.push(item);
 	}
 
@@ -207,6 +217,64 @@ describe('RequestsHandler', () => {
 		expect(items).toHaveLength(1);
 		expect(items[0].kind).toBe(MediaKind.MOVIE);
 		expect(fakes.episodes).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * Two lists, and they are not the same statement.
+	 *
+	 * "Fetch me this" is answered once and done with. "Tell me when there is more of this"
+	 * never is, and it is the one the new releases screen is built on — a series requested
+	 * last year produces nothing new, while one that is followed keeps producing episodes.
+	 */
+	describe('the two lists', () => {
+		it('answers one library per list, neither of them a place to write into', async () => {
+			const { handler } = build();
+
+			expect((await handler.listLibraries()).map(one => one.externalId))
+				.toEqual(['requests', 'watchlist']);
+			expect((await handler.listLibraries()).every(one => one.paths.length === 0)).toBe(true);
+		});
+
+		it('reads the watchlist for the watchlist library, and the requests for the other',
+			async () => {
+				const { handler, fakes } = build();
+
+				const followed = await scan(handler, 'watchlist');
+
+				expect(followed[0].title).toBe('Les Schtroumpfs');
+				expect(fakes.watchlist).toHaveBeenCalled();
+
+				const asked = await scan(handler, 'requests');
+
+				expect(asked.length).toBeGreaterThan(0);
+				expect(fakes.list).toHaveBeenCalled();
+			});
+
+		it('keeps the two apart under identifiers of their own', async () => {
+			/*
+			 * A show can be on both lists, and the gateway keys a row on what the service
+			 * called it: one identifier across two libraries would collide into a single row
+			 * that changed library on every scan and belonged properly to neither.
+			 */
+			const { handler } = build();
+			const asked = await scan(handler, 'requests');
+			const followed = await scan(handler, 'watchlist');
+
+			expect(asked[0].externalId.startsWith('requests:')).toBe(true);
+			expect(followed[0].externalId.startsWith('watchlist:')).toBe(true);
+		});
+
+		it('follows a whole show, because that is what following one means', async () => {
+			// A request may name seasons; a watchlist entry never does.
+			const { handler, fakes } = build();
+
+			fakes.details.mockResolvedValue(details({ seasonNumbers: [1, 2, 3] }));
+
+			const followed = await scan(handler, 'watchlist');
+
+			expect(followed.filter(one => one.kind === MediaKind.SEASON).map(one => one.seasonNumber))
+				.toEqual([1, 2, 3]);
+		});
 	});
 
 	it('refuses everything when no request source is configured', async () => {

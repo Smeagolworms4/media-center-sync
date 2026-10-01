@@ -8,6 +8,7 @@ import {
 	type MediaRequest,
 	type RequestOrder,
 	type RequestQuery,
+	type WatchlistEntry,
 	type RequestSourceSettings,
 	type RequestedSeason,
 } from '@mcs/shared';
@@ -61,6 +62,22 @@ interface SeerrPage {
 }
 
 /**
+ * One row of the watchlist, which is a far thinner thing than a request.
+ *
+ * Seerr answers the provider's identifier directly here rather than a media object, so
+ * `tmdbId` is the row's own field and not something nested.
+ */
+interface SeerrWatchlistRow {
+	tmdbId?: number | string | null;
+	mediaType?: string;
+	title?: string | null;
+}
+
+interface SeerrWatchlistPage {
+	results?: SeerrWatchlistRow[];
+}
+
+/**
  * Where a *request* has got to, which is a person's decision.
  *
  * Numbers on the wire, and not the same scale as the media's below — a fact worth
@@ -83,6 +100,14 @@ const DEFAULT_TAKE = 100;
 
 /** Above this a page is somebody's whole history, which no screen reads in one go. */
 const MAX_TAKE = 500;
+
+/**
+ * How many pages of a watchlist are read before giving up.
+ *
+ * A household's own list is small, and the ceiling is there for the other case: a source
+ * that answers the same page forever would spin here with nothing reporting it.
+ */
+const MAX_WATCHLIST_PAGES = 20;
 
 /**
  * The status Seerr actually answered, dug back out of what `release-http` raised.
@@ -196,6 +221,57 @@ export class SeerrRequestSource implements RequestSource {
 			.map((row) => this._toRequest(row))
 			.filter((one): one is MediaRequest => one !== null)
 			.filter((one) => this._wanted(one, query));
+	}
+
+	/**
+	 * What the household follows, which Seerr keeps apart from what it has asked for.
+	 *
+	 * Two lists, two meanings: a request is answered once and done with, a watchlist entry
+	 * never is — it is the standing statement that more of this is wanted. The new releases
+	 * screen is built on this one, because a series requested last year produces nothing
+	 * new while a series followed keeps producing episodes.
+	 *
+	 * Paged until the source stops answering rows, with a ceiling: a watchlist is a
+	 * household's own list and is small, but a source that answered the same page forever
+	 * must not spin here.
+	 */
+	public async watchlist(settings: RequestSourceSettings): Promise<WatchlistEntry[]> {
+		const entries: WatchlistEntry[] = [];
+
+		for (let page = 1; page <= MAX_WATCHLIST_PAGES; page += 1) {
+			const answer = await releaseJson<SeerrWatchlistPage>(
+				settings.baseUrl,
+				'/api/v1/discover/watchlist',
+				{
+					query: { page, take: DEFAULT_TAKE },
+					headers: this._headers(settings),
+					timeoutMs: CLIENT_TIMEOUT_MS,
+					unreachable: ErrorKey.REQUEST_SOURCE_UNREACHABLE,
+					unauthorized: ErrorKey.REQUEST_SOURCE_UNAUTHORIZED,
+				},
+			);
+
+			const rows = Array.isArray(answer?.results) ? answer.results : [];
+
+			for (const row of rows) {
+				const kind = row.mediaType === 'tv' ? MediaKind.SERIES : MediaKind.MOVIE;
+				const tmdbId = row.tmdbId === undefined || row.tmdbId === null
+					? null
+					: String(row.tmdbId);
+
+				// No identifier is nothing a catalogue can be matched on, and nothing the
+				// metadata provider can be asked about either.
+				if (tmdbId !== null) {
+					entries.push({ kind, tmdbId, title: row.title ?? null });
+				}
+			}
+
+			if (rows.length === 0) {
+				break;
+			}
+		}
+
+		return entries;
 	}
 
 	public async find(

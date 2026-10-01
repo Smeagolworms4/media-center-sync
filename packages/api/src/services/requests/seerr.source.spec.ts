@@ -211,6 +211,71 @@ describe('SeerrRequestSource', () => {
 		});
 	});
 
+	describe('watchlist', () => {
+		/**
+		 * One body per call, in order.
+		 *
+		 * `answer` above replaces the whole mock, which is right for a single request and
+		 * wrong for a paged read: setting it twice makes every page answer the second body.
+		 */
+		function answerEach(bodies: unknown[]): void {
+			const queued = [...bodies];
+
+			global.fetch = jest.fn(async (input: string, init?: RequestInit) => {
+				calls.push({
+					url: new URL(input),
+					method: init?.method ?? 'GET',
+					headers: (init?.headers ?? {}) as Record<string, string>,
+					body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+				});
+
+				// `text` and not `json`: the client parses the body itself, exactly as the
+				// single-answer helper above serves it.
+				return {
+					ok: true,
+					status: 200,
+					headers: new Headers(),
+					text: async () => JSON.stringify(queued.shift() ?? { results: [] }),
+				} as unknown as Response;
+			}) as unknown as typeof fetch;
+		}
+
+		it('reads what the household follows, which is not what it has asked for', async () => {
+			answerEach([
+				{
+					results: [
+						{ tmdbId: 1399, mediaType: 'tv', title: 'Game of Thrones' },
+						{ tmdbId: 603, mediaType: 'movie', title: 'The Matrix' },
+					],
+				},
+				{ results: [] },
+			]);
+
+			const followed = await source.watchlist(SETTINGS);
+
+			expect(followed).toEqual([
+				{ kind: MediaKind.SERIES, tmdbId: '1399', title: 'Game of Thrones' },
+				{ kind: MediaKind.MOVIE, tmdbId: '603', title: 'The Matrix' },
+			]);
+			expect(calls[0]?.url.pathname).toBe('/api/v1/discover/watchlist');
+		});
+
+		it('drops a row with no identifier rather than one nothing can be matched on', async () => {
+			answerEach([{ results: [{ mediaType: 'tv', title: 'Nameless' }] }, { results: [] }]);
+
+			expect(await source.watchlist(SETTINGS)).toEqual([]);
+		});
+
+		it('stops when the source runs out of rows', async () => {
+			answerEach([{ results: [{ tmdbId: 1, mediaType: 'tv', title: 'One' }] }, { results: [] }]);
+
+			await source.watchlist(SETTINGS);
+
+			// Two pages asked for, and no third: a list that answered nothing is the end.
+			expect(calls).toHaveLength(2);
+		});
+	});
+
 	describe('find', () => {
 		it('answers the one request', async () => {
 			answer(row({ status: 2, media: { id: 340, tmdbId: 1234, mediaType: 'movie', status: 2 } }));
