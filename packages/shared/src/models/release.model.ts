@@ -551,6 +551,19 @@ export interface ReleaseGrab {
 	itemId: string;
 	title: string;
 	indexer: string;
+	/**
+	 * What the release's own name claims — `1080p · WEB-DL · MULTi`.
+	 *
+	 * **Claimed, never measured.** Every other quality here was read off a file by the
+	 * gateway, and the difference is why a peer's copy outranks a tracker line stating the
+	 * same resolution. This is what a release group typed, shown so the queue can say what
+	 * is arriving — twelve gigabytes reads the same whether it is a 2160p remux or a 720p
+	 * re-encode — and labelled as a claim wherever it appears.
+	 *
+	 * Null when the name said nothing readable, which is common and is shown as nothing
+	 * rather than as "unknown".
+	 */
+	quality?: string | null;
 	state: GrabState;
 	/** The client's own identifier for it — an info hash for a torrent. */
 	clientId: string | null;

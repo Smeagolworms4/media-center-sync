@@ -32,6 +32,25 @@ export class ReleaseGrab extends Timestampable {
 	@Column({ type: 'varchar' })
 	public indexer!: string;
 
+	/**
+	 * What the release's own name claims about its quality — `1080p · WEB-DL · MULTi`.
+	 *
+	 * **Claimed, never measured.** Every other quality in this product was read off the
+	 * file by `QualityService`, and the difference is load-bearing: it is why a peer's copy
+	 * outranks a tracker line stating the same resolution. A name is what a release group
+	 * typed, so this lives apart, never feeds a quality summary, and is labelled as the
+	 * name's claim wherever it is shown.
+	 *
+	 * It is here because the queue said nothing about what was arriving: twelve gigabytes
+	 * reads the same whether it is a 2160p remux or a 720p re-encode, and the only way to
+	 * know was to remember which line had been pressed.
+	 *
+	 * Null when the name said nothing readable, and on every row written before the column
+	 * existed.
+	 */
+	@Column({ type: 'varchar', nullable: true })
+	public quality!: string | null;
+
 	@Index()
 	@Column({ type: 'varchar' })
 	public state!: GrabState;

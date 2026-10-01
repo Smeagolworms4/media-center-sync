@@ -187,6 +187,26 @@ const offTarget = (release: Release, season: number | null, episode: number | nu
 	return coverage.episodeNumbers.length > 0 && !coverage.episodeNumbers.includes(episode);
 };
 
+/**
+ * What a release's name says about its quality, in one readable line.
+ *
+ * Assembled from what the name parser already read rather than re-reading the title: the
+ * resolution, where it came from, and the languages, which is what somebody compares two
+ * lines on. Null when the name said none of it, which is honest — plenty of releases are
+ * named nothing useful, and inventing "unknown · unknown" would fill the queue with a
+ * column that never says anything.
+ *
+ * Never a `QualitySummary`: those are measured, and conflating the two would let a name
+ * outrank a file that was actually read. See `ReleaseGrab.quality`.
+ */
+const claimedQuality = (release: Release): string | null => {
+	const parts = [release.quality, release.source, ...release.languages].filter(
+		(part): part is string => typeof part === 'string' && part !== '',
+	);
+
+	return parts.length === 0 ? null : parts.join(' · ');
+};
+
 @Injectable()
 export class ReleaseManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(ReleaseManager.name);
@@ -823,6 +843,15 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				itemId: item.id,
 				title: release.title,
 				indexer: release.indexer,
+				/*
+				 * What the name claims, so the queue says what is arriving. Twelve gigabytes
+				 * reads the same whether it is a 2160p remux or a 720p re-encode, and the
+				 * only way to know was to remember which line had been pressed.
+				 *
+				 * Claimed and never measured — see the column's own doc. It is the release's
+				 * own words, kept apart from everything `QualityService` reads off a file.
+				 */
+				quality: claimedQuality(release),
 				state: GrabState.SENT,
 				clientId,
 				bytesDone: 0,
@@ -2303,6 +2332,8 @@ const toGrabView = (grab: GrabEntity, rate = 0): ReleaseGrabView => ({
 	itemId: grab.itemId,
 	title: grab.title,
 	indexer: grab.indexer,
+	// What the name claimed, never what anything measured. See `ReleaseGrab.quality`.
+	quality: grab.quality ?? null,
 	state: grab.state,
 	clientId: grab.clientId,
 	bytesDone: Number(grab.bytesDone ?? 0),

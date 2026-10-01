@@ -1674,7 +1674,8 @@
 		"off_target": {
 			"hint": "Diese Namen nennen eine andere Staffel oder eine andere Folge als die gesuchte. Sie bleiben angeboten: ein schlecht gebildeter Name kann falsch gelesen werden.",
 			"title": "Beiseitegelegt"
-		}
+		},
+		"claimed_quality": "Vom Release-Namen behauptet, nicht an der Datei gemessen."
 	},
 	"classification": {
 		"title": "Wohin das gehören könnte",

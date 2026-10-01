@@ -136,6 +136,28 @@
 					{{ $t(`release.state.${grab.state}`) }}
 				</v-chip>
 
+				<!--
+					What the name claims, said as a claim. Twelve gigabytes reads the same
+					whether it is a 2160p remux or a 720p re-encode, so the queue said nothing
+					about what was arriving — but this was typed by a release group and read
+					off nothing, which is why it is not drawn like the measured quality the
+					library shows.
+				-->
+				<v-tooltip v-if="grab.quality" location="top" :text="$t('release.claimed_quality')">
+					<template #activator="{ props: tip }">
+						<v-chip
+							data-test="release-grab-row-quality"
+							label
+							prepend-icon="mdi-label-outline"
+							size="x-small"
+							variant="text"
+							v-bind="tip"
+						>
+							{{ grab.quality }}
+						</v-chip>
+					</template>
+				</v-tooltip>
+
 				<span v-if="grab.bytesTotal > 0" class="text-caption text-medium-emphasis">
 					<ByteSize :bytes="grab.bytesDone" /> / <ByteSize :bytes="grab.bytesTotal" />
 				</span>

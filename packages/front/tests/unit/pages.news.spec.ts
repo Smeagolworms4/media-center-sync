@@ -91,8 +91,21 @@ describe('pages/NewReleases', () => {
 
 		expect(missing.exists()).toBe(true);
 		expect(upgrades.exists()).toBe(true);
-		expect(missing.findAll('[data-test="media-row"]')).toHaveLength(1);
-		expect(upgrades.findAll('[data-test="media-row"]')).toHaveLength(1);
+		// Drawn by the library's own band, so a poster in grid and a row in list — the
+		// assertion is about which media landed in which section, not about the shape.
+		expect(missing.findAll('[data-test="media-card"], [data-test="media-row"]'))
+			.toHaveLength(1);
+		expect(upgrades.findAll('[data-test="media-card"], [data-test="media-row"]'))
+			.toHaveLength(1);
+	});
+
+	it('is drawn by the library\'s own band rather than a list of its own', async () => {
+		// It had a table of episode names beside a wall of posters and read as a second
+		// product. The band brings the posters, the states and the grid-or-list preference.
+		const { wrapper } = await open([episode()]);
+
+		expect(wrapper.findComponent({ name: 'LibrarySection' }).exists()).toBe(true);
+		expect(wrapper.find('[data-test="news-view-toggle"]').exists()).toBe(true);
 	});
 
 	it('draws no upgrade section when there is nothing to upgrade', async () => {

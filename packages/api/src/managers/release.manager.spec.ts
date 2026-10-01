@@ -526,6 +526,44 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 };
 
 describe('ReleaseManager', () => {
+	describe('what a download says it is bringing', () => {
+		it('records the quality the release name claims, so the queue can say it', async () => {
+			/*
+			 * Twelve gigabytes reads the same whether it is a 2160p remux or a 720p
+			 * re-encode: the queue said nothing about what was arriving, and the only way to
+			 * know was to remember which line had been pressed.
+			 *
+			 * The release is handed back by the cache, which is where a grab reads it: a
+			 * release identifier is only valid inside the search that produced it.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.cache.get.mockResolvedValue(
+				release({ quality: '2160p', source: 'WEB-DL', languages: ['MULTi'] }),
+			);
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			const saved = fakes.grabs.save.mock.calls.at(-1)?.[0] as { quality: string | null };
+
+			expect(saved.quality).toBe('2160p · WEB-DL · MULTi');
+		});
+
+		it('says nothing rather than "unknown" when the name says nothing', async () => {
+			// Plenty of releases are named nothing useful, and a column that never says
+			// anything is worse than an absent one.
+			const { manager, fakes } = build();
+
+			fakes.cache.get.mockResolvedValue(release({ quality: null, source: null, languages: [] }));
+
+			await manager.grab({ releaseId: 'release-1', itemId: 'ep-2' });
+
+			const saved = fakes.grabs.save.mock.calls.at(-1)?.[0] as { quality: string | null };
+
+			expect(saved.quality).toBeNull();
+		});
+	});
+
 	describe('search', () => {
 		it('refuses when no indexer is configured', async () => {
 			const { manager, fakes } = build();

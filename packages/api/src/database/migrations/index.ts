@@ -6,6 +6,7 @@ import { AddTransferLot1758585600000 } from './1758585600000-AddTransferLot';
 import { AddGrabPlannedPath1758672000000 } from './1758672000000-AddGrabPlannedPath';
 import { AddGrabLot1758758400000 } from './1758758400000-AddGrabLot';
 import { AddTransferErrorDetail1758844800000 } from './1758844800000-AddTransferErrorDetail';
+import { AddGrabQuality1759017600000 } from './1759017600000-AddGrabQuality';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -46,6 +47,7 @@ export const MIGRATIONS = [
 	AddGrabPlannedPath1758672000000,
 	AddGrabLot1758758400000,
 	AddTransferErrorDetail1758844800000,
+	AddGrabQuality1759017600000,
 ];
 
 export * from './1758240000000-InitialSchema';
@@ -56,3 +58,4 @@ export * from './1758585600000-AddTransferLot';
 export * from './1758672000000-AddGrabPlannedPath';
 export * from './1758758400000-AddGrabLot';
 export * from './1758844800000-AddTransferErrorDetail';
+export * from './1759017600000-AddGrabQuality';

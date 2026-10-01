@@ -6,7 +6,8 @@
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import RelativeDate from '@/components/common/RelativeDate.vue';
-	import MediaGroupRow from '@/components/media/MediaGroupRow.vue';
+	import LibrarySection from '@/components/media/LibrarySection.vue';
+	import { useViewMode, VIEW_MODES } from '@/composables/useViewMode';
 	import { useMediaStore } from '@/stores/media';
 
 	defineOptions({ name: 'NewReleasesPage' });
@@ -30,6 +31,17 @@
 	 * plays tonight in the same list as one that does not exist here at all.
 	 */
 	const mediaStore = useMediaStore();
+
+	/**
+	 * Drawn the way the library is drawn, because it is the library asking one question.
+	 *
+	 * It had a list of its own and read as a second product: a bare table of episode names
+	 * beside a wall of posters. The band component is the library's own, so the posters,
+	 * the states, the quality chips and the grid-or-list preference are the same ones —
+	 * and the preference is shared with the library on purpose, since somebody who browses
+	 * in rows browses in rows everywhere.
+	 */
+	const view = useViewMode('mcs.library.view');
 
 	const failed = ref(false);
 	const loading = ref(false);
@@ -83,6 +95,23 @@
 			:title="$t('pages.news')"
 		>
 			<template #actions>
+				<v-btn-toggle
+					v-model="view"
+					data-test="news-view-toggle"
+					density="compact"
+					mandatory
+					variant="outlined"
+				>
+					<v-btn
+						v-for="mode of VIEW_MODES"
+						:key="mode"
+						:data-test="`news-view-${mode}`"
+						:icon="mode === 'grid' ? 'mdi-view-grid-outline' : 'mdi-format-list-bulleted'"
+						size="small"
+						:value="mode"
+					/>
+				</v-btn-toggle>
+
 				<v-btn
 					data-test="news-refresh"
 					:loading="loading"
@@ -108,15 +137,15 @@
 
 			<template v-else>
 				<section v-if="missing.length > 0" data-test="news-missing">
-					<h2 class="text-subtitle-1 mt-2 mb-1">
-						{{ $t('news.missing', { count: missing.length }) }}
-					</h2>
+					<p class="text-caption text-medium-emphasis mb-1">{{ $t('news.missing_help') }}</p>
 
-					<p class="text-caption text-medium-emphasis mb-2">{{ $t('news.missing_help') }}</p>
-
-					<div class="new-releases_list">
-						<MediaGroupRow v-for="one of missing" :key="one.id" :group="one" />
-					</div>
+					<LibrarySection
+						:groups="missing"
+						:loading="loading"
+						:title="$t('news.missing', { count: missing.length })"
+						:total="missing.length"
+						:view="view"
+					/>
 				</section>
 
 				<!--
@@ -125,15 +154,15 @@
 					file that plays tonight beside one that does not exist here at all.
 				-->
 				<section v-if="upgrades.length > 0" class="mt-4" data-test="news-upgrades">
-					<h2 class="text-subtitle-1 mb-1">
-						{{ $t('news.upgrades', { count: upgrades.length }) }}
-					</h2>
+					<p class="text-caption text-medium-emphasis mb-1">{{ $t('news.upgrades_help') }}</p>
 
-					<p class="text-caption text-medium-emphasis mb-2">{{ $t('news.upgrades_help') }}</p>
-
-					<div class="new-releases_list">
-						<MediaGroupRow v-for="one of upgrades" :key="one.id" :group="one" />
-					</div>
+					<LibrarySection
+						:groups="upgrades"
+						:loading="loading"
+						:title="$t('news.upgrades', { count: upgrades.length })"
+						:total="upgrades.length"
+						:view="view"
+					/>
 				</section>
 
 				<p
@@ -151,8 +180,6 @@
 
 <style lang="scss">
 	.new-releases {
-		&_list > * + * {
-			margin-top: 6px;
-		}
+		// The bands bring their own spacing; nothing else here needs any.
 	}
 </style>

@@ -1674,7 +1674,8 @@
 		"off_target": {
 			"hint": "Ces noms annoncent une autre saison ou un autre épisode que celui demandé. Ils restent proposés : un nom mal formé peut être mal lu.",
 			"title": "Écartés"
-		}
+		},
+		"claimed_quality": "Annoncée par le nom de la release, pas mesurée sur le fichier."
 	},
 	"classification": {
 		"title": "Où ceci pourrait aller",
