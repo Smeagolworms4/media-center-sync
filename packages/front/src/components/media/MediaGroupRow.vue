@@ -78,6 +78,21 @@
 		</td>
 
 		<td class="media-row_title">
+			<!--
+				The show, where the row is read outside its own page. A list of episodes
+				drawn from across the library — the new releases screen — says "Le Bandit
+				S8E18" and nothing about which series that is, which is the one thing
+				somebody needs to decide anything about it. Under the children of a series,
+				`seriesTitle` is absent and nothing is drawn: the page is the answer.
+			-->
+			<span
+				v-if="group.seriesTitle"
+				class="media-row_series text-caption text-medium-emphasis"
+				data-test="media-row-series"
+			>
+				{{ group.seriesTitle }}
+			</span>
+
 			<router-link class="media-row_link" :to="to">{{ group.title }}</router-link>
 
 			<span v-if="group.seasonNumber !== null" class="text-caption text-medium-emphasis ml-2">
@@ -125,6 +140,12 @@
 
 <style lang="scss">
 	.media-row {
+		&_series {
+			// Above the episode's own name rather than beside it: the two together are a
+			// sentence, and run on one line they read as one long title.
+			display: block;
+		}
+
 		&_missing {
 			color: rgb(var(--v-theme-state-missing));
 			font-weight: 600;

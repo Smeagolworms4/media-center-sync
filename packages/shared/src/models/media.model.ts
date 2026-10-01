@@ -426,6 +426,14 @@ export interface MediaGroup {
 	id: string;
 	kind: MediaKind;
 	title: string;
+	/**
+	 * The show an episode belongs to, for a list read outside that show's own page.
+	 *
+	 * Absent everywhere it would be noise — under a series' own children the page is the
+	 * answer — and present where a row is drawn from across the library: "Le Bandit S8E18"
+	 * names no series, and that is the one thing needed to decide anything about it.
+	 */
+	seriesTitle?: string | null;
 	normalizedTitle: string;
 	year: number | null;
 	seasonNumber: number | null;

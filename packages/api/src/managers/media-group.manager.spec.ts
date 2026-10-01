@@ -1663,6 +1663,32 @@ describe('MediaGroupManager', () => {
 	 * everything here is read off `SyncScope.rootItemIds` — the same reading the media's
 	 * own page uses when it says a plan already speaks for it.
 	 */
+	it('names the show on an episode, for a list read outside that show', async () => {
+		/*
+		 * The new releases screen draws episodes from across the library, and a row reading
+		 * "Le Bandit  S8E18" says nothing about which series that is — the one fact needed
+		 * to decide anything about it.
+		 */
+		const { manager } = build({
+			items: [
+				item({ id: 'series', title: 'Les Schtroumpfs', kind: MediaKind.SERIES, file: null }),
+				item({ id: 'season', title: 'Saison 8', kind: MediaKind.SEASON, parentId: 'series', file: null }),
+				item({
+					id: 'episode',
+					title: 'Le Bandit',
+					kind: MediaKind.EPISODE,
+					parentId: 'season',
+					seasonNumber: 8,
+					episodeNumber: 18,
+				}),
+			],
+		});
+
+		const page = await manager.groups(query({ kind: MediaKind.EPISODE }));
+
+		expect(page.items.map((one) => one.seriesTitle)).toEqual(['Les Schtroumpfs']);
+	});
+
 	describe('the followed filter', () => {
 		const show = (id: string, title: string, overrides: Partial<MediaItem> = {}): MediaItem =>
 			item({ id, title, kind: MediaKind.SERIES, file: null, quality: null, ...overrides });

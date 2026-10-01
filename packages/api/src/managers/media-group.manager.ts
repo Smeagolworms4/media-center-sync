@@ -4,6 +4,7 @@ import {
 	MediaOrigin,
 	MediaServiceMode,
 	PeerTrust,
+	MediaKind,
 	MediaServiceType,
 	SyncState,
 	type ExternalIds,
@@ -380,7 +381,54 @@ export class MediaGroupManager {
 			{ folders: query.parentId !== undefined },
 		);
 
-		return paginate(groups, matching.length, page, limit);
+		return paginate(await this._named(groups), matching.length, page, limit);
+	}
+
+	/**
+	 * The show each episode belongs to, for a list read outside that show's own page.
+	 *
+	 * The new releases screen draws episodes from across the whole library, and a row
+	 * reading "Le Bandit  S8E18" says nothing about which series that is — which is the one
+	 * fact somebody needs to decide anything about it. Under a series' own page the answer
+	 * is the page, so nothing is drawn there.
+	 *
+	 * Two queries for the page rather than one per row: an episode's parent is a season and
+	 * its parent is the show, so the walk is fixed and shallow.
+	 */
+	private async _named(groups: MediaGroup[]): Promise<MediaGroup[]> {
+		const wanted = groups.filter(
+			(group) => group.kind === MediaKind.EPISODE && group.parentId !== null,
+		);
+
+		if (wanted.length === 0) {
+			return groups;
+		}
+
+		const seasons = await this._items.findByIds([
+			...new Set(wanted.map((group) => group.parentId as string)),
+		]);
+		const seriesIds = [
+			...new Set(
+				seasons
+					.map((season) => season.parentId)
+					.filter((id): id is string => id !== null),
+			),
+		];
+		const series = new Map(
+			(await this._items.findByIds(seriesIds)).map((item) => [item.id, item.title]),
+		);
+		const bySeason = new Map(
+			seasons.map((season) => [
+				season.id,
+				season.parentId === null ? null : (series.get(season.parentId) ?? null),
+			]),
+		);
+
+		return groups.map((group) => {
+			const title = group.parentId === null ? null : (bySeason.get(group.parentId) ?? null);
+
+			return title === null ? group : { ...group, seriesTitle: title };
+		});
 	}
 
 	/**
