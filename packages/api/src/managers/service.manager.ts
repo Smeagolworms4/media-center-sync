@@ -44,6 +44,7 @@ import {
 	EventGatewayService,
 	HandlerRegistry,
 	QualityService,
+	SettingsService,
 	type MediaServiceHandler,
 	type NormalisedLibrary,
 	type NormalisedMediaItem,
@@ -155,6 +156,12 @@ export class ServiceManager implements OnApplicationBootstrap {
 		 * address stops answering. See `_relocate`.
 		 */
 		private readonly _directories: DirectoryRegistry,
+		/**
+		 * Read to keep the request source registered as a service. See
+		 * `reconcileRequestSource`: its address and key live in the settings, so the
+		 * settings are what the service row is derived from.
+		 */
+		private readonly _settings: SettingsService,
 	) {}
 
 	/**
@@ -174,6 +181,24 @@ export class ServiceManager implements OnApplicationBootstrap {
 		this._landings.onRescan((serviceId) => {
 			this._start(serviceId, false);
 		});
+
+		/*
+		 * And at boot, because a gateway that configured its request source before this
+		 * existed would otherwise never register the service: the reconciliation runs when
+		 * the settings are written, and those settings were written months ago. The screens
+		 * would be empty with nothing anywhere saying why, which is exactly the silent
+		 * nothing this product keeps being bitten by.
+		 *
+		 * Not awaited and never allowed to fail the boot: a request source that is down is
+		 * an ordinary morning, and a gateway that refused to start over it would take the
+		 * library down with it.
+		 */
+		void this._settings
+			.get()
+			.then((settings) => this.reconcileRequestSource(settings))
+			.catch((error: unknown) => {
+				this._logger.warn(`Could not reconcile the request source: ${String(error)}`);
+			});
 	}
 
 	/** Registers whoever holds work against a service. See `ServiceRemovalListener`. */

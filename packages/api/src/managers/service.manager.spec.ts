@@ -29,6 +29,7 @@ import type {
 	HandlerRegistry,
 	NormalisedMediaItem,
 	QualityService,
+	SettingsService,
 } from '@/services';
 import type { LandingManager } from './landing.manager';
 import type { LibraryManager } from './library.manager';
@@ -394,6 +395,7 @@ interface Fakes {
 	landings: { reconcile: jest.Mock; onRescan: jest.Mock };
 	directory: { listServers: jest.Mock; resolve: jest.Mock };
 	directories: { find: jest.Mock };
+	settings: { get: jest.Mock };
 }
 
 const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes } => {
@@ -468,6 +470,9 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		// No directory by default, which is every type but Plex: a test about anything
 		// else must not have a re-resolution happen underneath it.
 		directories: { find: jest.fn().mockReturnValue(null) },
+		// The request source is kept registered as a service from the settings, and that
+		// reconciliation runs at boot as well as on every write.
+		settings: { get: jest.fn().mockResolvedValue({ requestSource: null }) },
 	};
 
 	const manager = new ServiceManager(
@@ -486,12 +491,40 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		fakes.libraryManager as unknown as LibraryManager,
 		fakes.landings as unknown as LandingManager,
 		fakes.directories as unknown as DirectoryRegistry,
+		// The request source is kept registered as a service from the settings, and the
+		// reconciliation runs at boot as well as on every write.
+		fakes.settings as unknown as SettingsService,
 	);
 
 	return { manager, fakes };
 };
 
 describe('ServiceManager', () => {
+	it('registers the request source as a service at boot, not only when settings are saved',
+		async () => {
+			/*
+			 * A gateway that configured its request source months ago never writes those
+			 * settings again, so a reconciliation that only ran on write would leave the
+			 * service unregistered and every screen built on it empty — with nothing
+			 * anywhere saying why.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.settings.get.mockResolvedValue({
+				requestSource: { type: 'seerr', baseUrl: 'http://seerr.local', apiKey: 'k', enabled: true },
+			});
+			fakes.services.find.mockResolvedValue([]);
+
+			manager.onApplicationBootstrap();
+			await new Promise(resolve => {
+				setTimeout(resolve, 0);
+			});
+
+			const saved = fakes.services.save.mock.calls.at(-1)?.[0] as { type: string } | undefined;
+
+			expect(saved?.type).toBe('requests');
+		});
+
 	describe('registering', () => {
 		it('refuses the same base URL on the same side twice', async () => {
 			const { manager, fakes } = build();
