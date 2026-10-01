@@ -397,6 +397,16 @@ export class DownloadClientDto {
 	@MaxLength(500)
 	public savePath?: string | null;
 
+	@ApiPropertyOptional({
+		description:
+			'After a copy, leave a symlink where the original was, so a seeding torrent and '
+			+ 'the filed library copy are one file on the disk. Only sound where this client '
+			+ 'can reach the library.',
+	})
+	@IsOptional()
+	@IsBoolean()
+	public linkSourceAfterCopy?: boolean;
+
 	@ApiProperty()
 	@IsBoolean()
 	public enabled!: boolean;

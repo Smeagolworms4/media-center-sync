@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { Writable, type Readable } from 'node:stream';
 import { ErrorKey } from '@mcs/shared';
 import {
@@ -569,6 +569,138 @@ describe('FileMoveService', () => {
 			expect(finished.outcome).toBe(FileMoveOutcome.COPIED);
 			expect(await digestOf(source)).toBe(digest(content));
 			expect(await digestOf(destination)).toBe(digest(content));
+		});
+
+		/**
+		 * The original replaced by a link to the copy — `linkSourceAfterCopy`.
+		 *
+		 * The point is one film on the disk once instead of twice, and the thing that
+		 * must never happen is a seeding torrent left with no file: every test here is
+		 * about what the source path holds when something goes wrong.
+		 */
+		describe('linking the source to the copy', () => {
+			it('leaves a link where the file was, pointing at the copy', async () => {
+				const service = new FileMoveService(operations());
+
+				const result = await service.move({
+					source,
+					destination,
+					keepSource: true,
+					linkSource: true,
+				});
+
+				expect(result.outcome).toBe(FileMoveOutcome.COPIED);
+				expect((await lstat(source)).isSymbolicLink()).toBe(true);
+				// Read through the link, which is what the torrent client does: the same
+				// bytes as before, and only one copy of them on the disk.
+				expect(await digestOf(source)).toBe(digest(content));
+				expect(await digestOf(destination)).toBe(digest(content));
+			});
+
+			it('writes the target relative to the original, not in our own spelling', async () => {
+				// The client reads this link from inside its own container, where the
+				// shared disk is mounted somewhere else — `/downloads` against our
+				// `/share/torrents`. An absolute target would be our path and would
+				// dangle for the one process that has to follow it.
+				const service = new FileMoveService(operations());
+
+				await service.move({ source, destination, keepSource: true, linkSource: true });
+
+				const target = await readlink(source);
+
+				expect(target).toBe(relative(join(root, 'work'), destination));
+				expect(target.startsWith('/')).toBe(false);
+			});
+
+			it('keeps the file itself when nothing asked for a link', async () => {
+				// The other half of the rule: a `linkSource` left permanently on must not
+				// pass this suite.
+				const service = new FileMoveService(operations());
+
+				await service.move({ source, destination, keepSource: true });
+
+				expect((await lstat(source)).isSymbolicLink()).toBe(false);
+				expect(await sizeOf(source)).toBe(TOTAL);
+			});
+
+			it('leaves a source that is already a link alone', async () => {
+				// The second pass over a pack, and a grab somebody re-filed. There is no
+				// space left to reclaim, and re-pointing it would make a link to a link.
+				const elsewhere = join(root, 'work', 'elsewhere.mkv');
+
+				await writeFile(elsewhere, content);
+				await rm(source);
+				await symlink('elsewhere.mkv', source);
+
+				const service = new FileMoveService(operations());
+
+				await service.move({ source, destination, keepSource: true, linkSource: true });
+
+				expect(await readlink(source)).toBe('elsewhere.mkv');
+			});
+
+			it('keeps the file when the link cannot be made', async () => {
+				/*
+				 * The outcome worth engineering against: `symlink` will not overwrite an
+				 * existing path, so the obvious order — unlink, then link — has a window
+				 * in which the torrent has no file at all. The link is built beside the
+				 * original and renamed over it, so a failure leaves the real file.
+				 */
+				const service = new FileMoveService(
+					operations({
+						symlink: async () => {
+							throw errno('EPERM');
+						},
+					}),
+				);
+
+				const result = await service.move({
+					source,
+					destination,
+					keepSource: true,
+					linkSource: true,
+				});
+
+				// The copy still succeeded: the download is in the library, and not
+				// reclaiming the space is a disk to tidy rather than a grab to fail.
+				expect(result.outcome).toBe(FileMoveOutcome.COPIED);
+				expect(await digestOf(destination)).toBe(digest(content));
+				expect((await lstat(source)).isSymbolicLink()).toBe(false);
+				expect(await digestOf(source)).toBe(digest(content));
+				// And no half-made entry left for the next pass to trip over.
+				expect(await sizeOf(`${source}.mcs-link`)).toBe(-1);
+			});
+
+			it('never touches the source while the copy is unfinished', async () => {
+				// Pausing is not finishing, and a link written at that point would point
+				// at a third of a film while the real bytes were thrown away.
+				const controller = new AbortController();
+				const service = new FileMoveService(operations());
+
+				const paused = await service.move({
+					source,
+					destination,
+					keepSource: true,
+					linkSource: true,
+					signal: controller.signal,
+					onProgress: () => controller.abort(),
+				});
+
+				expect(paused.outcome).toBe(FileMoveOutcome.PAUSED);
+				expect((await lstat(source)).isSymbolicLink()).toBe(false);
+				expect(await digestOf(source)).toBe(digest(content));
+			});
+
+			it('ignores a link asked for without keeping the source', async () => {
+				// The two together are a caller who means the move, and a move leaves
+				// nothing behind to replace.
+				const service = new FileMoveService(crossDevice());
+
+				await service.move({ source, destination, keepSource: false, linkSource: true });
+
+				expect(await sizeOf(source)).toBe(-1);
+				expect(await digestOf(destination)).toBe(digest(content));
+			});
 		});
 
 		it('refuses a destination that cannot hold the copy without touching the source', async () => {

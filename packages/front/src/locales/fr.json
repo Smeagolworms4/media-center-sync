@@ -956,6 +956,8 @@
 			"client_username": "Nom d'utilisateur",
 			"client_username_hint": "Laissez vide si le client n'en demande pas sur votre réseau.",
 			"client_password": "Mot de passe",
+			"link_source": "Remplacer l’original par un lien symbolique",
+			"link_source_hint": "Après la copie, le fichier du client devient un lien vers la copie de la bibliothèque : le même film cesse d’occuper le disque deux fois, et le torrent continue de partager. À n’activer que si le client voit la bibliothèque — sinon il suit le lien vers rien.",
 			"paths_help": "Le dossier de téléchargement sous forme de correspondance, exactement comme un serveur média déclare ses disques : le préfixe qu'écrit le client, et le même dossier tel que la passerelle l'atteint."
 		},
 		"preference": {

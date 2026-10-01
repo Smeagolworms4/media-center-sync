@@ -956,6 +956,8 @@
 			"client_username": "Utilizador",
 			"client_username_hint": "Deixe em branco se o cliente não o pedir na sua rede.",
 			"client_password": "Palavra-passe",
+			"link_source": "Substituir o original por uma ligação simbólica",
+			"link_source_hint": "Após a cópia, o ficheiro do cliente passa a ser uma ligação à cópia da biblioteca: o mesmo filme deixa de ocupar o disco duas vezes e o torrent continua a partilhar. Ative apenas se o cliente conseguir alcançar a biblioteca — caso contrário, segue a ligação para o nada.",
 			"paths_help": "A pasta de transferências como correspondência, tal como um servidor de média declara os seus discos: o prefixo que o cliente escreve e a mesma pasta como esta gateway lhe chega."
 		},
 		"preference": {

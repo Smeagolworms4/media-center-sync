@@ -1430,6 +1430,9 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				reserveBytes: settings.diskReserveBytes,
 				// A copy, not a move: see the doc block above.
 				keepSource: true,
+				// And, if asked, a symlink where the copy came from, so the seeding torrent
+				// and the filed library copy are one file on the disk. See `_link`.
+				linkSource: linksAfterCopy(settings),
 				onProgress: (progress) => {
 					grab.bytesDone = progress.bytesDone;
 					grab.bytesTotal = progress.bytesTotal;
@@ -1488,6 +1491,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			reserveBytes: settings.diskReserveBytes,
 			// A copy, as everywhere here: the torrent is still seeding.
 			keepSource: true,
+			linkSource: linksAfterCopy(settings),
 			onProgress: (progress) => {
 				grab.bytesDone = progress.bytesDone;
 				grab.bytesTotal = progress.bytesTotal;
@@ -1594,6 +1598,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				reserveBytes: settings.diskReserveBytes,
 				// A copy, as everywhere here: the torrent is still seeding.
 				keepSource: true,
+				linkSource: linksAfterCopy(settings),
 				onProgress: (progress) => {
 					// Across the whole pack rather than per file, because what somebody is
 					// watching is one line for one download.
@@ -2278,6 +2283,17 @@ const fillsOf = (group: ReleaseGroup, missing: EpisodeRef[]): EpisodeRef[] => {
  * already configured to put everything in one folder needs no second opinion from us,
  * and a path we invent is a path nothing maps back.
  */
+/**
+ * Whether a placed copy leaves a symlink behind it.
+ *
+ * On the client rather than on the settings root, because it is a statement about one
+ * client's folders: it is only sound where that client can see the library, and a
+ * household with its torrents on a share this gateway reaches and its downloads
+ * elsewhere would have to answer it twice.
+ */
+const linksAfterCopy = (settings: Settings): boolean =>
+	settings.downloadClient?.linkSourceAfterCopy === true;
+
 const savePathOf = (client: DownloadClientSettings): string =>
 	client.savePath?.trim() || client.rootMappings?.[0]?.remoteRoot || '';
 

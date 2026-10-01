@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, rename, stat, statfs, unlink } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { lstat, mkdir, rename, stat, statfs, symlink, unlink } from 'node:fs/promises';
+import { dirname, relative } from 'node:path';
 import { finished } from 'node:stream/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Readable, Writable } from 'node:stream';
@@ -57,6 +57,15 @@ const RATE_WINDOW_MS = 5_000;
 
 /** Suffix of the file being streamed. Kept beside the destination, never inside it. */
 const PARTIAL_SUFFIX = '.mcs-part';
+
+/**
+ * Suffix of the symlink being built, before it is renamed over the original.
+ *
+ * Distinct from the partial above and deliberately so: both can exist at once on one
+ * placement, and a shared suffix would have the link's clean-up delete the bytes the
+ * copy is resuming from. See `_link`.
+ */
+const LINK_SUFFIX = '.mcs-link';
 
 /**
  * Abort with this reason to throw the partial away.
@@ -125,6 +134,17 @@ export interface FileMoveRequest {
 	 * same-mount deployment the cheap route is the one thing this must not take.
 	 */
 	keepSource?: boolean;
+	/**
+	 * Put a symlink to the copy where the source was. Only read with `keepSource`.
+	 *
+	 * What it is for, and the whole of it: a seeding torrent and a filed library copy
+	 * are the same film on the same disk twice. See `_link` for how, and
+	 * `DownloadClientSettings.linkSourceAfterCopy` for when.
+	 *
+	 * Ignored without `keepSource`, rather than refused: a move already leaves nothing
+	 * behind to replace, and the two asked together are a caller who means the move.
+	 */
+	linkSource?: boolean;
 }
 
 /**
@@ -160,6 +180,9 @@ export class FileMoveError extends Error {
 export interface FileMoveOperations {
 	rename(from: string, to: string): Promise<void>;
 	stat(path: string): Promise<{ size: number }>;
+	/** Not `stat`: this one has to answer *about the link*, not about what it points at. */
+	lstat(path: string): Promise<{ isSymbolicLink(): boolean }>;
+	symlink(target: string, path: string): Promise<void>;
 	statfs(path: string): Promise<{ bavail: number | bigint; bsize: number | bigint }>;
 	mkdir(path: string): Promise<void>;
 	unlink(path: string): Promise<void>;
@@ -174,6 +197,8 @@ export const FILE_MOVE_OPERATIONS = Symbol('FileMoveOperations');
 export const NODE_FILE_MOVE_OPERATIONS: FileMoveOperations = {
 	rename: (from, to) => rename(from, to),
 	stat: (path) => stat(path),
+	lstat: (path) => lstat(path),
+	symlink: (target, path) => symlink(target, path),
 	statfs: (path) => statfs(path),
 	mkdir: async (path) => {
 		await mkdir(path, { recursive: true });
@@ -496,9 +521,60 @@ export class FileMoveService {
 			await this._fs.unlink(request.source).catch((error: unknown) => {
 				this._logger.warn(`Could not remove ${request.source}: ${String(error)}`);
 			});
+		} else if (request.linkSource === true) {
+			await this._link(request);
 		}
 
 		return { outcome: FileMoveOutcome.COPIED, bytesCopied, partialPath: null };
+	}
+
+	/**
+	 * Replace the source with a symlink to the copy, having already verified the copy.
+	 *
+	 * Order is the whole of the safety here. This runs after `_commit` has compared the
+	 * sizes and renamed the file into the library, so the bytes are known to be there
+	 * before anything touches the original — and the link is built *beside* the original
+	 * and renamed over it, rather than unlinking first and creating it after. `symlink`
+	 * will not overwrite an existing path, so the obvious order has a window in which
+	 * the file is gone and the link does not exist yet; a failure inside that window
+	 * leaves a seeding torrent with no file at all, which is the one outcome worth
+	 * engineering against. With the rename, the path holds either the real file or a
+	 * finished link at every instant.
+	 *
+	 * The target is **relative**. The client reads this link from inside its own
+	 * container, where the shared disk is mounted somewhere else — `/downloads` against
+	 * our `/share/torrents` is the ordinary case, and it is the reason `RootMapping`
+	 * exists. An absolute target would be our spelling and would dangle for the client;
+	 * `../library/Show/file.mkv` resolves for anybody who can see both directories,
+	 * whatever they call the root. It still cannot cross two separate mounts, and the
+	 * setting says so.
+	 *
+	 * Every failure is logged and swallowed, for the same reason the unlink above is:
+	 * the copy is in the library and the download is placed. Not reclaiming the space is
+	 * a disk to tidy by hand, not a grab to fail after the bytes have landed.
+	 */
+	private async _link(request: FileMoveRequest): Promise<void> {
+		const temporary = `${request.source}${LINK_SUFFIX}`;
+
+		try {
+			// Already a link, which happens on the second pass over a pack and on a grab
+			// somebody re-filed: there is no space left to reclaim, and re-pointing it at
+			// the new copy would be a link to a link for no gain.
+			if ((await this._fs.lstat(request.source)).isSymbolicLink()) {
+				return;
+			}
+
+			await this._fs.symlink(relative(dirname(request.source), request.destination), temporary);
+			await this._fs.rename(temporary, request.source);
+		} catch (error: unknown) {
+			// The half-made link is swept up, or the directory keeps a stray entry that
+			// nothing will ever look at and that the next pass cannot create over.
+			await this._fs.unlink(temporary).catch(() => undefined);
+
+			this._logger.warn(
+				`Could not link ${request.source} to ${request.destination}: ${String(error)}`,
+			);
+		}
 	}
 
 	/** Turn a filesystem failure into something the interface can offer to act on. */

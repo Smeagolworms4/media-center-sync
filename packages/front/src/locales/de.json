@@ -956,6 +956,8 @@
 			"client_username": "Benutzername",
 			"client_username_hint": "Leer lassen, wenn der Client in Ihrem Netz keinen verlangt.",
 			"client_password": "Passwort",
+			"link_source": "Original durch einen Symlink ersetzen",
+			"link_source_hint": "Nach dem Kopieren wird die Datei des Clients zu einem Link auf die Kopie in der Bibliothek: derselbe Film belegt die Platte nicht mehr doppelt, und der Torrent verteilt weiter. Nur einschalten, wenn der Client die Bibliothek erreicht — sonst folgt er dem Link ins Leere.",
 			"paths_help": "Der Download-Ordner als Zuordnung, genau wie ein Medienserver seine Platten angibt: das Präfix, das der Client schreibt, und dasselbe Verzeichnis, wie dieses Gateway es erreicht."
 		},
 		"preference": {

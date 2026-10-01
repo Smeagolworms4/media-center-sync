@@ -956,6 +956,8 @@
 			"client_username": "Username",
 			"client_username_hint": "Leave blank if the client does not ask for one on your network.",
 			"client_password": "Password",
+			"link_source": "Replace the original with a symlink",
+			"link_source_hint": "After the copy, the client’s own file becomes a link to the library copy: the same film stops taking up the disk twice while the torrent keeps seeding. Only turn this on if the client can reach the library — otherwise it follows the link to nothing.",
 			"paths_help": "The download folder as a correspondence, exactly as a media server declares its disks: the prefix the client writes, and the same directory as this gateway reaches it."
 		},
 		"preference": {

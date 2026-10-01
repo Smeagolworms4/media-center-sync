@@ -2147,6 +2147,43 @@ describe('ReleaseManager', () => {
 				expect(row.state).toBe(GrabState.PLACED);
 				expect(row.targetPath).toBe('/media/shows/Spartacus/Season 01/Spartacus - S01E02.mkv');
 				expect(row.error).toBeNull();
+				// Nobody asked for a link, so the client keeps a real file.
+				expect(fakes.mover.move).toHaveBeenCalledWith(
+					expect.objectContaining({ linkSource: false }),
+				);
+			});
+
+			it('asks for a link in the torrent’s place when the client is set to', async () => {
+				/*
+				 * The copy is deliberate — a file moved out from under a seeding client is
+				 * somebody's ratio — and its cost is the same film on the disk twice, for as
+				 * long as they keep seeding. A link in its place settles both: the client
+				 * reads straight through it and the bytes exist once. Off unless asked for,
+				 * because it only works where the client can reach the library.
+				 */
+				const { manager, fakes } = build();
+				const row = fetched();
+
+				fakes.settings.get.mockResolvedValue(
+					settingsWith({
+						downloadClient: { ...SETTINGS.downloadClient, linkSourceAfterCopy: true },
+					}),
+				);
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+
+				expect(fakes.mover.move).toHaveBeenCalledWith(
+					expect.objectContaining({
+						source: '/share/torrents/Spartacus.S01E02.1080p.WEB-DL-GRP/episode.mkv',
+						// Still a copy: the link replaces the original only once the copy is
+						// verified and in place. See `FileMoveService._link`.
+						keepSource: true,
+						linkSource: true,
+					}),
+				);
+				expect(row.state).toBe(GrabState.PLACED);
 			});
 
 			/*
@@ -2210,6 +2247,39 @@ describe('ReleaseManager', () => {
 				// Still a copy: the torrent is seeding and a file moved out from under a
 				// client is somebody's ratio.
 				expect(fakes.mover.move.mock.calls.every(([order]) => order.keepSource)).toBe(true);
+			});
+
+			it('asks for a link on every file of a pack, not just the first', async () => {
+				// Each episode of a pack is its own file and its own copy, so the saving is
+				// per file: honouring the setting once would leave the rest of the season
+				// on the disk twice.
+				const { manager, fakes } = build();
+				const row = grab({
+					state: GrabState.DOWNLOADING,
+					partial: true,
+					placements: [
+						placement({ fileName: 'Spartacus.S01E02.1080p.WEB-DL-GRP/two.mkv' }),
+						placement({
+							itemId: 'ep-3',
+							episodeNumber: 3,
+							title: 'Legends',
+							fileName: 'Spartacus.S01E02.1080p.WEB-DL-GRP/three.mkv',
+						}),
+					],
+				});
+
+				fakes.settings.get.mockResolvedValue(
+					settingsWith({
+						downloadClient: { ...SETTINGS.downloadClient, linkSourceAfterCopy: true },
+					}),
+				);
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				await manager.poll();
+
+				expect(fakes.mover.move).toHaveBeenCalledTimes(2);
+				expect(fakes.mover.move.mock.calls.every(([order]) => order.linkSource)).toBe(true);
 			});
 
 			it('says which episodes it could not find, and keeps the ones it filed', async () => {

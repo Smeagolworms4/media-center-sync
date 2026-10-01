@@ -956,6 +956,8 @@
 			"client_username": "Usuario",
 			"client_username_hint": "Déjelo vacío si el cliente no lo pide en su red.",
 			"client_password": "Contraseña",
+			"link_source": "Sustituir el original por un enlace simbólico",
+			"link_source_hint": "Tras la copia, el archivo del cliente pasa a ser un enlace a la copia de la biblioteca: la misma película deja de ocupar el disco dos veces y el torrent sigue compartiendo. Actívelo solo si el cliente puede llegar a la biblioteca; si no, seguirá el enlace hacia la nada.",
 			"paths_help": "La carpeta de descargas como correspondencia, igual que un servidor multimedia declara sus discos: el prefijo que escribe el cliente y la misma carpeta tal como la alcanza esta pasarela."
 		},
 		"preference": {

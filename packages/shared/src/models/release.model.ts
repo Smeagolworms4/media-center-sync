@@ -661,5 +661,22 @@ export interface DownloadClientSettings {
 	 * needs no second opinion from us.
 	 */
 	savePath?: string | null;
+	/**
+	 * After a copy, leave a symlink where the original was.
+	 *
+	 * `keepSource` is why this exists: a finished torrent is still seeding, so the file
+	 * is copied into the library and the client's own copy is left alone — and the same
+	 * film is then on the disk twice, for as long as somebody keeps seeding it. A
+	 * symlink in its place costs nothing, the client reads straight through it, and the
+	 * bytes exist once.
+	 *
+	 * Off by default, and it has to be: it only works where the client can reach the
+	 * library. A client in its own container with `/downloads` mounted and nothing else
+	 * would follow the link to a path it has never heard of — a torrent that errors,
+	 * which is the exact outcome `keepSource` was written to avoid. The link is written
+	 * relative to the original, so a shared root mounted at two different places is
+	 * fine; two genuinely separate mounts are not.
+	 */
+	linkSourceAfterCopy?: boolean;
 	enabled: boolean;
 }

@@ -144,6 +144,7 @@
 		 * to two disks by mapping `/` onto `/`.
 		 */
 		clientRootMappings: [] as RootMapping[],
+		clientLinkSource: false,
 		/*
 		 * The request source, flat for the reason the two above are: a refusal has to land
 		 * under the box it names, and the form helpers key on a field name.
@@ -219,6 +220,7 @@
 					username: values.clientUsername || null,
 					...(values.clientPassword ? { password: values.clientPassword } : {}),
 					rootMappings: values.clientRootMappings,
+					linkSourceAfterCopy: values.clientLinkSource,
 					enabled: values.clientEnabled,
 				}
 				: null,
@@ -325,6 +327,7 @@
 		// list is replaced on every edit, and sharing the store's own would make an
 		// unsaved row look stored everywhere else that reads the settings.
 		model.clientRootMappings = [...(settings.downloadClient?.rootMappings ?? [])];
+		model.clientLinkSource = settings.downloadClient?.linkSourceAfterCopy ?? false;
 		model.requestEnabled = settings.requestSource?.enabled ?? false;
 		model.requestUrl = settings.requestSource?.baseUrl ?? '';
 		// Never filled from the answer, for the reason the indexer's key is not: the
@@ -1298,6 +1301,24 @@
 							v-model="model.clientRootMappings"
 							data-test="settings-client-mappings"
 							:form="form"
+						/>
+
+						<!--
+							Below the mappings, and that is where it belongs: whether this is
+							safe to turn on is decided by what the client can see, which is the
+							question the rows above answer. The hint is not decoration — a
+							client that cannot reach the library follows the link to nothing,
+							and the torrent errors.
+						-->
+						<v-switch
+							v-model="model.clientLinkSource"
+							class="mt-4"
+							color="primary"
+							data-test="settings-client-link-source"
+							density="compact"
+							:hint="$t('settings.releases.link_source_hint')"
+							:label="$t('settings.releases.link_source')"
+							persistent-hint
 						/>
 					</v-card-text>
 				</v-card>
