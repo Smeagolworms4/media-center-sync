@@ -189,6 +189,8 @@ const artworkUrlOf = (posterPath: string | undefined): string | null => {
 @Injectable()
 @RequestSourceFor(RequestSourceType.SEERR)
 export class SeerrRequestSource implements RequestSource {
+	private readonly _logger = new Logger(SeerrRequestSource.name);
+
 	public async list(
 		settings: RequestSourceSettings,
 		query: RequestQuery,
@@ -236,20 +238,86 @@ export class SeerrRequestSource implements RequestSource {
 	 * must not spin here.
 	 */
 	public async watchlist(settings: RequestSourceSettings): Promise<WatchlistEntry[]> {
+		/*
+		 * Two addresses, because the source disagrees with itself about this list.
+		 *
+		 * `/discover/watchlist` answers *the signed-in user's* watchlist, and an API key is
+		 * not a signed-in user: on the owner's Jellyseerr it answers a refusal, which took
+		 * the whole indexing pass down with it. The per-user address answers for a named
+		 * account, which is what an API key can address — so the identity is asked for
+		 * first and the discover form is the fallback for sources that only have that one.
+		 */
+		const userId = await this._watchlistUser(settings);
+		const paths = userId === null
+			? ['/api/v1/discover/watchlist']
+			: [`/api/v1/user/${encodeURIComponent(userId)}/watchlist`, '/api/v1/discover/watchlist'];
+
+		for (const path of paths) {
+			const entries = await this._readWatchlist(settings, path);
+
+			if (entries !== null) {
+				return entries;
+			}
+		}
+
+		/*
+		 * Nothing, rather than a throw. The interface says so and the reason is what
+		 * happened here: a source that cannot answer this one list must leave the rest of
+		 * the scan working — the requests had already been written when this failed, and
+		 * the exception discarded the pass that wrote them.
+		 */
+		this._logger.warn('The request source would not answer its watchlist; treating it as empty');
+
+		return [];
+	}
+
+	/**
+	 * Which account an API key speaks for, or null when the source will not say.
+	 *
+	 * Only used to address the watchlist. A failure here is not worth reporting on its own:
+	 * the caller falls back to the address that needs no identity.
+	 */
+	private async _watchlistUser(settings: RequestSourceSettings): Promise<string | null> {
+		try {
+			const me = await releaseJson<{ id?: number | string }>(settings.baseUrl, '/api/v1/auth/me', {
+				headers: this._headers(settings),
+				timeoutMs: CLIENT_TIMEOUT_MS,
+				unreachable: ErrorKey.REQUEST_SOURCE_UNREACHABLE,
+				unauthorized: ErrorKey.REQUEST_SOURCE_UNAUTHORIZED,
+			});
+
+			return me?.id === undefined || me.id === null ? null : String(me.id);
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * One address, paged out, or null when it would not answer.
+	 *
+	 * Null and not an empty list, because the two mean opposite things to the caller: one
+	 * says "this source has no watchlist", the other says "ask somewhere else".
+	 */
+	private async _readWatchlist(
+		settings: RequestSourceSettings,
+		path: string,
+	): Promise<WatchlistEntry[] | null> {
 		const entries: WatchlistEntry[] = [];
 
 		for (let page = 1; page <= MAX_WATCHLIST_PAGES; page += 1) {
-			const answer = await releaseJson<SeerrWatchlistPage>(
-				settings.baseUrl,
-				'/api/v1/discover/watchlist',
-				{
+			let answer: SeerrWatchlistPage | null;
+
+			try {
+				answer = await releaseJson<SeerrWatchlistPage>(settings.baseUrl, path, {
 					query: { page, take: DEFAULT_TAKE },
 					headers: this._headers(settings),
 					timeoutMs: CLIENT_TIMEOUT_MS,
 					unreachable: ErrorKey.REQUEST_SOURCE_UNREACHABLE,
 					unauthorized: ErrorKey.REQUEST_SOURCE_UNAUTHORIZED,
-				},
-			);
+				});
+			} catch {
+				return null;
+			}
 
 			const rows = Array.isArray(answer?.results) ? answer.results : [];
 

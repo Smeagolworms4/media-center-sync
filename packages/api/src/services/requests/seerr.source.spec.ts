@@ -241,7 +241,10 @@ describe('SeerrRequestSource', () => {
 		}
 
 		it('reads what the household follows, which is not what it has asked for', async () => {
+			// `{}` for the identity: a source that will not name an account falls back to the
+			// address that needs none, which is the shape this pins.
 			answerEach([
+				{},
 				{
 					results: [
 						{ tmdbId: 1399, mediaType: 'tv', title: 'Game of Thrones' },
@@ -257,13 +260,41 @@ describe('SeerrRequestSource', () => {
 				{ kind: MediaKind.SERIES, tmdbId: '1399', title: 'Game of Thrones' },
 				{ kind: MediaKind.MOVIE, tmdbId: '603', title: 'The Matrix' },
 			]);
-			expect(calls[0]?.url.pathname).toBe('/api/v1/discover/watchlist');
+			expect(calls[1]?.url.pathname).toBe('/api/v1/discover/watchlist');
 		});
 
 		it('drops a row with no identifier rather than one nothing can be matched on', async () => {
-			answerEach([{ results: [{ mediaType: 'tv', title: 'Nameless' }] }, { results: [] }]);
+			answerEach([{}, { results: [{ mediaType: 'tv', title: 'Nameless' }] }, { results: [] }]);
 
 			expect(await source.watchlist(SETTINGS)).toEqual([]);
+		});
+
+		it('answers nothing rather than throwing when the source refuses the list', async () => {
+			/*
+			 * Seen in production: `/discover/watchlist` answers for the *signed-in* user and
+			 * an API key is not one, so a Jellyseerr refused it — and the exception took the
+			 * whole indexing pass down, discarding the requests that had just been written.
+			 * A source that cannot answer this one list must leave the rest working.
+			 */
+			answer({ message: 'nope' }, 500);
+
+			expect(await source.watchlist(SETTINGS)).toEqual([]);
+		});
+
+		it('asks for the account the key speaks for before the signed-in form', async () => {
+			// The per-user address is the one an API key can address; the discover form is
+			// the fallback for sources that only have that.
+			answerEach([
+				{ id: 7 },
+				{ results: [{ tmdbId: 1399, mediaType: 'tv', title: 'Game of Thrones' }] },
+				{ results: [] },
+			]);
+
+			const followed = await source.watchlist(SETTINGS);
+
+			expect(followed.map(one => one.tmdbId)).toEqual(['1399']);
+			expect(calls[0]?.url.pathname).toBe('/api/v1/auth/me');
+			expect(calls[1]?.url.pathname).toBe('/api/v1/user/7/watchlist');
 		});
 
 		it('stops when the source runs out of rows', async () => {

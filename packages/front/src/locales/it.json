@@ -1784,7 +1784,7 @@
 		"watched": "Seguito: la sorgente di richieste ora lo conosce."
 	},
 	"news": {
-		"empty_text": "Nessun episodio uscito manca tra le serie che segui — né per un piano di sincronizzazione né per una richiesta.",
+		"empty_text": "Non manca nessun episodio uscito tra le serie che segui. Seguire è la watchlist della tua fonte di richieste — una serie soltanto richiesta non è una serie seguita.",
 		"empty_title": "Niente di nuovo",
 		"hint": "Il più recente è uscito",
 		"missing": "Mancanti ({count})",

@@ -1784,7 +1784,7 @@
 		"watched": "Verfolgt: die Anfragequelle kennt es jetzt."
 	},
 	"news": {
-		"empty_text": "Keine erschienene Folge fehlt bei den Serien, denen Sie folgen — weder per Sync-Plan noch per Anfrage.",
+		"empty_text": "Bei den Serien, denen Sie folgen, fehlt keine erschienene Folge. Gefolgt wird über die Merkliste Ihrer Anfragequelle — eine nur angefragte Serie ist keine, der Sie folgen.",
 		"empty_title": "Nichts Neues",
 		"hint": "Die neueste erschien",
 		"missing": "Fehlend ({count})",

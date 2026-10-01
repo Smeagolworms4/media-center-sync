@@ -1784,7 +1784,7 @@
 		"watched": "Suivi : la source de demandes le connaît maintenant."
 	},
 	"news": {
-		"empty_text": "Aucun épisode paru ne manque parmi les séries que vous suivez — par un plan de synchro, ou par une demande sur votre source.",
+		"empty_text": "Aucun épisode paru ne manque parmi les séries que vous suivez. Suivre, c’est la watchlist de votre source de demandes — une série simplement demandée n’est pas une série suivie.",
 		"empty_title": "Rien de nouveau",
 		"hint": "Le plus récent est paru",
 		"missing": "Manquants ({count})",

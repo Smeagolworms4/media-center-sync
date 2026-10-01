@@ -1784,7 +1784,7 @@
 		"watched": "Followed: the request source knows about it now."
 	},
 	"news": {
-		"empty_text": "No aired episode is missing from the shows you follow — whether by a sync plan or by an ask on your request source.",
+		"empty_text": "No aired episode is missing from the shows you follow. Following is the watchlist on your request source — a show you merely asked for is not a show you follow.",
 		"empty_title": "Nothing new",
 		"hint": "The most recent came out",
 		"missing": "Missing ({count})",

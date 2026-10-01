@@ -1784,7 +1784,7 @@
 		"watched": "Seguido: a fonte de pedidos já o conhece."
 	},
 	"news": {
-		"empty_text": "Nenhum episódio que já saiu falta nas séries que segue — nem por um plano de sincronização nem por um pedido.",
+		"empty_text": "Não falta nenhum episódio que já saiu nas séries que segue. Seguir é a watchlist da sua fonte de pedidos — uma série apenas pedida não é uma série seguida.",
 		"empty_title": "Nada de novo",
 		"hint": "O mais recente saiu",
 		"missing": "Em falta ({count})",

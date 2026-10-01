@@ -1209,6 +1209,36 @@ describe('ServiceManager', () => {
 			expect(fakes.items.rows[0].libraryId).toBe('library-1');
 		});
 
+		it('keeps walking the other libraries when one of them will not answer', async () => {
+			/*
+			 * Seen in production, on a service with two libraries: the second one threw, and
+			 * the exception unwound the whole pass — so the 444 rows the first library had
+			 * just written were never correlated, and the next pass found them stale and
+			 * deleted them. The screen reported "444 items disappeared" for a service that
+			 * was working. One library that will not answer is one library's worth of loss.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([
+				library({ id: 'library-1', externalId: 'lib-1', name: 'Requests' }),
+				library({ id: 'library-2', externalId: 'lib-2', name: 'Watchlist' }),
+			]);
+			fakes.handler.scanLibrary.mockImplementation((_service: unknown, lib: Library) => {
+				if (lib.externalId === 'lib-2') {
+					throw new Error('the source would not answer its watchlist');
+				}
+
+				return yielding([reported({ externalId: 'a', title: 'Arrival' })]);
+			});
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.items.rows.map((item) => item.title)).toEqual(['Arrival']);
+			// And the pass still finished its work on what it did read.
+			expect(fakes.media.correlateService).toHaveBeenCalled();
+		});
+
 		it('resolves a child onto the parent the same walk just wrote', async () => {
 			// The cheap path: the parent is already in the index when the child is
 			// written, so the link is made there and then and the reconciliation finds

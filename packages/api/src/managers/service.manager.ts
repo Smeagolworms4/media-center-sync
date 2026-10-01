@@ -641,39 +641,72 @@ export class ServiceManager implements OnApplicationBootstrap {
 		const libraries = await this._libraries.findByService(service.id);
 		const walked: { library: LibraryEntity; itemsSeen: number }[] = [];
 
+		/*
+		 * One library that will not answer does not take the others with it.
+		 *
+		 * Seen in production, on a service with two libraries: the second answered a
+		 * refusal, and the exception discarded the whole pass — including the first
+		 * library, which had just been walked and written. Its rows were never correlated,
+		 * so the next pass found them unaccounted for and swept them away: a failure in
+		 * one list emptied another, and the screen reported "444 items disappeared" for a
+		 * service that was working.
+		 *
+		 * So a library's failure is recorded and the walk goes on. What is done with it
+		 * afterwards depends on how much of the service answered — see below.
+		 */
+		const failures: { name: string; error: unknown }[] = [];
+
 		for (const library of libraries) {
 			const described = this._describe(library);
 			const seen: string[] = [];
 			let itemsSeen = 0;
 
-			if (full) {
-				for await (const item of handler.scanLibrary(connection, described)) {
-					await this._persist(service, library, item);
-					seen.push(item.externalId);
-					itemsSeen += 1;
+			try {
+				if (full) {
+					for await (const item of handler.scanLibrary(connection, described)) {
+						await this._persist(service, library, item);
+						seen.push(item.externalId);
+						itemsSeen += 1;
 
-					// Every page rather than every row: a frame per episode on a library of
-					// forty thousand is thousands of frames for a bar that moves by a pixel.
-					if (itemsSeen % 100 === 0) {
-						this._progress(service.id, library.id, itemsSeen, false);
+						// Every page rather than every row: a frame per episode on a library of
+						// forty thousand is thousands of frames for a bar that moves by a pixel.
+						if (itemsSeen % 100 === 0) {
+							this._progress(service.id, library.id, itemsSeen, false);
+						}
 					}
+
+					await this._forgetStale(library, seen);
+					await this._libraries.setScanCursor(library.id, null);
+					await this._libraries.update({ id: library.id }, { lastScanAt: new Date() });
+				} else {
+					const refresh = await handler.refreshLibrary(connection, described, library.scanCursor);
+
+					for (const item of refresh.items) {
+						await this._persist(service, library, item);
+						itemsSeen += 1;
+					}
+
+					await this._libraries.setScanCursor(library.id, refresh.cursor);
 				}
+			} catch (error: unknown) {
+				this._logger.error(`Scanning ${library.name} failed: ${String(error)}`);
+				failures.push({ name: library.name, error });
 
-				await this._forgetStale(library, seen);
-				await this._libraries.setScanCursor(library.id, null);
-				await this._libraries.update({ id: library.id }, { lastScanAt: new Date() });
-			} else {
-				const refresh = await handler.refreshLibrary(connection, described, library.scanCursor);
-
-				for (const item of refresh.items) {
-					await this._persist(service, library, item);
-					itemsSeen += 1;
-				}
-
-				await this._libraries.setScanCursor(library.id, refresh.cursor);
+				continue;
 			}
 
 			walked.push({ library, itemsSeen });
+		}
+
+		/*
+		 * Nothing answered at all, which is a different thing from one list refusing: the
+		 * server is down, the token was revoked, the address moved. The first failure is
+		 * re-thrown as it came, before anything else runs — its *type* is the decision the
+		 * caller makes next (an unreachable Plex is what sends `_index` to the directory to
+		 * look for a new address), and the summaries below have nothing to summarise.
+		 */
+		if (walked.length === 0 && failures.length > 0) {
+			throw failures[0].error;
 		}
 
 		/*
@@ -734,6 +767,27 @@ export class ServiceManager implements OnApplicationBootstrap {
 		await this._media.correlateService(service.id);
 
 		this._progress(service.id, null, 0, true);
+
+		/*
+		 * Said at the end, once every library that could be read has been.
+		 *
+		 * The pass is not a success if a library refused: the caller marks the service
+		 * offline on this, and a scan that quietly skipped half a service would leave it
+		 * reading as healthy. What changed is the order — the libraries that answered are
+		 * written first, and only then does the failure stop the pass.
+		 */
+		/*
+		 * Part of the service answered, and that part has now been written, correlated and
+		 * counted — which was the point of carrying on. The failure is still reported, and
+		 * reported last, so the scan says plainly which lists it could not read instead of
+		 * passing a half-read service off as a whole one.
+		 */
+		if (failures.length > 0) {
+			throw new ServiceUnavailableException({
+				key: ErrorKey.SERVICE_UNREACHABLE,
+				libraries: failures.map((failure) => failure.name),
+			});
+		}
 	}
 
 	/**
