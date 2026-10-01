@@ -195,7 +195,7 @@ export class SeerrRequestSource implements RequestSource {
 		return rows
 			.map((row) => this._toRequest(row))
 			.filter((one): one is MediaRequest => one !== null)
-			.filter((one) => this._wanted(one, query.state));
+			.filter((one) => this._wanted(one, query));
 	}
 
 	public async find(
@@ -425,9 +425,16 @@ export class SeerrRequestSource implements RequestSource {
 	 * page was asked for whole, so this is the only place the ceiling bites: a household
 	 * with five hundred completed requests may need `take` raised to see an old open one.
 	 */
-	private _wanted(request: MediaRequest, state: MediaRequestState | undefined): boolean {
-		if (state !== undefined) {
-			return request.state === state;
+	private _wanted(request: MediaRequest, query: RequestQuery): boolean {
+		if (query.state !== undefined) {
+			return request.state === query.state;
+		}
+
+		// Everything, for a caller reading the asks as media rather than as a to-do list:
+		// a series somebody follows and already holds is `available` here, and it is
+		// exactly what that caller came for. See `RequestQuery.includeSettled`.
+		if (query.includeSettled === true) {
+			return true;
 		}
 
 		return (

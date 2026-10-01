@@ -167,7 +167,13 @@ export class RequestsHandler implements MediaServiceHandler {
 		const configured = await this._configured();
 		const source = this._sources.get(configured.type);
 
-		for (const request of await source.list(configured, {})) {
+		/*
+		 * Everything, settled included. The default drops what the source calls available —
+		 * which is precisely a series the household follows and already holds, and the whole
+		 * reason this catalogue exists. Left on the default the scan wrote almost nothing
+		 * and reported it as "0 items", which reads as a feature that does not work.
+		 */
+		for (const request of await source.list(configured, { includeSettled: true })) {
 			const providerId = request.tmdbId;
 
 			if (providerId === null) {

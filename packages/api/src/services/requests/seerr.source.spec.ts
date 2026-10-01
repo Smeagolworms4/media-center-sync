@@ -117,6 +117,27 @@ describe('SeerrRequestSource', () => {
 			expect(calls[0]?.url.searchParams.get('filter')).toBe('all');
 		});
 
+		it('answers everything that was ever asked for when the caller wants the settled ones',
+			async () => {
+				/*
+				 * The catalogue reads the asks as media rather than as a to-do list, and a
+				 * series the household follows and already holds is `available` here. Dropping
+				 * it took the whole point with it: the scan wrote almost nothing and reported
+				 * it as "0 items", which reads as a feature that does not work.
+				 */
+				answer({
+					results: [
+						row({ id: 1, status: 2 }),
+						row({ id: 2, status: 3 }),
+						row({ id: 3, status: 1, media: { id: 9, tmdbId: 7, mediaType: 'movie', status: 3 } }),
+					],
+				});
+
+				const all = await source.list(SETTINGS, { includeSettled: true });
+
+				expect(all.map((request) => request.id)).toEqual(['1', '2', '3']);
+			});
+
 		it('keeps exactly the state that was asked for', async () => {
 			answer({
 				results: [row({ id: 1 }), row({ id: 2, status: 1 })],

@@ -170,6 +170,16 @@ export interface RequestQuery {
 	state?: MediaRequestState;
 	/** How many rows at most. The source decides its own ceiling. */
 	take?: number;
+	/**
+	 * Everything that was ever asked for, settled ones included.
+	 *
+	 * The default drops what is available or declined, because a list of things to act on
+	 * must not be padded with what has already been answered. Reading the household's asks
+	 * as *media* wants the opposite: a series somebody follows and already holds is
+	 * `available` on the source, and dropping it took the catalogue's whole reason for
+	 * existing with it — the scan came back with almost nothing and said so as "0 items".
+	 */
+	includeSettled?: boolean;
 }
 
 /**
