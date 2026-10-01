@@ -319,9 +319,31 @@ export class TransferManager implements OnApplicationBootstrap {
 		const chains = await this._ancestries(transfers.map((transfer) => transfer.itemId));
 		const byKey = new Map<string, string[][]>();
 
+		/*
+		 * Only the files whose media the catalogue still holds, and that is the whole of
+		 * this loop's care.
+		 *
+		 * A file whose row has gone — a scan dropped it, a library was removed — has no
+		 * ancestry, and counting it as a chain of its own title shared nothing with the
+		 * others: the common ancestor collapsed to nothing and the card took the name of
+		 * whichever episode came back first. One missing row renamed a download of a
+		 * hundred and four files, which is what it did on the owner's queue.
+		 */
+		const sizes = new Map<string, number>();
+
 		for (const transfer of transfers) {
-			const chain = chains.get(transfer.itemId) ?? [transfer.title];
 			const key = lotKeyOf(transfer);
+
+			// Counted over every file, including the ones skipped below: "is this a
+			// download of one thing" is a question about the download and not about how
+			// much of it the catalogue still knows.
+			sizes.set(key, (sizes.get(key) ?? 0) + 1);
+
+			const chain = chains.get(transfer.itemId);
+
+			if (chain === undefined) {
+				continue;
+			}
 
 			byKey.set(key, [...(byKey.get(key) ?? []), chain]);
 		}
@@ -348,7 +370,15 @@ export class TransferManager implements OnApplicationBootstrap {
 			 * headed "Saison 1" says less than one headed with the show — the seasons are
 			 * the headings inside it. A single file keeps its own name.
 			 */
-			const shared = held.length === 1 ? first.at(-1) : first.slice(0, depth).at(0);
+			/*
+			 * The root of what they share rather than the deepest of it, once there is more
+			 * than one file. A lot of one keeps its own name — there is no show above it to
+			 * borrow from — and so does a lot whose files turn out to share nothing, which
+			 * happens when one download really does carry two unrelated things.
+			 */
+			const shared = (sizes.get(key) ?? held.length) === 1 || depth === 0
+				? first.at(-1)
+				: first.slice(0, depth).at(0);
 
 			if (shared !== undefined && shared !== '') {
 				titles.set(key, shared);

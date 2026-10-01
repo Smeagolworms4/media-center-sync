@@ -246,6 +246,51 @@ describe('The queue as downloads', () => {
 		expect(film?.title).toBe('Le Cinquième Élément');
 	});
 
+	it('keeps the show as the title when one file\'s media has gone from the catalogue',
+		async () => {
+			/*
+			 * Seen on the owner's queue: a download of a hundred and four files titled "Les
+			 * Schtroumpfs — S01E10 — Episode 10". One row dropped by a scan had no ancestry
+			 * left, counting it as a chain of its own title shared nothing with the rest, the
+			 * common ancestor collapsed, and the card took the name of whichever episode came
+			 * back first.
+			 *
+			 * Built as a lot of its own rather than by deleting a row the other tests rely
+			 * on: a fixture that destroys itself half-way through a file is a suite whose
+			 * failures depend on the order it happens to run in.
+			 */
+			const transfers = context.app.get(TransferRepository);
+			const known = (await transfers.findByLotKeys([seasonKey]))[0];
+			const key = randomUUID();
+
+			for (const [index, itemId] of [known.itemId, randomUUID()].entries()) {
+				await transfers.save(
+					transfers.create({
+						id: randomUUID(),
+						itemId,
+						title: `Les Schtroumpfs — S01E0${index + 1} — Episode ${index + 1}`,
+						state: TransferState.QUEUED,
+						lot: key,
+						jobId: null,
+						targetPath: join(root, 'Les Schtroumpfs', 'Season 01', `orphan-${index}.mkv`),
+						targetLibraryId: known.targetLibraryId,
+						workPath: `/var/transfer/orphan-${index}.part`,
+						bytesTotal: 1_000,
+						bytesDone: 0,
+						chunkSize: 1_000,
+						chunksTotal: 1,
+					}),
+				);
+			}
+
+			const answer = await request(context.app.getHttpServer())
+				.get(`/api/transfers/lots/${key}`)
+				.set('Authorization', `Bearer ${manager.token}`)
+				.expect(200);
+
+			expect(answer.body.title).toBe('Les Schtroumpfs');
+		});
+
 	it('carries the season and the episode of each file, off the catalogue', async () => {
 		// What the card groups by. Parsed out of the title it would put a show whose episodes
 		// are named differently into one heap and blame the household's files.
