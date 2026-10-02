@@ -263,6 +263,39 @@ describe('SeerrRequestSource', () => {
 			expect(calls[1]?.url.pathname).toBe('/api/v1/discover/watchlist');
 		});
 
+		it('asks for a page and nothing else', async () => {
+			/*
+			 * The defect this pins, found on a live source after two deployments: a `take`
+			 * beside the page is answered `400 Unknown query parameter 'take'`. The source
+			 * validates its query against a schema, so an extra parameter is not a larger
+			 * page but a refused request — and the watchlist came back empty while the list
+			 * itself was four hundred and eighty-two entries long.
+			 */
+			answerEach([{}, { results: [{ tmdbId: 1399, mediaType: 'tv', title: 'Game of Thrones' }] }, { results: [] }]);
+
+			await source.watchlist(SETTINGS);
+
+			const asked = calls.find(one => one.url.pathname.endsWith('/watchlist'));
+
+			expect(asked?.url.searchParams.get('page')).toBe('1');
+			expect(asked?.url.searchParams.has('take')).toBe(false);
+		});
+
+		it('stops where the source says its list ends', async () => {
+			// `totalPages` rather than reading until an empty page: the source pages this in
+			// twenties on its terms, and one more request per scan for a page it has already
+			// said does not exist is a request nobody needs.
+			answerEach([
+				{},
+				{ totalPages: 1, results: [{ tmdbId: 1399, mediaType: 'tv', title: 'Game of Thrones' }] },
+			]);
+
+			const followed = await source.watchlist(SETTINGS);
+
+			expect(followed).toHaveLength(1);
+			expect(calls.filter(one => one.url.pathname.endsWith('/watchlist'))).toHaveLength(1);
+		});
+
 		it('drops a row with no identifier rather than one nothing can be matched on', async () => {
 			answerEach([{}, { results: [{ mediaType: 'tv', title: 'Nameless' }] }, { results: [] }]);
 

@@ -75,6 +75,8 @@ interface SeerrWatchlistRow {
 
 interface SeerrWatchlistPage {
 	results?: SeerrWatchlistRow[];
+	/** How many pages the source has, which is how the read knows where to stop. */
+	totalPages?: number;
 }
 
 /**
@@ -104,10 +106,16 @@ const MAX_TAKE = 500;
 /**
  * How many pages of a watchlist are read before giving up.
  *
- * A household's own list is small, and the ceiling is there for the other case: a source
- * that answers the same page forever would spin here with nothing reporting it.
+ * The source pages this one in twenties and will not be told otherwise — see
+ * `_readWatchlist` — so this is a ceiling of two thousand entries, not twenty. It was
+ * twenty pages when the page size was ours to choose, which would now stop at four
+ * hundred: a household with a longer list than that would have had it quietly cut off.
+ *
+ * It is still a ceiling and not a limit: the loop normally stops on `totalPages`. This
+ * exists for the source that answers the same page forever, which would otherwise spin
+ * here with nothing reporting it.
  */
-const MAX_WATCHLIST_PAGES = 20;
+const MAX_WATCHLIST_PAGES = 100;
 
 /**
  * The status Seerr actually answered, dug back out of what `release-http` raised.
@@ -309,13 +317,31 @@ export class SeerrRequestSource implements RequestSource {
 
 			try {
 				answer = await releaseJson<SeerrWatchlistPage>(settings.baseUrl, path, {
-					query: { page, take: DEFAULT_TAKE },
+					/*
+					 * `page` alone. A `take` beside it is what broke this: the source checks
+					 * its query parameters against a schema and answers `400 Unknown query
+					 * parameter 'take'` — this list is paged in twenties on its terms, and
+					 * asking for a hundred is not a larger page but a refused request.
+					 *
+					 * It cost two deployments to find, for one reason: the failure below was
+					 * swallowed without being logged, so a message that said exactly what was
+					 * wrong was thrown away and the gateway reported an empty watchlist. Hence
+					 * the logging, which is the more important half of this.
+					 */
+					query: { page },
 					headers: this._headers(settings),
 					timeoutMs: CLIENT_TIMEOUT_MS,
 					unreachable: ErrorKey.REQUEST_SOURCE_UNREACHABLE,
 					unauthorized: ErrorKey.REQUEST_SOURCE_UNAUTHORIZED,
 				});
-			} catch {
+			} catch (error: unknown) {
+				const status = statusOf(error);
+
+				this._logger.warn(
+					`The request source refused ${path}`
+					+ `${status === null ? '' : ` with HTTP ${status}`}: ${String(error)}`,
+				);
+
 				return null;
 			}
 
@@ -335,6 +361,15 @@ export class SeerrRequestSource implements RequestSource {
 			}
 
 			if (rows.length === 0) {
+				break;
+			}
+
+			// The source says how many pages it has, so the loop stops where the list does
+			// rather than on an empty page it had to ask for. A source that does not say
+			// falls back to the empty-page test above.
+			const totalPages = typeof answer?.totalPages === 'number' ? answer.totalPages : null;
+
+			if (totalPages !== null && page >= totalPages) {
 				break;
 			}
 		}
