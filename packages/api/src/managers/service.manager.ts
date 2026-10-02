@@ -116,6 +116,37 @@ export interface ProbeRequest {
  * library takes minutes; a request that waited for it would time out in a proxy
  * somewhere in the middle, leaving the scan running and the caller with nothing.
  */
+/**
+ * How many rows are written between two turns of the event loop. See `breathe`.
+ *
+ * Fifty is a compromise measured against what each row costs: small enough that a request
+ * waits a few milliseconds at worst, large enough that the yield itself is noise next to
+ * the work it interrupts.
+ */
+const ROWS_PER_BREATH = 50;
+
+/**
+ * Hand the event loop back, so the gateway keeps answering while a scan runs.
+ *
+ * This is not belt and braces, it is the difference between a server and a dead socket.
+ * **`await` does not yield to the event loop**: it drains the *microtask* queue, while
+ * reading an incoming connection is a *macrotask*. A scan is a loop of thousands of rows
+ * whose awaits mostly resolve at once — metadata already cached, and `better-sqlite3`,
+ * which is synchronous by design — so the loop never reaches the poll phase and no socket
+ * is ever read. The process is busy, not slow: health checks time out, the container is
+ * marked unhealthy, and nothing in the interface loads until the scan ends.
+ *
+ * `setImmediate` is a macrotask, so awaiting one does reach the poll phase and lets every
+ * pending request be served before the next batch of rows. It is not a worker thread and
+ * does not pretend to be: the work still runs on this thread and a single synchronous
+ * query still blocks for its own duration. What it buys is that the queue of them is
+ * interruptible, which is all the server needed.
+ */
+const breathe = (rows: number): Promise<void> =>
+	rows % ROWS_PER_BREATH === 0
+		? new Promise<void>((resolve) => setImmediate(resolve))
+		: Promise.resolve();
+
 @Injectable()
 export class ServiceManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(ServiceManager.name);
@@ -673,6 +704,8 @@ export class ServiceManager implements OnApplicationBootstrap {
 						if (itemsSeen % 100 === 0) {
 							this._progress(service.id, library.id, itemsSeen, false);
 						}
+
+						await breathe(itemsSeen);
 					}
 
 					await this._forgetStale(library, seen);
@@ -684,6 +717,8 @@ export class ServiceManager implements OnApplicationBootstrap {
 					for (const item of refresh.items) {
 						await this._persist(service, library, item);
 						itemsSeen += 1;
+
+						await breathe(itemsSeen);
 					}
 
 					await this._libraries.setScanCursor(library.id, refresh.cursor);

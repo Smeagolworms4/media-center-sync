@@ -1209,6 +1209,43 @@ describe('ServiceManager', () => {
 			expect(fakes.items.rows[0].libraryId).toBe('library-1');
 		});
 
+		it('lets the gateway answer while it writes', async () => {
+			/*
+			 * The incident this pins: during a scan the gateway stopped answering entirely —
+			 * health checks timed out and Docker marked the container unhealthy while the
+			 * process sat there working.
+			 *
+			 * `await` does not yield to the event loop. It drains the microtask queue, and
+			 * reading an incoming socket is a macrotask, so a loop of rows whose awaits all
+			 * resolve at once — cached metadata, and `better-sqlite3`, which is synchronous —
+			 * never reaches the poll phase. Nothing is served until the scan ends.
+			 *
+			 * So the test is not "is it fast": it is whether a macrotask queued before the
+			 * walk ever gets to run while the walk is still going. Without the yield it runs
+			 * only at the end, which is the bug.
+			 */
+			const { manager, fakes } = build();
+			const reported = (index: number) =>
+				({ externalId: `e${index}`, title: `Episode ${index}`, kind: MediaKind.EPISODE }) as NormalisedMediaItem;
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding(Array.from({ length: 120 }, (_, index) => reported(index))),
+			);
+
+			let served = 0;
+			const serving = setInterval(() => { served += 1; }, 0);
+
+			await manager.scan('service-1');
+			await settle(manager);
+			clearInterval(serving);
+
+			// A timer is a macrotask, exactly like an inbound request. It firing at all means
+			// the loop was handed back mid-walk.
+			expect(served).toBeGreaterThan(0);
+			expect(fakes.items.rows).toHaveLength(120);
+		});
+
 		it('keeps walking the other libraries when one of them will not answer', async () => {
 			/*
 			 * Seen in production, on a service with two libraries: the second one threw, and
