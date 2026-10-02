@@ -639,6 +639,70 @@ describe('FileMoveService', () => {
 				expect(await readlink(source)).toBe('elsewhere.mkv');
 			});
 
+			it('notes beside the copy which path links to it', async () => {
+				/*
+				 * The asymmetry this answers: a symlink knows where it points, and the file
+				 * it points at knows nothing about it. Fine until the library file moves —
+				 * an `rsync -a` to a new disk — and then the link dangles with nothing
+				 * anywhere saying what it was. The note travels with the file.
+				 */
+				const service = new FileMoveService(operations());
+
+				await service.move({ source, destination, keepSource: true, linkSource: true });
+
+				const witness = join(root, 'library', 'Show', '.S01E02.mkv.src');
+				const text = await readFile(witness, 'utf8');
+
+				// Absolute, where the link itself is relative: this is read by somebody
+				// repairing things after a move, and a path relative to a file that has
+				// just moved is the one thing that cannot help them.
+				expect(text).toContain(source);
+				expect(text.split('\n')[0]).toBe('# mcs: paths that link to this file');
+			});
+
+			it('adds a second link to the note rather than erasing the first', async () => {
+				// Two grabs of the same episode land on one destination, and the second
+				// must not wipe out what the first recorded.
+				const other = join(root, 'work', 'another-release.mkv');
+
+				await writeFile(other, content);
+
+				const service = new FileMoveService(operations());
+
+				await service.move({ source, destination, keepSource: true, linkSource: true });
+				await service.move({ source: other, destination, keepSource: true, linkSource: true });
+
+				const text = await readFile(join(root, 'library', 'Show', '.S01E02.mkv.src'), 'utf8');
+
+				expect(text).toContain(source);
+				expect(text).toContain(other);
+				// And the header stays a header rather than being repeated once per pass.
+				expect(text.split('\n').filter((line) => line.startsWith('#'))).toHaveLength(1);
+			});
+
+			it('writes the same link once, however often it is filed', async () => {
+				const service = new FileMoveService(operations());
+
+				await service.move({ source, destination, keepSource: true, linkSource: true });
+				// The second pass finds a source that is already a link and leaves it, so
+				// nothing new is noted either.
+				await service.move({ source, destination, keepSource: true, linkSource: true });
+
+				const text = await readFile(join(root, 'library', 'Show', '.S01E02.mkv.src'), 'utf8');
+
+				expect(text.split('\n').filter((line) => line === source)).toHaveLength(1);
+			});
+
+			it('notes nothing when no link was made', async () => {
+				// A note pointing at a real file is worse than no note: it would send
+				// somebody repairing a link that does not exist.
+				const service = new FileMoveService(operations());
+
+				await service.move({ source, destination, keepSource: true });
+
+				expect(await sizeOf(join(root, 'library', 'Show', '.S01E02.mkv.src'))).toBe(-1);
+			});
+
 			it('keeps the file when the link cannot be made', async () => {
 				/*
 				 * The outcome worth engineering against: `symlink` will not overwrite an
@@ -667,8 +731,10 @@ describe('FileMoveService', () => {
 				expect(await digestOf(destination)).toBe(digest(content));
 				expect((await lstat(source)).isSymbolicLink()).toBe(false);
 				expect(await digestOf(source)).toBe(digest(content));
-				// And no half-made entry left for the next pass to trip over.
+				// And no half-made entry left for the next pass to trip over, and no note
+				// claiming a link that was never made.
 				expect(await sizeOf(`${source}.mcs-link`)).toBe(-1);
+				expect(await sizeOf(join(root, 'library', 'Show', '.S01E02.mkv.src'))).toBe(-1);
 			});
 
 			it('never touches the source while the copy is unfinished', async () => {

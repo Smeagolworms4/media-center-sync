@@ -1,6 +1,6 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { lstat, mkdir, rename, stat, statfs, symlink, unlink } from 'node:fs/promises';
-import { dirname, relative } from 'node:path';
+import { lstat, mkdir, readFile, rename, stat, statfs, symlink, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative } from 'node:path';
 import { finished } from 'node:stream/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Readable, Writable } from 'node:stream';
@@ -66,6 +66,18 @@ const PARTIAL_SUFFIX = '.mcs-part';
  * copy is resuming from. See `_link`.
  */
 const LINK_SUFFIX = '.mcs-link';
+
+/**
+ * Suffix of the witness written beside a linked file — `.S01E02.mkv.src`.
+ *
+ * A leading dot as well, so the name is `.S01E02.mkv.src`: both media servers skip
+ * dotfiles, and a visible stray file in a library folder is something somebody deletes
+ * without knowing what it was. See `_witness` for what it is for.
+ */
+const WITNESS_SUFFIX = '.src';
+
+/** First line of a witness, so the file explains itself to whoever opens it. */
+const WITNESS_HEADER = '# mcs: paths that link to this file';
 
 /**
  * Abort with this reason to throw the partial away.
@@ -183,6 +195,9 @@ export interface FileMoveOperations {
 	/** Not `stat`: this one has to answer *about the link*, not about what it points at. */
 	lstat(path: string): Promise<{ isSymbolicLink(): boolean }>;
 	symlink(target: string, path: string): Promise<void>;
+	/** Small text only — the witness beside a linked file. Never a media file. */
+	readFile(path: string): Promise<string>;
+	writeFile(path: string, content: string): Promise<void>;
 	statfs(path: string): Promise<{ bavail: number | bigint; bsize: number | bigint }>;
 	mkdir(path: string): Promise<void>;
 	unlink(path: string): Promise<void>;
@@ -199,6 +214,10 @@ export const NODE_FILE_MOVE_OPERATIONS: FileMoveOperations = {
 	stat: (path) => stat(path),
 	lstat: (path) => lstat(path),
 	symlink: (target, path) => symlink(target, path),
+	readFile: (path) => readFile(path, 'utf8'),
+	writeFile: async (path, content) => {
+		await writeFile(path, content, 'utf8');
+	},
 	statfs: (path) => statfs(path),
 	mkdir: async (path) => {
 		await mkdir(path, { recursive: true });
@@ -566,6 +585,10 @@ export class FileMoveService {
 
 			await this._fs.symlink(relative(dirname(request.source), request.destination), temporary);
 			await this._fs.rename(temporary, request.source);
+
+			// After the link and not before: a witness to a link that was never made is a
+			// note pointing at a real file, which is worse than no note.
+			await this._witness(request.destination, request.source);
 		} catch (error: unknown) {
 			// The half-made link is swept up, or the directory keeps a stray entry that
 			// nothing will ever look at and that the next pass cannot create over.
@@ -574,6 +597,49 @@ export class FileMoveService {
 			this._logger.warn(
 				`Could not link ${request.source} to ${request.destination}: ${String(error)}`,
 			);
+		}
+	}
+
+	/**
+	 * Note, beside the library file, which paths link to it.
+	 *
+	 * A symlink only knows where it points; the file it points at knows nothing about it.
+	 * That asymmetry is fine until the library file moves — an `rsync -a` to a new disk, a
+	 * folder renamed by hand — and then every link to it is dangling and there is nothing
+	 * anywhere that says what they were. The witness travels *with* the file, because it
+	 * sits beside it: after the copy, `cat .S01E02.mkv.src` says which path in the
+	 * download folder has to be re-pointed, and a handful of them is a one-line loop
+	 * rather than a hunt through the client.
+	 *
+	 * Absolute paths, deliberately, where the link itself is relative. The link is read by
+	 * the client from inside its own mounts and has to survive them; this is read by a
+	 * person or a script repairing something after a move, and a path relative to a file
+	 * that has just been moved is the one thing that cannot help them.
+	 *
+	 * Appended rather than overwritten, and only when the path is not already there: two
+	 * grabs of the same file land on one destination, and the second must not erase what
+	 * the first recorded.
+	 *
+	 * Every failure is swallowed, like the link's own: this is an aid to repairing
+	 * something by hand, and nothing in this product reads it back. Failing a placed
+	 * download over a note would be the tail wagging the dog.
+	 */
+	private async _witness(destination: string, link: string): Promise<void> {
+		const path = join(dirname(destination), `.${basename(destination)}${WITNESS_SUFFIX}`);
+
+		try {
+			const existing = await this._fs.readFile(path).catch(() => '');
+			const lines = existing.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+
+			if (lines.includes(link)) {
+				return;
+			}
+
+			const kept = lines.filter((line) => line !== WITNESS_HEADER);
+
+			await this._fs.writeFile(path, [WITNESS_HEADER, ...kept, link].join('\n') + '\n');
+		} catch (error: unknown) {
+			this._logger.warn(`Could not note ${link} beside ${destination}: ${String(error)}`);
 		}
 	}
 
