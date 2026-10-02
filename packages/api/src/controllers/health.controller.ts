@@ -50,11 +50,44 @@ export class HealthController {
 		};
 	}
 
+	/**
+	 * Which journal SQLite is really using, as a suffix for the detail above.
+	 *
+	 * Asked rather than assumed, and that is the whole reason it is here. WAL is what
+	 * lets one writer and many readers share this file — a scan writing while somebody
+	 * browses — and it needs shared memory beside the database, which some network
+	 * filesystems do not provide. SQLite does not complain on those: it quietly stays on
+	 * the default journal, where a writer locks every reader out. The deployment would
+	 * look identical and behave nothing alike, so the mode is reported where anybody can
+	 * read it instead of being taken on trust.
+	 *
+	 * Nothing here fails over it. An engine that cannot answer the question — PostgreSQL,
+	 * which has no such pragma — simply says nothing.
+	 */
+	private async _journalMode(): Promise<string> {
+		if (this._dataSource.options.type !== 'better-sqlite3') {
+			return '';
+		}
+
+		try {
+			const rows = await this._dataSource.query('PRAGMA journal_mode') as { journal_mode?: string }[];
+			const mode = rows[0]?.journal_mode;
+
+			return typeof mode === 'string' ? ` (${mode})` : '';
+		} catch {
+			return '';
+		}
+	}
+
 	private async _checkDatabase(): Promise<HealthCheck> {
 		try {
 			await this._dataSource.query('SELECT 1');
 
-			return { name: 'database', ok: true, detail: this._dataSource.options.type };
+			return {
+				name: 'database',
+				ok: true,
+				detail: `${this._dataSource.options.type}${await this._journalMode()}`,
+			};
 		} catch (error) {
 			return { name: 'database', ok: false, detail: (error as Error).message };
 		}

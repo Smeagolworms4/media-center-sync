@@ -140,6 +140,41 @@ export const dataSourceOptions = (): DataSourceOptions => {
 	return {
 		type: 'better-sqlite3',
 		database: file,
+		/*
+		 * Write-ahead logging, and a writer somebody is willing to wait for.
+		 *
+		 * SQLite's default journal is `delete`, where a writer takes an exclusive lock on
+		 * the whole file and every reader waits behind it. That is tolerable while one
+		 * thread owns the connection and it is the state this product shipped in — but it
+		 * makes a second connection actively harmful: a scan writing from a worker would
+		 * answer `SQLITE_BUSY` to every read the interface makes, which trades a gateway
+		 * that stalls for a gateway that errors.
+		 *
+		 * WAL gives one writer and any number of concurrent readers, which is the shape
+		 * this product actually has: one scan writing, a person browsing. It is the thing
+		 * that has to be true before any of the scan moves off this thread.
+		 *
+		 * `busy_timeout` is the other half and is worth as much. Without it a contended
+		 * write fails instantly rather than waiting, so the rare overlap — a checkpoint, a
+		 * migration — surfaces as an error to somebody clicking rather than as five
+		 * milliseconds nobody perceives.
+		 *
+		 * The mode is read back rather than assumed. WAL needs shared memory beside the
+		 * file and silently stays `delete` on filesystems that cannot provide it, NFS and
+		 * some SMB mounts among them — exactly where a household's data volume might sit.
+		 * Being told is the difference between knowing the deployment is safe for a second
+		 * connection and believing it.
+		 */
+		prepareDatabase: (db: {
+			pragma: (source: string) => unknown;
+		}) => {
+			if (file === ':memory:') {
+				return;
+			}
+
+			db.pragma('journal_mode = WAL');
+			db.pragma('busy_timeout = 5000');
+		},
 		...common,
 		logging: [...common.logging],
 	};
