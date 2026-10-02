@@ -151,6 +151,17 @@ export interface GroupSeedQuery
 	 * a *sibling* season of it does not just because they share a series.
 	 */
 	coveredParentIds?: string[];
+	/**
+	 * Rows a resolved filter keeps because of where they live.
+	 *
+	 * The third direction, and it exists because the other two do not scale. A watchlist
+	 * is a whole library of this gateway's own making — a row per series, per season and
+	 * per aired episode — so saying "these items" meant binding one parameter per row and
+	 * `SQLITE_ERROR: too many SQL variables` the day somebody followed enough shows. A
+	 * library is one parameter and says the same thing, because every row of that tree is
+	 * written into it.
+	 */
+	coveredLibraryIds?: string[];
 }
 
 /**
@@ -591,7 +602,12 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		}
 
 		if (query.coveredIds !== undefined) {
-			MediaItemRepository._covered(builder, query.coveredIds, query.coveredParentIds ?? []);
+			MediaItemRepository._covered(
+				builder,
+				query.coveredIds,
+				query.coveredParentIds ?? [],
+				query.coveredLibraryIds ?? [],
+			);
 		}
 
 		if (query.resolutions !== undefined) {
@@ -704,8 +720,9 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		builder: SelectQueryBuilder<MediaItem>,
 		ids: string[],
 		parentIds: string[],
+		libraryIds: string[],
 	): void {
-		if (ids.length === 0 && parentIds.length === 0) {
+		if (ids.length === 0 && parentIds.length === 0 && libraryIds.length === 0) {
 			// Nothing is covered, which is a filter nothing satisfies rather than no
 			// filter — the same distinction the service and library lists make above.
 			builder.andWhere('1 = 0');
@@ -722,6 +739,14 @@ export class MediaItemRepository extends Repository<MediaItem> {
 				if (parentIds.length > 0) {
 					scoped.orWhere('item.parentId IN (:...coveredParentIds)', {
 						coveredParentIds: parentIds,
+					});
+				}
+
+				// One parameter for a whole tree. See `coveredLibraryIds`: naming the rows
+				// instead is what ran the statement out of variables.
+				if (libraryIds.length > 0) {
+					scoped.orWhere('item.libraryId IN (:...coveredLibraryIds)', {
+						coveredLibraryIds: libraryIds,
 					});
 				}
 			}),

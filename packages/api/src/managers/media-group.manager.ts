@@ -292,6 +292,21 @@ interface GroupContext {
  *   column either. Both are already computed for the filtered set, so the filter costs
  *   the reading rather than a query.
  */
+/**
+ * What a resolved `followed` or `watched` filter narrows the catalogue to.
+ *
+ * Three fields rather than one list, because they are three different questions. `ids`
+ * are rows kept outright. `underIds` are rows kept because their parent is one of these —
+ * the episodes of a followed season come along, while a *sibling* season does not just
+ * because they share a series. `libraryIds` are rows kept because of where they live,
+ * which is how a whole watchlist is named without enumerating it.
+ */
+interface Scope {
+	ids: string[];
+	underIds: string[];
+	libraryIds?: string[];
+}
+
 @Injectable()
 export class MediaGroupManager {
 	public constructor(
@@ -315,7 +330,14 @@ export class MediaGroupManager {
 		// Both narrow the same way — a membership test on the seed — so two of them is an
 		// intersection and never a contradiction. A caller asking for both gets what a plan
 		// follows *and* what was asked for, which is a reasonable question to ask.
-		const scope = followed === null || watched === null
+		/*
+		 * Both asked for at once is an intersection, and the library branch drops out of it
+		 * on purpose rather than by oversight. `_watchedScope` is `_followedScope` widened
+		 * by the watchlist, so intersecting the two id sets already *is* the followed set —
+		 * and a row that is in the watchlist without being followed is precisely what an
+		 * "and followed" filter is asking to exclude.
+		 */
+		const scope: Scope | null = followed === null || watched === null
 			? (followed ?? watched)
 			: {
 				ids: followed.ids.filter(id => watched.ids.includes(id)),
@@ -337,6 +359,7 @@ export class MediaGroupManager {
 			videoCodecs: this._codecsFor(query),
 			coveredIds: scope?.ids,
 			coveredParentIds: scope?.underIds,
+			coveredLibraryIds: scope?.libraryIds,
 		};
 		const seeds = await this._items.findGroupSeeds(seedQuery);
 
@@ -688,7 +711,7 @@ export class MediaGroupManager {
 	 * copy, that copy is a member of its group, and one member matching is what makes a
 	 * group appear.
 	 */
-	private async _followedScope(): Promise<{ ids: string[]; underIds: string[] }> {
+	private async _followedScope(): Promise<Scope> {
 		const plans = await this._plans.find();
 		const roots = [...new Set(plans.flatMap((plan) => plan.scope?.rootItemIds ?? []))];
 
@@ -739,7 +762,7 @@ export class MediaGroupManager {
 	 * membership, so "followed or requested" is one set, and nothing in the query layer has
 	 * to learn about a second kind of covering.
 	 */
-	private async _watchedScope(): Promise<{ ids: string[]; underIds: string[] }> {
+	private async _watchedScope(): Promise<Scope> {
 		const followed = await this._followedScope();
 		const services = (await this._services.find()).filter(
 			(service) => service.type === MediaServiceType.REQUESTS,
@@ -767,11 +790,21 @@ export class MediaGroupManager {
 			return followed;
 		}
 
-		const requested = await this._items.findByLibraries(libraries.map((one) => one.id));
-		const ids = new Set([...followed.ids, ...requested.map((item) => item.id)]);
-		const underIds = new Set([...followed.underIds, ...requested.map((item) => item.id)]);
-
-		return { ids: [...ids], underIds: [...underIds] };
+		/*
+		 * The libraries, not their rows.
+		 *
+		 * This used to read every item of the watchlist and hand the query their ids, which
+		 * worked for exactly as long as the list was short: a watchlist is a library of this
+		 * gateway's own making, a row per series, per season and per aired episode, so
+		 * four hundred followed shows became thousands of bound parameters and the screen
+		 * answered `SQLITE_ERROR: too many SQL variables`. It did not degrade — it broke the
+		 * moment the feature started working.
+		 *
+		 * Naming the library says the same thing in one parameter, and says it better: every
+		 * row of that tree is written into it, so there is no walk to get wrong and nothing
+		 * to re-read when the next scan adds a season.
+		 */
+		return { ...followed, libraryIds: libraries.map((one) => one.id) };
 	}
 
 	/**

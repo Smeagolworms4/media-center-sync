@@ -202,7 +202,10 @@ const build = (
 							(query.coveredIds === undefined ||
 								query.coveredIds.includes(row.id) ||
 								(row.parentId !== null &&
-									(query.coveredParentIds ?? []).includes(row.parentId))) &&
+									(query.coveredParentIds ?? []).includes(row.parentId)) ||
+								// Kept because of where it lives, which is how a whole watchlist
+								// is named without binding one parameter per row.
+								(query.coveredLibraryIds ?? []).includes(row.libraryId)) &&
 							(query.search === undefined ||
 								row.normalizedTitle.includes(query.search.toLowerCase())),
 					)
@@ -1760,6 +1763,42 @@ describe('MediaGroupManager', () => {
 			const page = await manager.groups(query({ rootsOnly: true, watched: true }));
 
 			expect(page.items.map((one) => one.id)).toEqual(['followed-there']);
+		});
+
+		it('names the watchlist by its library rather than row by row', async () => {
+			/*
+			 * The screen answered `SQLITE_ERROR: too many SQL variables` the day the
+			 * watchlist filled up, and it did not degrade first — it broke the moment the
+			 * feature started working. A watchlist is a library of this gateway's own
+			 * making, a row per series, per season and per aired episode, so listing its
+			 * contents meant binding one parameter per row: four hundred followed shows ran
+			 * the statement out of variables.
+			 *
+			 * One parameter says the same thing, because every row of that tree is written
+			 * into that library. The test is on the shape of the query and not on a count,
+			 * since the fake below has no such limit and would pass either way.
+			 */
+			const { manager, reads } = build({
+				items: [
+					show('one', 'Alpha', { serviceId: 'requests', libraryId: 'watchlist' }),
+					show('two', 'Bravo', { serviceId: 'requests', libraryId: 'watchlist' }),
+					show('three', 'Charlie', { serviceId: 'requests', libraryId: 'watchlist' }),
+				],
+				services: [
+					service(),
+					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
+				],
+				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist' }],
+				plans: [],
+			});
+
+			await manager.groups(query({ rootsOnly: true, watched: true }));
+
+			const asked = reads.items.findGroupSeeds.mock.calls[0][0] as GroupSeedQuery;
+
+			expect(asked.coveredLibraryIds).toEqual(['watchlist']);
+			// And not one of the rows it contains, however many there are.
+			expect(asked.coveredIds).toEqual([]);
 		});
 
 		it('takes both ways of saying it, not one or the other', async () => {
