@@ -40,7 +40,7 @@
 		/** One file, from inside the fold. */
 		'action': [action: TransferAction, transfer: Transfer];
 		/** The whole download, in one request rather than one per file. */
-		'lot-action': [action: 'pause' | 'resume' | 'cancel', key: string];
+		'lot-action': [action: 'pause' | 'resume' | 'cancel' | 'archive', key: string];
 		/** Send the whole download elsewhere, files already landed included. */
 		'retarget': [transfers: Transfer[]];
 		/** Rename the folder one season lands in — that folder alone. */
@@ -470,6 +470,26 @@
 					@click="emit('retarget', transfers)"
 				>
 					{{ $t('transfer.retarget.action') }}
+				</v-btn>
+
+				<!--
+					On the download, like everything else on this line, and offered in every
+					state — which is the whole repair. Pause, resume and cancel are all hidden
+					once a download has finished, so a landed season had no way off the list at
+					all: archiving it meant unfolding the card and pressing the file action
+					twenty times, which is the twenty clicks this card exists to abolish.
+
+					No file is touched. It forgets the rows, not the media.
+				-->
+				<v-btn
+					data-test="transfer-batch-archive"
+					:disabled="busy"
+					prepend-icon="mdi-archive-outline"
+					size="small"
+					variant="text"
+					@click="emit('lot-action', 'archive', lot.key)"
+				>
+					{{ $t('transfer.action.archive') }}
 				</v-btn>
 
 				<v-btn

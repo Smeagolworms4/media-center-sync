@@ -334,6 +334,20 @@ export class TransferController {
 		return this._transfers.actOnLot(key, 'cancel');
 	}
 
+	@Post('lots/:key/archive')
+	@Granted(Right.TRANSFER_MANAGE)
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({
+		summary: 'Take a whole download off the queue',
+		description:
+			'The files are left exactly where they are: this forgets the rows, not the media. A '
+			+ 'member still running is cancelled first, which drops its partial.',
+	})
+	@ApiNoContentResponse({ description: 'Archived' })
+	public archiveLot(@Param('key') key: string): Promise<void> {
+		return this._transfers.archiveLot(key);
+	}
+
 	@Post(':id/pause')
 	@Granted(Right.TRANSFER_MANAGE)
 	@HttpCode(HttpStatus.OK)

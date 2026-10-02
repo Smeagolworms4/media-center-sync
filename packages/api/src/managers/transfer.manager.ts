@@ -603,6 +603,40 @@ export class TransferManager implements OnApplicationBootstrap {
 	 * Answers the download as it stands afterwards, so the card redraws from the truth
 	 * instead of from twenty guesses.
 	 */
+	/**
+	 * Take a whole download off the queue, in one act.
+	 *
+	 * The omission this repairs: the lot's card carried pause, resume and cancel, and every
+	 * one of those is hidden once a download has finished — so a landed season offered no
+	 * way off the list at all. Archiving it meant unfolding the card and pressing the file
+	 * action twenty times, which is precisely the twenty clicks the card exists to abolish.
+	 *
+	 * **No file is touched**, exactly as for one row: the copies are in the library and
+	 * stay there. See `archive` for why a still-running member is cancelled first.
+	 *
+	 * Not folded into `actOnLot`, because it does not act on the engine and it returns
+	 * nothing: the lot is gone, so there is no lot to read back, and a method whose return
+	 * type depended on its verb would be worse than two methods.
+	 */
+	public async archiveLot(key: string): Promise<void> {
+		const transfers = await this._transfers.findByLotKeys([key]);
+
+		if (transfers.length === 0) {
+			throw new NotFoundException(ErrorKey.TRANSFER_NOT_FOUND);
+		}
+
+		for (const transfer of transfers) {
+			try {
+				await this.archive(transfer.id);
+			} catch (error: unknown) {
+				// Passed over for the reason the other lot actions pass over: refusing the
+				// whole download because one file would not go leaves somebody with half a
+				// season still on the list and an error about a file they never singled out.
+				this._logger.warn(`Could not archive ${transfer.title}: ${String(error)}`);
+			}
+		}
+	}
+
 	public async actOnLot(key: string, action: 'pause' | 'resume' | 'cancel'): Promise<TransferLot> {
 		const transfers = await this._transfers.findByLotKeys([key]);
 

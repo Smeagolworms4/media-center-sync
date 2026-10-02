@@ -553,9 +553,19 @@
 	 * somebody saw for pressing pause. The gateway decides per file which the action
 	 * applies to, and skips the ones it does not.
 	 */
-	const handleLot = tryCallback(async (action: 'pause' | 'resume' | 'cancel', key: string) => {
+	const handleLot = tryCallback(async (
+		action: 'pause' | 'resume' | 'cancel' | 'archive',
+		key: string,
+	) => {
 		busyKey.value = key;
 		try {
+			if (action === 'archive') {
+				await transfersStore.archiveLot(key);
+				void notify('transfer.archived');
+
+				return;
+			}
+
 			await (action === 'pause'
 				? transfersStore.pauseLot(key)
 				: (action === 'resume'

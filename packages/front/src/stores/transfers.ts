@@ -282,6 +282,19 @@ export const useTransfersStore = defineStore('transfers', () => {
 	const cancelLot = (key: string) => actOnLot(key, 'cancel');
 
 	/**
+	 * Take a whole download off the queue.
+	 *
+	 * Apart from the three above, because it answers nothing: the lot is gone, so there is
+	 * no lot to put back in the list. The rows are dropped here rather than waited for, so
+	 * the card disappears on the press instead of on the next poll.
+	 */
+	async function archiveLot (key: string): Promise<void> {
+		await caller('api').post(`/transfers/lots/${encodeURIComponent(key)}/archive`);
+
+		lots.value = lots.value.filter(one => one.key !== key);
+	}
+
+	/**
 	 * Rename the folder one season of a download lands in.
 	 *
 	 * The season alone, because the show's folder is shared with every other season. It
@@ -583,6 +596,7 @@ export const useTransfersStore = defineStore('transfers', () => {
 		pause,
 		resume,
 		archive,
+		archiveLot,
 		cancel,
 		retry,
 		verify,

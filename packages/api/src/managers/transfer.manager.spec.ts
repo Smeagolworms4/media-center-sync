@@ -640,6 +640,63 @@ describe('TransferManager', () => {
 		});
 	});
 
+	describe('archiving a whole download', () => {
+		/*
+		 * The omission this covers: the lot's card carried pause, resume and cancel, every
+		 * one of which is hidden once a download has finished — so a landed season offered
+		 * no way off the queue at all, and clearing it meant unfolding the card and pressing
+		 * the file action once per episode.
+		 */
+		it('takes every file of the download off the queue', async () => {
+			const world = build();
+
+			world.fakes.transfers.findByLotKeys.mockResolvedValue([
+				transfer({ id: 't-1', state: TransferState.DONE }),
+				transfer({ id: 't-2', state: TransferState.DONE }),
+			]);
+			world.fakes.transfers.findOne.mockImplementation(
+				({ where }: { where: { id: string } }) =>
+					Promise.resolve(transfer({ id: where.id, state: TransferState.DONE })),
+			);
+
+			await world.manager.archiveLot('lot-1');
+
+			expect(world.fakes.transfers.delete.mock.calls.map(([one]: [{ id: string }]) => one.id))
+				.toEqual(['t-1', 't-2']);
+			// The files stay where they are: this forgets the rows, not the media.
+			expect(world.fakes.engine.cancel).not.toHaveBeenCalled();
+		});
+
+		it('keeps going when one file will not go', async () => {
+			// Refusing the whole download over one row leaves half a season on the list and
+			// an error about a file nobody singled out.
+			const world = build();
+
+			world.fakes.transfers.findByLotKeys.mockResolvedValue([
+				transfer({ id: 't-1', state: TransferState.DONE }),
+				transfer({ id: 't-2', state: TransferState.DONE }),
+			]);
+			world.fakes.transfers.findOne.mockImplementation(
+				({ where }: { where: { id: string } }) =>
+					Promise.resolve(where.id === 't-1' ? null : transfer({ id: where.id, state: TransferState.DONE })),
+			);
+
+			await world.manager.archiveLot('lot-1');
+
+			expect(world.fakes.transfers.delete.mock.calls.map(([one]: [{ id: string }]) => one.id))
+				.toEqual(['t-2']);
+		});
+
+		it('refuses a download it does not hold', async () => {
+			const world = build();
+
+			world.fakes.transfers.findByLotKeys.mockResolvedValue([]);
+
+			await expect(world.manager.archiveLot('lot-1'))
+				.rejects.toMatchObject({ response: { message: ErrorKey.TRANSFER_NOT_FOUND } });
+		});
+	});
+
 	describe('renaming', () => {
 		/**
 		 * A season on disk, in one folder, with its media numbered.

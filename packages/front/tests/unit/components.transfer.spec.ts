@@ -649,6 +649,33 @@ describe('components/transfer/TransferBatch', () => {
 		expect(wrapper.find('[data-test="transfer-batch"]').text()).toContain('2');
 	});
 
+	it('offers a way off the queue even when the download is over', async () => {
+		/*
+		 * The omission this covers. Pause, resume and cancel are each hidden once a
+		 * download has finished, so a landed season had no action left but "change the
+		 * destination": taking it off the list meant unfolding the card and pressing the
+		 * file action once per episode — the twenty clicks this card exists to abolish.
+		 */
+		const transfers = season().map(one => ({
+			...one,
+			state: TransferState.DONE,
+			bytesDone: 1000,
+			rate: 0,
+		}));
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(transfers), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-pause"]').exists()).toBe(false);
+		expect(wrapper.find('[data-test="transfer-batch-cancel"]').exists()).toBe(false);
+
+		await wrapper.find('[data-test="transfer-batch-archive"]').trigger('click');
+
+		// One act for the whole download, like every other button on that line.
+		expect(wrapper.emitted('lot-action')).toEqual([['archive', 'lot-1']]);
+	});
+
 	it('says nothing about the time left while nothing is moving', () => {
 		// A paused download has bytes left and no rate, and bytes over a rate of zero is
 		// an infinity: "il reste ∞" on something somebody has just paused reads as a
