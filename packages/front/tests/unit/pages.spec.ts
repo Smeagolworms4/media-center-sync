@@ -1016,6 +1016,26 @@ describe('pages/Transfers', () => {
 		expect(wrapper.find('[data-test="transfer-another_target"]').exists()).toBe(true);
 	});
 
+	it('turns the queue’s speed and its backlog into a time', async () => {
+		/*
+		 * The line already carried both halves of a division and left somebody to do it in
+		 * their head while watching a bar. `bytesRemaining` counts every queued file and
+		 * not only the ones moving, so the answer is "when is all of it in".
+		 */
+		stubFetchRoutes({
+			...base,
+			'/api/transfers/stats': {
+				body: { active: 1, queued: 0, paused: 0, failed: 0, rate: 1_000_000, bytesRemaining: 120_000_000 },
+			},
+			...queue([transfer()]),
+		});
+		const { wrapper } = mountWithApp(Transfers, { global: { stubs: tooltipStub } });
+		await settle();
+
+		// 120 MB at a megabyte a second is two minutes.
+		expect(wrapper.find('[data-test="transfer-stat-eta"]').text()).toContain('2m 00s');
+	});
+
 	it('reads a paused transfer as holding, with resume the obvious way back', async () => {
 		stubFetchRoutes({
 			...base,
@@ -1031,6 +1051,9 @@ describe('pages/Transfers', () => {
 		expect(wrapper.find('[data-test="transfer-resume"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="queue-paused"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="transfer-resume-all"]').exists()).toBe(true);
+		// And no time left: five hundred bytes over a rate of zero is an infinity, which
+		// on something somebody has just paused reads as a fault rather than as a pause.
+		expect(wrapper.find('[data-test="transfer-stat-eta"]').exists()).toBe(false);
 	});
 
 	/**

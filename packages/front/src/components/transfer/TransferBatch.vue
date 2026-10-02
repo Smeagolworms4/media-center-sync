@@ -3,9 +3,11 @@
 	import type { Transfer, TransferLot, TransferProgress } from '@mcs/shared';
 	import { FINISHED_TRANSFER_STATES, MediaLandingState, TransferState } from '@mcs/shared';
 	import { computed, ref } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import Rate from '@/components/common/Rate.vue';
 	import TransferRow from '@/components/transfer/TransferRow.vue';
+	import { formatDuration } from '@/composables/useFormat';
 
 	/**
 	 * One download, shown the way one download should be: one line, one title, one
@@ -128,6 +130,32 @@
 
 	const rate = computed(
 		() => transfers.value.reduce((total, one) => total + props.progress(one).rate, 0));
+
+	/**
+	 * How long the download has left, from its own bytes and its own rate.
+	 *
+	 * Never the sum of the files' estimates, which is the mistake available here: the files
+	 * move several at once, so adding them up answers how long they would take one after
+	 * another — a number three times too large on a season being pulled three files at a
+	 * time. Dividing what is left by what the download is actually doing is the figure
+	 * somebody is after, and it covers the files that have not started too, since what
+	 * limits those is the bandwidth the whole download shares rather than anything about a
+	 * file.
+	 *
+	 * Null unless something is moving, and a paused queue is the case that matters: bytes
+	 * over a rate of zero is an infinity, and a download somebody has just paused reading
+	 * "il reste ∞" looks like a fault rather than a pause.
+	 */
+	const etaSeconds = computed(() => {
+		const left = bytes.value.total - bytes.value.done;
+
+		return rate.value > 0 && left > 0 ? Math.round(left / rate.value) : null;
+	});
+
+	const { locale } = useI18n();
+
+	const eta = computed(
+		() => (etaSeconds.value === null ? null : formatDuration(etaSeconds.value, locale.value)));
 
 	/**
 	 * The files of the download that are still on their way onto a media server.
@@ -344,6 +372,19 @@
 				-->
 				<span v-if="rate > 0" class="text-caption text-medium-emphasis" data-test="transfer-batch-rate">
 					<Rate :rate="rate" />
+				</span>
+
+				<!--
+					And how long that leaves. Beside the rate rather than under the bar, because
+					the two are read together — a speed with no time left is a number somebody
+					has to divide for themselves, which is what the bar already failed to say.
+				-->
+				<span
+					v-if="eta !== null"
+					class="text-caption text-medium-emphasis"
+					data-test="transfer-batch-eta"
+				>
+					{{ $t('transfer.eta', { time: eta }) }}
 				</span>
 			</div>
 

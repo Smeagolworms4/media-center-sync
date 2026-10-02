@@ -17,6 +17,7 @@
 	import TransferRow from '@/components/transfer/TransferRow.vue';
 	import Window from '@/components/Window.vue';
 	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
+	import { formatDuration } from '@/composables/useFormat';
 	import { TransferAction } from '@/composables/useTransferError';
 	import { useEvents } from '@/hooks/useEvents';
 	import { useNotifier } from '@/hooks/useNotifier';
@@ -49,7 +50,7 @@
 	const librariesStore = useLibrariesStore();
 	const servicesStore = useServicesStore();
 	const router = useRouter();
-	const { t } = useI18n();
+	const { locale, t } = useI18n();
 	const events = useEvents();
 	const { notify, tryCallback } = useNotifier();
 	/**
@@ -311,6 +312,26 @@
 	const showingLiveOnly = computed(() => viewModel.value === HistoryView.LIVE);
 
 	const transfers = computed(() => transfersStore.transfers);
+
+	/**
+	 * How long the whole queue has left, which the line said nothing about.
+	 *
+	 * It already carried the speed and the bytes outstanding — the two halves of a
+	 * division somebody was being left to do in their head while watching a bar. Both
+	 * figures are the gateway's own: `bytesRemaining` counts every queued file and not
+	 * only the ones moving, so this answers "when is all of it in" rather than "when is
+	 * this one in".
+	 *
+	 * Null while nothing moves. A paused queue has bytes left and no rate, and the
+	 * infinity that division produces would read as a fault rather than as a pause.
+	 */
+	const queueEta = computed(() => {
+		const { bytesRemaining, rate } = transfersStore.stats;
+
+		return rate > 0 && bytesRemaining > 0
+			? formatDuration(Math.round(bytesRemaining / rate), locale.value)
+			: null;
+	});
 
 	/** The grab states that are still going to move on their own. */
 	const LIVE_GRAB_STATES: Set<GrabState> = new Set([GrabState.SENT, GrabState.DOWNLOADING, GrabState.FETCHED]);
@@ -922,6 +943,19 @@
 			<span class="text-caption text-medium-emphasis">
 				{{ $t('transfer.stats.remaining') }}
 				<ByteSize :bytes="transfersStore.stats.bytesRemaining" />
+			</span>
+
+			<!--
+				The time that comes to, beside the two numbers it is made of rather than
+				somewhere else on the screen: a speed and a size are a division, and the
+				answer is the part anybody actually wanted.
+			-->
+			<span
+				v-if="queueEta !== null"
+				class="text-caption text-medium-emphasis"
+				data-test="transfer-stat-eta"
+			>
+				{{ $t('transfer.eta', { time: queueEta }) }}
 			</span>
 
 			<v-spacer />

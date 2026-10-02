@@ -649,6 +649,54 @@ describe('components/transfer/TransferBatch', () => {
 		expect(wrapper.find('[data-test="transfer-batch"]').text()).toContain('2');
 	});
 
+	it('says nothing about the time left while nothing is moving', () => {
+		// A paused download has bytes left and no rate, and bytes over a rate of zero is
+		// an infinity: "il reste ∞" on something somebody has just paused reads as a
+		// fault rather than as a pause.
+		const transfers = season().map(one => ({
+			...one,
+			rate: 0,
+			state: TransferState.PAUSED,
+		}));
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(transfers), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		expect(wrapper.find('[data-test="transfer-batch-eta"]').exists()).toBe(false);
+	});
+
+	it('divides what is left by what the whole download is doing', () => {
+		// Two files at five megabytes a second each is ten, not five: the rate the
+		// estimate is built on is the download's, which is the whole point of the card.
+		const transfers = [
+			transfer({
+				id: 't1',
+				jobId: 'job-1',
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 02/S02E09.mkv',
+				bytesDone: 0,
+				bytesTotal: 600_000_000,
+				rate: 5_000_000,
+			}),
+			transfer({
+				id: 't2',
+				jobId: 'job-1',
+				targetPath: '/share/SeriesTV/Spartacus (2012)/Season 02/S02E10.mkv',
+				bytesDone: 0,
+				bytesTotal: 600_000_000,
+				rate: 5_000_000,
+			}),
+		];
+		const { wrapper } = mountWithApp(TransferBatch, {
+			props: { lot: download(transfers), progress },
+			global: { stubs: tooltipStub },
+		});
+
+		// 1.2 GB over 10 MB/s is two minutes, and a hundred and twenty seconds reads as
+		// `2m 00s`. Four minutes would be the per-file answer added up.
+		expect(wrapper.find('[data-test="transfer-batch-eta"]').text()).toContain('2m 00s');
+	});
+
 	it('names the folder the whole run shares, once', () => {
 		// Eleven lines saying the same folder are eleven lines nobody reads.
 		const { wrapper } = mountWithApp(TransferBatch, {
