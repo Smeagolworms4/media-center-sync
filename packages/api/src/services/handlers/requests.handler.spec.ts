@@ -11,6 +11,7 @@ import {
 	type RequestEpisode,
 	type RequestSourceSettings,
 } from '@mcs/shared';
+import { Readable } from 'node:stream';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { RequestSourceRegistry } from '../requests/request-source.registry';
 import type { SettingsService } from '../settings.service';
@@ -302,8 +303,48 @@ describe('RequestsHandler', () => {
 		 */
 		const { handler } = build();
 
-		expect(() => handler.openArtwork()).toThrow(NotFoundException);
+		// The poster is not bytes of the media, and it is now served — see below. A row
+		// carrying no url still refuses, which is the honest answer for a season or an
+		// episode: the series above them is what has the picture.
+		expect(() => handler.openArtwork(connection(), { externalId: 'watchlist:tv:1399' }))
+			.toThrow(NotFoundException);
 		expect(await handler.getDownloadUrl()).toBeNull();
+	});
+
+	it('serves the poster the source named, from the provider that hosts it', async () => {
+		/*
+		 * Refused on principle at first — "this service holds no bytes" — and the
+		 * principle is right about files and was wrong about this. A wall of requests
+		 * with no posters is not austere, it is a wall of grey rectangles with two
+		 * letters on them, which is what a household saw.
+		 *
+		 * The image is TMDB's, public, and its url was stored when the row was written.
+		 * Nothing of the source's travels with this request: no token, no base, no
+		 * connection.
+		 */
+		const { handler } = build();
+		const calls: string[] = [];
+
+		global.fetch = jest.fn(async (input: string) => {
+			calls.push(String(input));
+
+			return {
+				ok: true,
+				status: 200,
+				headers: new Headers({ 'content-type': 'image/jpeg' }),
+				body: Readable.toWeb(Readable.from([Buffer.from('jpeg')])),
+			} as unknown as Response;
+		}) as unknown as typeof fetch;
+
+		const artwork = await handler.openArtwork(connection(), {
+			externalId: 'watchlist:tv:1399',
+			artworkUrl: 'https://image.tmdb.org/t/p/w600_and_h900_bestv2/poster.jpg',
+		});
+
+		expect(artwork.contentType).toBe('image/jpeg');
+		expect(calls[0]).toBe('https://image.tmdb.org/t/p/w600_and_h900_bestv2/poster.jpg');
+		// The provider's host, not the request source's.
+		expect(calls[0]).not.toContain('seerr');
 	});
 
 	it('reports itself unreachable with a key rather than a silence', async () => {

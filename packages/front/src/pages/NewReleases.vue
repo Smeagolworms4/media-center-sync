@@ -1,13 +1,12 @@
 <script lang="ts" setup>
-	import type { MediaGroup } from '@mcs/shared';
-	import { MediaKind, SyncState } from '@mcs/shared';
+	import type { MediaGroup, MediaGroupQuery } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
-	import RelativeDate from '@/components/common/RelativeDate.vue';
 	import LibrarySection from '@/components/media/LibrarySection.vue';
 	import { useViewMode, VIEW_MODES } from '@/composables/useViewMode';
+	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 
 	defineOptions({ name: 'NewReleasesPage' });
@@ -43,31 +42,64 @@
 	 */
 	const view = useViewMode('mcs.library.view');
 
+	const librariesStore = useLibrariesStore();
+
 	const failed = ref(false);
 	const loading = ref(false);
 
-	const KEY = 'new-releases';
+	/**
+	 * How many of each category the wall shows before somebody opens it.
+	 *
+	 * The library's own number, because this is the library's own wall asking one
+	 * question, and a band that scrolled differently here would read as another product.
+	 */
+	const BAND_LIMIT = 60;
+
+	/**
+	 * One band per category, exactly as the library draws its home screen.
+	 *
+	 * This screen used to ask for episodes and got what it asked for: a flat wall of sixty
+	 * episode tiles with no posters, out of any series, out of any category. Seerr hands us
+	 * *series* and the episodes are found inside them — so the wall is series, and opening
+	 * one is how you reach its seasons and its episodes, like everywhere else.
+	 *
+	 * That one change answers all three complaints at once. A series carries the poster the
+	 * request source named, where a season and an episode carry none. A series is what a
+	 * category sorts. And a series with twelve gaps is one card rather than twelve.
+	 */
+	const bands = computed(() => librariesStore.orderedCategories);
+
+	function queryOf (category: { key: string }): MediaGroupQuery {
+		return {
+			categoryKey: category.key,
+			/*
+			 * Roots, never episodes. `actionable` is what makes it news rather than a
+			 * catalogue: it keeps the series that have something to fetch or to replace
+			 * beneath them, and drops the ones that are complete.
+			 */
+			rootsOnly: true,
+			watched: true,
+			actionable: true,
+			/*
+			 * By the date something came out. For a row nothing holds, that is the only date
+			 * it has — the handlers write the air date into `addedAt`, because no server
+			 * ever added it. See `RequestsHandler` and `discoverEpisodes`.
+			 */
+			sort: 'addedAt',
+			direction: 'desc',
+			limit: BAND_LIMIT,
+		};
+	}
 
 	async function load (): Promise<void> {
 		failed.value = false;
 		loading.value = true;
 
 		try {
-			await mediaStore.searchGroups(KEY, {
-				kind: MediaKind.EPISODE,
-				watched: true,
-				// Both, in one read: the two lists below are the same query split by state,
-				// and asking twice would be two round trips to say one thing.
-				states: [SyncState.MISSING, SyncState.OUTDATED],
-				/*
-				 * By the date the episode came out. For a row nothing holds, that is the only
-				 * date it has — the handlers write the air date into `addedAt`, because no
-				 * server ever added it. See `RequestsHandler` and `discoverEpisodes`.
-				 */
-				sort: 'addedAt',
-				direction: 'desc',
-				limit: 60,
-			});
+			await librariesStore.loadCategories();
+			await Promise.all(
+				bands.value.map(category => mediaStore.searchGroups(category.key, queryOf(category))),
+			);
 		} catch {
 			failed.value = true;
 		} finally {
@@ -77,13 +109,15 @@
 
 	onMounted(load);
 
-	const rows = computed<MediaGroup[]>(() => mediaStore.groups[KEY] ?? []);
+	function groupsOf (key: string): MediaGroup[] {
+		return mediaStore.groups[key] ?? [];
+	}
 
-	/** Nothing holds it. Something to fetch. */
-	const missing = computed(() => rows.value.filter(one => one.sync === SyncState.MISSING));
+	/** Categories with something to show, so an empty shelf is not a heading over nothing. */
+	const filled = computed(() => bands.value.filter(one => groupsOf(one.key).length > 0));
 
-	/** Held, and somebody has a better copy. Something to replace, which is not the same. */
-	const upgrades = computed(() => rows.value.filter(one => one.sync === SyncState.OUTDATED));
+	const total = computed(
+		() => filled.value.reduce((count, one) => count + groupsOf(one.key).length, 0));
 </script>
 
 <template>
@@ -128,51 +162,29 @@
 
 		<template v-else>
 			<EmptyState
-				v-if="!loading && rows.length === 0"
+				v-if="!loading && total === 0"
 				data-test="news-empty"
 				icon="mdi-new-box"
 				:text="$t('news.empty_text')"
 				:title="$t('news.empty_title')"
 			/>
 
+			<!--
+				One band per category, which is the library's own home screen with one filter
+				added. A series carries its poster and its gap count; its seasons and episodes
+				are a click away, where they belong.
+			-->
 			<template v-else>
-				<section v-if="missing.length > 0" data-test="news-missing">
-					<p class="text-caption text-medium-emphasis mb-1">{{ $t('news.missing_help') }}</p>
-
-					<LibrarySection
-						:groups="missing"
-						:loading="loading"
-						:title="$t('news.missing', { count: missing.length })"
-						:total="missing.length"
-						:view="view"
-					/>
-				</section>
-
-				<!--
-					Kept apart, and asked for that way: something held in a worse copy than
-					exists elsewhere is not missing. Putting it among the missing would file a
-					file that plays tonight beside one that does not exist here at all.
-				-->
-				<section v-if="upgrades.length > 0" class="mt-4" data-test="news-upgrades">
-					<p class="text-caption text-medium-emphasis mb-1">{{ $t('news.upgrades_help') }}</p>
-
-					<LibrarySection
-						:groups="upgrades"
-						:loading="loading"
-						:title="$t('news.upgrades', { count: upgrades.length })"
-						:total="upgrades.length"
-						:view="view"
-					/>
-				</section>
-
-				<p
-					v-if="rows.length > 0"
-					class="text-caption text-medium-emphasis mt-3"
-					data-test="news-hint"
-				>
-					{{ $t('news.hint') }}
-					<RelativeDate v-if="rows[0].addedAt" :date="rows[0].addedAt" />
-				</p>
+				<LibrarySection
+					v-for="category of filled"
+					:key="category.key"
+					:data-test="`news-band-${category.key}`"
+					:groups="groupsOf(category.key)"
+					:loading="loading"
+					:title="category.name"
+					:total="groupsOf(category.key).length"
+					:view="view"
+				/>
 			</template>
 		</template>
 	</div>

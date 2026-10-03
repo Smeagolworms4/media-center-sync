@@ -10,6 +10,7 @@ import {
 	type ServerStructure,
 } from '@mcs/shared';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { requestStream } from './handler.http';
 import { RequestSourceRegistry } from '../requests/request-source.registry';
 import { SettingsService } from '../settings.service';
 import { normalizeTitle } from '../title-normalizer';
@@ -27,6 +28,17 @@ import {
 	type NormalisedMediaItem,
 	type ServiceConnection,
 } from './media-handler.interface';
+
+/**
+ * How long a poster fetch waits on the provider.
+ *
+ * Shorter than the source's own timeout, because the cost of being wrong is different: a
+ * scan that gives up early loses rows, while a poster that gives up early loses a poster
+ * on a card that still says everything else. Ten seconds is generous for an image on a
+ * CDN and short enough that a provider having a bad day does not hold a wall of sixty
+ * cards open.
+ */
+const ARTWORK_TIMEOUT_MS = 10_000;
 
 /**
  * What the household has asked for, read as if it were a media server.
@@ -377,8 +389,55 @@ export class RequestsHandler implements MediaServiceHandler {
 	 * would be read one level up as a file that exists and is zero bytes long, which is
 	 * how an empty file gets written into somebody's library and indexed as real.
 	 */
-	public openArtwork(): Promise<MediaStream> {
-		throw new NotFoundException(ErrorKey.MEDIA_HAS_NO_FILE);
+	/**
+	 * The poster, fetched from the provider the request source named.
+	 *
+	 * This used to refuse, on the principle written at the top of this class: the service
+	 * holds no bytes, so it relays nothing. The principle is right about *files* and was
+	 * wrong about this. A request is a row with a title and no copy, and a wall of such
+	 * rows with no posters is not an austere wall — it is a wall of grey rectangles with
+	 * two letters on them, which is what a household actually saw.
+	 *
+	 * The source does not host the image either: it answers TMDB's path, and the url was
+	 * built and stored when the row was written — see `artworkUrlOf`. So this is a plain
+	 * fetch of a public image, with no connection, no token and nothing of the source's in
+	 * it. It goes through the gateway rather than straight from the browser because every
+	 * poster in this product does, which is the only reason worth having: one route, one
+	 * cache, and an interface that never has to know which service a card came from.
+	 *
+	 * A row with no url still refuses, and that answer is honest — a season and an episode
+	 * carry none, and the group above them is what has the poster.
+	 */
+	public openArtwork(
+		_connection: ServiceConnection,
+		item: MediaItemRef & { artworkUrl?: string | null },
+	): Promise<MediaStream> {
+		const url = item.artworkUrl ?? '';
+
+		if (url === '') {
+			throw new NotFoundException(ErrorKey.MEDIA_HAS_NO_FILE);
+		}
+
+		/*
+		 * Split into origin and path rather than handed over whole, because the helper
+		 * joins the two and would otherwise ask the provider for `…/poster.jpg/`. Parsing
+		 * also settles what a stored url actually is: anything that is not one refuses
+		 * here, where the answer is a missing poster, instead of reaching the network as a
+		 * request nobody can read.
+		 */
+		let parsed: URL;
+
+		try {
+			parsed = new URL(url);
+		} catch {
+			throw new NotFoundException(ErrorKey.MEDIA_HAS_NO_FILE);
+		}
+
+		// The provider's own host, never the source's: this carries no token and no
+		// connection, because the image is public and none of it is the source's business.
+		return requestStream(parsed.origin, `${parsed.pathname}${parsed.search}`, {
+			timeoutMs: ARTWORK_TIMEOUT_MS,
+		});
 	}
 
 	public openStream(_connection: ServiceConnection, _item: MediaItemRef, _range?: ByteRange): Promise<MediaStream> {

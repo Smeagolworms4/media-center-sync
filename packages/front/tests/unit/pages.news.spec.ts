@@ -1,4 +1,4 @@
-import { MediaKind, SyncState } from '@mcs/shared';
+import { LibraryKind, MediaKind, SyncState } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 import NewReleases from '@/pages/NewReleases.vue';
@@ -17,106 +17,140 @@ async function settle (times = 8): Promise<void> {
 /**
  * What has come out for the shows this household follows.
  *
- * Both halves of the rule are pinned here, because either one alone makes the screen
- * useless: an episode of something nobody follows is not news, and a followed show with
- * nothing new is not either. And what is held in a worse copy is kept out of the missing
- * list — asked for in those words, "if we have it but in a bad version, that is a version
- * upgrade".
+ * The screen asks for **series**, and that is the correction these tests exist to hold.
+ * It used to ask for episodes and got exactly that: a flat wall of sixty tiles with no
+ * posters, belonging to no series and sorted into no category — "pourquoi c'est pas rangé
+ * en série saison, comme le reste". The request source hands us series and the episodes
+ * are found inside them, so the wall is series and opening one is how its seasons are
+ * reached.
+ *
+ * Both halves of the rule still hold: a show nobody here follows is not news, and a
+ * followed show with nothing to fetch beneath it is not either — which is `actionable`.
  */
 
-function episode (overrides: Record<string, unknown> = {}) {
+function series (overrides: Record<string, unknown> = {}) {
 	return {
-		id: 'e1',
-		kind: MediaKind.EPISODE,
-		title: 'The Big Empty',
-		seriesTitle: 'The Expanse',
+		id: 's1',
+		kind: MediaKind.SERIES,
+		title: 'The Expanse',
+		seriesTitle: null,
 		normalizedTitle: 'the expanse',
-		year: null,
-		seasonNumber: 1,
-		episodeNumber: 2,
+		year: 2015,
+		seasonNumber: null,
+		episodeNumber: null,
 		externalIds: {},
-		artworkItemId: null,
+		// The poster the request source named. A season and an episode carry none, which
+		// is the other half of why the wall is series.
+		artworkItemId: 's1',
 		sync: SyncState.MISSING,
 		quality: null,
 		sources: [],
-		childCount: 0,
-		missingCount: 0,
+		childCount: 10,
+		missingCount: 3,
 		versions: [],
 		libraryId: 'l1',
-		parentId: 's1',
+		parentId: null,
 		addedAt: '2026-09-28T00:00:00.000Z',
 		...overrides,
 	};
 }
 
-async function open (items: Record<string, unknown>[]) {
+const CATEGORIES = [
+	{
+		key: 'series',
+		name: 'Séries',
+		kind: LibraryKind.SHOWS,
+		position: 100,
+		libraryIds: ['l1'],
+		serviceIds: ['sv1'],
+		itemCount: 10,
+		local: true,
+	},
+	{
+		key: 'films',
+		name: 'Films',
+		kind: LibraryKind.MOVIES,
+		position: 200,
+		libraryIds: ['l2'],
+		serviceIds: ['sv1'],
+		itemCount: 4,
+		local: true,
+	},
+];
+
+/** The wall, with each category answering whatever `byCategory` says it holds. */
+async function open (byCategory: Record<string, Record<string, unknown>[]>) {
 	const stub = stubFetchRoutes({
+		'/api/libraries/categories': { body: CATEGORIES },
+		'/api/libraries': { body: [] },
+		// Keyed on the query string, because each band asks for its own category and the
+		// helper matches a route by substring.
+		...Object.fromEntries(
+			CATEGORIES.map(one => {
+				const items = byCategory[one.key] ?? [];
+
+				return [
+					`categoryKey=${one.key}`,
+					{ body: { items, pagination: { page: 1, limit: 60, total: items.length, pages: 1 } } },
+				];
+			}),
+		),
 		'/api/media/groups': {
-			body: { items, pagination: { page: 1, limit: 60, total: items.length, pages: 1 } },
+			body: { items: [], pagination: { page: 1, limit: 60, total: 0, pages: 0 } },
 		},
 	});
 	const { wrapper } = mountWithApp(NewReleases, { global: { stubs: tooltipStub } });
 
-	await settle(2);
+	await settle();
 
 	return { wrapper, stub };
 }
 
 describe('pages/NewReleases', () => {
-	it('asks only for aired episodes of what is watched, newest first', async () => {
-		const { stub } = await open([]);
+	it('asks for series with something to fetch, not for episodes', async () => {
+		const { stub } = await open({});
 		const url = String(stub.mock.calls.find(one => String(one[0]).includes('/media/groups'))?.[0]);
 
-		expect(url).toContain('kind=episode');
-		// Either way of saying the household cares: a plan, or an ask on the request
-		// source. Reading plans alone would leave this screen empty.
+		// Roots rather than a kind: a film is as much news as a series, and both are what
+		// a category sorts.
+		expect(url).toContain('rootsOnly=true');
+		expect(url).not.toContain('kind=episode');
+		// Either way of saying the household cares: a plan, or the watchlist on the
+		// request source. Reading plans alone would leave this screen empty.
 		expect(url).toContain('watched=true');
+		// What makes it news rather than a catalogue: something left to fetch or replace.
+		expect(url).toContain('actionable=true');
 		expect(url).toContain('sort=addedAt');
 		expect(url).toContain('direction=desc');
 	});
 
-	it('keeps what is missing apart from what is merely a worse copy', async () => {
-		/*
-		 * Two different decisions: one is something to fetch, the other something to
-		 * replace. Mixed together, a file that plays tonight sits beside one that does not
-		 * exist here at all.
-		 */
-		const { wrapper } = await open([
-			episode({ id: 'gone', sync: SyncState.MISSING }),
-			episode({ id: 'worse', sync: SyncState.OUTDATED }),
-		]);
+	it('draws one band per category, like the library it belongs to', async () => {
+		const { wrapper } = await open({
+			series: [series()],
+			films: [series({ id: 'm1', kind: MediaKind.MOVIE, title: 'Dune' })],
+		});
 
-		const missing = wrapper.find('[data-test="news-missing"]');
-		const upgrades = wrapper.find('[data-test="news-upgrades"]');
-
-		expect(missing.exists()).toBe(true);
-		expect(upgrades.exists()).toBe(true);
-		// Drawn by the library's own band, so a poster in grid and a row in list — the
-		// assertion is about which media landed in which section, not about the shape.
-		expect(missing.findAll('[data-test="media-card"], [data-test="media-row"]'))
-			.toHaveLength(1);
-		expect(upgrades.findAll('[data-test="media-card"], [data-test="media-row"]'))
-			.toHaveLength(1);
+		expect(wrapper.find('[data-test="news-band-series"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="news-band-films"]').exists()).toBe(true);
+		expect(wrapper.findComponent({ name: 'LibrarySection' }).exists()).toBe(true);
 	});
 
-	it('is drawn by the library\'s own band rather than a list of its own', async () => {
-		// It had a table of episode names beside a wall of posters and read as a second
-		// product. The band brings the posters, the states and the grid-or-list preference.
-		const { wrapper } = await open([episode()]);
+	it('leaves out a category with nothing in it, rather than heading an empty shelf', async () => {
+		const { wrapper } = await open({ series: [series()] });
 
-		expect(wrapper.findComponent({ name: 'LibrarySection' }).exists()).toBe(true);
+		expect(wrapper.find('[data-test="news-band-series"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="news-band-films"]').exists()).toBe(false);
+	});
+
+	it('keeps the library’s own grid-or-list preference', async () => {
+		// Shared on purpose: somebody who browses in rows browses in rows everywhere.
+		const { wrapper } = await open({ series: [series()] });
+
 		expect(wrapper.find('[data-test="news-view-toggle"]').exists()).toBe(true);
 	});
 
-	it('draws no upgrade section when there is nothing to upgrade', async () => {
-		const { wrapper } = await open([episode()]);
-
-		expect(wrapper.find('[data-test="news-missing"]').exists()).toBe(true);
-		expect(wrapper.find('[data-test="news-upgrades"]').exists()).toBe(false);
-	});
-
 	it('says nothing is new rather than drawing an empty frame', async () => {
-		const { wrapper } = await open([]);
+		const { wrapper } = await open({});
 
 		expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(true);
 	});
