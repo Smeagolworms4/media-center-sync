@@ -1008,6 +1008,20 @@ export class ServiceManager implements OnApplicationBootstrap {
 		row.externalIds = item.externalIds;
 		row.overview = item.overview;
 		row.artworkUrl = item.artworkUrl;
+		/*
+		 * What the household said about this media — followed, asked for, both.
+		 *
+		 * Only the request source ever fills it, and a row belongs to the service that
+		 * reported it, so there is nothing to protect here: a media server's row carries
+		 * null because a media server has no opinion about a watchlist, and the request
+		 * source's own row is rewritten from its own answer on every pass. A title taken
+		 * off both lists stops being reported and the stale sweep removes it.
+		 *
+		 * This line is the one that was missing. The handler produced the states, the
+		 * column existed and two screens filtered on it — and nothing copied one onto the
+		 * other, so both screens answered an empty list with no fault reported anywhere.
+		 */
+		row.watchStates = item.watchStates ?? null;
 		row.file = item.file;
 		row.addedAt = item.addedAt === null ? null : new Date(item.addedAt);
 

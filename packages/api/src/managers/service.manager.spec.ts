@@ -9,6 +9,7 @@ import {
 	MediaKind,
 	MediaServiceStatus,
 	MediaServiceType,
+	MediaWatchState,
 	type MediaFileInfo,
 	type MediaServiceProbe,
 	type QualitySummary,
@@ -1307,6 +1308,33 @@ describe('ServiceManager', () => {
 			// the loop was handed back mid-walk.
 			expect(served).toBeGreaterThan(0);
 			expect(fakes.items.rows).toHaveLength(120);
+		});
+
+		it('writes what the household said about a media onto its row', async () => {
+			/*
+			 * The omission that made two screens answer nothing. The handler produced the
+			 * states, the column existed, the filters read it — and the walk never copied
+			 * one onto the other. Everything looked written and the column stayed empty, so
+			 * "what I follow" and "what I asked for" were both empty lists with no fault
+			 * reported anywhere.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.libraries.findByService.mockResolvedValue([library()]);
+			fakes.handler.scanLibrary.mockReturnValue(
+				yielding([
+					{
+						...reported({ externalId: 'a', title: 'Futurama' }),
+						watchStates: [MediaWatchState.FOLLOWED, MediaWatchState.REQUESTED],
+					} as NormalisedMediaItem,
+				]),
+			);
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.items.rows[0].watchStates)
+				.toEqual([MediaWatchState.FOLLOWED, MediaWatchState.REQUESTED]);
 		});
 
 		it('keeps walking the other libraries when one of them will not answer', async () => {
