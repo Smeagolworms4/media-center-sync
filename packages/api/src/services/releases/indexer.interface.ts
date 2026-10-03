@@ -1,10 +1,11 @@
-import type { IndexerSettings, Release, ReleaseSearchKind } from '@mcs/shared';
+import type { ExternalIds, IndexerSettings, Release, ReleaseSearchKind } from '@mcs/shared';
 
 /**
  * What a search asks for, in terms an indexer understands.
  *
- * A title and a coordinate, never a media identifier: an indexer has never heard of
- * our catalogue, and handing it one would be the leak the layers exist to prevent.
+ * A title, a coordinate, and the identifiers the *providers* use — never ours. An
+ * indexer has never heard of our catalogue, and handing it one of our row keys would be
+ * the leak the layers exist to prevent; `tt0903747` is not ours, it is the world's.
  */
 export interface IndexerQuery {
 	/** The words to search for. Already the series' title for an episode, not its own. */
@@ -22,6 +23,15 @@ export interface IndexerQuery {
 	 * no fault. The manager reads it off the media, or off the query when there is none.
 	 */
 	kind: ReleaseSearchKind;
+	/**
+	 * What the media is, to the providers — so a tracker can be asked by identifier.
+	 *
+	 * Optional because a search somebody typed has none, and an indexer that cannot use
+	 * them must not be made to care. See `ProwlarrIndexer.search` for how they are used:
+	 * only trackers that declare the matching capability are asked by identifier, which
+	 * is the rule Sonarr and Radarr follow and the reason it works at all.
+	 */
+	externalIds?: ExternalIds;
 }
 
 /**

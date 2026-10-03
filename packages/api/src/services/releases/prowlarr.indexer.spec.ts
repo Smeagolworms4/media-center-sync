@@ -81,6 +81,145 @@ describe('ProwlarrIndexer', () => {
 		kind: ReleaseSearchKind.SHOW,
 	};
 
+	/** Routes by path: the indexer list, then whatever the searches ask for. */
+	function answerRouted(indexers: unknown, rowsByCall: Record<string, unknown>): void {
+		global.fetch = jest.fn(async (input: string, init?: RequestInit) => {
+			const url = new URL(input);
+
+			calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
+
+			const body = url.pathname.endsWith('/indexer')
+				? indexers
+				: rowsByCall[url.searchParams.get('indexerIds') ?? ''] ?? [];
+
+			return {
+				ok: true,
+				status: 200,
+				headers: new Headers(),
+				text: async () => JSON.stringify(body),
+			} as unknown as Response;
+		}) as unknown as typeof fetch;
+	}
+
+	/**
+	 * Asking a tracker by identifier, which only some of them can be asked by.
+	 *
+	 * Measured on a live Prowlarr before any of this was written: six of nine trackers
+	 * declare `imdbId`/`tmdbId`/`tvdbId`, the words alone found 282 releases for Breaking
+	 * Bad and the pair found 332.
+	 */
+	describe('searching by identifier', () => {
+		/*
+		 * Its own indexer per test, because the tracker list is cached for five minutes on
+		 * the instance — which is the point of it in production and a shared fixture here:
+		 * the test below about a list that cannot be read would otherwise pass on the list
+		 * the test above it had just cached.
+		 */
+		let indexer: ProwlarrIndexer;
+
+		beforeEach(() => {
+			indexer = new ProwlarrIndexer();
+		});
+
+		const capable = {
+			id: 3,
+			enable: true,
+			capabilities: { tvSearchParams: ['q', 'season', 'ep', 'tvdbId'], movieSearchParams: ['q', 'tmdbId'] },
+		};
+		const wordsOnly = {
+			id: 8,
+			enable: true,
+			capabilities: { tvSearchParams: ['q', 'season', 'ep'], movieSearchParams: ['q'] },
+		};
+		const withIds: IndexerQuery = { ...episodeQuery, externalIds: { tvdb: '81189', imdb: 'tt0903747' } };
+
+		it('never sends an identifier to a tracker that does not declare it', async () => {
+			/*
+			 * The defect this exists to prevent, measured rather than imagined: an
+			 * identifier a tracker ignores is not a narrower search, it is a *blank* one.
+			 * The parameter is dropped and back comes whatever that tracker answers for an
+			 * empty query — an identifier-only search for Breaking Bad returned Formula 1
+			 * and Jason Bourne on a real deployment.
+			 */
+			answerRouted([capable, wordsOnly], { '3': [row({ guid: 'a' })], '8': [row({ guid: 'b' })] });
+
+			await indexer.search(SETTINGS, withIds);
+
+			const searches = calls.filter(one => one.url.pathname.endsWith('/search'));
+			const byId = searches.find(one => one.url.searchParams.get('indexerIds') === '3');
+			const byWords = searches.find(one => one.url.searchParams.get('indexerIds') === '8');
+
+			expect(byId?.url.searchParams.get('tvdbId')).toBe('81189');
+			expect(byWords?.url.searchParams.get('tvdbId')).toBeNull();
+			// And the words go out on both, so the tracker that takes `tvdbId` but not
+			// `imdbId` still has something to answer.
+			expect(byId?.url.searchParams.get('query')).toContain('Spartacus');
+			expect(byWords?.url.searchParams.get('query')).toContain('Spartacus');
+		});
+
+		it('merges the two answers on the release’s own identity', async () => {
+			// A tracker in neither half would be missed; one answering in both would be
+			// counted twice. The identity already carries which tracker it came from.
+			answerRouted([capable, wordsOnly], {
+				'3': [row({ guid: 'shared' }), row({ guid: 'only-here' })],
+				'8': [row({ guid: 'shared' })],
+			});
+
+			const releases = await indexer.search(SETTINGS, withIds);
+
+			expect(releases).toHaveLength(2);
+			expect(new Set(releases.map(one => one.id)).size).toBe(2);
+		});
+
+		it('asks the type that carries the identifier, and the plain one otherwise', async () => {
+			// `tvsearch` and `movie` are what carry them; `search` ignores them silently.
+			answerRouted([capable, wordsOnly], {});
+
+			await indexer.search(SETTINGS, withIds);
+
+			const searches = calls.filter(one => one.url.pathname.endsWith('/search'));
+
+			expect(searches.find(one => one.url.searchParams.get('indexerIds') === '3')
+				?.url.searchParams.get('type')).toBe('tvsearch');
+			expect(searches.find(one => one.url.searchParams.get('indexerIds') === '8')
+				?.url.searchParams.get('type')).toBe('search');
+		});
+
+		it('falls back to one plain search when the query carries no identifier', async () => {
+			// Words somebody typed, about nothing in the catalogue. Nothing to read an
+			// identifier off, and no reason to ask Prowlarr what its trackers support.
+			answer([row()]);
+
+			await indexer.search(SETTINGS, episodeQuery);
+
+			expect(calls).toHaveLength(1);
+			expect(calls[0].url.searchParams.get('type')).toBe('search');
+			expect(calls[0].url.searchParams.get('indexerIds')).toBeNull();
+		});
+
+		it('falls back to one plain search when the list cannot be read', async () => {
+			// Degraded, never broken: a Prowlarr that will not say what its trackers
+			// support costs precision, not results.
+			global.fetch = jest.fn(async (input: string) => {
+				const url = new URL(input);
+
+				calls.push({ url, headers: {} });
+
+				return {
+					ok: !url.pathname.endsWith('/indexer'),
+					status: url.pathname.endsWith('/indexer') ? 500 : 200,
+					headers: new Headers(),
+					text: async () => (url.pathname.endsWith('/indexer') ? 'nope' : JSON.stringify([row()])),
+				} as unknown as Response;
+			}) as unknown as typeof fetch;
+
+			const releases = await indexer.search(SETTINGS, withIds);
+
+			expect(releases).toHaveLength(1);
+			expect(calls.filter(one => one.url.pathname.endsWith('/search'))).toHaveLength(1);
+		});
+	});
+
 	describe('the terms it searches for', () => {
 		/**
 		 * The coordinate goes in the query rather than in Prowlarr's own `season` and

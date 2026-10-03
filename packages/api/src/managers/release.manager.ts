@@ -23,6 +23,7 @@ import {
 	type ReleaseSearchQuery,
 	type ReleaseSearchResult,
 	type DownloadClientSettings,
+	type ExternalIds,
 	type Settings,
 } from '@mcs/shared';
 import {
@@ -2143,8 +2144,17 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	private async _terms(
 		item: MediaItemEntity | null,
 		query: ReleaseSearchQuery,
-	): Promise<{ term: string; seasonNumber?: number | null; episodeNumber?: number | null; seasonPack?: boolean; kind: ReleaseSearchKind }> {
+	): Promise<{
+		term: string;
+		seasonNumber?: number | null;
+		episodeNumber?: number | null;
+		seasonPack?: boolean;
+		kind: ReleaseSearchKind;
+		externalIds?: ExternalIds;
+	}> {
 		if (item === null) {
+			// Words somebody typed, about nothing in the catalogue: there is no media to
+			// read an identifier off, and inventing one would be worse than not having it.
 			return {
 				term: query.term ?? '',
 				seasonNumber: query.seasonNumber ?? null,
@@ -2166,11 +2176,30 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// a media the servers have filed as the wrong kind is an ordinary thing to have
 			// to search around, and the whole point of the field is to be able to.
 			kind: query.kind ?? (isShow ? ReleaseSearchKind.SHOW : ReleaseSearchKind.MOVIE),
+			// The show's, never the episode's — see `_showIdsOf`. The indexer decides which
+			// of them any given tracker can actually be asked by.
+			externalIds: await this._showIdsOf(item),
 		};
 	}
 
 	/** The title release names carry: the show's for anything under one, its own otherwise. */
 	private async _showTitleOf(item: MediaItemEntity): Promise<string> {
+		return (await this._showOf(item)).title;
+	}
+
+	/**
+	 * The identifiers a tracker can be asked by: the *show's*, for anything under one.
+	 *
+	 * An episode has no identifier of its own that any tracker has heard of — releases are
+	 * indexed against the series, with the season and the episode as separate numbers. So
+	 * this climbs for the same reason the title does, and the two climb together.
+	 */
+	private async _showIdsOf(item: MediaItemEntity): Promise<ExternalIds> {
+		return (await this._showOf(item)).externalIds ?? {};
+	}
+
+	/** The media a release name would be about: the show above it, or the media itself. */
+	private async _showOf(item: MediaItemEntity): Promise<MediaItemEntity> {
 		let current: MediaItemEntity | null = item;
 
 		// Two hops at most, which is the whole shape of a media tree. A walk with no
@@ -2188,7 +2217,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			current = parent;
 		}
 
-		return current?.title ?? item.title;
+		return current ?? item;
 	}
 
 	/**

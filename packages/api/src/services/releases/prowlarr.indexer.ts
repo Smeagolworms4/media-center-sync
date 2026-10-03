@@ -49,6 +49,29 @@ interface ProwlarrRelease {
  * returning the soundtrack and the game: `2000` is film and `5000` is television on
  * every indexer Prowlarr speaks to, whatever that tracker calls its own sections.
  */
+/** What one tracker can be asked, reduced to the two lists this cares about. */
+interface IndexerCapability {
+	id: number;
+	tvSearchParams: string[];
+	movieSearchParams: string[];
+}
+
+/** One row of Prowlarr's indexer list, in the parts this reads. */
+interface ProwlarrIndexerRow {
+	id?: number;
+	enable?: boolean;
+	capabilities?: { tvSearchParams?: string[]; movieSearchParams?: string[] };
+}
+
+/**
+ * How long the tracker list is trusted.
+ *
+ * It changes when somebody adds a tracker, which is not something that happens between
+ * two searches. Five minutes is short enough that a tracker added mid-session is used
+ * almost at once, and long enough that a season pack's worth of searches costs one call.
+ */
+const CAPABILITIES_TTL_MS = 5 * 60 * 1000;
+
 const CATEGORIES: Record<ReleaseSearchKind, number[]> = {
 	[ReleaseSearchKind.MOVIE]: [2000],
 	[ReleaseSearchKind.SHOW]: [5000],
@@ -68,12 +91,121 @@ const CATEGORIES: Record<ReleaseSearchKind, number[]> = {
 @Injectable()
 @ReleaseIndexerFor(IndexerType.PROWLARR)
 export class ProwlarrIndexer implements ReleaseIndexer {
+	private _capabilities: IndexerCapability[] | null = null;
+
+	private _capabilitiesAt = 0;
+
+	/**
+	 * Two asks in parallel, split by what each tracker can actually be asked.
+	 *
+	 * A text search is the only thing every tracker understands, and it is a blunt one: it
+	 * finds what somebody typed, with whatever a release group spelled differently. The
+	 * identifier is exact — `tvdbid=81189` is Breaking Bad and nothing else — and six of
+	 * nine trackers on a real deployment declare support for it.
+	 *
+	 * **The capability is read, never assumed**, which is the whole of why this works and
+	 * is what Sonarr and Radarr do. An identifier sent to a tracker that ignores it is not
+	 * a narrower search, it is a *blank* one: the parameter is dropped and what comes back
+	 * is whatever that tracker returns for an empty query. Measured on a live Prowlarr, an
+	 * identifier-only search for Breaking Bad answered Formula 1 and Jason Bourne.
+	 *
+	 * So the trackers are split. The ones that declare the identifier get it; the rest get
+	 * the words. Both go out at once and the answers are merged on the release's own
+	 * identity, because a tracker that sits in neither half would otherwise be missed and
+	 * one that answers both would be counted twice. On that same deployment the pair found
+	 * 332 releases where the words alone found 282 — "c'est juste en plus", literally.
+	 *
+	 * A query with no identifiers, or a Prowlarr that will not list its indexers, falls
+	 * back to the single text search this used to be. Degraded, never broken.
+	 */
 	public async search(settings: IndexerSettings, query: IndexerQuery): Promise<Release[]> {
+		const split = await this._split(settings, query);
+		const answers = await Promise.all(
+			split.map((ask) => this._ask(settings, query, ask)),
+		);
+		const merged = new Map<string, Release>();
+
+		for (const release of answers.flat()) {
+			// The release's own identity, which already carries the tracker it came from —
+			// see `_toRelease`. Two trackers reusing a guid stay two releases.
+			if (!merged.has(release.id)) {
+				merged.set(release.id, release);
+			}
+		}
+
+		return [...merged.values()];
+	}
+
+	/** One ask: which trackers, and what to ask them for. */
+	private async _split(
+		settings: IndexerSettings,
+		query: IndexerQuery,
+	): Promise<{ indexerIds: number[] | null; byId: boolean }[]> {
+		const ids = this._identifiers(query);
+
+		if (Object.keys(ids).length === 0) {
+			// Nothing to ask by. One search, every tracker, as it has always been.
+			return [{ indexerIds: null, byId: false }];
+		}
+
+		const indexers = await this._indexers(settings);
+
+		if (indexers === null) {
+			return [{ indexerIds: null, byId: false }];
+		}
+
+		const supporting: number[] = [];
+		const rest: number[] = [];
+
+		for (const indexer of indexers) {
+			const params = query.kind === ReleaseSearchKind.MOVIE
+				? indexer.movieSearchParams
+				: indexer.tvSearchParams;
+
+			(Object.keys(ids).some((name) => params.includes(name)) ? supporting : rest)
+				.push(indexer.id);
+		}
+
+		return [
+			...(supporting.length > 0 ? [{ indexerIds: supporting, byId: true }] : []),
+			...(rest.length > 0 ? [{ indexerIds: rest, byId: false }] : []),
+		];
+	}
+
+	/** The provider identifiers this query carries, under the names Prowlarr uses. */
+	private _identifiers(query: IndexerQuery): Record<string, string> {
+		const ids = query.externalIds ?? {};
+
+		return {
+			...(ids.imdb ? { imdbId: ids.imdb } : {}),
+			...(ids.tmdb ? { tmdbId: ids.tmdb } : {}),
+			...(ids.tvdb ? { tvdbId: ids.tvdb } : {}),
+		};
+	}
+
+	private async _ask(
+		settings: IndexerSettings,
+		query: IndexerQuery,
+		ask: { indexerIds: number[] | null; byId: boolean },
+	): Promise<Release[]> {
+		/*
+		 * The words go out even on the identifier ask, and that is deliberate. A tracker
+		 * that declares `tmdbId` and not `tvdbId` would otherwise be sent an identifier it
+		 * drops and no words to fall back on — the blank search again, on the half of the
+		 * split that was supposed to be the precise one.
+		 */
+		const identifiers = ask.byId ? this._identifiers(query) : {};
 		const rows = await releaseJson<ProwlarrRelease[]>(settings.baseUrl, '/api/v1/search', {
 			query: {
 				query: this._terms(query),
 				categories: CATEGORIES[query.kind].join(','),
-				type: 'search',
+				// `tvsearch` and `movie` are what carry the identifier parameters; `search`
+				// is the plain one and ignores them.
+				type: ask.byId
+					? (query.kind === ReleaseSearchKind.MOVIE ? 'movie' : 'tvsearch')
+					: 'search',
+				...identifiers,
+				...(ask.indexerIds === null ? {} : { indexerIds: ask.indexerIds.join(',') }),
 				limit: 200,
 			},
 			headers: { 'X-Api-Key': settings.apiKey ?? '' },
@@ -87,6 +219,50 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 		return Array.isArray(rows)
 			? rows.map((row) => this._toRelease(row, query)).filter((one) => one !== null)
 			: [];
+	}
+
+	/**
+	 * What each tracker says it can be asked, or null when Prowlarr will not say.
+	 *
+	 * Cached for a few minutes: the list changes when somebody adds a tracker, and asking
+	 * for it before every search would be a second round trip on every grab for an answer
+	 * that is the same all day. Null rather than an empty list on failure, because the two
+	 * mean opposite things to the caller — "ask everybody the old way" against "nobody can
+	 * take an identifier".
+	 */
+	private async _indexers(settings: IndexerSettings): Promise<IndexerCapability[] | null> {
+		const now = Date.now();
+
+		if (this._capabilities !== null && this._capabilitiesAt + CAPABILITIES_TTL_MS > now) {
+			return this._capabilities;
+		}
+
+		try {
+			const rows = await releaseJson<ProwlarrIndexerRow[]>(settings.baseUrl, '/api/v1/indexer', {
+				headers: { 'X-Api-Key': settings.apiKey ?? '' },
+				timeoutMs: INDEXER_TIMEOUT_MS,
+				unreachable: ErrorKey.INDEXER_UNREACHABLE,
+			});
+
+			if (!Array.isArray(rows)) {
+				return null;
+			}
+
+			this._capabilities = rows
+				.filter((row) => typeof row.id === 'number' && row.enable !== false)
+				.map((row) => ({
+					id: row.id as number,
+					tvSearchParams: row.capabilities?.tvSearchParams ?? [],
+					movieSearchParams: row.capabilities?.movieSearchParams ?? [],
+				}));
+			this._capabilitiesAt = now;
+
+			return this._capabilities;
+		} catch {
+			// The search itself still works without this, so a Prowlarr that will not list
+			// its indexers costs precision rather than results.
+			return null;
+		}
 	}
 
 	public async probe(settings: IndexerSettings): Promise<boolean> {
