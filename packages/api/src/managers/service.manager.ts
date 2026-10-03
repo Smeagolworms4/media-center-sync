@@ -759,7 +759,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 						// Every page rather than every row: a frame per episode on a library of
 						// forty thousand is thousands of frames for a bar that moves by a pixel.
 						if (itemsSeen % 100 === 0) {
-							this._progress(service.id, library.id, itemsSeen, false);
+							this._progress(service.id, library.id, itemsSeen, false, library.itemCount);
 						}
 
 						await breathe(itemsSeen);
@@ -828,7 +828,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 		for (const { library, itemsSeen } of walked) {
 			await this._fingerprint(library);
 			await this._recompute(library);
-			this._progress(service.id, library.id, itemsSeen, true);
+			this._progress(service.id, library.id, itemsSeen, true, itemsSeen);
 		}
 
 		await this._services.update({ id: service.id }, { lastScanAt: new Date() });
@@ -1476,17 +1476,32 @@ export class ServiceManager implements OnApplicationBootstrap {
 		};
 	}
 
+	/**
+	 * Say how far a scan has got, and against what.
+	 *
+	 * The total is **what the last scan of this library found**, not a count taken first.
+	 * There is no cheap way to know the real one: a request source's rows are a season and
+	 * an episode per show and only the provider knows how many, and asking a media server
+	 * to count before reading is a second full pass over the library.
+	 *
+	 * Last time's figure is the honest estimate, and it is already on the row. It is wrong
+	 * by exactly what has changed since, which on a household's library is a handful of
+	 * rows — a bar that ends at 103% once in a while is worth far more than no bar at all,
+	 * and the first scan of a library has no previous count, so it reports none and the
+	 * interface draws an indeterminate one.
+	 */
 	private _progress(
 		serviceId: string,
 		libraryId: string | null,
 		itemsSeen: number,
 		done: boolean,
+		itemsTotal: number | null = null,
 	): void {
 		this._events.emit(EventName.SCAN_PROGRESS, {
 			serviceId,
 			libraryId,
 			itemsSeen,
-			itemsTotal: null,
+			itemsTotal: itemsTotal !== null && itemsTotal > 0 ? itemsTotal : null,
 			done,
 		});
 	}

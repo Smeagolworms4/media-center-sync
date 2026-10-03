@@ -1790,6 +1790,7 @@
 		"empty_title": "Nichts Neues",
 		"hint": "Die neueste erschien",
 		"scanning_text": "Ein Scan geht gerade Ihre Serien durch — bisher {count} Zeilen. Das heißt nicht „nichts Neues“, sondern „noch nicht fertig“.",
+		"scanning_text_total": "Ein Scan geht gerade Ihre Serien durch — {count} von etwa {total} Zeilen. Das heißt nicht „nichts Neues“, sondern „noch nicht fertig“.",
 		"scanning_title": "Wird noch gelesen",
 		"missing": "Fehlend ({count})",
 		"missing_help": "Erschienen und hier von niemandem vorhanden. Öffnen Sie eine, um eine Kopie zu suchen.",

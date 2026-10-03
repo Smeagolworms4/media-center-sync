@@ -60,16 +60,34 @@
 	const scanning = computed(
 		() => Object.values(servicesStore.scans).some(one => one !== undefined && !one.done));
 
-	/**
-	 * What a running scan has got through, when it says. Null while it has no total to
-	 * measure against, which is most of a scan's life — a bar that jumped from nothing to
-	 * eighty would be worse than a spinner that says it is working.
-	 */
-	const scanned = computed(() => {
-		const running = Object.values(servicesStore.scans).filter(one => one && !one.done);
+	/** Every scan still going, which is what the two figures below are summed over. */
+	const running = computed(
+		() => Object.values(servicesStore.scans).filter(one => one !== undefined && !one.done));
 
-		return running.reduce((count, one) => count + (one?.itemsSeen ?? 0), 0);
+	/** Rows read so far. */
+	const scanned = computed(
+		() => running.value.reduce((count, one) => count + (one?.itemsSeen ?? 0), 0));
+
+	/**
+	 * Rows expected, or null when nothing can say.
+	 *
+	 * The gateway reports what the previous scan of each library found — the honest
+	 * estimate, since counting first would mean reading the library twice. Null on a first
+	 * scan, and null here unless *every* running scan has a figure: summing the ones that
+	 * do against the rows of the ones that do not would draw a bar past its own end.
+	 */
+	const expected = computed(() => {
+		const totals = running.value.map(one => one?.itemsTotal ?? null);
+
+		return totals.length > 0 && totals.every(one => one !== null)
+			? totals.reduce((count: number, one) => count + (one as number), 0)
+			: null;
 	});
+
+	/** How far along, as a percentage, capped: last time's count is an estimate. */
+	const scannedPercent = computed(() => (expected.value === null || expected.value === 0
+		? null
+		: Math.min(100, Math.round((scanned.value / expected.value) * 100))));
 
 	const failed = ref(false);
 	const loading = ref(false);
@@ -156,21 +174,33 @@
 			:title="$t('pages.news')"
 		>
 			<template #actions>
+				<!-- The library's own toggle, down to the icons. See `Library.vue`. -->
 				<v-btn-toggle
 					v-model="view"
+					class="view-toggle"
 					data-test="news-view-toggle"
 					density="compact"
 					mandatory
-					variant="outlined"
+					rounded="lg"
+					variant="text"
 				>
-					<v-btn
+					<v-tooltip
 						v-for="mode of VIEW_MODES"
 						:key="mode"
-						:data-test="`news-view-${mode}`"
-						:icon="mode === 'grid' ? 'mdi-view-grid-outline' : 'mdi-format-list-bulleted'"
-						size="small"
-						:value="mode"
-					/>
+						location="bottom"
+						:text="$t(`library.view.${mode}`)"
+					>
+						<template #activator="{ props: tip }">
+							<v-btn
+								:aria-label="$t(`library.view.${mode}`)"
+								:data-test="`news-view-${mode}`"
+								:icon="mode === 'grid' ? 'mdi-view-grid' : 'mdi-view-list'"
+								size="small"
+								:value="mode"
+								v-bind="tip"
+							/>
+						</template>
+					</v-tooltip>
 				</v-btn-toggle>
 
 				<v-btn
@@ -198,10 +228,24 @@
 				v-if="!loading && total === 0 && scanning"
 				data-test="news-scanning"
 				icon="mdi-radar"
-				:text="$t('news.scanning_text', { count: scanned })"
+				:text="scannedPercent === null
+					? $t('news.scanning_text', { count: scanned })
+					: $t('news.scanning_text_total', { count: scanned, total: expected })"
 				:title="$t('news.scanning_title')"
 			>
-				<v-progress-linear class="mt-4" color="primary" indeterminate rounded />
+				<!--
+					Determinate as soon as anything can say how far along it is, and
+					indeterminate when nothing can. A bar that moves against a number is the
+					difference between "it is working" and "it is nearly done".
+				-->
+				<v-progress-linear
+					class="mt-4"
+					color="primary"
+					data-test="news-scanning-progress"
+					:indeterminate="scannedPercent === null"
+					:model-value="scannedPercent ?? 0"
+					rounded
+				/>
 			</EmptyState>
 
 			<EmptyState

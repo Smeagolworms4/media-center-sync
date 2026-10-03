@@ -617,28 +617,48 @@
 					{{ $t('library.select') }}
 				</v-btn>
 
+				<!--
+					A matched pair, which the first one was not: an outlined grid of squares
+					beside a bulleted list is two different drawings of the same idea, one
+					hollow and one solid, and the eye reads the weight before it reads the
+					shape. Both are `view-*` now, filled, the same optical weight — and the
+					heavy outline around the group is gone, since what has to stand out is
+					which of the two is chosen, not that there is a box.
+				-->
 				<v-btn-toggle
 					v-model="view"
+					class="view-toggle"
 					data-test="library-view-toggle"
 					density="compact"
 					mandatory
-					variant="outlined"
+					rounded="lg"
+					variant="text"
 				>
-					<v-btn
-						:aria-label="$t('library.view.grid')"
-						data-test="library-view-grid"
-						icon="mdi-view-grid-outline"
-						size="small"
-						value="grid"
-					/>
+					<v-tooltip location="bottom" :text="$t('library.view.grid')">
+						<template #activator="{ props: tip }">
+							<v-btn
+								:aria-label="$t('library.view.grid')"
+								data-test="library-view-grid"
+								icon="mdi-view-grid"
+								size="small"
+								value="grid"
+								v-bind="tip"
+							/>
+						</template>
+					</v-tooltip>
 
-					<v-btn
-						:aria-label="$t('library.view.list')"
-						data-test="library-view-list"
-						icon="mdi-format-list-bulleted"
-						size="small"
-						value="list"
-					/>
+					<v-tooltip location="bottom" :text="$t('library.view.list')">
+						<template #activator="{ props: tip }">
+							<v-btn
+								:aria-label="$t('library.view.list')"
+								data-test="library-view-list"
+								icon="mdi-view-list"
+								size="small"
+								value="list"
+								v-bind="tip"
+							/>
+						</template>
+					</v-tooltip>
 				</v-btn-toggle>
 			</template>
 		</PageHeader>

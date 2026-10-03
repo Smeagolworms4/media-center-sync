@@ -1790,6 +1790,7 @@
 		"empty_title": "Nada nuevo",
 		"hint": "El más reciente salió",
 		"scanning_text": "Un análisis está recorriendo sus series ahora mismo: {count} filas hasta ahora. No es «nada nuevo», es «aún no ha terminado».",
+		"scanning_text_total": "Un análisis está recorriendo sus series ahora mismo: {count} de unas {total} filas. No es «nada nuevo», es «aún no ha terminado».",
 		"scanning_title": "Lectura en curso",
 		"missing": "Faltan ({count})",
 		"missing_help": "Emitidos y que aquí no tiene nadie. Abra uno para buscar una copia.",

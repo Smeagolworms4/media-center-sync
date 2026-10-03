@@ -183,6 +183,34 @@ describe('pages/NewReleases', () => {
 		expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(false);
 	});
 
+	it('counts against what the last scan found, with a bar that moves', async () => {
+		// A bar moving against a number is the difference between "it is working" and "it
+		// is nearly done". The gateway reports the previous scan's count as the estimate,
+		// since counting first would mean reading the library twice.
+		const { wrapper } = await open({}, [
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false },
+		]);
+		const bar = wrapper.find('[data-test="news-scanning-progress"]');
+
+		expect(bar.attributes('aria-valuenow')).toBe('25');
+		expect(wrapper.find('[data-test="news-scanning"]').text()).toContain('1200');
+	});
+
+	it('draws no figure when one of the scans cannot give one', async () => {
+		/*
+		 * Summing the totals that exist against the rows of the ones that do not would draw
+		 * a bar past its own end — the rows of a scan with no estimate would count towards
+		 * a total that does not include them.
+		 */
+		const { wrapper } = await open({}, [
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false },
+			{ serviceId: 'sv2', libraryId: null, itemsSeen: 900, itemsTotal: null, done: false },
+		]);
+
+		expect(wrapper.find('[data-test="news-scanning-progress"]').attributes('aria-valuenow'))
+			.toBeUndefined();
+	});
+
 	it('goes back to saying nothing is new once the scan is over', async () => {
 		const { wrapper } = await open({}, [
 			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: 120, done: true },

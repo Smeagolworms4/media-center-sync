@@ -97,7 +97,7 @@
 
 	const icon = computed(() => (props.libraryKind
 		? KIND_ICON[props.libraryKind]
-		: 'mdi-view-grid-outline'));
+		: 'mdi-view-grid'));
 
 	/** A record sleeve is square; everything else in a library is a poster. */
 	const square = computed(() => props.libraryKind === LibraryKind.MUSIC);
