@@ -360,6 +360,14 @@ export class MediaGroupManager {
 			coveredIds: scope?.ids,
 			coveredParentIds: scope?.underIds,
 			coveredWatchStates: scope?.watchStates,
+			/*
+			 * Asked for outright, and kept apart from the scope above. The scope is a
+			 * membership test that `followed` and `watched` resolve into; this is a plain
+			 * filter somebody wrote in an address — "show me what I have asked for" — and
+			 * folding it into the scope would make the two widen each other where they are
+			 * meant to narrow.
+			 */
+			watchStates: query.watchStates,
 		};
 		const seeds = await this._items.findGroupSeeds(seedQuery);
 

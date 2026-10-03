@@ -651,6 +651,19 @@ export interface MediaGroupQuery {
 	 */
 	watched?: boolean;
 	/**
+	 * Keep only media the household has said one of these things about.
+	 *
+	 * Precise where `watched` is broad. `watched` means "cared about, by any of the ways
+	 * there are", and folds in the sync plans; this one names the statements the request
+	 * source carries — followed, asked for — and nothing else.
+	 *
+	 * It is what the requests screen is: that screen used to filter on the *origin*, which
+	 * is a property of a service rather than of a media, so it answered everything the
+	 * request source had ever reported — what was followed as readily as what was asked
+	 * for. Those are two different questions and this is how they are told apart.
+	 */
+	watchStates?: MediaWatchState[];
+	/**
 	 * Keep only media there is something to do about.
 	 *
 	 * Two things, either of which counts: a gap beneath it — children known somewhere

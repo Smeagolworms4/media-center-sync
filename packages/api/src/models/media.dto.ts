@@ -18,6 +18,7 @@ import {
 } from 'class-validator';
 import {
 	MediaKind,
+	MediaWatchState,
 	MediaOrigin,
 	MediaResolution,
 	RELEASE_PREFERENCE_DIMENSIONS,
@@ -263,6 +264,24 @@ export class MediaGroupQueryDto {
 	@Transform(({ value }) => value === true || value === 'true' || value === '1')
 	@IsBoolean()
 	public watched?: boolean;
+
+	/**
+	 * Only what the household said one of these things about — followed, asked for.
+	 *
+	 * Precise where `watched` is broad, and it is what the requests screen is. That screen
+	 * filtered on the *origin*, which is a property of a service rather than of a media,
+	 * so it answered everything the request source had ever reported: what was merely
+	 * followed as readily as what was asked for. One state value is read as a list of one,
+	 * for the reason `MediaSearchDto` states.
+	 */
+	@ApiPropertyOptional({ enum: MediaWatchState, isArray: true })
+	@IsOptional()
+	@Transform(({ value }) => (Array.isArray(value)
+		? (value as MediaWatchState[])
+		: [value as MediaWatchState]))
+	@IsArray()
+	@IsEnum(MediaWatchState, { each: true })
+	public watchStates?: MediaWatchState[];
 
 	/** Only what there is something to do about. Transformed like the two booleans above. */
 	@ApiPropertyOptional({ description: 'Only media with a gap beneath them or something newer elsewhere.' })

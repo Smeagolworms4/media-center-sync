@@ -1,4 +1,4 @@
-import { MediaOrigin, Right, UserRole } from '@mcs/shared';
+import { MediaWatchState, Right, UserRole } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from 'vue';
 import { useCheckRoute } from '@/hooks/useCheckRoute';
@@ -78,7 +78,11 @@ describe('router', () => {
 		await context.router.push({ name: 'requests' });
 
 		expect(context.router.currentRoute.value.name).toBe('library');
-		expect(context.router.currentRoute.value.query).toEqual({ origins: MediaOrigin.REQUESTED });
+		// On the state, not on the origin. An origin belongs to a *service*, so filtering on
+		// it answered everything the request source had ever reported — a show merely
+		// followed included, which is the opposite of what this screen is called.
+		expect(context.router.currentRoute.value.query)
+			.toEqual({ watchStates: MediaWatchState.REQUESTED });
 	});
 
 	it('sends a visitor with no session to the sign-in page', async () => {

@@ -200,6 +200,9 @@ const build = (
 								holdsVariant(row, 'resolution', query.resolutions)) &&
 							(query.videoCodecs === undefined ||
 								holdsVariant(row, 'videoCodec', query.videoCodecs)) &&
+							(query.watchStates === undefined ||
+								query.watchStates.some(
+									state => (row.watchStates ?? []).includes(state))) &&
 							(query.coveredIds === undefined ||
 								query.coveredIds.includes(row.id) ||
 								(row.parentId !== null &&
@@ -1765,6 +1768,46 @@ describe('MediaGroupManager', () => {
 			const page = await manager.groups(query({ rootsOnly: true, watched: true }));
 
 			expect(page.items.map((one) => one.id)).toEqual(['followed-there']);
+		});
+
+		it('tells what was asked for from what is merely followed', async () => {
+			/*
+			 * The requests screen is this filter. It used to be the *origin*, which is a
+			 * property of a service rather than of a media — so a screen about what the
+			 * household had asked for answered everything the request source had ever
+			 * reported, a show merely followed included.
+			 */
+			const { manager } = build({
+				items: [
+					show('asked', 'Alpha', {
+						serviceId: 'requests',
+						libraryId: 'films',
+						watchStates: [MediaWatchState.REQUESTED],
+					}),
+					show('followed', 'Bravo', {
+						serviceId: 'requests',
+						libraryId: 'films',
+						watchStates: [MediaWatchState.FOLLOWED],
+					}),
+					show('both', 'Charlie', {
+						serviceId: 'requests',
+						libraryId: 'films',
+						watchStates: [MediaWatchState.FOLLOWED, MediaWatchState.REQUESTED],
+					}),
+				],
+				services: [
+					service(),
+					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
+				],
+				libraries: [{ id: 'films', serviceId: 'requests', externalId: 'films' }],
+				plans: [],
+			});
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, watchStates: [MediaWatchState.REQUESTED] }));
+
+			// The one that is both counts: it *was* asked for, whatever else is true of it.
+			expect(page.items.map(one => one.id).sort()).toEqual(['asked', 'both']);
 		});
 
 		it('names what is followed by its state rather than row by row', async () => {

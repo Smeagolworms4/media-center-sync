@@ -1,6 +1,6 @@
 import type { Pinia } from 'pinia';
 import type { App } from 'vue';
-import { MediaOrigin, Right } from '@mcs/shared';
+import { MediaWatchState, Right } from '@mcs/shared';
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useCheckRoute } from '@/hooks/useCheckRoute';
 import { useAuthStore } from '@/stores/auth';
@@ -165,7 +165,13 @@ export const routes: RouteRecordRaw[] = [
 		 * actions it used to carry — closing an ask, opening one — now live on the media's
 		 * own page, which is where the decision is made.
 		 */
-		redirect: { name: 'library', query: { origins: MediaOrigin.REQUESTED } },
+		/*
+		 * On the state, not on the origin. An origin is a property of a *service*, so this
+		 * answered everything the request source had ever reported — what was merely
+		 * followed as readily as what had been asked for, which is the opposite of what the
+		 * screen is called.
+		 */
+		redirect: { name: 'library', query: { watchStates: MediaWatchState.REQUESTED } },
 		meta: {
 			title: 'pages.requests',
 			icon: 'mdi-playlist-star',

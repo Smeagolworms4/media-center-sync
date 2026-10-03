@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 	import type { TrailStep } from '@/composables/useMediaTrail';
 	import type { LibraryKind, MediaCategory, MediaGroup, MediaGroupQuery } from '@mcs/shared';
-	import { MediaKind, MediaOrigin, MediaResolution, Right, SyncState } from '@mcs/shared';
+	import { MediaKind, MediaOrigin, MediaResolution, MediaWatchState, Right, SyncState } from '@mcs/shared';
 	import { computed, onMounted, provide, ref, watch } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
@@ -91,6 +91,20 @@
 		itemParse: value => value as MediaOrigin,
 		validate: values => values.every(
 			one => (Object.values(MediaOrigin) as string[]).includes(one)),
+	}));
+	/**
+	 * What the household said about a media — followed, asked for.
+	 *
+	 * The requests screen is this filter and nothing else. It used to be `origins`, which
+	 * is a property of a *service*: it answered everything the request source had ever
+	 * reported, so a show merely followed turned up on a screen about what had been asked
+	 * for. Validated like the origins beside it, so a hand-edited address is ignored
+	 * rather than refused.
+	 */
+	const watchStates = queryRef<MediaWatchState[]>('watchStates', queryTypes.delimitedArray<MediaWatchState>({
+		itemParse: value => value as MediaWatchState,
+		validate: values => values.every(
+			one => (Object.values(MediaWatchState) as string[]).includes(one)),
 	}));
 	/** One library, which is the diagnostic question rather than the browsing one. */
 	const libraryId = queryRef<string>('libraryId');
@@ -392,6 +406,7 @@
 			...(search.value ? { search: search.value } : {}),
 			...(serviceIds.value?.length ? { serviceIds: serviceIds.value } : {}),
 			...(origins.value?.length ? { origins: origins.value } : {}),
+			...(watchStates.value?.length ? { watchStates: watchStates.value } : {}),
 			...(states.value?.length ? { states: states.value } : {}),
 			...(resolutions.value?.length ? { resolutions: resolutions.value } : {}),
 			...(videoCodecs.value?.length ? { videoCodecs: videoCodecs.value } : {}),
@@ -475,7 +490,7 @@
 		void runSearch();
 	});
 
-	watch([serviceIds, origins, kind, states, resolutions, videoCodecs, tab, sort, direction, limit], () => {
+	watch([serviceIds, origins, watchStates, kind, states, resolutions, videoCodecs, tab, sort, direction, limit], () => {
 		page.value = 1;
 		void runSearch();
 	});

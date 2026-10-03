@@ -161,6 +161,16 @@ export interface GroupSeedQuery
 	 * thing itself rather than a place that stood in for it.
 	 */
 	coveredWatchStates?: MediaWatchState[];
+	/**
+	 * Rows the household said one of these things about — a filter, not a scope.
+	 *
+	 * Kept apart from `coveredWatchStates` because the two narrow differently: that one is
+	 * one branch of a membership test the `followed` and `watched` filters resolve into,
+	 * and this is a condition of its own that every row has to satisfy. Folded together,
+	 * asking for "what I have requested" would have widened a scope rather than narrowed
+	 * the list.
+	 */
+	watchStates?: MediaWatchState[];
 }
 
 /**
@@ -609,6 +619,10 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			);
 		}
 
+		if (query.watchStates !== undefined) {
+			MediaItemRepository._anyWatchState(builder, query.watchStates);
+		}
+
 		if (query.resolutions !== undefined) {
 			MediaItemRepository._anyVariant(builder, 'resolution', query.resolutions);
 		}
@@ -750,6 +764,35 @@ export class MediaItemRepository extends Repository<MediaItem> {
 				for (const [index, state] of watchStates.entries()) {
 					scoped.orWhere(`item.watchStates LIKE :coveredWatchState${index}`, {
 						[`coveredWatchState${index}`]: `%${state}%`,
+					});
+				}
+			}),
+		);
+	}
+
+	/**
+	 * Rows carrying at least one of these states, as a condition of their own.
+	 *
+	 * The column is a `simple-array`, so a comma-joined string, and this is a substring
+	 * test — sound because the values share no prefix with each other or with anything
+	 * else that can be in it. An empty list is a filter nothing satisfies, like every
+	 * other list in this query.
+	 */
+	private static _anyWatchState(
+		builder: SelectQueryBuilder<MediaItem>,
+		states: MediaWatchState[],
+	): void {
+		if (states.length === 0) {
+			builder.andWhere('1 = 0');
+
+			return;
+		}
+
+		builder.andWhere(
+			new Brackets((scoped) => {
+				for (const [index, state] of states.entries()) {
+					scoped.orWhere(`item.watchStates LIKE :watchState${index}`, {
+						[`watchState${index}`]: `%${state}%`,
 					});
 				}
 			}),
