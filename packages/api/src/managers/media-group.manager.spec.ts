@@ -1754,8 +1754,8 @@ describe('MediaGroupManager', () => {
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
 				],
 				libraries: [
-					{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist' },
-					{ id: 'requested', serviceId: 'requests', externalId: 'requests' },
+					{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist-shows' },
+					{ id: 'requested', serviceId: 'requests', externalId: 'requests-shows' },
 				],
 				plans: [],
 			});
@@ -1788,7 +1788,7 @@ describe('MediaGroupManager', () => {
 					service(),
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
 				],
-				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist' }],
+				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist-shows' }],
 				plans: [],
 			});
 
@@ -1814,7 +1814,7 @@ describe('MediaGroupManager', () => {
 					service(),
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
 				],
-				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist' }],
+				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist-shows' }],
 				plans: [plan({ scope: { rootItemIds: ['planned'] } })],
 			});
 

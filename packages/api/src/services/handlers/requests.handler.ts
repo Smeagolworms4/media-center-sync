@@ -92,9 +92,52 @@ export class RequestsHandler implements MediaServiceHandler {
 	 * and write them all again under the new — which reads as the whole list vanishing and
 	 * coming back.
 	 */
-	private static readonly REQUESTS = RequestLibrary.REQUESTS;
-
-	private static readonly WATCHLIST = RequestLibrary.WATCHLIST;
+	/**
+	 * Four libraries, not two: each list split by what the source already tells us.
+	 *
+	 * Seerr says `movie` or `tv` on every row, and the two lists were nonetheless written
+	 * as one mixed shelf each — so every request landed in a catch-all that no category
+	 * could sort and no default destination could be set on. Splitting them costs nothing,
+	 * because the information was already on the wire, and it buys the two things a
+	 * household actually asks for: films filed as films, and "send my films here, my
+	 * series there" as a setting rather than a correction made row by row.
+	 */
+	private static readonly LIBRARIES: {
+		externalId: RequestLibrary;
+		name: string;
+		kind: LibraryKind;
+		watchlist: boolean;
+		mediaKind: MediaKind.MOVIE | MediaKind.SERIES;
+	}[] = [
+			{
+				externalId: RequestLibrary.REQUESTS_MOVIES,
+				name: 'Requests — Movies',
+				kind: LibraryKind.MOVIES,
+				watchlist: false,
+				mediaKind: MediaKind.MOVIE,
+			},
+			{
+				externalId: RequestLibrary.REQUESTS_SHOWS,
+				name: 'Requests — Shows',
+				kind: LibraryKind.SHOWS,
+				watchlist: false,
+				mediaKind: MediaKind.SERIES,
+			},
+			{
+				externalId: RequestLibrary.WATCHLIST_MOVIES,
+				name: 'Watchlist — Movies',
+				kind: LibraryKind.MOVIES,
+				watchlist: true,
+				mediaKind: MediaKind.MOVIE,
+			},
+			{
+				externalId: RequestLibrary.WATCHLIST_SHOWS,
+				name: 'Watchlist — Shows',
+				kind: LibraryKind.SHOWS,
+				watchlist: true,
+				mediaKind: MediaKind.SERIES,
+			},
+		];
 
 	public readonly type = MediaServiceType.REQUESTS;
 
@@ -194,7 +237,18 @@ export class RequestsHandler implements MediaServiceHandler {
 	): AsyncIterable<NormalisedMediaItem> {
 		const configured = await this._configured();
 		const source = this._sources.get(configured.type);
-		const watchlist = library.externalId === RequestsHandler.WATCHLIST;
+		const shelf = RequestsHandler.LIBRARIES.find(
+			(one) => one.externalId === library.externalId,
+		);
+
+		if (shelf === undefined) {
+			// A library this handler never declared, which a stale row could still ask for.
+			// Nothing is the honest answer: inventing a list would write rows under a shelf
+			// that is about to be swept away.
+			return;
+		}
+
+		const watchlist = shelf.watchlist;
 
 		/*
 		 * Two lists, and which one is read depends on which library is being scanned.
@@ -224,6 +278,12 @@ export class RequestsHandler implements MediaServiceHandler {
 				}));
 
 		for (const request of asked) {
+			// The shelf decides what belongs on it, from the word the source already sent.
+			// Both lists carry films and shows together; each library holds one of the two.
+			if (request.kind !== shelf.mediaKind) {
+				continue;
+			}
+
 			const providerId = request.tmdbId;
 
 			if (providerId === null) {
@@ -456,13 +516,14 @@ export class RequestsHandler implements MediaServiceHandler {
 	}
 
 	private _libraries(): NormalisedLibrary[] {
-		// Mixed, because both lists hold films and shows together and nothing chooses
-		// between them. No path, which is what keeps them out of every placement: a
-		// destination has to be a directory this gateway can write into.
-		return [
-			{ externalId: RequestsHandler.REQUESTS, name: 'Requests', kind: LibraryKind.MIXED, paths: [] },
-			{ externalId: RequestsHandler.WATCHLIST, name: 'Watchlist', kind: LibraryKind.MIXED, paths: [] },
-		];
+		// No path, which is what keeps them out of every placement: a destination has to be
+		// a directory this gateway can write into, and none of these is one.
+		return RequestsHandler.LIBRARIES.map((one) => ({
+			externalId: one.externalId,
+			name: one.name,
+			kind: one.kind,
+			paths: [],
+		}));
 	}
 
 	private async _configured(): Promise<RequestSourceSettings> {

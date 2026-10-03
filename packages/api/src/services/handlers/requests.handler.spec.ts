@@ -1,6 +1,7 @@
 import {
 	ErrorKey,
 	LibraryKind,
+	RequestLibrary,
 	MediaKind,
 	MediaRequestState,
 	MediaServiceType,
@@ -111,7 +112,7 @@ const build = (source: RequestSourceSettings | null = SOURCE) => {
 
 const scan = async (
 	handler: RequestsHandler,
-	list: 'requests' | 'watchlist' = 'requests',
+	list: RequestLibrary = RequestLibrary.REQUESTS_SHOWS,
 ): Promise<NormalisedMediaItem[]> => {
 	const items: NormalisedMediaItem[] = [];
 	const library = (await handler.listLibraries()).find(one => one.externalId === list);
@@ -124,11 +125,11 @@ const scan = async (
 };
 
 describe('RequestsHandler', () => {
-	it('answers one library, with no path at all', async () => {
+	it('answers libraries with no path at all', async () => {
 		const { handler } = build();
 		const [library] = await handler.listLibraries();
 
-		expect(library).toMatchObject({ kind: LibraryKind.MIXED, paths: [] });
+		expect(library).toMatchObject({ kind: LibraryKind.MOVIES, paths: [] });
 		// No path is what keeps it out of every placement: a destination has to be a
 		// directory this gateway can write into, and there is none here.
 		expect(library.paths).toEqual([]);
@@ -213,7 +214,10 @@ describe('RequestsHandler', () => {
 		fakes.list.mockResolvedValue([request({ kind: MediaKind.MOVIE, title: 'Casper' })]);
 		fakes.details.mockResolvedValue(details({ title: 'Casper', seasonNumbers: [] }));
 
-		const items = await scan(handler);
+		// The films' shelf, because each list is split by what the source already says a
+		// row is. A film asked for on the shows' shelf is not filtered out by accident —
+		// it is what that shelf is for.
+		const items = await scan(handler, RequestLibrary.REQUESTS_MOVIES);
 
 		expect(items).toHaveLength(1);
 		expect(items[0].kind).toBe(MediaKind.MOVIE);
@@ -231,8 +235,13 @@ describe('RequestsHandler', () => {
 		it('answers one library per list, neither of them a place to write into', async () => {
 			const { handler } = build();
 
+			// Four, not two: the source says `movie` or `tv` on every row, so each list is
+			// split by it. A mixed shelf is what no category could sort and no default
+			// destination could be set on.
 			expect((await handler.listLibraries()).map(one => one.externalId))
-				.toEqual(['requests', 'watchlist']);
+				.toEqual(['requests-movies', 'requests-shows', 'watchlist-movies', 'watchlist-shows']);
+			expect((await handler.listLibraries()).map(one => one.kind))
+				.toEqual([LibraryKind.MOVIES, LibraryKind.SHOWS, LibraryKind.MOVIES, LibraryKind.SHOWS]);
 			expect((await handler.listLibraries()).every(one => one.paths.length === 0)).toBe(true);
 		});
 
@@ -240,12 +249,12 @@ describe('RequestsHandler', () => {
 			async () => {
 				const { handler, fakes } = build();
 
-				const followed = await scan(handler, 'watchlist');
+				const followed = await scan(handler, RequestLibrary.WATCHLIST_SHOWS);
 
 				expect(followed[0].title).toBe('Les Schtroumpfs');
 				expect(fakes.watchlist).toHaveBeenCalled();
 
-				const asked = await scan(handler, 'requests');
+				const asked = await scan(handler, RequestLibrary.REQUESTS_SHOWS);
 
 				expect(asked.length).toBeGreaterThan(0);
 				expect(fakes.list).toHaveBeenCalled();
@@ -258,11 +267,11 @@ describe('RequestsHandler', () => {
 			 * that changed library on every scan and belonged properly to neither.
 			 */
 			const { handler } = build();
-			const asked = await scan(handler, 'requests');
-			const followed = await scan(handler, 'watchlist');
+			const asked = await scan(handler, RequestLibrary.REQUESTS_SHOWS);
+			const followed = await scan(handler, RequestLibrary.WATCHLIST_SHOWS);
 
-			expect(asked[0].externalId.startsWith('requests:')).toBe(true);
-			expect(followed[0].externalId.startsWith('watchlist:')).toBe(true);
+			expect(asked[0].externalId.startsWith('requests-shows:')).toBe(true);
+			expect(followed[0].externalId.startsWith('watchlist-shows:')).toBe(true);
 		});
 
 		it('follows a whole show, because that is what following one means', async () => {
@@ -271,7 +280,7 @@ describe('RequestsHandler', () => {
 
 			fakes.details.mockResolvedValue(details({ seasonNumbers: [1, 2, 3] }));
 
-			const followed = await scan(handler, 'watchlist');
+			const followed = await scan(handler, RequestLibrary.WATCHLIST_SHOWS);
 
 			expect(followed.filter(one => one.kind === MediaKind.SEASON).map(one => one.seasonNumber))
 				.toEqual([1, 2, 3]);

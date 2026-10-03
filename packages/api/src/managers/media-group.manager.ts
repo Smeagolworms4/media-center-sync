@@ -7,6 +7,7 @@ import {
 	MediaKind,
 	MediaServiceType,
 	RequestLibrary,
+	WATCHLIST_LIBRARIES,
 	SyncState,
 	type ExternalIds,
 	type MediaGroup,
@@ -784,7 +785,8 @@ export class MediaGroupManager {
 		const listed = await Promise.all(services.map((one) => this._libraries.list(one.id)));
 		const libraries = listed
 			.flat()
-			.filter((library) => library.externalId === RequestLibrary.WATCHLIST);
+			// Both halves of it: the films and the shows are two shelves and one statement.
+			.filter((library) => WATCHLIST_LIBRARIES.includes(library.externalId as RequestLibrary));
 
 		if (libraries.length === 0) {
 			return followed;
