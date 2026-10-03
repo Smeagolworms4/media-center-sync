@@ -8,6 +8,7 @@
 	import { useViewMode, VIEW_MODES } from '@/composables/useViewMode';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
+	import { useServicesStore } from '@/stores/services';
 
 	defineOptions({ name: 'NewReleasesPage' });
 
@@ -43,6 +44,32 @@
 	const view = useViewMode('mcs.library.view');
 
 	const librariesStore = useLibrariesStore();
+	const servicesStore = useServicesStore();
+
+	/**
+	 * Whether anything is still being read in, so an empty wall can say which empty it is.
+	 *
+	 * The two look identical and mean opposite things: "nothing new for the shows you
+	 * follow" is an answer, and "nobody has finished reading your watchlist yet" is a
+	 * wait. Shown as a wait, somebody comes back in a minute; shown as an answer, they
+	 * conclude the feature does not work — which is what happened.
+	 *
+	 * Any service, not only the request source: a scan of the media servers moves rows
+	 * between held and missing, so this screen is as unfinished during one of those.
+	 */
+	const scanning = computed(
+		() => Object.values(servicesStore.scans).some(one => one !== undefined && !one.done));
+
+	/**
+	 * What a running scan has got through, when it says. Null while it has no total to
+	 * measure against, which is most of a scan's life — a bar that jumped from nothing to
+	 * eighty would be worse than a spinner that says it is working.
+	 */
+	const scanned = computed(() => {
+		const running = Object.values(servicesStore.scans).filter(one => one && !one.done);
+
+		return running.reduce((count, one) => count + (one?.itemsSeen ?? 0), 0);
+	});
 
 	const failed = ref(false);
 	const loading = ref(false);
@@ -161,8 +188,24 @@
 		<ErrorState v-if="failed" @retry="load" />
 
 		<template v-else>
+			<!--
+				An empty wall during a scan is not an answer, it is a wait, and the two look
+				exactly alike. Said as an answer, somebody reads "nothing new" off a screen
+				that has not finished reading their watchlist and concludes the feature is
+				broken — which is what happened.
+			-->
 			<EmptyState
-				v-if="!loading && total === 0"
+				v-if="!loading && total === 0 && scanning"
+				data-test="news-scanning"
+				icon="mdi-radar"
+				:text="$t('news.scanning_text', { count: scanned })"
+				:title="$t('news.scanning_title')"
+			>
+				<v-progress-linear class="mt-4" color="primary" indeterminate rounded />
+			</EmptyState>
+
+			<EmptyState
+				v-else-if="!loading && total === 0"
 				data-test="news-empty"
 				icon="mdi-new-box"
 				:text="$t('news.empty_text')"

@@ -1789,6 +1789,8 @@
 		"empty_text": "No falta ningún episodio emitido de las series que sigue. Seguir es la lista de seguimiento de su fuente de peticiones — una serie solo pedida no es una serie seguida.",
 		"empty_title": "Nada nuevo",
 		"hint": "El más reciente salió",
+		"scanning_text": "Un análisis está recorriendo sus series ahora mismo: {count} filas hasta ahora. No es «nada nuevo», es «aún no ha terminado».",
+		"scanning_title": "Lectura en curso",
 		"missing": "Faltan ({count})",
 		"missing_help": "Emitidos y que aquí no tiene nadie. Abra uno para buscar una copia.",
 		"subtitle": "Lo que ha salido para las series que sigue.",

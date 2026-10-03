@@ -1789,6 +1789,8 @@
 		"empty_text": "No aired episode is missing from the shows you follow. Following is the watchlist on your request source — a show you merely asked for is not a show you follow.",
 		"empty_title": "Nothing new",
 		"hint": "The most recent came out",
+		"scanning_text": "A scan is going through your shows right now — {count} rows so far. This is not “nothing new”, it is “not finished yet”.",
+		"scanning_title": "Still reading",
 		"missing": "Missing ({count})",
 		"missing_help": "Aired, and held by nobody here. Open one to look for a copy.",
 		"subtitle": "What has come out for the shows you follow.",

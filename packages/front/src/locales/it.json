@@ -1789,6 +1789,8 @@
 		"empty_text": "Non manca nessun episodio uscito tra le serie che segui. Seguire è la watchlist della tua fonte di richieste — una serie soltanto richiesta non è una serie seguita.",
 		"empty_title": "Niente di nuovo",
 		"hint": "Il più recente è uscito",
+		"scanning_text": "Una scansione sta percorrendo le tue serie in questo momento: {count} righe finora. Non è «niente di nuovo», è «non ha ancora finito».",
+		"scanning_title": "Lettura in corso",
 		"missing": "Mancanti ({count})",
 		"missing_help": "Usciti e che qui non ha nessuno. Aprine uno per cercare una copia.",
 		"subtitle": "Che cosa è uscito per le serie che segui.",

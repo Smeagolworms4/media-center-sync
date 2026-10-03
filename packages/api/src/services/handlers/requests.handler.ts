@@ -93,14 +93,22 @@ export class RequestsHandler implements MediaServiceHandler {
 	 * coming back.
 	 */
 	/**
-	 * Four libraries, not two: each list split by what the source already tells us.
+	 * Four shelves, two names, and the names are the point.
 	 *
-	 * Seerr says `movie` or `tv` on every row, and the two lists were nonetheless written
-	 * as one mixed shelf each — so every request landed in a catch-all that no category
-	 * could sort and no default destination could be set on. Splitting them costs nothing,
-	 * because the information was already on the wire, and it buys the two things a
-	 * household actually asks for: films filed as films, and "send my films here, my
-	 * series there" as a setting rather than a correction made row by row.
+	 * The source says `movie` or `tv` on every row, so each of its two lists is split by
+	 * it — four shelves, because the scan has to know which list it is reading and a row
+	 * has to belong to exactly one of them.
+	 *
+	 * But a household does not have a "Requests" shelf. Being asked for is a **status** on
+	 * a media — which this product already models as an origin — and the category a media
+	 * belongs to is the one the source names: a film, or a show. Naming these shelves
+	 * after the list produced exactly the wrong thing: four categories of their own,
+	 * standing beside the real ones and holding the same kinds of media.
+	 *
+	 * Categories merge on the folded name, so two shelves called `Films` are one category
+	 * and a requested film lands in the household's own Films beside everything else.
+	 * Where the household calls them something else, the library's alias settles it and
+	 * beats every keyword — the repair that was already there for a peer's shelves.
 	 */
 	private static readonly LIBRARIES: {
 		externalId: RequestLibrary;
@@ -111,28 +119,28 @@ export class RequestsHandler implements MediaServiceHandler {
 	}[] = [
 			{
 				externalId: RequestLibrary.REQUESTS_MOVIES,
-				name: 'Requests — Movies',
+				name: 'Films',
 				kind: LibraryKind.MOVIES,
 				watchlist: false,
 				mediaKind: MediaKind.MOVIE,
 			},
 			{
 				externalId: RequestLibrary.REQUESTS_SHOWS,
-				name: 'Requests — Shows',
+				name: 'Séries',
 				kind: LibraryKind.SHOWS,
 				watchlist: false,
 				mediaKind: MediaKind.SERIES,
 			},
 			{
 				externalId: RequestLibrary.WATCHLIST_MOVIES,
-				name: 'Watchlist — Movies',
+				name: 'Films',
 				kind: LibraryKind.MOVIES,
 				watchlist: true,
 				mediaKind: MediaKind.MOVIE,
 			},
 			{
 				externalId: RequestLibrary.WATCHLIST_SHOWS,
-				name: 'Watchlist — Shows',
+				name: 'Séries',
 				kind: LibraryKind.SHOWS,
 				watchlist: true,
 				mediaKind: MediaKind.SERIES,

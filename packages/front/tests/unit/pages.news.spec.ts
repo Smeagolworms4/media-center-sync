@@ -2,6 +2,7 @@ import { LibraryKind, MediaKind, SyncState } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 import NewReleases from '@/pages/NewReleases.vue';
+import { useServicesStore } from '@/stores/services';
 import { mountWithApp, stubFetchRoutes, tooltipStub } from './helpers';
 
 /** Let the mounted page finish its own fetches, as the other page suites do. */
@@ -79,7 +80,10 @@ const CATEGORIES = [
 ];
 
 /** The wall, with each category answering whatever `byCategory` says it holds. */
-async function open (byCategory: Record<string, Record<string, unknown>[]>) {
+async function open (
+	byCategory: Record<string, Record<string, unknown>[]>,
+	scans: { serviceId: string; libraryId: string | null; itemsSeen: number; itemsTotal: number | null; done: boolean }[] = [],
+) {
 	const stub = stubFetchRoutes({
 		'/api/libraries/categories': { body: CATEGORIES },
 		'/api/libraries': { body: [] },
@@ -100,6 +104,14 @@ async function open (byCategory: Record<string, Record<string, unknown>[]>) {
 		},
 	});
 	const { wrapper } = mountWithApp(NewReleases, { global: { stubs: tooltipStub } });
+
+	// Written straight onto the store, because a scan reaches this screen through the
+	// event stream and not through a route it could be stubbed on.
+	const services = useServicesStore();
+
+	for (const one of scans) {
+		services.scans[one.serviceId] = one;
+	}
 
 	await settle();
 
@@ -153,5 +165,30 @@ describe('pages/NewReleases', () => {
 		const { wrapper } = await open({});
 
 		expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="news-scanning"]').exists()).toBe(false);
+	});
+
+	it('says it is still reading rather than saying nothing is new', async () => {
+		/*
+		 * The two empties look identical and mean opposite things. "Nothing new for the
+		 * shows you follow" is an answer; "nobody has finished reading your watchlist yet"
+		 * is a wait. Said as an answer, somebody reads it off a screen that has not
+		 * finished and concludes the feature does not work — which is what happened.
+		 */
+		const { wrapper } = await open({}, [
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: null, done: false },
+		]);
+
+		expect(wrapper.find('[data-test="news-scanning"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(false);
+	});
+
+	it('goes back to saying nothing is new once the scan is over', async () => {
+		const { wrapper } = await open({}, [
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: 120, done: true },
+		]);
+
+		expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(true);
+		expect(wrapper.find('[data-test="news-scanning"]').exists()).toBe(false);
 	});
 });
