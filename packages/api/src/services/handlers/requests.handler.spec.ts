@@ -1,6 +1,7 @@
 import {
 	ErrorKey,
 	LibraryKind,
+	MediaWatchState,
 	RequestLibrary,
 	MediaKind,
 	MediaRequestState,
@@ -112,7 +113,7 @@ const build = (source: RequestSourceSettings | null = SOURCE) => {
 
 const scan = async (
 	handler: RequestsHandler,
-	list: RequestLibrary = RequestLibrary.REQUESTS_SHOWS,
+	list: RequestLibrary = RequestLibrary.SERIES,
 ): Promise<NormalisedMediaItem[]> => {
 	const items: NormalisedMediaItem[] = [];
 	const library = (await handler.listLibraries()).find(one => one.externalId === list);
@@ -136,7 +137,12 @@ describe('RequestsHandler', () => {
 	});
 
 	it('reads a requested show as a show: seasons, and the episodes that have aired', async () => {
-		const { handler } = build();
+		const { handler, fakes } = build();
+
+		// This one is about the request list alone; a followed show would ride along, since
+		// a scan now reads both lists in one pass.
+		fakes.watchlist.mockResolvedValue([]);
+
 		const items = await scan(handler);
 
 		expect(items.map(one => [one.kind, one.title])).toEqual([
@@ -179,6 +185,10 @@ describe('RequestsHandler', () => {
 		// for it, and it would read as missing from then on.
 		const { handler, fakes } = build();
 
+		// Requests alone: being followed widens a request to the whole show, which is the
+		// rule the test below this one pins.
+		fakes.watchlist.mockResolvedValue([]);
+
 		fakes.list.mockResolvedValue([
 			request({ seasons: [{ seasonNumber: 2, state: MediaRequestState.PENDING }] }),
 		]);
@@ -191,6 +201,9 @@ describe('RequestsHandler', () => {
 
 	it('skips a request with no identifier rather than writing a row nothing can match', async () => {
 		const { handler, fakes } = build();
+
+		// This one is about the request list alone; a followed show would ride along.
+		fakes.watchlist.mockResolvedValue([]);
 
 		fakes.list.mockResolvedValue([request({ tmdbId: null })]);
 
@@ -211,13 +224,16 @@ describe('RequestsHandler', () => {
 	it('reads a requested film as one row, and asks for no episodes', async () => {
 		const { handler, fakes } = build();
 
+		// This one is about the request list alone; a followed show would ride along.
+		fakes.watchlist.mockResolvedValue([]);
+
 		fakes.list.mockResolvedValue([request({ kind: MediaKind.MOVIE, title: 'Casper' })]);
 		fakes.details.mockResolvedValue(details({ title: 'Casper', seasonNumbers: [] }));
 
 		// The films' shelf, because each list is split by what the source already says a
 		// row is. A film asked for on the shows' shelf is not filtered out by accident —
 		// it is what that shelf is for.
-		const items = await scan(handler, RequestLibrary.REQUESTS_MOVIES);
+		const items = await scan(handler, RequestLibrary.MOVIES);
 
 		expect(items).toHaveLength(1);
 		expect(items[0].kind).toBe(MediaKind.MOVIE);
@@ -225,62 +241,95 @@ describe('RequestsHandler', () => {
 	});
 
 	/**
-	 * Two lists, and they are not the same statement.
+	 * Two lists, one media, and a state apiece.
 	 *
 	 * "Fetch me this" is answered once and done with. "Tell me when there is more of this"
 	 * never is, and it is the one the new releases screen is built on — a series requested
 	 * last year produces nothing new, while one that is followed keeps producing episodes.
+	 *
+	 * They were a shelf each, then two shelves each, and both were wrong the same way: a
+	 * shelf says where a media lives, and these say what somebody wants done about it. A
+	 * show asked for *and* followed was two rows nothing would ever join.
 	 */
 	describe('the two lists', () => {
-		it('answers one library per list, neither of them a place to write into', async () => {
+		it('answers one library per kind, neither of them a place to write into', async () => {
 			const { handler } = build();
 
-			// Four, not two: the source says `movie` or `tv` on every row, so each list is
-			// split by it. A mixed shelf is what no category could sort and no default
-			// destination could be set on.
+			// Two, and named what a household calls them: categories merge on the folded
+			// name, so these join the films and the shows already on the wall instead of
+			// standing beside them.
 			expect((await handler.listLibraries()).map(one => one.externalId))
-				.toEqual(['requests-movies', 'requests-shows', 'watchlist-movies', 'watchlist-shows']);
+				.toEqual(['films', 'series']);
+			expect((await handler.listLibraries()).map(one => one.name))
+				.toEqual(['Films', 'Séries']);
 			expect((await handler.listLibraries()).map(one => one.kind))
-				.toEqual([LibraryKind.MOVIES, LibraryKind.SHOWS, LibraryKind.MOVIES, LibraryKind.SHOWS]);
+				.toEqual([LibraryKind.MOVIES, LibraryKind.SHOWS]);
 			expect((await handler.listLibraries()).every(one => one.paths.length === 0)).toBe(true);
 		});
 
-		it('reads the watchlist for the watchlist library, and the requests for the other',
-			async () => {
-				const { handler, fakes } = build();
+		it('reads both lists in one pass and says which said what', async () => {
+			const { handler, fakes } = build();
 
-				const followed = await scan(handler, RequestLibrary.WATCHLIST_SHOWS);
+			const rows = await scan(handler, RequestLibrary.SERIES);
 
-				expect(followed[0].title).toBe('Les Schtroumpfs');
-				expect(fakes.watchlist).toHaveBeenCalled();
+			expect(fakes.watchlist).toHaveBeenCalled();
+			expect(fakes.list).toHaveBeenCalled();
+			// One row per title across both lists, each carrying what its list said.
+			const states = new Set(rows.flatMap(one => one.watchStates ?? []));
 
-				const asked = await scan(handler, RequestLibrary.REQUESTS_SHOWS);
+			expect(rows.length).toBeGreaterThan(0);
+			expect(states).toEqual(new Set([MediaWatchState.REQUESTED, MediaWatchState.FOLLOWED]));
+		});
 
-				expect(asked.length).toBeGreaterThan(0);
-				expect(fakes.list).toHaveBeenCalled();
-			});
-
-		it('keeps the two apart under identifiers of their own', async () => {
+		it('folds a show on both lists into one row carrying both states', async () => {
 			/*
-			 * A show can be on both lists, and the gateway keys a row on what the service
-			 * called it: one identifier across two libraries would collide into a single row
-			 * that changed library on every scan and belonged properly to neither.
+			 * The defect this pins. A show asked for and followed used to be two rows under
+			 * two identifiers in two libraries, so it was two cards of one media and nothing
+			 * would ever merge them. It is one media, and what the household said about it
+			 * is two statements on that one row.
 			 */
-			const { handler } = build();
-			const asked = await scan(handler, RequestLibrary.REQUESTS_SHOWS);
-			const followed = await scan(handler, RequestLibrary.WATCHLIST_SHOWS);
+			const { handler, fakes } = build();
 
-			expect(asked[0].externalId.startsWith('requests-shows:')).toBe(true);
-			expect(followed[0].externalId.startsWith('watchlist-shows:')).toBe(true);
+			fakes.list.mockResolvedValue([request({ tmdbId: '1399', kind: MediaKind.SERIES })]);
+			fakes.watchlist.mockResolvedValue([
+				{ kind: MediaKind.SERIES, tmdbId: '1399', title: 'Les Schtroumpfs' },
+			]);
+
+			const rows = await scan(handler, RequestLibrary.SERIES);
+			const series = rows.filter(one => one.kind === MediaKind.SERIES);
+
+			expect(series).toHaveLength(1);
+			expect([...(series[0].watchStates ?? [])].sort())
+				.toEqual([MediaWatchState.FOLLOWED, MediaWatchState.REQUESTED].sort());
+			// And the identifier says the title, not which list it came from — which is what
+			// kept correlation from ever joining the two.
+			expect(series[0].externalId).toBe('series:1399');
+		});
+
+		it('passes the state down the tree, so an episode can be filtered on its own', async () => {
+			// Otherwise a filter on "what I follow" has to climb from every episode to its
+			// series, which is a query per row on a screen that draws sixty of them.
+			const { handler } = build();
+
+			const rows = await scan(handler, RequestLibrary.SERIES);
+			const episode = rows.find(one => one.kind === MediaKind.EPISODE);
+
+			expect(episode?.watchStates).toEqual(expect.arrayContaining([MediaWatchState.REQUESTED]));
 		});
 
 		it('follows a whole show, because that is what following one means', async () => {
-			// A request may name seasons; a watchlist entry never does.
+			// A request may name seasons; a watchlist entry never does, and the union of the
+			// two is the whole show rather than the seasons somebody once asked for.
 			const { handler, fakes } = build();
 
 			fakes.details.mockResolvedValue(details({ seasonNumbers: [1, 2, 3] }));
+			// The same show on both lists: asked for by its first season only, and followed.
+			fakes.list.mockResolvedValue([request({ tmdbId: '1399', seasons: [{ seasonNumber: 1, state: MediaRequestState.PENDING }] })]);
+			fakes.watchlist.mockResolvedValue([
+				{ kind: MediaKind.SERIES, tmdbId: '1399', title: 'Les Schtroumpfs' },
+			]);
 
-			const followed = await scan(handler, RequestLibrary.WATCHLIST_SHOWS);
+			const followed = await scan(handler, RequestLibrary.SERIES);
 
 			expect(followed.filter(one => one.kind === MediaKind.SEASON).map(one => one.seasonNumber))
 				.toEqual([1, 2, 3]);

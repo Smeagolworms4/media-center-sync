@@ -3,6 +3,7 @@ import {
 	LibraryKind,
 	MediaKind,
 	MediaServiceType,
+	MediaWatchState,
 	RequestLibrary,
 	ServerStructureSupport,
 	type MediaServiceProbe,
@@ -93,56 +94,35 @@ export class RequestsHandler implements MediaServiceHandler {
 	 * coming back.
 	 */
 	/**
-	 * Four shelves, two names, and the names are the point.
+	 * Two shelves, named after what a household calls them.
 	 *
-	 * The source says `movie` or `tv` on every row, so each of its two lists is split by
-	 * it — four shelves, because the scan has to know which list it is reading and a row
-	 * has to belong to exactly one of them.
+	 * The source hands over two lists — what was asked for, what is followed — and that
+	 * was written here as two shelves, then as four. Both were wrong in the same way: a
+	 * shelf says where a media *lives*, and those two say what somebody wants *done* about
+	 * it. Being asked for is a status on the row, and it lives on the row now.
 	 *
-	 * But a household does not have a "Requests" shelf. Being asked for is a **status** on
-	 * a media — which this product already models as an origin — and the category a media
-	 * belongs to is the one the source names: a film, or a show. Naming these shelves
-	 * after the list produced exactly the wrong thing: four categories of their own,
-	 * standing beside the real ones and holding the same kinds of media.
-	 *
-	 * Categories merge on the folded name, so two shelves called `Films` are one category
-	 * and a requested film lands in the household's own Films beside everything else.
-	 * Where the household calls them something else, the library's alias settles it and
-	 * beats every keyword — the repair that was already there for a peer's shelves.
+	 * What is left is the only thing the source says about where a media belongs: a film
+	 * or a show. Categories merge on the folded name, so `Films` and `Séries` join the
+	 * household's own — a requested film sits among the films it already holds, and its
+	 * local copy is correlated with it like any other source's. Where the household calls
+	 * them something else, the library's alias settles it and beats every keyword.
 	 */
 	private static readonly LIBRARIES: {
 		externalId: RequestLibrary;
 		name: string;
 		kind: LibraryKind;
-		watchlist: boolean;
 		mediaKind: MediaKind.MOVIE | MediaKind.SERIES;
 	}[] = [
 			{
-				externalId: RequestLibrary.REQUESTS_MOVIES,
+				externalId: RequestLibrary.MOVIES,
 				name: 'Films',
 				kind: LibraryKind.MOVIES,
-				watchlist: false,
 				mediaKind: MediaKind.MOVIE,
 			},
 			{
-				externalId: RequestLibrary.REQUESTS_SHOWS,
+				externalId: RequestLibrary.SERIES,
 				name: 'Séries',
 				kind: LibraryKind.SHOWS,
-				watchlist: false,
-				mediaKind: MediaKind.SERIES,
-			},
-			{
-				externalId: RequestLibrary.WATCHLIST_MOVIES,
-				name: 'Films',
-				kind: LibraryKind.MOVIES,
-				watchlist: true,
-				mediaKind: MediaKind.MOVIE,
-			},
-			{
-				externalId: RequestLibrary.WATCHLIST_SHOWS,
-				name: 'Séries',
-				kind: LibraryKind.SHOWS,
-				watchlist: true,
 				mediaKind: MediaKind.SERIES,
 			},
 		];
@@ -256,49 +236,96 @@ export class RequestsHandler implements MediaServiceHandler {
 			return;
 		}
 
-		const watchlist = shelf.watchlist;
-
 		/*
-		 * Two lists, and which one is read depends on which library is being scanned.
+		 * Both lists, read together and folded into one row per title.
+		 *
+		 * They used to be a shelf each, so a show somebody asked for *and* follows was two
+		 * rows that nothing would ever join — two cards of one media, in two libraries, on
+		 * two shelves nobody has. What the lists actually say is a pair of standing
+		 * instructions about one media, so they are read as that: the title is the row, and
+		 * being asked for or followed is a state on it.
 		 *
 		 * Requests include the settled ones, because the default drops what the source
 		 * calls available — precisely a series the household follows and already holds, and
 		 * the whole reason this catalogue exists. Left on the default the scan wrote almost
 		 * nothing and reported it as "0 items", which reads as a feature that does not work.
 		 */
-		const asked: { kind: MediaKind.MOVIE | MediaKind.SERIES; tmdbId: string | null; tvdbId: string | null; seasons: { seasonNumber: number }[]; requestedAt: string | null }[] =
-			watchlist
-				? (await source.watchlist(configured)).map((entry) => ({
-					kind: entry.kind,
-					tmdbId: entry.tmdbId,
-					tvdbId: null,
-					// A watchlist says nothing about seasons: following a show is following
-					// all of it, which is the difference between it and a request.
-					seasons: [],
-					requestedAt: null,
-				}))
-				: (await source.list(configured, { includeSettled: true })).map((one) => ({
-					kind: one.kind,
-					tmdbId: one.tmdbId,
-					tvdbId: one.tvdbId,
-					seasons: one.seasons,
-					requestedAt: one.requestedAt,
-				}));
+		const [requested, followed] = await Promise.all([
+			source.list(configured, { includeSettled: true }),
+			source.watchlist(configured),
+		]);
+		const asked = new Map<string, {
+			kind: MediaKind.MOVIE | MediaKind.SERIES;
+			tmdbId: string;
+			tvdbId: string | null;
+			seasons: { seasonNumber: number }[];
+			requestedAt: string | null;
+			states: Set<MediaWatchState>;
+		}>();
 
-		for (const request of asked) {
+		/** Fold one entry of either list onto the row for its title. */
+		const note = (
+			kind: MediaKind.MOVIE | MediaKind.SERIES,
+			tmdbId: string | null,
+			state: MediaWatchState,
+			extra: {
+				tvdbId?: string | null;
+				seasons?: { seasonNumber: number }[];
+				requestedAt?: string | null;
+			} = {},
+		): void => {
+			// Nothing to ask the provider about, and nothing to match a local copy on
+			// either: an identifier is the only thing a catalogue can be matched by.
 			// The shelf decides what belongs on it, from the word the source already sent.
-			// Both lists carry films and shows together; each library holds one of the two.
-			if (request.kind !== shelf.mediaKind) {
-				continue;
+			if (tmdbId === null || kind !== shelf.mediaKind) {
+				return;
 			}
 
+			const existing = asked.get(tmdbId);
+
+			if (existing === undefined) {
+				asked.set(tmdbId, {
+					kind,
+					tmdbId,
+					tvdbId: extra.tvdbId ?? null,
+					seasons: extra.seasons ?? [],
+					requestedAt: extra.requestedAt ?? null,
+					states: new Set([state]),
+				});
+
+				return;
+			}
+
+			existing.states.add(state);
+			existing.tvdbId = existing.tvdbId ?? extra.tvdbId ?? null;
+			existing.requestedAt = existing.requestedAt ?? extra.requestedAt ?? null;
+
+			/*
+			 * Following a show is following all of it, so a watchlist entry widens a
+			 * request's named seasons to the whole show rather than narrowing it. An empty
+			 * list already means "everything" below; this makes the union say so too.
+			 */
+			if ((extra.seasons ?? []).length === 0) {
+				existing.seasons = [];
+			}
+		};
+
+		for (const one of requested) {
+			note(one.kind, one.tmdbId, MediaWatchState.REQUESTED, {
+				tvdbId: one.tvdbId,
+				seasons: one.seasons,
+				requestedAt: one.requestedAt,
+			});
+		}
+
+		for (const entry of followed) {
+			// A watchlist says nothing about seasons: following a show is following all of
+			// it, which is the difference between it and a request.
+			note(entry.kind, entry.tmdbId, MediaWatchState.FOLLOWED);
+		}
+
+		for (const request of asked.values()) {
 			const providerId = request.tmdbId;
-
-			if (providerId === null) {
-				// Nothing to ask the provider about, and nothing to match a local copy on
-				// either: an identifier is the only thing a catalogue can be matched by.
-				continue;
-			}
 
 			const details = await source.details(configured, request.kind, providerId);
 
@@ -307,12 +334,13 @@ export class RequestsHandler implements MediaServiceHandler {
 			}
 
 			/*
-			 * Prefixed by the list it came from, because a show can be on both and the
-			 * gateway keys a row on what the service called it: one identifier across two
-			 * libraries would collide into a single row that changed library on every scan
-			 * and belonged properly to neither.
+			 * The title, and nothing about which list it came from. It used to carry the
+			 * list as a prefix, which is what made one show two rows the moment it was both
+			 * asked for and followed — and kept correlation from ever joining them, since
+			 * they were two identifiers of two libraries.
 			 */
-			const seriesId = `${library.externalId}:${request.kind}:${providerId}`;
+			const seriesId = `${library.externalId}:${providerId}`;
+			const watchStates = [...request.states];
 			const externalIds = {
 				...(request.tmdbId === null ? {} : { tmdb: request.tmdbId }),
 				...(request.tvdbId === null ? {} : { tvdb: request.tvdbId }),
@@ -333,6 +361,7 @@ export class RequestsHandler implements MediaServiceHandler {
 				// The whole point: no file. It reads as missing everywhere a state is read.
 				file: null,
 				addedAt: request.requestedAt,
+				watchStates,
 			};
 
 			if (request.kind !== MediaKind.SERIES) {
@@ -364,6 +393,9 @@ export class RequestsHandler implements MediaServiceHandler {
 					externalIds: {},
 					overview: null,
 					artworkUrl: null,
+					// Inherited, so a filter on "what I follow" can be a predicate on the
+					// row rather than a walk up to the series on every episode.
+					watchStates,
 					file: null,
 					addedAt: null,
 				};
@@ -388,6 +420,7 @@ export class RequestsHandler implements MediaServiceHandler {
 						externalIds: {},
 						overview: null,
 						artworkUrl: null,
+						watchStates,
 						file: null,
 						addedAt: episode.airDate,
 					};

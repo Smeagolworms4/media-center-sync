@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Brackets, DataSource, In, IsNull, Not, Repository, type SelectQueryBuilder } from 'typeorm';
 import type { MediaGroupQuery, MediaSearchQuery } from '@mcs/shared';
-import { MediaKind, SyncState } from '@mcs/shared';
+import { MediaKind, MediaWatchState, SyncState } from '@mcs/shared';
 import { MediaItem } from '@/entities';
 
 /** The columns a list may be ordered by, and the only ones. */
@@ -152,16 +152,15 @@ export interface GroupSeedQuery
 	 */
 	coveredParentIds?: string[];
 	/**
-	 * Rows a resolved filter keeps because of where they live.
+	 * Rows a resolved filter keeps because of what the household said about them.
 	 *
-	 * The third direction, and it exists because the other two do not scale. A watchlist
-	 * is a whole library of this gateway's own making — a row per series, per season and
-	 * per aired episode — so saying "these items" meant binding one parameter per row and
-	 * `SQLITE_ERROR: too many SQL variables` the day somebody followed enough shows. A
-	 * library is one parameter and says the same thing, because every row of that tree is
-	 * written into it.
+	 * The third direction, and it exists because the other two do not scale. What is
+	 * followed is a row per series, per season and per aired episode, so naming them meant
+	 * binding one parameter per row and `SQLITE_ERROR: too many SQL variables` the day
+	 * somebody followed enough shows. A state is one parameter per state and says the
+	 * thing itself rather than a place that stood in for it.
 	 */
-	coveredLibraryIds?: string[];
+	coveredWatchStates?: MediaWatchState[];
 }
 
 /**
@@ -606,7 +605,7 @@ export class MediaItemRepository extends Repository<MediaItem> {
 				builder,
 				query.coveredIds,
 				query.coveredParentIds ?? [],
-				query.coveredLibraryIds ?? [],
+				query.coveredWatchStates ?? [],
 			);
 		}
 
@@ -720,9 +719,9 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		builder: SelectQueryBuilder<MediaItem>,
 		ids: string[],
 		parentIds: string[],
-		libraryIds: string[],
+		watchStates: MediaWatchState[],
 	): void {
-		if (ids.length === 0 && parentIds.length === 0 && libraryIds.length === 0) {
+		if (ids.length === 0 && parentIds.length === 0 && watchStates.length === 0) {
 			// Nothing is covered, which is a filter nothing satisfies rather than no
 			// filter — the same distinction the service and library lists make above.
 			builder.andWhere('1 = 0');
@@ -742,11 +741,15 @@ export class MediaItemRepository extends Repository<MediaItem> {
 					});
 				}
 
-				// One parameter for a whole tree. See `coveredLibraryIds`: naming the rows
-				// instead is what ran the statement out of variables.
-				if (libraryIds.length > 0) {
-					scoped.orWhere('item.libraryId IN (:...coveredLibraryIds)', {
-						coveredLibraryIds: libraryIds,
+				/*
+				 * One parameter per state for any number of rows. The column is a
+				 * `simple-array`, so it is a comma-joined string and this is a substring
+				 * test — sound here because the two values share no prefix with each other
+				 * or with anything else that could be in it. See `coveredWatchStates`.
+				 */
+				for (const [index, state] of watchStates.entries()) {
+					scoped.orWhere(`item.watchStates LIKE :coveredWatchState${index}`, {
+						[`coveredWatchState${index}`]: `%${state}%`,
 					});
 				}
 			}),

@@ -484,6 +484,32 @@ export interface MediaGroup {
  * cover everything — a service is ours, or a remote one we registered ourselves, or
  * reached through a friend, or through a friend of theirs.
  */
+/**
+ * What the household has said about a media, beside whether anybody holds it.
+ *
+ * A **status on the row**, and that is the whole correction: being asked for or being
+ * followed are not places a media lives. They were written as libraries of their own —
+ * "Requests", "Watchlist" — which put a requested film on a shelf beside the films
+ * instead of among them, and made two cards of one Harry Potter.
+ *
+ * The two mean different things and both are standing instructions rather than history:
+ *
+ * - `FOLLOWED` is "tell me when there is more of this". It is what makes a series worth
+ *   re-checking: new episodes as they air, and a better version on the trackers.
+ * - `REQUESTED` is "fetch me this". Same watch, with one difference that matters — it is
+ *   usually said about something the household does *not* hold, so what it produces is a
+ *   search and a proposal rather than an upgrade.
+ *
+ * A media can carry both, and most do: a show somebody asked for last year and still
+ * follows. So this is a set and not a single value.
+ */
+export enum MediaWatchState {
+	/** On the request source's watchlist: "tell me when there is more of this". */
+	FOLLOWED = 'followed',
+	/** Asked for on the request source: "fetch me this". */
+	REQUESTED = 'requested',
+}
+
 export enum MediaOrigin {
 	/** A service whose libraries we can write into. */
 	LOCAL = 'local',

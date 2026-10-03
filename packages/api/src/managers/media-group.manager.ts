@@ -6,8 +6,7 @@ import {
 	PeerTrust,
 	MediaKind,
 	MediaServiceType,
-	RequestLibrary,
-	WATCHLIST_LIBRARIES,
+	MediaWatchState,
 	SyncState,
 	type ExternalIds,
 	type MediaGroup,
@@ -299,13 +298,13 @@ interface GroupContext {
  * Three fields rather than one list, because they are three different questions. `ids`
  * are rows kept outright. `underIds` are rows kept because their parent is one of these —
  * the episodes of a followed season come along, while a *sibling* season does not just
- * because they share a series. `libraryIds` are rows kept because of where they live,
- * which is how a whole watchlist is named without enumerating it.
+ * because they share a series. `watchStates` are rows kept because of what the household
+ * said about them, which is how a whole watchlist is named without enumerating it.
  */
 interface Scope {
 	ids: string[];
 	underIds: string[];
-	libraryIds?: string[];
+	watchStates?: MediaWatchState[];
 }
 
 @Injectable()
@@ -360,7 +359,7 @@ export class MediaGroupManager {
 			videoCodecs: this._codecsFor(query),
 			coveredIds: scope?.ids,
 			coveredParentIds: scope?.underIds,
-			coveredLibraryIds: scope?.libraryIds,
+			coveredWatchStates: scope?.watchStates,
 		};
 		const seeds = await this._items.findGroupSeeds(seedQuery);
 
@@ -774,39 +773,29 @@ export class MediaGroupManager {
 		}
 
 		/*
-		 * The watchlist, and not everything the request source holds.
+		 * Followed, and not everything the request source holds.
 		 *
-		 * The source keeps two lists and they mean different things: a request is answered
-		 * once and done with, a watchlist entry is the standing statement that more of this
-		 * is wanted. Counting requests as watched would fill the new releases screen with
-		 * shows somebody asked for a year ago and has not thought about since — which is
-		 * what the owner meant by "new releases is only on what is followed, not requests".
+		 * The source says two different things and only one of them is a standing one: a
+		 * request is answered once and done with, while a watchlist entry never is.
+		 * Counting requests as followed would fill the new releases screen with shows
+		 * somebody asked for a year ago and has not thought about since — "les nouveautés,
+		 * c'est sur les éléments suivis, pas les requests".
 		 */
-		const listed = await Promise.all(services.map((one) => this._libraries.list(one.id)));
-		const libraries = listed
-			.flat()
-			// Both halves of it: the films and the shows are two shelves and one statement.
-			.filter((library) => WATCHLIST_LIBRARIES.includes(library.externalId as RequestLibrary));
-
-		if (libraries.length === 0) {
-			return followed;
-		}
-
 		/*
-		 * The libraries, not their rows.
+		 * The state, not the rows that carry it and not the shelf they used to sit on.
 		 *
-		 * This used to read every item of the watchlist and hand the query their ids, which
-		 * worked for exactly as long as the list was short: a watchlist is a library of this
-		 * gateway's own making, a row per series, per season and per aired episode, so
-		 * four hundred followed shows became thousands of bound parameters and the screen
-		 * answered `SQLITE_ERROR: too many SQL variables`. It did not degrade — it broke the
-		 * moment the feature started working.
+		 * This read every item of the watchlist and handed the query their ids, which
+		 * worked for exactly as long as the list was short: a row per series, per season
+		 * and per aired episode, so four hundred followed shows became thousands of bound
+		 * parameters and the screen answered `SQLITE_ERROR: too many SQL variables`. It did
+		 * not degrade — it broke the moment the feature started working.
 		 *
-		 * Naming the library says the same thing in one parameter, and says it better: every
-		 * row of that tree is written into it, so there is no walk to get wrong and nothing
-		 * to re-read when the next scan adds a season.
+		 * Then it named the library, which scaled but said the wrong thing: being followed
+		 * is not a place a media lives, and a media held locally *and* followed is one
+		 * media. It is a state on the row now, so this asks for the state — and the rows
+		 * that carry it are the merged media, not a second copy standing beside it.
 		 */
-		return { ...followed, libraryIds: libraries.map((one) => one.id) };
+		return { ...followed, watchStates: [MediaWatchState.FOLLOWED] };
 	}
 
 	/**

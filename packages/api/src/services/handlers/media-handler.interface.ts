@@ -6,6 +6,7 @@ import type {
 	MediaKind,
 	MediaServiceProbe,
 	MediaServiceType,
+	MediaWatchState,
 	ServerStructure,
 	ServerStructureRequest,
 } from '@mcs/shared';
@@ -66,6 +67,14 @@ export interface NormalisedMediaItem {
 	/** Null for a node that holds no file of its own — a series, a season. */
 	file: MediaFileInfo | null;
 	addedAt: string | null;
+	/**
+	 * What the household has said about this media, where a service can say.
+	 *
+	 * Only the request source fills it: a media server reports what it holds and has no
+	 * opinion about what anybody wants. Absent means "nothing said", which is every row
+	 * every other handler produces.
+	 */
+	watchStates?: MediaWatchState[];
 }
 
 /**

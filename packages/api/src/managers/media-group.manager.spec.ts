@@ -3,6 +3,7 @@ import {
 	MediaKind,
 	MediaResolution,
 	MediaServiceType,
+	MediaWatchState,
 	SyncState,
 	type MediaFileInfo,
 	type MediaGroupQuery,
@@ -203,9 +204,10 @@ const build = (
 								query.coveredIds.includes(row.id) ||
 								(row.parentId !== null &&
 									(query.coveredParentIds ?? []).includes(row.parentId)) ||
-								// Kept because of where it lives, which is how a whole watchlist
-								// is named without binding one parameter per row.
-								(query.coveredLibraryIds ?? []).includes(row.libraryId)) &&
+								// Kept because of what the household said about it, which is how a
+								// whole watchlist is named without one parameter per row.
+								(query.coveredWatchStates ?? []).some(
+									state => (row.watchStates ?? []).includes(state))) &&
 							(query.search === undefined ||
 								row.normalizedTitle.includes(query.search.toLowerCase())),
 					)
@@ -1745,8 +1747,8 @@ describe('MediaGroupManager', () => {
 			 */
 			const { manager } = build({
 				items: [
-					show('followed-there', 'Alpha', { serviceId: 'requests', libraryId: 'watchlist' }),
-					show('asked-there', 'Bravo', { serviceId: 'requests', libraryId: 'requested' }),
+					show('followed-there', 'Alpha', { serviceId: 'requests', libraryId: 'films', watchStates: [MediaWatchState.FOLLOWED] }),
+					show('asked-there', 'Bravo', { serviceId: 'requests', libraryId: 'films', watchStates: [MediaWatchState.REQUESTED] }),
 					show('elsewhere', 'Charlie'),
 				],
 				services: [
@@ -1754,8 +1756,8 @@ describe('MediaGroupManager', () => {
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
 				],
 				libraries: [
-					{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist-shows' },
-					{ id: 'requested', serviceId: 'requests', externalId: 'requests-shows' },
+					{ id: 'films', serviceId: 'requests', externalId: 'films' },
+					{ id: 'series', serviceId: 'requests', externalId: 'series' },
 				],
 				plans: [],
 			});
@@ -1765,7 +1767,7 @@ describe('MediaGroupManager', () => {
 			expect(page.items.map((one) => one.id)).toEqual(['followed-there']);
 		});
 
-		it('names the watchlist by its library rather than row by row', async () => {
+		it('names what is followed by its state rather than row by row', async () => {
 			/*
 			 * The screen answered `SQLITE_ERROR: too many SQL variables` the day the
 			 * watchlist filled up, and it did not degrade first — it broke the moment the
@@ -1780,15 +1782,15 @@ describe('MediaGroupManager', () => {
 			 */
 			const { manager, reads } = build({
 				items: [
-					show('one', 'Alpha', { serviceId: 'requests', libraryId: 'watchlist' }),
-					show('two', 'Bravo', { serviceId: 'requests', libraryId: 'watchlist' }),
-					show('three', 'Charlie', { serviceId: 'requests', libraryId: 'watchlist' }),
+					show('one', 'Alpha', { serviceId: 'requests', libraryId: 'films', watchStates: [MediaWatchState.FOLLOWED] }),
+					show('two', 'Bravo', { serviceId: 'requests', libraryId: 'films', watchStates: [MediaWatchState.FOLLOWED] }),
+					show('three', 'Charlie', { serviceId: 'requests', libraryId: 'films', watchStates: [MediaWatchState.FOLLOWED] }),
 				],
 				services: [
 					service(),
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
 				],
-				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist-shows' }],
+				libraries: [{ id: 'films', serviceId: 'requests', externalId: 'films' }],
 				plans: [],
 			});
 
@@ -1796,8 +1798,8 @@ describe('MediaGroupManager', () => {
 
 			const asked = reads.items.findGroupSeeds.mock.calls[0][0] as GroupSeedQuery;
 
-			expect(asked.coveredLibraryIds).toEqual(['watchlist']);
-			// And not one of the rows it contains, however many there are.
+			expect(asked.coveredWatchStates).toEqual([MediaWatchState.FOLLOWED]);
+			// And not one of the rows that carry it, however many there are.
 			expect(asked.coveredIds).toEqual([]);
 		});
 
@@ -1806,7 +1808,7 @@ describe('MediaGroupManager', () => {
 			// cares, and nobody writes a plan for a series they have just followed on Seerr.
 			const { manager } = build({
 				items: [
-					show('followed-there', 'Alpha', { serviceId: 'requests', libraryId: 'watchlist' }),
+					show('followed-there', 'Alpha', { serviceId: 'requests', libraryId: 'films', watchStates: [MediaWatchState.FOLLOWED] }),
 					show('planned', 'Bravo'),
 					show('neither', 'Charlie'),
 				],
@@ -1814,7 +1816,7 @@ describe('MediaGroupManager', () => {
 					service(),
 					service({ id: 'requests', name: 'Requests', type: MediaServiceType.REQUESTS }),
 				],
-				libraries: [{ id: 'watchlist', serviceId: 'requests', externalId: 'watchlist-shows' }],
+				libraries: [{ id: 'films', serviceId: 'requests', externalId: 'films' }],
 				plans: [plan({ scope: { rootItemIds: ['planned'] } })],
 			});
 

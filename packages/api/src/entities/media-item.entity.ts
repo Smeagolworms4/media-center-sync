@@ -8,7 +8,7 @@ import type {
 	MediaReported,
 	QualitySummary,
 } from '@mcs/shared';
-import { MediaKind, SyncState } from '@mcs/shared';
+import { MediaKind, MediaWatchState, SyncState } from '@mcs/shared';
 import { Library } from './library.entity';
 import { MediaService } from './media-service.entity';
 import { Timestampable } from './timestampable.entity';
@@ -138,6 +138,21 @@ export class MediaItem extends Timestampable {
 	@ApiProperty({ nullable: true })
 	@Column({ type: 'varchar', nullable: true })
 	public artworkUrl!: string | null;
+
+	/**
+	 * What the household has said about this media — followed, asked for, or both.
+	 *
+	 * On the row rather than in a library of its own, which is the correction this
+	 * carries: a shelf says where a media lives, and these say what somebody wants done
+	 * about it. Written as shelves they put a requested film beside the films instead of
+	 * among them, and made two cards of one show.
+	 *
+	 * Only the request source ever fills it. Null is "nothing has been said", which is
+	 * every row a media server reports and every row written before the column existed.
+	 */
+	@ApiProperty({ enum: MediaWatchState, isArray: true, nullable: true })
+	@Column({ type: 'simple-array', nullable: true })
+	public watchStates!: MediaWatchState[] | null;
 
 	@ApiProperty({ nullable: true })
 	@Column({ type: 'simple-json', nullable: true })

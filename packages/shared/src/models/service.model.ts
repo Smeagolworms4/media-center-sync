@@ -164,34 +164,11 @@ export enum MediaServiceType {
  * edited.
  */
 export enum RequestLibrary {
-	/** "Fetch me this", answered once — the films. */
-	REQUESTS_MOVIES = 'requests-movies',
-	/** "Fetch me this", answered once — the shows. */
-	REQUESTS_SHOWS = 'requests-shows',
-	/** "Tell me when there is more of this", never answered — the films. */
-	WATCHLIST_MOVIES = 'watchlist-movies',
-	/** "Tell me when there is more of this", never answered — the shows. */
-	WATCHLIST_SHOWS = 'watchlist-shows',
+	/** What the source calls a film. */
+	MOVIES = 'films',
+	/** What the source calls a show. */
+	SERIES = 'series',
 }
-
-/**
- * The two that mean "tell me when there is more of this".
- *
- * Named once here rather than tested for twice wherever it matters: the new releases
- * screen reads the watchlist and not the requests, and a reader that remembered one of
- * the two halves would quietly answer about films only, or shows only, with nothing
- * saying so.
- */
-export const WATCHLIST_LIBRARIES: RequestLibrary[] = [
-	RequestLibrary.WATCHLIST_MOVIES,
-	RequestLibrary.WATCHLIST_SHOWS,
-];
-
-/** The two that mean "fetch me this", for the same reason. */
-export const REQUEST_LIBRARIES: RequestLibrary[] = [
-	RequestLibrary.REQUESTS_MOVIES,
-	RequestLibrary.REQUESTS_SHOWS,
-];
 
 /**
  * The three kinds of thing this gateway talks to.
