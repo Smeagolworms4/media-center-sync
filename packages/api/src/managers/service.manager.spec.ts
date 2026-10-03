@@ -364,6 +364,7 @@ interface Fakes {
 	};
 	libraries: {
 		count: jest.Mock;
+		delete: jest.Mock;
 		findByService: jest.Mock;
 		findByExternalId: jest.Mock;
 		create: jest.Mock;
@@ -376,6 +377,7 @@ interface Fakes {
 	items: ItemFakes;
 	handler: {
 		probe: jest.Mock;
+		listLibraries: jest.Mock;
 		scanLibrary: jest.Mock;
 		refreshLibrary: jest.Mock;
 		getItem: jest.Mock;
@@ -416,6 +418,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		},
 		libraries: {
 			count: jest.fn().mockResolvedValue(1),
+			delete: jest.fn().mockResolvedValue(undefined),
 			findByService: jest.fn().mockResolvedValue([]),
 			findByExternalId: jest.fn().mockResolvedValue(null),
 			create: jest.fn((value: Partial<Library>) => value as Library),
@@ -431,6 +434,9 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		items: itemStore(seed),
 		handler: {
 			probe: probeFake,
+			// What the handler says its shelves are, which only the request source has an
+			// opinion about: a media server's come off the wire.
+			listLibraries: jest.fn().mockResolvedValue([]),
 			scanLibrary: jest.fn(() => yielding([])),
 			refreshLibrary: jest.fn().mockResolvedValue({ items: [], cursor: null }),
 			// Null is what a service says about an item it does not hold, and the
@@ -1077,6 +1083,63 @@ describe('ServiceManager', () => {
 			await manager.remove('service-1');
 
 			expect(fakes.services.delete).toHaveBeenCalledWith({ id: 'service-1' });
+		});
+	});
+
+	describe('the request source\'s own shelves', () => {
+		/*
+		 * The day this cost. Libraries are adopted by a *probe*, and nothing probes on its
+		 * own after an upgrade — so a release that changed what this service declares
+		 * landed and changed nothing. The shelves in the database stayed the old ones,
+		 * every scan walked those, and pressing "full scan" could not produce the new ones
+		 * however many times it was pressed.
+		 */
+		const requests = (): MediaService =>
+			service({ id: 'service-1', type: MediaServiceType.REQUESTS, name: 'Requests' });
+
+		it('adopts what the handler declares without waiting for a probe', async () => {
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([requests()]);
+			fakes.libraries.findByService.mockResolvedValue([]);
+			fakes.handler.listLibraries = jest.fn().mockResolvedValue([
+				{ externalId: 'films', name: 'Films', kind: LibraryKind.MOVIES, paths: [] },
+			]);
+
+			await manager.reconcileRequestSource({
+				requestSource: { enabled: true, baseUrl: 'http://seerr:5055' },
+			} as never);
+
+			expect(fakes.libraries.create).toHaveBeenCalledWith(
+				expect.objectContaining({ externalId: 'films', name: 'Films' }),
+			);
+		});
+
+		it('removes a shelf it no longer declares, which no media server gets', async () => {
+			/*
+			 * `_adoptLibraries` never deletes, because a Plex that omits a library for one
+			 * probe would take its whole catalogue with it. Here the list is a constant in
+			 * the source rather than something on a wire, so a shelf that is gone is gone
+			 * because this product renamed it — and leaving it behind means a category on
+			 * the household's wall holding rows nothing will ever refresh again.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.services.find.mockResolvedValue([requests()]);
+			fakes.libraries.findByService.mockResolvedValue([
+				library({ id: 'old', externalId: 'watchlist', name: 'Watchlist' }),
+				library({ id: 'kept', externalId: 'films', name: 'Films' }),
+			]);
+			fakes.handler.listLibraries = jest.fn().mockResolvedValue([
+				{ externalId: 'films', name: 'Films', kind: LibraryKind.MOVIES, paths: [] },
+			]);
+
+			await manager.reconcileRequestSource({
+				requestSource: { enabled: true, baseUrl: 'http://seerr:5055' },
+			} as never);
+
+			expect(fakes.libraries.delete).toHaveBeenCalledWith({ id: 'old' });
+			expect(fakes.libraries.delete).not.toHaveBeenCalledWith({ id: 'kept' });
 		});
 	});
 

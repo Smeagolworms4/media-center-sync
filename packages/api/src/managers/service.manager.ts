@@ -488,18 +488,75 @@ export class ServiceManager implements OnApplicationBootstrap {
 			this._events.emit(EventName.SERVICE_CHANGED, { id: created.id });
 			this._logger.log('Request source registered as a service');
 
+			await this._reconcileRequestLibraries(created);
+
 			return;
 		}
 
-		if (existing.baseUrl === baseUrl) {
+		if (existing.baseUrl !== baseUrl) {
+			existing.baseUrl = baseUrl;
+
+			const moved = await this._services.save(existing);
+
+			this._events.emit(EventName.SERVICE_CHANGED, { id: moved.id });
+		}
+
+		await this._reconcileRequestLibraries(existing);
+	}
+
+	/**
+	 * Bring the request source's shelves in line with what the handler declares.
+	 *
+	 * Libraries are adopted by a **probe**, and nothing probes on its own after an
+	 * upgrade. So a release that changes what this service declares landed and changed
+	 * nothing: the shelves in the database were the old ones, every scan walked those, and
+	 * pressing "full scan" could not produce the new ones however many times it was
+	 * pressed. That is a whole day of a household being told to scan again.
+	 *
+	 * This service is the one whose shelves are ours rather than a server's — they are a
+	 * constant in the handler — so they are reconciled at start-up, where the service
+	 * itself already is.
+	 *
+	 * **It deletes the ones no longer declared, and that is deliberately not done for
+	 * media servers.** `_adoptLibraries` creates and updates and never removes, because a
+	 * Plex that omits a library for one probe would otherwise take its whole catalogue
+	 * with it. Here the list cannot be wrong: it is in the source, not on the wire. A
+	 * shelf that is gone is gone because this product renamed it, and leaving it behind
+	 * means a category of the household's wall holding rows nothing will ever refresh —
+	 * which is exactly what "Requests" and "Watchlist" became.
+	 *
+	 * The rows go with it. They are statements that nobody holds a copy, re-derived by the
+	 * next scan; no file is touched, here or anywhere else in this service.
+	 */
+	private async _reconcileRequestLibraries(service: MediaServiceEntity): Promise<void> {
+		const handler = this._handlers.get(MediaServiceType.REQUESTS);
+		const declared = await handler.listLibraries(this._connection(service));
+
+		await this._adoptLibraries(service, declared);
+
+		const wanted = new Set(declared.map((one) => one.externalId));
+		const held = await this._libraries.findByService(service.id);
+		const stale = held.filter((library) => !wanted.has(library.externalId));
+
+		if (stale.length === 0) {
 			return;
 		}
 
-		existing.baseUrl = baseUrl;
+		// The rows a foreign key cannot reach, as in `remove`: a match names a service on
+		// both sides and only one of them cascades. Scoped to this service and not to the
+		// shelves being dropped, because a match is re-derived by the next correlation
+		// anyway — and asking which items are about to cascade, to delete the matches that
+		// name them, is a read of the whole shelf to save rows that rebuild themselves.
+		await this._matches.deleteForService(service.id);
 
-		const moved = await this._services.save(existing);
+		for (const library of stale) {
+			await this._libraries.delete({ id: library.id });
+		}
 
-		this._events.emit(EventName.SERVICE_CHANGED, { id: moved.id });
+		this._logger.log(
+			`${stale.length} library(ies) the request source no longer declares were removed`,
+		);
+		this._events.emit(EventName.SERVICE_CHANGED, { id: service.id });
 	}
 
 	public async remove(id: string): Promise<void> {
