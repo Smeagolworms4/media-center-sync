@@ -22,6 +22,7 @@ import {
 	MediaItemRepository,
 	MediaLandingRepository,
 	MediaMatchRepository,
+	type MatchPair,
 	MediaServiceRepository,
 	type Placement,
 } from '@/repositories';
@@ -54,6 +55,21 @@ import {
 	toMediaMatch,
 	toMediaNode,
 } from './mappers';
+
+/**
+ * How far down a media tree each kind sits, so a pass can take parents first.
+ *
+ * Only the order matters, not the numbers. A collection is above a film the way a
+ * series is above a season, and anything this does not name is scored last — it has no
+ * children waiting on it.
+ */
+const DEPTH_OF: Record<MediaKind, number> = {
+	[MediaKind.COLLECTION]: 0,
+	[MediaKind.SERIES]: 1,
+	[MediaKind.SEASON]: 2,
+	[MediaKind.MOVIE]: 3,
+	[MediaKind.EPISODE]: 3,
+};
 
 /** Everything a correlation pass needs, read once rather than per item. */
 interface CorrelationContext {
@@ -105,6 +121,26 @@ interface CorrelationContext {
 	 * current state of a row this pass has since rewritten.
 	 */
 	settled: Map<string, MediaMatchEntity[]>;
+	/**
+	 * Which remote rows each local row is already matched to, parents included.
+	 *
+	 * The map `MatchingService._seasonEpisodeMatch` asks for, and it was never built —
+	 * the option existed, the strategy read it, and no caller ever passed one. So the
+	 * check `remoteParents?.has(remote.parentId)` was always false and **the whole
+	 * season/episode strategy never once fired**, on any library. Episodes correlated by
+	 * identifier, by checksum, by path — never by their place in a show.
+	 *
+	 * What that cost: a source that enumerates a series by season and episode without
+	 * carrying an identifier per episode — which is what a request source is — could
+	 * never be joined to the copies on a shelf. Every one of its episodes stayed its own
+	 * row, counted as a gap, and a complete series read as a wall of missing ones.
+	 *
+	 * Grown during the pass as well as read from the record, because a series and its
+	 * episodes are correlated in the same one: the strategy needs the parent's pairing to
+	 * exist by the time the child is scored, and on a service seen for the first time it
+	 * is this pass that creates it. See the ordering in `correlateService`.
+	 */
+	parentMatches: Map<string, Set<string>>;
 }
 
 /**
@@ -431,6 +467,9 @@ export class MediaManager {
 			]),
 		);
 		const settled = this._indexMatches(await this._matches.find());
+		const parentMatches = MediaManager._adjacency(
+			await this._matches.findAppliedPairs(threshold),
+		);
 		const byId = new Map(everything.map((item) => [item.id, item]));
 		const byParent = this._indexByParent(everything);
 		const episodesOfSeries = this._episodesBySeries(everything, byParent);
@@ -452,9 +491,21 @@ export class MediaManager {
 			absolutePairs,
 			landed,
 			settled,
+			parentMatches,
 		};
 
-		const mine = everything.filter((item) => item.serviceId === serviceId);
+		/*
+		 * Parents before their children, which is new and is what makes the season and
+		 * episode strategy usable on a service seen for the first time. That strategy is
+		 * gated on the parent already being paired; correlated in the order the database
+		 * happened to return, an episode was routinely scored before its own series had
+		 * been, and the gate shut on a pairing this very pass was about to create.
+		 */
+		const mine = everything
+			.filter((item) => item.serviceId === serviceId)
+			// `sort` and not `toSorted`: the target this builds for does not declare the
+			// latter, and `filter` above has already produced an array of our own.
+			.sort((left, right) => DEPTH_OF[left.kind as MediaKind] - DEPTH_OF[right.kind as MediaKind]);
 		const touched = new Set<string>();
 		let written = 0;
 
@@ -536,6 +587,7 @@ export class MediaManager {
 					threshold: context.threshold,
 					episodeIdentifiers: context.episodeIdentifiers,
 					absolutePairs: context.absolutePairs,
+					parentMatches: context.parentMatches,
 				},
 			)
 			.map((proposal) =>
@@ -548,6 +600,14 @@ export class MediaManager {
 		for (const proposal of proposals) {
 			await this._matches.upsertPair(proposal);
 			touched?.add(proposal.remoteItemId);
+
+			// Recorded as it is written, so the episodes scored after this one can see the
+			// pairing their own gate depends on. Only applied pairs count: a proposal
+			// nobody agreed to must not let four hundred episodes through behind it.
+			if (proposal.applied) {
+				MediaManager._link(context.parentMatches, item.id, proposal.remoteItemId);
+				MediaManager._link(context.parentMatches, proposal.remoteItemId, item.id);
+			}
 			written += 1;
 		}
 
@@ -1417,6 +1477,25 @@ export class MediaManager {
 	}
 
 	/** Every match row filed under both of the items it joins, for lookup by either. */
+	/**
+	 * Who is matched to whom, both ways round, from the pairs already applied.
+	 *
+	 * Applied only. A proposal is a question nobody has answered, and letting one gate
+	 * the season/episode strategy would mean a doubtful series pairing quietly admitting
+	 * four hundred episodes behind it — the same reason `_absolutePairs` reads applied
+	 * rows and not proposals.
+	 */
+	private static _adjacency(matches: MatchPair[]): Map<string, Set<string>> {
+		const pairs = new Map<string, Set<string>>();
+
+		for (const match of matches) {
+			MediaManager._link(pairs, match.localItemId, match.remoteItemId);
+			MediaManager._link(pairs, match.remoteItemId, match.localItemId);
+		}
+
+		return pairs;
+	}
+
 	private _indexMatches(matches: MediaMatchEntity[]): Map<string, MediaMatchEntity[]> {
 		const index = new Map<string, MediaMatchEntity[]>();
 

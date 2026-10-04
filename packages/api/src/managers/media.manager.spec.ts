@@ -137,6 +137,7 @@ interface Fakes {
 		findOne: jest.Mock;
 		findForLocalItem: jest.Mock;
 		findForRemoteItem: jest.Mock;
+		findAppliedPairs: jest.Mock;
 		upsertPair: jest.Mock;
 		save: jest.Mock;
 		delete: jest.Mock;
@@ -245,6 +246,9 @@ const build = (
 			findOne: jest.fn().mockResolvedValue(null),
 			findForLocalItem: jest.fn().mockResolvedValue([]),
 			findForRemoteItem: jest.fn().mockResolvedValue([]),
+			// What is already paired, which is the gate the season/episode strategy opens
+			// on. Empty unless a test says otherwise.
+			findAppliedPairs: jest.fn().mockResolvedValue([]),
 			upsertPair: jest.fn((claim: unknown) => Promise.resolve(claim as MediaMatch)),
 			save: jest.fn((value: MediaMatch) => Promise.resolve(value)),
 			delete: jest.fn((where: { id: string }) => {
@@ -392,6 +396,77 @@ describe('MediaManager', () => {
 					remoteItemId: 'item-b',
 					strategy: MatchStrategy.CHECKSUM,
 				}),
+			);
+		});
+
+		it('pairs two episodes by their place in a show, once the show is paired', async () => {
+			/*
+			 * The strategy that never once fired. `MatchingService` reads a map of which
+			 * rows are already paired to gate this — "every library has an S01E02, and
+			 * matching on it alone would correlate the second episode of every series with
+			 * the second of every other" — and no caller ever built one. The option
+			 * existed, the service was unit-tested against it, and the gate was shut on
+			 * every real correlation this product has ever run.
+			 *
+			 * What it cost: a source that enumerates a series by season and episode without
+			 * an identifier per episode — a request source — could never be joined to the
+			 * copies on a shelf, so a complete series read as a wall of missing episodes.
+			 */
+			const here = item({ id: 'ep-a', parentId: 'season-a', file: null, externalIds: {} });
+			const there = item({
+				id: 'ep-b',
+				serviceId: 'service-b',
+				libraryId: 'library-b',
+				externalId: 'b-5',
+				parentId: 'season-b',
+				file: null,
+				externalIds: {},
+			});
+			const { manager, fakes } = build({ items: [here, there] });
+
+			// Neither row has a file or an identifier, so nothing but the title lookup can
+			// offer one as a candidate for the other — which is exactly the case this
+			// strategy exists for.
+			fakes.items.findCandidatesForMatch.mockResolvedValue([there]);
+			// The seasons are already paired, which is the only thing that makes two
+			// `S01E05` rows the same episode rather than a coincidence.
+			fakes.matches.findAppliedPairs.mockResolvedValue([
+				{ localItemId: 'season-a', remoteItemId: 'season-b', state: SyncState.IN_SYNC },
+			]);
+
+			await manager.correlateService('service-a');
+
+			expect(fakes.matches.upsertPair).toHaveBeenCalledWith(
+				expect.objectContaining({
+					localItemId: 'ep-a',
+					remoteItemId: 'ep-b',
+					strategy: MatchStrategy.SEASON_EPISODE,
+				}),
+			);
+		});
+
+		it('refuses the same two episodes when nothing above them is paired', async () => {
+			// The other half of the rule, and the reason the gate exists at all: without a
+			// paired parent these numbers say nothing, and every `S01E05` in the catalogue
+			// would be the same episode.
+			const here = item({ id: 'ep-a', parentId: 'season-a', file: null, externalIds: {} });
+			const there = item({
+				id: 'ep-b',
+				serviceId: 'service-b',
+				libraryId: 'library-b',
+				externalId: 'b-5',
+				parentId: 'season-b',
+				file: null,
+				externalIds: {},
+			});
+			const { manager, fakes } = build({ items: [here, there] });
+
+			fakes.items.findCandidatesForMatch.mockResolvedValue([there]);
+
+			await manager.correlateService('service-a');
+
+			expect(fakes.matches.upsertPair).not.toHaveBeenCalledWith(
+				expect.objectContaining({ strategy: MatchStrategy.SEASON_EPISODE }),
 			);
 		});
 
