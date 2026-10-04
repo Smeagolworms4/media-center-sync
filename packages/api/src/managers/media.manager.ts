@@ -142,6 +142,8 @@ interface CorrelationContext {
 	 * is this pass that creates it. See the ordering in `correlateService`.
 	 */
 	parentMatches: Map<string, Set<string>>;
+	/** Every row by the parent it hangs from — see `_underMatchedParentOf`. */
+	byParent: Map<string, MediaItemEntity[]>;
 }
 
 /**
@@ -516,6 +518,7 @@ export class MediaManager {
 			landed,
 			settled,
 			parentMatches,
+			byParent,
 		};
 
 		/*
@@ -577,6 +580,49 @@ export class MediaManager {
 	}
 
 	/**
+	 * The rows sitting under a parent this one's parent is already matched to.
+	 *
+	 * The discovery that was missing, and without it the season-and-episode strategy was
+	 * never even consulted: a row has to be *offered* as a candidate before anything can
+	 * score it, and the only offer a season or an episode of a request source gets is the
+	 * title lookup — it has no file to be found by content and no identifier of its own.
+	 *
+	 * That lookup compares normalised titles for equality, and the two sides disagree for
+	 * an ordinary reason: the provider calls a show "Marvel's Runaways" and the library
+	 * calls it "Runaways". The *series* does not care, because it matches on an identifier
+	 * both sides carry. Its seasons have none, so they were never put in front of each
+	 * other, and a series held in full came out with every season duplicated and counted
+	 * missing.
+	 *
+	 * So when the parent is already paired, its children are the candidates. That is the
+	 * same statement the strategy itself makes — "without a matched parent these numbers
+	 * say nothing" — applied one step earlier, to deciding who is worth comparing at all.
+	 * The numbers then settle it, which is the whole point: a name decides nothing here.
+	 */
+	private _underMatchedParentOf(
+		item: MediaItemEntity,
+		context: CorrelationContext,
+	): MediaItemEntity[] {
+		if (item.parentId === null) {
+			return [];
+		}
+
+		const siblings: MediaItemEntity[] = [];
+
+		for (const parentId of context.parentMatches.get(item.parentId) ?? []) {
+			for (const child of context.byParent.get(parentId) ?? []) {
+				// Another service's, always: a row is never a candidate for itself, and two
+				// rows of one library are two different media by construction.
+				if (child.serviceId !== item.serviceId && child.kind === item.kind) {
+					siblings.push(child);
+				}
+			}
+		}
+
+		return siblings;
+	}
+
+	/**
 	 * One item against everything else the gateway knows about.
 	 *
 	 * `touched` collects the far side of each proposal so the caller can settle those
@@ -602,6 +648,7 @@ export class MediaManager {
 			...this._sameContentAs(item, context.byContent),
 			...this._sameWorkAs(item, context.byWork),
 			...this._alignedWith(item, context),
+			...this._underMatchedParentOf(item, context),
 		]) {
 			/*
 			 * Every row but this one, its own service included.

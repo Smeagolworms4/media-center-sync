@@ -429,6 +429,63 @@ describe('MediaManager', () => {
 			expect(served).toBeGreaterThan(0);
 		});
 
+		it('pairs seasons the two sides name differently, through their matched show', async () => {
+			/*
+			 * The failure a live catalogue showed, after the gate above was already fixed.
+			 * A row has to be *offered* as a candidate before anything scores it, and the
+			 * only offer a season of a request source gets is the title lookup — no file to
+			 * be found by content, no identifier of its own. That lookup compares normalised
+			 * titles for equality, and the two sides disagree for an ordinary reason: the
+			 * provider says "Marvel's Runaways" and the library says "Runaways".
+			 *
+			 * The series does not care, because it matches on an identifier both carry. Its
+			 * seasons have none, so they were never put in front of each other: a series
+			 * held in full came out with every season duplicated and counted missing.
+			 */
+			const here = item({
+				id: 'season-a',
+				kind: MediaKind.SEASON,
+				parentId: 'series-a',
+				seasonNumber: 2,
+				episodeNumber: null,
+				normalizedTitle: 'runaways',
+				file: null,
+				externalIds: {},
+			});
+			const there = item({
+				id: 'season-b',
+				serviceId: 'service-b',
+				libraryId: 'library-b',
+				externalId: 'b-s2',
+				kind: MediaKind.SEASON,
+				parentId: 'series-b',
+				seasonNumber: 2,
+				episodeNumber: null,
+				// The provider's name for the same show, which is why the title lookup
+				// answers nothing and why this test exists.
+				normalizedTitle: 'marvels runaways',
+				file: null,
+				externalIds: {},
+			});
+			const { manager, fakes } = build({ items: [here, there] });
+
+			// Nothing offers them to each other: the titles differ and neither has a file.
+			fakes.items.findCandidatesForMatch.mockResolvedValue([]);
+			fakes.matches.findAppliedPairs.mockResolvedValue([
+				{ localItemId: 'series-a', remoteItemId: 'series-b', state: SyncState.IN_SYNC },
+			]);
+
+			await manager.correlateService('service-a');
+
+			expect(fakes.matches.upsertPair).toHaveBeenCalledWith(
+				expect.objectContaining({
+					localItemId: 'season-a',
+					remoteItemId: 'season-b',
+					strategy: MatchStrategy.SEASON_EPISODE,
+				}),
+			);
+		});
+
 		it('pairs two episodes by their place in a show, once the show is paired', async () => {
 			/*
 			 * The strategy that never once fired. `MatchingService` reads a map of which
