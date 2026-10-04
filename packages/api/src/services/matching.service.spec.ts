@@ -54,6 +54,42 @@ describe('MatchingService', () => {
 	 * both sides — that it fires where it should, and that it stays silent where the
 	 * evidence is a show's identifier or two sides that simply disagree.
 	 */
+	describe('a title never settles which season', () => {
+		/*
+		 * Every season of a show is normalised under the *show's* title, so season one and
+		 * season three of "Runaways" compare as the same string — a perfect title match
+		 * between two things that are not the same season.
+		 *
+		 * It never fired because the only way two rows reached the scorer was a candidate
+		 * lookup that already constrained the coordinate. The day another lookup was added
+		 * without that constraint, three seasons of a show collapsed into one on a live
+		 * catalogue. The check belongs where the claim is made.
+		 */
+		const season = (over: Record<string, unknown>) => ({
+			id: 'x', serviceId: 's', peerId: null, parentId: 'p',
+			kind: MediaKind.SEASON, title: 'Runaways', normalizedTitle: 'runaways',
+			year: 2017, seasonNumber: 1, episodeNumber: null, externalIds: {}, file: null,
+			...over,
+		}) as never;
+
+		it('refuses two seasons of one show that share its name', () => {
+			expect(service.score(
+				season({ id: 'a', seasonNumber: 1 }),
+				season({ id: 'b', serviceId: 't', seasonNumber: 3 }),
+				options({}),
+			)).toBeNull();
+		});
+
+		it('still refuses when neither carries a number', () => {
+			// A row with no coordinate is exactly the one these numbers cannot speak for.
+			expect(service.score(
+				season({ id: 'a', seasonNumber: null }),
+				season({ id: 'b', serviceId: 't', seasonNumber: null }),
+				options({}),
+			)).toBeNull();
+		});
+	});
+
 	describe('episodes numbered two different ways', () => {
 		const run = candidate({
 			id: 'run-153',

@@ -486,6 +486,40 @@ describe('MediaManager', () => {
 			);
 		});
 
+		it('never offers a season its own siblings as candidates', async () => {
+			/*
+			 * The regression the first version of that discovery caused, seen on a live
+			 * catalogue: three seasons of a show collapsed into one. Every season carries
+			 * the *show's* normalised title, so offering season one the other seasons let
+			 * the title strategy pair all three together. The title lookup this stands
+			 * beside has always constrained the coordinate; this has to as well.
+			 */
+			const one = item({
+				id: 'season-1', kind: MediaKind.SEASON, parentId: 'series-a',
+				seasonNumber: 1, episodeNumber: null, normalizedTitle: 'runaways',
+				file: null, externalIds: {},
+			});
+			const two = item({
+				id: 'season-2', serviceId: 'service-b', libraryId: 'library-b', externalId: 'b-s2',
+				kind: MediaKind.SEASON, parentId: 'series-b',
+				seasonNumber: 2, episodeNumber: null, normalizedTitle: 'runaways',
+				file: null, externalIds: {},
+			});
+			const { manager, fakes } = build({ items: [one, two] });
+
+			fakes.items.findCandidatesForMatch.mockResolvedValue([]);
+			fakes.matches.findAppliedPairs.mockResolvedValue([
+				{ localItemId: 'series-a', remoteItemId: 'series-b', state: SyncState.IN_SYNC },
+			]);
+
+			await manager.correlateService('service-a');
+
+			// Season one and season two are not the same season, whatever they are called.
+			expect(fakes.matches.upsertPair).not.toHaveBeenCalledWith(
+				expect.objectContaining({ localItemId: 'season-1', remoteItemId: 'season-2' }),
+			);
+		});
+
 		it('pairs two episodes by their place in a show, once the show is paired', async () => {
 			/*
 			 * The strategy that never once fired. `MatchingService` reads a map of which

@@ -787,15 +787,30 @@ export class MatchingService {
 			return null;
 		}
 
-		// Episodes are not matched on their titles alone: half a library has none, and
-		// the ones that do repeat `Pilot` and `Part One` across every series there is.
+		/*
+		 * Episodes are not matched on their titles alone: half a library has none, and the
+		 * ones that do repeat `Pilot` and `Part One` across every series there is.
+		 *
+		 * **Nor are seasons, for a worse reason**: every season of a show is normalised
+		 * under the *show's* title, so "Runaways" season one and "Runaways" season three
+		 * compare as the same string — a perfect title match between two things that are
+		 * not the same season. It never fired because the only way two rows reached this
+		 * function was a candidate lookup that already constrained the coordinate; the day
+		 * another lookup was added without that constraint, three seasons of a show
+		 * collapsed into one on a live catalogue.
+		 *
+		 * So the coordinate is checked here, where the claim is made, rather than trusted
+		 * to whoever chose the candidates. A title says a great deal about a film and
+		 * almost nothing about which season of a show you are holding.
+		 */
+		if (local.kind === MediaKind.EPISODE || local.kind === MediaKind.SEASON) {
+			if (local.seasonNumber === null || local.seasonNumber !== remote.seasonNumber) {
+				return null;
+			}
+		}
+
 		if (local.kind === MediaKind.EPISODE) {
-			if (
-				local.seasonNumber === null ||
-				local.episodeNumber === null ||
-				local.seasonNumber !== remote.seasonNumber ||
-				local.episodeNumber !== remote.episodeNumber
-			) {
+			if (local.episodeNumber === null || local.episodeNumber !== remote.episodeNumber) {
 				return null;
 			}
 		}

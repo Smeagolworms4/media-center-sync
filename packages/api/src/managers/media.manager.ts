@@ -611,9 +611,25 @@ export class MediaManager {
 
 		for (const parentId of context.parentMatches.get(item.parentId) ?? []) {
 			for (const child of context.byParent.get(parentId) ?? []) {
+				/*
+				 * The coordinate has to line up, and leaving that out was a real regression:
+				 * every season of a show carries the *show's* normalised title, so offering
+				 * season one the other seasons as candidates let the title strategy pair all
+				 * three into a single season. The title lookup this stands beside has always
+				 * constrained the numbers — `findCandidatesForMatch` takes them as
+				 * arguments — and this has to as well.
+				 *
+				 * Null never lines up with anything here. A row with no coordinate is exactly
+				 * the one these numbers cannot speak for.
+				 */
+				const aligned =
+					child.seasonNumber !== null
+					&& child.seasonNumber === item.seasonNumber
+					&& child.episodeNumber === item.episodeNumber;
+
 				// Another service's, always: a row is never a candidate for itself, and two
 				// rows of one library are two different media by construction.
-				if (child.serviceId !== item.serviceId && child.kind === item.kind) {
+				if (aligned && child.serviceId !== item.serviceId && child.kind === item.kind) {
 					siblings.push(child);
 				}
 			}
