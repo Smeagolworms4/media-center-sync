@@ -458,7 +458,13 @@ export class MediaManager {
 				.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
 				.map((service) => service.id),
 		);
-		const everything = await this._items.find();
+		/*
+		 * Only the columns this pass reads — see `findForCorrelation`. The whole table is
+		 * held in memory here, with six indexes over it, so the three columns nothing in
+		 * correlation touches were most of what a scan cost on a catalogue of sixty
+		 * thousand rows.
+		 */
+		const everything = await this._items.findForCorrelation();
 		const byContent = this._indexByContent(everything);
 		const byWork = this._indexByWork(everything);
 		const landed = new Map(

@@ -711,6 +711,29 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	}
 
 	/** Everything a set of libraries holds, which is how one list of a source is scoped. */
+	/**
+	 * Every row, carrying only what a correlation pass reads.
+	 *
+	 * A pass loads the whole table into memory and builds six indexes over it, so what
+	 * each row weighs is multiplied by a catalogue. The three heaviest columns are the
+	 * three it never touches: `overview` is a paragraph of prose per row, `quality` and
+	 * `artworkUrl` are read when a media is *drawn* and never when one is matched.
+	 *
+	 * On a household with sixty thousand rows that is most of the memory a scan held, on
+	 * a NAS where it is the scarce thing. The selection is explicit rather than an
+	 * exclusion list: a column added later is absent here until somebody who needs it
+	 * says so, which is the safe direction to be wrong in.
+	 */
+	public findForCorrelation(): Promise<MediaItem[]> {
+		return this.find({
+			select: [
+				'id', 'serviceId', 'libraryId', 'externalId', 'parentId', 'parentExternalId',
+				'kind', 'title', 'normalizedTitle', 'year', 'seasonNumber', 'episodeNumber',
+				'externalIds', 'file', 'syncState', 'synthetic', 'addedAt', 'childCount',
+			],
+		});
+	}
+
 	public findByLibraries(libraryIds: string[]): Promise<MediaItem[]> {
 		return this._chunked(libraryIds, (chunk) => this.find({ where: { libraryId: In(chunk) } }));
 	}
