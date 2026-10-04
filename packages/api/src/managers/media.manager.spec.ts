@@ -399,6 +399,28 @@ describe('MediaManager', () => {
 			);
 		});
 
+		it('lets the gateway answer while it correlates', async () => {
+			/*
+			 * Correlation is the longest pass of a scan and it was the one with no yield in
+			 * it. The walk handed the event loop back and this did not, so a scan stopped
+			 * blocking for twenty minutes and started blocking in bursts of ten seconds —
+			 * which looked fixed and was not. The test is the same one the walk has: a
+			 * macrotask queued beforehand must get to run while the pass is still going.
+			 */
+			const items = Array.from({ length: 120 }, (_, index) =>
+				item({ id: `row-${index}`, externalId: `a-${index}` }));
+			const { manager } = build({ items });
+
+			let served = 0;
+			const serving = setInterval(() => { served += 1; }, 0);
+
+			await manager.correlateService('service-a');
+			clearInterval(serving);
+
+			// A timer is a macrotask, exactly like an inbound request.
+			expect(served).toBeGreaterThan(0);
+		});
+
 		it('pairs two episodes by their place in a show, once the show is paired', async () => {
 			/*
 			 * The strategy that never once fired. `MatchingService` reads a map of which

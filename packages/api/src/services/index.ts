@@ -1,4 +1,5 @@
 export * from './bandwidth.service';
+export * from './breathe';
 export * from './cache.service';
 export * from './chunk-planner';
 export * from './classification';

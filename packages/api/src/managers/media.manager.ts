@@ -32,6 +32,7 @@ import {
 	HandlerRegistry,
 	identifierValue,
 	alignAbsoluteNumbering,
+	breathe,
 	episodeIdentifierKeys,
 	landingSyncState,
 	MatchingService,
@@ -509,8 +510,16 @@ export class MediaManager {
 		const touched = new Set<string>();
 		let written = 0;
 
+		let walked = 0;
+
 		for (const item of mine) {
 			written += await this._correlateItem(item, context, touched);
+			walked += 1;
+
+			// Correlation is the longest pass of a scan and it was the one with no yield
+			// in it: the walk handed the loop back and this did not, so a scan stopped
+			// blocking for twenty minutes and started blocking in bursts of ten seconds.
+			await breathe(walked);
 		}
 
 		/*
@@ -532,8 +541,13 @@ export class MediaManager {
 			(item) => item.serviceId !== serviceId && touched.has(item.id),
 		);
 
+		let refreshed = 0;
+
 		for (const item of counterparts) {
 			await this._correlateItem(item, context, null);
+			refreshed += 1;
+
+			await breathe(refreshed);
 		}
 
 		return written;
@@ -1073,8 +1087,16 @@ export class MediaManager {
 			moved.push({ id: row.id, from: row.parentId, to: target });
 		}
 
+		let written = 0;
+
 		for (const move of moved) {
 			await this._items.update({ id: move.id }, { parentId: move.to });
+			written += 1;
+
+			// A refile of a large library is tens of thousands of writes in a row, and
+			// `better-sqlite3` is synchronous: without this the server is deaf for as long
+			// as it takes. See `breathe`.
+			await breathe(written);
 		}
 
 		/*
