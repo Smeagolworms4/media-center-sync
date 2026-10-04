@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 	import type { MediaGroup, MediaGroupQuery } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
@@ -43,6 +44,7 @@
 	 */
 	const view = useViewMode('mcs.library.view');
 
+	const { t } = useI18n();
 	const librariesStore = useLibrariesStore();
 	const servicesStore = useServicesStore();
 
@@ -93,12 +95,13 @@
 	const loading = ref(false);
 
 	/**
-	 * How many of each category the wall shows before somebody opens it.
+	 * How much of the wall is drawn before somebody asks for more.
 	 *
-	 * The library's own number, because this is the library's own wall asking one
-	 * question, and a band that scrolled differently here would read as another product.
+	 * Across every category rather than per category, because the wall is read in one
+	 * request now — see `QUERY`. Twice the library's own band, since this is the whole
+	 * screen and not one shelf of it.
 	 */
-	const BAND_LIMIT = 60;
+	const WALL_LIMIT = 120;
 
 	/**
 	 * One band per category, exactly as the library draws its home screen.
@@ -112,29 +115,37 @@
 	 * request source named, where a season and an episode carry none. A series is what a
 	 * category sorts. And a series with twelve gaps is one card rather than twelve.
 	 */
-	const bands = computed(() => librariesStore.orderedCategories);
+	/**
+	 * One read for the whole wall, cut into bands here rather than asked for band by band.
+	 *
+	 * It used to ask once per category, and on a household with eight of them that was
+	 * eight of the most expensive query this product has: `rootsOnly` together with
+	 * `actionable` makes the gateway re-read every descendant of the scope and build a
+	 * skeleton for each, and doing that eight times over is where ten seconds of a reload
+	 * went. The answer is the same wall either way — the categories are a *presentation*
+	 * of what came back, and a category a media belongs to is already known here from the
+	 * library it sits in.
+	 */
+	const KEY = 'new-releases';
 
-	function queryOf (category: { key: string }): MediaGroupQuery {
-		return {
-			categoryKey: category.key,
-			/*
-			 * Roots, never episodes. `actionable` is what makes it news rather than a
-			 * catalogue: it keeps the series that have something to fetch or to replace
-			 * beneath them, and drops the ones that are complete.
-			 */
-			rootsOnly: true,
-			watched: true,
-			actionable: true,
-			/*
-			 * By the date something came out. For a row nothing holds, that is the only date
-			 * it has — the handlers write the air date into `addedAt`, because no server
-			 * ever added it. See `RequestsHandler` and `discoverEpisodes`.
-			 */
-			sort: 'addedAt',
-			direction: 'desc',
-			limit: BAND_LIMIT,
-		};
-	}
+	const QUERY: MediaGroupQuery = {
+		/*
+		 * Roots, never episodes. `actionable` is what makes it news rather than a
+		 * catalogue: it keeps what has something to fetch or to replace beneath it, and
+		 * drops what is complete.
+		 */
+		rootsOnly: true,
+		watched: true,
+		actionable: true,
+		/*
+		 * By the date something came out. For a row nothing holds, that is the only date it
+		 * has — the handlers write the air date into `addedAt`, because no server ever
+		 * added it. See `RequestsHandler` and `discoverEpisodes`.
+		 */
+		sort: 'addedAt',
+		direction: 'desc',
+		limit: WALL_LIMIT,
+	};
 
 	async function load (): Promise<void> {
 		failed.value = false;
@@ -142,9 +153,7 @@
 
 		try {
 			await librariesStore.loadCategories();
-			await Promise.all(
-				bands.value.map(category => mediaStore.searchGroups(category.key, queryOf(category))),
-			);
+			await mediaStore.searchGroups(KEY, QUERY);
 		} catch {
 			failed.value = true;
 		} finally {
@@ -154,15 +163,48 @@
 
 	onMounted(load);
 
-	function groupsOf (key: string): MediaGroup[] {
-		return mediaStore.groups[key] ?? [];
-	}
+	/** Which category each library belongs to, so a group can be filed without asking. */
+	const categoryOfLibrary = computed(() => {
+		const map = new Map<string, string>();
 
-	/** Categories with something to show, so an empty shelf is not a heading over nothing. */
-	const filled = computed(() => bands.value.filter(one => groupsOf(one.key).length > 0));
+		for (const category of librariesStore.orderedCategories) {
+			for (const libraryId of category.libraryIds) {
+				map.set(libraryId, category.key);
+			}
+		}
 
-	const total = computed(
-		() => filled.value.reduce((count, one) => count + groupsOf(one.key).length, 0));
+		return map;
+	});
+
+	const rows = computed<MediaGroup[]>(() => mediaStore.groups[KEY] ?? []);
+
+	/**
+	 * The wall, cut into its categories, in the order the library shows them.
+	 *
+	 * A category with nothing in it is left out rather than drawn as a heading over
+	 * nothing, and anything whose library names no category keeps its place at the end:
+	 * dropping it would be hiding a media because this screen could not file it.
+	 */
+	const filled = computed(() => {
+		const byCategory = new Map<string, MediaGroup[]>();
+
+		for (const group of rows.value) {
+			const key = categoryOfLibrary.value.get(group.libraryId ?? '') ?? '';
+
+			byCategory.set(key, [...(byCategory.get(key) ?? []), group]);
+		}
+
+		const bands = librariesStore.orderedCategories
+			.filter(one => (byCategory.get(one.key) ?? []).length > 0)
+			.map(one => ({ key: one.key, name: one.name, groups: byCategory.get(one.key) ?? [] }));
+		const orphans = byCategory.get('') ?? [];
+
+		return orphans.length > 0
+			? [...bands, { key: 'other', name: t('news.other'), groups: orphans }]
+			: bands;
+	});
+
+	const total = computed(() => rows.value.length);
 </script>
 
 <template>
@@ -266,10 +308,10 @@
 					v-for="category of filled"
 					:key="category.key"
 					:data-test="`news-band-${category.key}`"
-					:groups="groupsOf(category.key)"
+					:groups="category.groups"
 					:loading="loading"
 					:title="category.name"
-					:total="groupsOf(category.key).length"
+					:total="category.groups.length"
 					:view="view"
 				/>
 			</template>

@@ -1793,6 +1793,7 @@
 		"scanning_text_total": "扫描正在遍历你的剧集——已处理 {count} 条，约 {total} 条。这不是「没有新内容」，而是「还没结束」。",
 		"scanning_title": "正在读取",
 		"missing": "缺失（{count}）",
+		"other": "其他",
 		"missing_help": "已播出，且这里无人持有。打开其中一项来查找副本。",
 		"subtitle": "你关注的剧集有哪些新内容。",
 		"upgrades": "版本升级（{count}）",

@@ -1793,6 +1793,7 @@
 		"scanning_text_total": "Ein Scan geht gerade Ihre Serien durch — {count} von etwa {total} Zeilen. Das heißt nicht „nichts Neues“, sondern „noch nicht fertig“.",
 		"scanning_title": "Wird noch gelesen",
 		"missing": "Fehlend ({count})",
+		"other": "Anderswo",
 		"missing_help": "Erschienen und hier von niemandem vorhanden. Öffnen Sie eine, um eine Kopie zu suchen.",
 		"subtitle": "Was für die Serien erschienen ist, denen Sie folgen.",
 		"upgrades": "Versionsverbesserungen ({count})",

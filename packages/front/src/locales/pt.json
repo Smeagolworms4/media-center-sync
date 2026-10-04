@@ -1793,6 +1793,7 @@
 		"scanning_text_total": "Uma análise está a percorrer as suas séries neste momento — {count} de cerca de {total} linhas. Não é «nada de novo», é «ainda não terminou».",
 		"scanning_title": "Leitura em curso",
 		"missing": "Em falta ({count})",
+		"other": "Noutro lado",
 		"missing_help": "Já saíram e ninguém os tem aqui. Abra um para procurar uma cópia.",
 		"subtitle": "O que saiu para as séries que segue.",
 		"upgrades": "Subidas de versão ({count})",

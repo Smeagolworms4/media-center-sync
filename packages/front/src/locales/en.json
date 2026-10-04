@@ -1793,6 +1793,7 @@
 		"scanning_text_total": "A scan is going through your shows right now — {count} of about {total} rows. This is not “nothing new”, it is “not finished yet”.",
 		"scanning_title": "Still reading",
 		"missing": "Missing ({count})",
+		"other": "Elsewhere",
 		"missing_help": "Aired, and held by nobody here. Open one to look for a copy.",
 		"subtitle": "What has come out for the shows you follow.",
 		"upgrades": "Version upgrades ({count})",

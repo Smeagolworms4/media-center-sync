@@ -81,26 +81,19 @@ const CATEGORIES = [
 
 /** The wall, with each category answering whatever `byCategory` says it holds. */
 async function open (
-	byCategory: Record<string, Record<string, unknown>[]>,
+	everything: Record<string, unknown>[],
 	scans: { serviceId: string; libraryId: string | null; itemsSeen: number; itemsTotal: number | null; done: boolean }[] = [],
 ) {
 	const stub = stubFetchRoutes({
 		'/api/libraries/categories': { body: CATEGORIES },
 		'/api/libraries': { body: [] },
-		// Keyed on the query string, because each band asks for its own category and the
-		// helper matches a route by substring.
-		...Object.fromEntries(
-			CATEGORIES.map(one => {
-				const items = byCategory[one.key] ?? [];
-
-				return [
-					`categoryKey=${one.key}`,
-					{ body: { items, pagination: { page: 1, limit: 60, total: items.length, pages: 1 } } },
-				];
-			}),
-		),
+		/*
+		 * One route, because the wall is one request now. It used to be one per category,
+		 * which on eight categories was eight of the most expensive query this product has
+		 * — and ten seconds of a reload.
+		 */
 		'/api/media/groups': {
-			body: { items: [], pagination: { page: 1, limit: 60, total: 0, pages: 0 } },
+			body: { items: everything, pagination: { page: 1, limit: 120, total: everything.length, pages: 1 } },
 		},
 	});
 	const { wrapper } = mountWithApp(NewReleases, { global: { stubs: tooltipStub } });
@@ -120,8 +113,15 @@ async function open (
 
 describe('pages/NewReleases', () => {
 	it('asks for series with something to fetch, not for episodes', async () => {
-		const { stub } = await open({});
-		const url = String(stub.mock.calls.find(one => String(one[0]).includes('/media/groups'))?.[0]);
+		const { stub } = await open([]);
+		const asked = stub.mock.calls.filter(one => String(one[0]).includes('/media/groups'));
+		const url = String(asked[0]?.[0]);
+
+		// One request for the whole wall. It was one per category, and `rootsOnly` with
+		// `actionable` makes the gateway re-read every descendant and build a skeleton for
+		// each — eight times over, which is where ten seconds of a reload went.
+		expect(asked).toHaveLength(1);
+		expect(url).not.toContain('categoryKey');
 
 		// Roots rather than a kind: a film is as much news as a series, and both are what
 		// a category sorts.
@@ -137,10 +137,10 @@ describe('pages/NewReleases', () => {
 	});
 
 	it('draws one band per category, like the library it belongs to', async () => {
-		const { wrapper } = await open({
-			series: [series()],
-			films: [series({ id: 'm1', kind: MediaKind.MOVIE, title: 'Dune' })],
-		});
+		const { wrapper } = await open([
+			series(),
+			series({ id: 'm1', kind: MediaKind.MOVIE, title: 'Dune', libraryId: 'l2' }),
+		]);
 
 		expect(wrapper.find('[data-test="news-band-series"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="news-band-films"]').exists()).toBe(true);
@@ -148,7 +148,7 @@ describe('pages/NewReleases', () => {
 	});
 
 	it('leaves out a category with nothing in it, rather than heading an empty shelf', async () => {
-		const { wrapper } = await open({ series: [series()] });
+		const { wrapper } = await open([series()]);
 
 		expect(wrapper.find('[data-test="news-band-series"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="news-band-films"]').exists()).toBe(false);
@@ -156,13 +156,13 @@ describe('pages/NewReleases', () => {
 
 	it('keeps the library’s own grid-or-list preference', async () => {
 		// Shared on purpose: somebody who browses in rows browses in rows everywhere.
-		const { wrapper } = await open({ series: [series()] });
+		const { wrapper } = await open([series()]);
 
 		expect(wrapper.find('[data-test="news-view-toggle"]').exists()).toBe(true);
 	});
 
 	it('says nothing is new rather than drawing an empty frame', async () => {
-		const { wrapper } = await open({});
+		const { wrapper } = await open([]);
 
 		expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="news-scanning"]').exists()).toBe(false);
@@ -175,7 +175,7 @@ describe('pages/NewReleases', () => {
 		 * is a wait. Said as an answer, somebody reads it off a screen that has not
 		 * finished and concludes the feature does not work — which is what happened.
 		 */
-		const { wrapper } = await open({}, [
+		const { wrapper } = await open([], [
 			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: null, done: false },
 		]);
 
@@ -187,7 +187,7 @@ describe('pages/NewReleases', () => {
 		// A bar moving against a number is the difference between "it is working" and "it
 		// is nearly done". The gateway reports the previous scan's count as the estimate,
 		// since counting first would mean reading the library twice.
-		const { wrapper } = await open({}, [
+		const { wrapper } = await open([], [
 			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false },
 		]);
 		const bar = wrapper.find('[data-test="news-scanning-progress"]');
@@ -202,7 +202,7 @@ describe('pages/NewReleases', () => {
 		 * a bar past its own end — the rows of a scan with no estimate would count towards
 		 * a total that does not include them.
 		 */
-		const { wrapper } = await open({}, [
+		const { wrapper } = await open([], [
 			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false },
 			{ serviceId: 'sv2', libraryId: null, itemsSeen: 900, itemsTotal: null, done: false },
 		]);
@@ -212,7 +212,7 @@ describe('pages/NewReleases', () => {
 	});
 
 	it('goes back to saying nothing is new once the scan is over', async () => {
-		const { wrapper } = await open({}, [
+		const { wrapper } = await open([], [
 			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: 120, done: true },
 		]);
 
