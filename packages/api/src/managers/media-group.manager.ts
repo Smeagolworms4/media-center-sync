@@ -309,6 +309,9 @@ interface Scope {
 
 @Injectable()
 export class MediaGroupManager {
+	/** The grouping graph last built, and what the match table looked like then. */
+	private _graph: { version: string; threshold: number; graph: MatchGraph } | null = null;
+
 	public constructor(
 		private readonly _items: MediaItemRepository,
 		private readonly _matches: MediaMatchRepository,
@@ -832,17 +835,48 @@ export class MediaGroupManager {
 		];
 	}
 
+	/**
+	 * Everything a group query needs that is about the catalogue rather than the query.
+	 *
+	 * **The graph is kept between requests, because it was the price of every page.** It
+	 * is built from *every applied match in the catalogue* — the whole table, read and
+	 * walked into a union-find — and it was rebuilt from scratch on each request,
+	 * including the one that draws a series with three episodes in it. Nothing in it
+	 * depends on what was asked for, so a household browsing paid for the whole match
+	 * table once per click.
+	 *
+	 * Kept against a **version of the table**, never against the clock. A window of a few
+	 * seconds was tried and is wrong in a way that matters: a scan that has just finished
+	 * changes what is grouped with what, and answering from a graph built before it shows
+	 * somebody a library that disagrees with the pass they watched run. One indexed
+	 * aggregate says whether the graph is still the truth; everything else here is three
+	 * services and a handful of peers, which cost nothing to read every time.
+	 *
+	 * The threshold is part of the key: it is a setting somebody can move, it decides
+	 * which matches count, and an answer from a graph built under the old one would be
+	 * the setting quietly not taking.
+	 */
 	private async _context(): Promise<GroupContext> {
 		const threshold = await this._settings.getValue('matchThreshold');
-		const [pairs, services, peers] = await Promise.all([
-			this._matches.findAppliedPairs(threshold),
+		const [version, services, peers] = await Promise.all([
+			this._matches.version(),
 			this._services.find(),
 			this._peers.find(),
 		]);
 
+		if (this._graph === null || this._graph.version !== version || this._graph.threshold !== threshold) {
+			this._graph = {
+				version,
+				threshold,
+				graph: new MatchGraph(await this._matches.findAppliedPairs(threshold)),
+			};
+		}
+
 		return {
-			graph: new MatchGraph(pairs),
+			graph: this._graph.graph,
 			services: new Map(services.map((service) => [service.id, service])),
+			// A fresh map per caller: it is a per-request memo that `_read` fills while
+			// walking one page, and sharing it would hand one page another's folders.
 			folders: new Map(),
 			peerNames: new Map(peers.map((peer) => [peer.id, peer.name])),
 			friendsOfFriends: new Set(

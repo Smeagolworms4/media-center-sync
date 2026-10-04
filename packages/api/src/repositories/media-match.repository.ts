@@ -70,6 +70,26 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 	 * threshold in force now. A library therefore regroups when that setting moves,
 	 * which is the behaviour a person changing it expects.
 	 */
+	/**
+	 * A cheap token that changes whenever the table does.
+	 *
+	 * For callers that cache something derived from *every* match — the grouping graph is
+	 * the one — so they can tell in one indexed aggregate whether the thing they built is
+	 * still the truth. Reading the rows to find out would be the cost they are avoiding.
+	 *
+	 * The count catches insertions and deletions, the timestamp catches a row rewritten in
+	 * place: a confidence that moved across the threshold changes neither the count nor
+	 * any identifier, and is exactly the edit a grouping graph must notice.
+	 */
+	public async version(): Promise<string> {
+		const row = await this.createQueryBuilder('match')
+			.select('COUNT(match.id)', 'count')
+			.addSelect('MAX(match.updatedAt)', 'latest')
+			.getRawOne<{ count: string | number; latest: string | Date | null }>();
+
+		return `${row?.count ?? 0}:${String(row?.latest ?? '')}`;
+	}
+
 	public findAppliedPairs(threshold: number): Promise<MatchPair[]> {
 		return this.createQueryBuilder('match')
 			.select('match.localItemId', 'localItemId')

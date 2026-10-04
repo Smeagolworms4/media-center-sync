@@ -258,6 +258,9 @@ const build = (
 	};
 
 	const matches = {
+		// What the table looks like, so a cached graph can tell whether it is still the
+		// truth. Derived from the fixtures, so a test that adds a match changes it.
+		version: jest.fn(() => Promise.resolve(`${full.matches.length}`)),
 		findAppliedPairs: jest.fn((threshold: number) =>
 			Promise.resolve(
 				full.matches
@@ -1529,6 +1532,41 @@ describe('MediaGroupManager', () => {
 
 			expect(reads.matches.findAppliedPairs).toHaveBeenCalledTimes(1);
 			expect(reads.matches.findAppliedPairs).toHaveBeenCalledWith(0.8);
+		});
+
+		it('loads them once for a burst of pages, not once per page', async () => {
+			/*
+			 * The price of every click. The graph is built from *every applied match in the
+			 * catalogue* — the whole table, read and walked into a union-find — and nothing
+			 * in it depends on what was asked for. Rebuilt per request, opening a series
+			 * with three episodes in it cost the same as drawing the whole library.
+			 */
+			const { manager, reads } = build({
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' })],
+				matches: [correlation()],
+			});
+
+			await manager.groups(query());
+			await manager.groups(query({ rootsOnly: true }));
+			await manager.groups(query());
+
+			expect(reads.matches.findAppliedPairs).toHaveBeenCalledTimes(1);
+		});
+
+		it('builds it again when the threshold that decides it changes', async () => {
+			// It is a setting somebody can move, and it decides which matches count — an
+			// answer from a graph built under the old one would be the setting not taking.
+			const { manager, reads, world } = build({
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' })],
+				matches: [correlation()],
+			});
+
+			await manager.groups(query());
+			world.threshold = 0.95;
+			await manager.groups(query());
+
+			expect(reads.matches.findAppliedPairs).toHaveBeenCalledTimes(2);
+			expect(reads.matches.findAppliedPairs).toHaveBeenLastCalledWith(0.95);
 		});
 
 		it('reads the full rows only for the page it returns', async () => {
