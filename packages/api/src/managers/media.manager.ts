@@ -382,7 +382,12 @@ export class MediaManager {
 			return 0;
 		}
 
-		const everything = await this._items.find();
+		/*
+		 * Identities and files only — see `findFileIdentities`. This pass reads a size and
+		 * a content identifier and decides about a handful of rows, and it was holding the
+		 * whole catalogue with every column to do it.
+		 */
+		const everything = await this._items.findFileIdentities();
 		const identified = new Set<number>();
 
 		for (const item of everything) {
@@ -432,13 +437,25 @@ export class MediaManager {
 				continue;
 			}
 
-			item.file = {
+			/*
+			 * The row is re-read in full before it is written. `item` here came from a
+			 * projection, and saving one back is a row with every unselected column
+			 * blanked — the overview, the quality summary, the artwork, gone on a pass
+			 * that was only meant to add a hash.
+			 */
+			const row = await this._items.findOne({ where: { id: item.id } });
+
+			if (row === null) {
+				continue;
+			}
+
+			row.file = {
 				...file,
 				quickHash: fingerprint.quickHash,
 				contentId: fingerprint.contentId,
 			};
 
-			await this._items.save(item);
+			await this._items.save(row);
 			counted += 1;
 		}
 

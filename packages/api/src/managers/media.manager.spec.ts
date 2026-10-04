@@ -121,6 +121,7 @@ interface Fakes {
 	items: {
 		find: jest.Mock;
 		findForCorrelation: jest.Mock;
+		findFileIdentities: jest.Mock;
 		findOne: jest.Mock;
 		findByExternalId: jest.Mock;
 		findChildren: jest.Mock;
@@ -186,6 +187,8 @@ const build = (
 			// hands back whole ones: what the projection is for is memory, not behaviour,
 			// and a test that split them would be testing TypeORM.
 			findForCorrelation: jest.fn().mockResolvedValue(items),
+			// Identities and the file, for the pass that looks for two copies of one file.
+			findFileIdentities: jest.fn().mockResolvedValue(items),
 			findOne: jest.fn((options: { where: { id: string } }) =>
 				Promise.resolve(items.find((candidate) => candidate.id === options.where.id) ?? null),
 			),

@@ -219,12 +219,11 @@
 				<!-- The library's own toggle, down to the icons. See `Library.vue`. -->
 				<v-btn-toggle
 					v-model="view"
-					class="view-toggle"
 					data-test="news-view-toggle"
 					density="compact"
+					divided
 					mandatory
-					rounded="lg"
-					variant="text"
+					variant="outlined"
 				>
 					<v-tooltip
 						v-for="mode of VIEW_MODES"

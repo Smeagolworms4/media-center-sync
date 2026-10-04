@@ -1246,6 +1246,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 		};
 
 		const changed: MediaItem[] = [];
+		let seen = 0;
 
 		for (const item of items) {
 			const childCount = (children.get(item.id) ?? []).length;
@@ -1257,6 +1258,17 @@ export class ServiceManager implements OnApplicationBootstrap {
 				item.quality = next;
 				changed.push(item);
 			}
+
+			seen += 1;
+
+			/*
+			 * The one loop in a scan with no I/O in it at all: a quality summary and a
+			 * JSON comparison per row, straight through a library. Nothing here ever
+			 * awaited anything, so nothing ever handed the loop back — on a library of
+			 * twenty thousand rows it is a wall the server disappears behind. See
+			 * `breathe`.
+			 */
+			await breathe(seen);
 		}
 
 		if (changed.length > 0) {

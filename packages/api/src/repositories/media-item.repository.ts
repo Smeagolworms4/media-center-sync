@@ -724,6 +724,22 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	 * exclusion list: a column added later is absent here until somebody who needs it
 	 * says so, which is the safe direction to be wrong in.
 	 */
+	/**
+	 * Every row's identity and its file, and nothing else.
+	 *
+	 * For the pass that looks for two copies of one file by their byte count: it reads a
+	 * size and a content identifier, decides on a handful of rows, and holds the whole
+	 * catalogue to do it. Three columns instead of twenty is the difference between that
+	 * pass costing a few megabytes and costing most of a NAS's spare memory.
+	 *
+	 * The rows it then writes to are re-read in full — see `identifyTwins`. A projection
+	 * saved back is a row with its other columns blanked, which is the one way this could
+	 * do damage.
+	 */
+	public findFileIdentities(): Promise<MediaItem[]> {
+		return this.find({ select: ['id', 'serviceId', 'file'] });
+	}
+
 	public findForCorrelation(): Promise<MediaItem[]> {
 		return this.find({
 			select: [

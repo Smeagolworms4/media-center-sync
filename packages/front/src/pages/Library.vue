@@ -627,12 +627,11 @@
 				-->
 				<v-btn-toggle
 					v-model="view"
-					class="view-toggle"
 					data-test="library-view-toggle"
 					density="compact"
+					divided
 					mandatory
-					rounded="lg"
-					variant="text"
+					variant="outlined"
 				>
 					<v-tooltip location="bottom" :text="$t('library.view.grid')">
 						<template #activator="{ props: tip }">
