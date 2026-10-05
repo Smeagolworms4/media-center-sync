@@ -186,7 +186,11 @@ const build = (
 			// The same rows, minus the columns a correlation pass never reads. The fake
 			// hands back whole ones: what the projection is for is memory, not behaviour,
 			// and a test that split them would be testing TypeORM.
-			findForCorrelation: jest.fn().mockResolvedValue(items),
+			// Paged: the manager reads the catalogue a page at a time so that no single
+			// statement holds the thread. The fake answers the slice it was asked for, and
+			// an unpaged call the whole thing.
+			findForCorrelation: jest.fn((skip = 0, take = 0) =>
+				Promise.resolve(take > 0 ? items.slice(skip, skip + take) : items)),
 			// Identities and the file, for the pass that looks for two copies of one file.
 			findFileIdentities: jest.fn().mockResolvedValue(items),
 			findOne: jest.fn((options: { where: { id: string } }) =>

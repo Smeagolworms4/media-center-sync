@@ -118,6 +118,14 @@ export interface ProbeRequest {
  * somewhere in the middle, leaving the scan running and the caller with nothing.
  */
 
+/**
+ * How many rows one write of the summaries carries. See `_recompute`.
+ *
+ * Two hundred, which is what TypeORM's own chunking used — the change is not the size
+ * but that the event loop gets a turn between two of them.
+ */
+const SAVE_CHUNK = 200;
+
 @Injectable()
 export class ServiceManager implements OnApplicationBootstrap {
 	private readonly _logger = new Logger(ServiceManager.name);
@@ -1271,8 +1279,15 @@ export class ServiceManager implements OnApplicationBootstrap {
 			await breathe(seen);
 		}
 
-		if (changed.length > 0) {
-			await this._items.save(changed, { chunk: 200 });
+		/*
+		 * Chunk by chunk with a breath between, rather than one `save` of everything.
+		 * TypeORM's own `chunk` splits the statements and still runs them back to back in
+		 * one call, so a library whose summaries all moved was a single uninterruptible
+		 * write of tens of thousands of rows — the server deaf until it finished.
+		 */
+		for (let at = 0; at < changed.length; at += SAVE_CHUNK) {
+			await this._items.save(changed.slice(at, at + SAVE_CHUNK));
+			await breathe(0);
 		}
 
 		await this._libraries.setItemCount(library.id, items.length);

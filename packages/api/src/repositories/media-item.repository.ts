@@ -740,8 +740,13 @@ export class MediaItemRepository extends Repository<MediaItem> {
 		return this.find({ select: ['id', 'serviceId', 'file'] });
 	}
 
-	public findForCorrelation(): Promise<MediaItem[]> {
+	public findForCorrelation(skip = 0, take = 0): Promise<MediaItem[]> {
 		return this.find({
+			// Paged when the caller asks for it. A catalogue is tens of thousands of rows
+			// and reading them in one statement is one uninterruptible call: the server
+			// cannot answer anything for as long as it lasts, however many yields the loop
+			// around it has. A page is a call short enough to sit between two of them.
+			...(take > 0 ? { skip, take, order: { id: 'ASC' as const } } : {}),
 			select: [
 				'id', 'serviceId', 'libraryId', 'externalId', 'parentId', 'parentExternalId',
 				'kind', 'title', 'normalizedTitle', 'year', 'seasonNumber', 'episodeNumber',

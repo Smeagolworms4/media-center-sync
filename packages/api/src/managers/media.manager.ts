@@ -58,6 +58,14 @@ import {
 } from './mappers';
 
 /**
+ * How many rows a correlation reads per statement. See `_wholeCatalogue`.
+ *
+ * Two thousand: large enough that a catalogue is thirty statements rather than thousands,
+ * small enough that one of them is a few tens of milliseconds and not a wall.
+ */
+const CATALOGUE_PAGE = 2000;
+
+/**
  * How far down a media tree each kind sits, so a pass can take parents first.
  *
  * Only the order matters, not the numbers. A collection is above a film the way a
@@ -483,9 +491,20 @@ export class MediaManager {
 		 * correlation touches were most of what a scan cost on a catalogue of sixty
 		 * thousand rows.
 		 */
-		const everything = await this._items.findForCorrelation();
+		const everything = await this._wholeCatalogue();
+
+		/*
+		 * A breath between each index. They are synchronous walks of the whole catalogue —
+		 * six of them, back to back — and together they are seconds in which nothing else
+		 * on this thread can happen. One of them is short; the run of them is not.
+		 */
 		const byContent = this._indexByContent(everything);
+
+		await breathe(0);
+
 		const byWork = this._indexByWork(everything);
+
+		await breathe(0);
 		const landed = new Map(
 			(await this._landings.findOpen()).map((landing) => [
 				landing.itemId,
@@ -498,8 +517,13 @@ export class MediaManager {
 		);
 		const byId = new Map(everything.map((item) => [item.id, item]));
 		const byParent = this._indexByParent(everything);
+
+		await breathe(0);
+
 		const episodesOfSeries = this._episodesBySeries(everything, byParent);
 		const episodeIdentifiers = this._episodeIdentifiers(episodesOfSeries);
+
+		await breathe(0);
 		const absolutePairs = this._absolutePairs(
 			everything,
 			episodesOfSeries,
@@ -577,6 +601,35 @@ export class MediaManager {
 		}
 
 		return written;
+	}
+
+	/**
+	 * Every row a correlation needs, read a page at a time.
+	 *
+	 * One `find` over a catalogue is a single uninterruptible call: TypeORM hydrates tens
+	 * of thousands of entities in one go and the server answers nothing for as long as it
+	 * lasts — fifteen to twenty-five seconds on a real household, measured. No amount of
+	 * yielding around it helps, because there is no "around": it is one call.
+	 *
+	 * Pages fix that without moving anything off this thread. Each page is a call short
+	 * enough to sit between two turns of the event loop, and a breath between them is
+	 * where every waiting request gets served. The rows are ordered by id so the pages
+	 * tile the table exactly once.
+	 */
+	private async _wholeCatalogue(): Promise<MediaItemEntity[]> {
+		const everything: MediaItemEntity[] = [];
+
+		for (let page = 0; ; page += 1) {
+			const rows = await this._items.findForCorrelation(page * CATALOGUE_PAGE, CATALOGUE_PAGE);
+
+			everything.push(...rows);
+
+			if (rows.length < CATALOGUE_PAGE) {
+				return everything;
+			}
+
+			await breathe(0);
+		}
 	}
 
 	/**
