@@ -51,7 +51,7 @@ component somebody actually wrote — so journeys use `field0(name)` rather than
 | `media-missing-count` | poster wall | how many children are missing under a tile |
 | `media-select`, `media-select-all` | library pages | picking one media, and everything on the page |
 | `library-select-mode`, `library-selection-bar`, `library-selection-clear`, `library-sync-selected` | `Library.vue` | selecting on a grid, and what can be done with a selection |
-| `library-view-toggle`, `library-view-grid`, `library-view-list` | `Library.vue` | posters or the dense list |
+| `library-view-toggle` | `Library.vue` | posters or the dense list — one button showing the view it switches to |
 | `library-everything` | `Library.vue` | browsing across every category at once |
 | `media-filters`, `media-search`, `media-service`, `media-library`, `media-kind`, `media-states`, `media-sort`, `media-direction`, `media-clear` | `MediaFilters.vue` | the toolbar above the wall; `media-service` takes several servers at once |
 | `media-origins`, `media-origin-<origin>`, `media-sort-fixed` | `MediaFilters.vue` | the four origins — ours, direct, friends, friends of friends — and the note that stands in for the sort control on the overview |

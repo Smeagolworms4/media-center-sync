@@ -618,7 +618,7 @@
 					{{ $t('library.select') }}
 				</v-btn>
 
-				<ViewModeToggle v-model="view" data-test="library-view-toggle" />
+				<ViewModeToggle v-model="view" test-id="library-view-toggle" />
 			</template>
 		</PageHeader>
 

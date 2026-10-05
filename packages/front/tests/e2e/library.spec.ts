@@ -134,13 +134,19 @@ test.describe('library', () => {
 	});
 
 	test('offers the dense list to whoever wants it, and remembers the choice', async ({ page }) => {
-		await page.locator(test0('library-view-list')).click();
+		/*
+		 * One control, not two. The toggle shows the view you would switch *to*, so the
+		 * same locator moves in both directions — and that is what the journey is really
+		 * pinning: that one click reaches the list, that a reload still shows it, and that
+		 * clicking the same place again comes back.
+		 */
+		await page.locator(test0('library-view-toggle')).click();
 		await expect(page.locator(test0('media-row')).first()).toBeVisible();
 
 		await page.reload();
 		await expect(page.locator(test0('media-row')).first()).toBeVisible();
 
-		await page.locator(test0('library-view-grid')).click();
+		await page.locator(test0('library-view-toggle')).click();
 		await expect(page.locator(test0('media-card')).first()).toBeVisible();
 	});
 

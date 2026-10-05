@@ -217,7 +217,7 @@
 			:title="$t('pages.news')"
 		>
 			<template #actions>
-				<ViewModeToggle v-model="view" data-test="news-view-toggle" />
+				<ViewModeToggle v-model="view" test-id="news-view-toggle" />
 
 				<v-btn
 					data-test="news-refresh"

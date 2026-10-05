@@ -18,6 +18,13 @@
 	 */
 	const mode = defineModel<ViewMode>({ required: true });
 
+	/*
+	 * Named explicitly rather than inherited. The root element here is the tooltip and
+	 * the button lives inside its activator slot, so an attribute put on the component
+	 * would land on the wrapper and never on the thing a journey has to click.
+	 */
+	const { testId } = defineProps<{ testId: string }>();
+
 	const other = computed<ViewMode>(() => (mode.value === 'grid' ? 'list' : 'grid'));
 
 	const icon = computed(() =>
@@ -34,7 +41,7 @@
 			<v-btn
 				v-bind="tip"
 				:aria-label="$t(`library.view.switch_to_${other}`)"
-				data-test="view-mode-toggle"
+				:data-test="testId"
 				density="comfortable"
 				:icon="icon"
 				size="small"
