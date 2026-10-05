@@ -155,20 +155,34 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 		}
 
 		const supporting: number[] = [];
-		const rest: number[] = [];
 
 		for (const indexer of indexers) {
 			const params = query.kind === ReleaseSearchKind.MOVIE
 				? indexer.movieSearchParams
 				: indexer.tvSearchParams;
 
-			(Object.keys(ids).some((name) => params.includes(name)) ? supporting : rest)
-				.push(indexer.id);
+			if (Object.keys(ids).some((name) => params.includes(name))) {
+				supporting.push(indexer.id);
+			}
 		}
 
+		/*
+		 * The text search still goes to everybody, and the identifier search is asked
+		 * *as well* — never instead.
+		 *
+		 * Splitting them was the bug: a tracker that understands identifiers stopped
+		 * receiving the words, so when its catalogue had the show under an id it did not
+		 * carry, it answered nothing and the search that would have found it was never
+		 * sent there. Fewer results than before the identifiers existed, which is the
+		 * opposite of what they were added for.
+		 *
+		 * Asking both is one extra request to a subset of the trackers, and the merge is
+		 * by release identity — see `search` — so a tracker that answers both ways
+		 * contributes each release once. It can only add.
+		 */
 		return [
+			{ indexerIds: null, byId: false },
 			...(supporting.length > 0 ? [{ indexerIds: supporting, byId: true }] : []),
-			...(rest.length > 0 ? [{ indexerIds: rest, byId: false }] : []),
 		];
 	}
 

@@ -147,7 +147,7 @@ describe('ProwlarrIndexer', () => {
 
 			const searches = calls.filter(one => one.url.pathname.endsWith('/search'));
 			const byId = searches.find(one => one.url.searchParams.get('indexerIds') === '3');
-			const byWords = searches.find(one => one.url.searchParams.get('indexerIds') === '8');
+			const byWords = searches.find(one => one.url.searchParams.get('indexerIds') === null);
 
 			expect(byId?.url.searchParams.get('tvdbId')).toBe('81189');
 			expect(byWords?.url.searchParams.get('tvdbId')).toBeNull();
@@ -155,6 +155,28 @@ describe('ProwlarrIndexer', () => {
 			// `imdbId` still has something to answer.
 			expect(byId?.url.searchParams.get('query')).toContain('Spartacus');
 			expect(byWords?.url.searchParams.get('query')).toContain('Spartacus');
+		});
+
+		it('still asks by words the trackers that understand identifiers', async () => {
+			/*
+			 * The regression this pins. Splitting the trackers in two meant one that
+			 * understands identifiers stopped receiving the words altogether — so when its
+			 * catalogue held the show under an identifier it does not carry, it answered
+			 * nothing and the search that would have found it was never sent there.
+			 * Fewer results than before identifiers existed, which is the opposite of the
+			 * point. The words go to everybody; the identifier is asked as well.
+			 */
+			answerRouted([capable, wordsOnly], {});
+
+			await indexer.search(SETTINGS, withIds);
+
+			const searches = calls.filter(one => one.url.pathname.endsWith('/search'));
+			const everybody = searches.filter(one => one.url.searchParams.get('indexerIds') === null);
+
+			expect(everybody).toHaveLength(1);
+			expect(everybody[0].url.searchParams.get('query')).toContain('Spartacus');
+			// Scoped to nobody means scoped to everybody, the tracker above included.
+			expect(everybody[0].url.searchParams.get('indexerIds')).toBeNull();
 		});
 
 		it('merges the two answers on the release’s own identity', async () => {
@@ -181,7 +203,7 @@ describe('ProwlarrIndexer', () => {
 
 			expect(searches.find(one => one.url.searchParams.get('indexerIds') === '3')
 				?.url.searchParams.get('type')).toBe('tvsearch');
-			expect(searches.find(one => one.url.searchParams.get('indexerIds') === '8')
+			expect(searches.find(one => one.url.searchParams.get('indexerIds') === null)
 				?.url.searchParams.get('type')).toBe('search');
 		});
 

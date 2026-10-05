@@ -40,27 +40,29 @@ import { MediaItemRepository, PeerRepository, ReleaseGrabRepository } from '@/re
 import {
 	CacheService,
 	DownloadClientRegistry,
+	errorKeyOf,
 	EventGatewayService,
 	FileMoveService,
 	FilesystemService,
 	followToMagnet,
-	isInside,
-	releaseBytes,
 	groupReleases,
 	IndexerRegistry,
-	type IndexerQuery,
+	isInside,
+	isWorkerThread,
+	mappedLocalPath,
 	NamingService,
-	type NameableItem,
 	orderGroupsByPreference,
 	orderSuggestions,
 	parseReleaseName,
 	PeerSuggestionService,
 	pinnedFolderOf,
-	toLocalPath,
 	PlacementService,
+	releaseBytes,
 	resolveReleasePreference,
 	SettingsService,
-	mappedLocalPath,
+	toLocalPath,
+	type IndexerQuery,
+	type NameableItem,
 	type SuggestionHolding,
 } from '@/services';
 import { LandingManager } from './landing.manager';
@@ -308,6 +310,12 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * configuring one takes effect without a restart.
 	 */
 	public onApplicationBootstrap(): void {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		this._polling = setInterval(() => {
 			void this.poll().catch((error: unknown) => {
 				// Swallowed on purpose. A client that is down must not take the timer with
@@ -351,7 +359,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			throw new BadRequestException(ErrorKey.RELEASE_NOT_FOUND);
 		}
 
-		const failed: { indexer: string; error: string }[] = [];
+		const failed: { indexer: string; error: string; key: string | null }[] = [];
 		let releases: Release[] = [];
 
 		try {
@@ -361,7 +369,14 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// found" and "nobody answered" are opposite answers, and a screen that shows
 			// the first for the second sends somebody hunting for a better search term
 			// while their key is wrong.
-			failed.push({ indexer: indexer.type, error: String(error) });
+			failed.push({
+				indexer: indexer.type,
+				error: String(error),
+				// The key the indexer raised — a refused key, an address nothing answers,
+				// an answer that never came — so the screen can say which rather than
+				// offering all three at once.
+				key: errorKeyOf(error),
+			});
 		}
 
 		const sizes = await this._sizesHeld(item);

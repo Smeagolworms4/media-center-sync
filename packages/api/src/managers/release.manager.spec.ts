@@ -25,7 +25,12 @@ import {
 	type ReleaseSearchResult,
 	type Settings,
 } from '@mcs/shared';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ConflictException,
+	NotFoundException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import type { MediaItem as MediaItemEntity, ReleaseGrab as GrabEntity } from '@/entities';
 import type { MediaItemRepository, PeerRepository, ReleaseGrabRepository } from '@/repositories';
 import { PeerSuggestionService, QualityService } from '@/services';
@@ -600,12 +605,37 @@ describe('ReleaseManager', () => {
 			const found = await manager.search({ itemId: 'series-1' });
 
 			expect(found.failed).toEqual([
-				{ indexer: IndexerType.PROWLARR, error: expect.stringContaining('401 Unauthorized') },
+				{
+					indexer: IndexerType.PROWLARR,
+					error: expect.stringContaining('401 Unauthorized'),
+					// A bare `Error` carries no key, and the generic one is what the screen
+					// falls back to. Which is the honest answer: nothing here knows more.
+					key: ErrorKey.GENERAL,
+				},
 			]);
 			expect(trackerGroups(found)).toHaveLength(0);
 			// The gaps are still answered: the screen has to say what is missing even when
 			// nobody could be asked for it.
 			expect(found.missing).toHaveLength(4);
+		});
+
+		it('carries which of the three failures it was, so the screen can say', async () => {
+			/*
+			 * A refused key, an address nothing answers and a reply that merely took too
+			 * long were one sentence telling somebody to check their address and their key.
+			 * Three different fixes, and only one of them is the settings — so a household
+			 * whose indexer was fine, behind a gateway busy with a scan, went hunting
+			 * through configuration that was right all along.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.indexer.search.mockRejectedValue(
+				new UnauthorizedException({ key: ErrorKey.INDEXER_UNAUTHORIZED }),
+			);
+
+			const found = await manager.search({ itemId: 'series-1' });
+
+			expect(found.failed[0]?.key).toBe(ErrorKey.INDEXER_UNAUTHORIZED);
 		});
 
 		/**

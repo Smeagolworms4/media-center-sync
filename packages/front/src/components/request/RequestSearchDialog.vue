@@ -4,6 +4,7 @@
 	import { computed, ref, watch } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
 	import Window from '@/components/Window.vue';
+	import { useReleaseFailure } from '@/composables/useReleaseFailure';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useReleasesStore } from '@/stores/releases';
 
@@ -28,6 +29,7 @@
 
 	const releases = useReleasesStore();
 	const { tryCallback } = useNotifier();
+	const { failureText } = useReleaseFailure();
 
 	/** The suggested term, editable: a tracker knows some works under another title. */
 	const term = ref('');
@@ -166,7 +168,7 @@
 				class="text-caption text-warning mt-1 mb-0"
 				data-test="request-search-failed"
 			>
-				{{ $t('release.failed', { indexer: failure.indexer }) }}
+				{{ failureText(failure) }}
 			</p>
 
 			<div v-if="results.length > 0" class="request-search_results mt-3">

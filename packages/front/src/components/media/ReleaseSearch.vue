@@ -21,6 +21,7 @@
 	import ReleasePlan from '@/components/media/ReleasePlan.vue';
 	import { formatBytes } from '@/composables/useFormat';
 	import { describeMediaOrigin } from '@/composables/useMediaOrigin';
+	import { useReleaseFailure } from '@/composables/useReleaseFailure';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useReleasesStore } from '@/stores/releases';
 
@@ -61,6 +62,7 @@
 	const { locale, t } = useI18n();
 	const releases = useReleasesStore();
 	const { notify, tryCallback } = useNotifier();
+	const { failureText } = useReleaseFailure();
 
 	const term = ref('');
 	const seasonPack = ref(false);
@@ -386,7 +388,7 @@
 			class="text-caption text-warning mt-1 mb-0"
 			data-test="release-failed"
 		>
-			{{ $t('release.failed', { indexer: failure.indexer }) }}
+			{{ failureText(failure) }}
 		</p>
 
 		<ReleasePlan

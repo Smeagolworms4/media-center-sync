@@ -11,6 +11,7 @@ import {
 } from '@mcs/shared';
 import { Inject, Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { WebSocket, WebSocketServer } from 'ws';
+import { errorKeyOf } from './error-key';
 import { isRelayFrame } from './peer-relay.frames';
 import { PeerRelayService, type RelayChannel, type RelayedSocket } from './peer-relay.service';
 
@@ -488,33 +489,6 @@ class PeerSession {
 		};
 	}
 }
-
-/**
- * The error key behind an exception, whatever shape it was thrown in.
- *
- * Three shapes reach here and all three are used in this code base:
- * `new NotFoundException({ key })`, where the object is returned verbatim, and
- * `new NotFoundException(key)`, where Nest wraps the string into `{ message, ... }`
- * before anybody sees it. Reading only the first was enough to turn every
- * `error.media.not_found` into `error.general` on the wire, and the far end acted on
- * it: a source that no longer holds an item is decisive, and "something went wrong"
- * is not.
- */
-const errorKeyOf = (error: unknown): string => {
-	const response = (error as { getResponse?: () => unknown }).getResponse?.();
-
-	if (typeof response === 'string') {
-		return response;
-	}
-
-	const body = response as { key?: unknown; message?: unknown } | undefined;
-
-	if (typeof body?.key === 'string') {
-		return body.key;
-	}
-
-	return typeof body?.message === 'string' ? body.message : ErrorKey.GENERAL;
-};
 
 /**
  * Where other gateways connect, sharing the HTTP server with the interface.

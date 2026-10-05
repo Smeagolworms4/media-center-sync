@@ -469,7 +469,15 @@ export interface ReleaseSearchResult {
 	 */
 	missing: EpisodeRef[];
 	/** Indexers that answered with an error, named so the fault is attributable. */
-	failed: { indexer: string; error: string }[];
+	/**
+	 * Which indexers refused, and why — by key, not by sentence.
+	 *
+	 * `error` was the exception stringified and the interface never showed it: every
+	 * failure read "check its address and its key", for a refused key, a dead address and
+	 * an answer that was merely slow alike. The gateway knows which of the three it was
+	 * by the time it lands here, so it says so and the wording stays this side.
+	 */
+	failed: { indexer: string; error: string; key: string | null }[];
 }
 
 /**

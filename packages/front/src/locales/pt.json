@@ -1684,7 +1684,8 @@
 			"hint": "Estes nomes anunciam outra temporada ou outro episódio que não o pedido. Continuam a ser propostos: um nome mal formado pode ser mal lido.",
 			"title": "Postos de lado"
 		},
-		"claimed_quality": "Anunciada pelo nome da release, não medida no ficheiro."
+		"claimed_quality": "Anunciada pelo nome da release, não medida no ficheiro.",
+		"failed_because": "{indexer}: {reason}"
 	},
 	"classification": {
 		"title": "Onde isto poderia ficar",

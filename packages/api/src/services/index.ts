@@ -7,6 +7,7 @@ export * from './classification';
 export * from './companions';
 export * from './directories';
 export * from './episode-numbering';
+export * from './error-key';
 export * from './event-gateway.service';
 export * from './file-move.service';
 export * from './filesystem.service';
@@ -48,6 +49,7 @@ export type {
 } from './peer-relay.service';
 export * from './placement.service';
 export * from './quality.service';
+export * from './runtime-role';
 export * from './revalidation.service';
 export * from './run-ceiling';
 export * from './scheduler.service';

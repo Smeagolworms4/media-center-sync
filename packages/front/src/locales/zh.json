@@ -1684,7 +1684,8 @@
 			"hint": "这些名称标示的季或集与所请求的不同。它们仍会列出：格式不规范的名称可能被误读。",
 			"title": "已搁置"
 		},
-		"claimed_quality": "由发布名称声称，并非在文件上测得。"
+		"claimed_quality": "由发布名称声称，并非在文件上测得。",
+		"failed_because": "{indexer}：{reason}"
 	},
 	"classification": {
 		"title": "这可能属于哪里",
