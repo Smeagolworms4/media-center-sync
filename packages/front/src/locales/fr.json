@@ -96,13 +96,14 @@
 		"empty_title": "Rien ici",
 		"empty_text": "Il n'y a encore rien à afficher.",
 		"error_title": "Une erreur est survenue",
-		"error_text": "La passerelle n'a pas répondu. Réessayez dans un instant.",
+		"error_text": "La requête n'a pas abouti. Vérifiez votre connexion, puis réessayez.",
 		"never": "jamais",
 		"unknown": "inconnu",
 		"yes": "Oui",
 		"no": "Non",
 		"placeholder": "Cette page n'est pas encore construite.",
-		"copy_failed": "La copie a échoué. Sélectionnez la valeur et copiez-la à la main."
+		"copy_failed": "La copie a échoué. Sélectionnez la valeur et copiez-la à la main.",
+		"error_offline": "Cet appareil est hors ligne. Rétablissez la connexion, puis réessayez."
 	},
 	"browse": {
 		"title": "Choisir un dossier",

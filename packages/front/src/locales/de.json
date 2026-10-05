@@ -96,13 +96,14 @@
 		"empty_title": "Nichts hier",
 		"empty_text": "Es gibt noch nichts anzuzeigen.",
 		"error_title": "Etwas ist schiefgelaufen",
-		"error_text": "Das Gateway konnte nicht antworten. Versuchen Sie es gleich noch einmal.",
+		"error_text": "Die Anfrage kam nicht durch. Prüfe deine Verbindung und versuche es erneut.",
 		"never": "nie",
 		"unknown": "unbekannt",
 		"yes": "Ja",
 		"no": "Nein",
 		"placeholder": "Diese Seite ist noch nicht gebaut.",
-		"copy_failed": "Das Kopieren ist fehlgeschlagen. Markieren Sie den Wert und kopieren Sie ihn von Hand."
+		"copy_failed": "Das Kopieren ist fehlgeschlagen. Markieren Sie den Wert und kopieren Sie ihn von Hand.",
+		"error_offline": "Dieses Gerät ist offline. Stelle die Verbindung wieder her und versuche es erneut."
 	},
 	"browse": {
 		"title": "Ordner auswählen",

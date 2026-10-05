@@ -96,13 +96,14 @@
 		"empty_title": "这里空空如也",
 		"empty_text": "暂时没有可显示的内容。",
 		"error_title": "出了点问题",
-		"error_text": "网关没有响应。请稍后重试。",
+		"error_text": "请求没有送达。请检查网络连接后重试。",
 		"never": "从未",
 		"unknown": "未知",
 		"yes": "是",
 		"no": "否",
 		"placeholder": "此页面尚未完成。",
-		"copy_failed": "复制失败。请选中内容手动复制。"
+		"copy_failed": "复制失败。请选中内容手动复制。",
+		"error_offline": "此设备处于离线状态。请恢复连接后重试。"
 	},
 	"browse": {
 		"title": "选择文件夹",

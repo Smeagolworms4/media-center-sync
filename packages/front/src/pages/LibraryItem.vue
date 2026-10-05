@@ -126,9 +126,30 @@
 	async function load (): Promise<void> {
 		loading.value = true;
 		failed.value = false;
+
+		/*
+		 * Paint from what the wall already knew, before asking anybody anything.
+		 *
+		 * The title, the poster, the year and the state were on screen a moment ago —
+		 * clicking a card and getting a blank page while four calls settle is the gateway
+		 * looking broken for work it has already done. The seed is overwritten by the real
+		 * answer below; a media this session never listed simply starts empty, as before.
+		 */
+		group.value ??= mediaStore.knownGroup(props.itemId);
+
 		try {
-			const [loadedGroup, loadedChildren, loadedPlans, loadedItem] = await Promise.all([
-				mediaStore.group(props.itemId),
+			/*
+			 * The header waits for the group and for nothing else. Awaiting all four
+			 * together meant the page appeared at the speed of the slowest — two hundred
+			 * children for a long series — while the one call it needs to draw anything had
+			 * answered seconds earlier.
+			 */
+			const loadedGroup = await mediaStore.group(props.itemId);
+
+			group.value = loadedGroup;
+			loading.value = false;
+
+			const [loadedChildren, loadedPlans, loadedItem] = await Promise.all([
 				// A group with no children below it is ordinary — a film — so a
 				// failure here must not take the page down with it.
 				mediaStore.groupChildren(props.itemId, { limit: 200 }).catch(() => null),
@@ -140,12 +161,15 @@
 				// before the note existed.
 				mediaStore.node(props.itemId).catch(() => null),
 			]);
-			group.value = loadedGroup;
+
 			children.value = loadedChildren?.items ?? [];
 			plans.value = loadedPlans;
 			item.value = loadedItem;
 		} catch {
+			// Only the group reaching here is a failure: everything after it is caught
+			// above. A seed on screen is not an answer, so the error replaces it.
 			failed.value = true;
+			group.value = null;
 		} finally {
 			loading.value = false;
 		}

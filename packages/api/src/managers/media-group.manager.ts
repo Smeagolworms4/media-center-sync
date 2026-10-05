@@ -1,4 +1,5 @@
 import {
+	CacheRefreshReason,
 	ErrorKey,
 	LANDED_SYNC_STATES,
 	MediaOrigin,
@@ -16,7 +17,12 @@ import {
 	type QualitySummary,
 	type ResultList,
 } from '@mcs/shared';
-import { Injectable, NotFoundException, type OnModuleInit } from '@nestjs/common';
+import {
+	Injectable,
+	NotFoundException,
+	type OnApplicationBootstrap,
+	type OnModuleInit,
+} from '@nestjs/common';
 import { In } from 'typeorm';
 import type { MediaItem as MediaItemEntity, MediaService as MediaServiceEntity } from '@/entities';
 import {
@@ -334,7 +340,7 @@ interface Scope {
 }
 
 @Injectable()
-export class MediaGroupManager implements OnModuleInit {
+export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	/** The grouping graph last built, and what the match table looked like then. */
 	private _graph: { version: string; threshold: number; graph: MatchGraph } | null = null;
 
@@ -359,6 +365,25 @@ export class MediaGroupManager implements OnModuleInit {
 	 */
 	public onModuleInit(): void {
 		this._cache.onRefresh(() => this.refresh());
+	}
+
+	/**
+	 * Build the graph before anybody asks for it, because nothing survived the restart.
+	 *
+	 * The cache is in memory, so every deployment and every crash leaves it empty — and
+	 * the first person to open a page rebuilds the whole match table on their own clock.
+	 * That is the exact cost this cache exists to remove, and warming only after a scan
+	 * left the one case where it is guaranteed to be cold completely uncovered: the
+	 * minute after an update, which is also the minute somebody is most likely to be
+	 * looking.
+	 *
+	 * `onApplicationBootstrap` and not `onModuleInit`: this reads the database, and the
+	 * connection is not up at module init. Not awaited and never allowed to fail the
+	 * boot — a gateway that refused to start because it could not pre-compute a cache
+	 * would be trading a slow first page for no gateway at all.
+	 */
+	public onApplicationBootstrap(): void {
+		this._cache.schedule(CacheRefreshReason.BOOT);
 	}
 
 	public async groups(query: MediaGroupQuery): Promise<ResultList<MediaGroup>> {
@@ -992,6 +1017,29 @@ export class MediaGroupManager implements OnModuleInit {
 
 		if (cached !== null && cached.version === version && cached.threshold === threshold) {
 			return cached.graph;
+		}
+
+		/*
+		 * A rebuild already running is the one we wait for, never one we race.
+		 *
+		 * Without this the two paths do the same work twice over and the wrong one wins:
+		 * the background pass reads in slices and hands the loop back between them, while
+		 * this one reads the whole table in a single synchronous statement — so the page
+		 * that arrives during a warm blocks the entire process for its duration, which is
+		 * exactly the minute after a restart when somebody is most likely to be looking.
+		 *
+		 * Waiting makes this one request slower than it would be on its own. It makes
+		 * every *other* request possible while it waits, and that is the trade the whole
+		 * cache was built for.
+		 */
+		if (this._cache.refreshing) {
+			await this._cache.refreshNow();
+
+			const warmed = this._graph;
+
+			if (warmed !== null && warmed.threshold === threshold) {
+				return warmed.graph;
+			}
 		}
 
 		const graph = new MatchGraph(await this._matches.findAppliedPairs(threshold));

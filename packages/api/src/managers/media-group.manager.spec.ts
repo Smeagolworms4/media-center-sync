@@ -1,4 +1,5 @@
 import {
+	CacheRefreshReason,
 	MatchStrategy,
 	MediaKind,
 	MediaResolution,
@@ -168,7 +169,11 @@ const build = (
 ): {
 	manager: MediaGroupManager;
 	world: World;
-	reads: { items: Record<string, jest.Mock>; matches: Record<string, jest.Mock> };
+	reads: {
+		items: Record<string, jest.Mock>;
+		matches: Record<string, jest.Mock>;
+		cache: { onRefresh: jest.Mock; schedule: jest.Mock; refreshNow: jest.Mock; refreshing: boolean };
+	};
 } => {
 	const full: World = {
 		items: [],
@@ -289,6 +294,8 @@ const build = (
 		),
 	};
 
+	const cache = { onRefresh: jest.fn(), schedule: jest.fn(), refreshNow: jest.fn(), refreshing: false };
+
 	return {
 		manager: new MediaGroupManager(
 			items as unknown as MediaItemRepository,
@@ -310,13 +317,14 @@ const build = (
 			// Following is a sync plan covering a media and nothing else, so the plans are
 			// the whole of what the followed filter reads.
 			{ find: jest.fn(() => Promise.resolve(full.plans)) } as unknown as SyncPlanRepository,
-			// The warm path registers itself here at module init. These tests call the
-			// manager directly and never boot a module, so nothing registers and nothing
-			// is scheduled — the lazy rebuild in `_cachedGraph` is what they exercise.
-			{ onRefresh: jest.fn() } as unknown as CatalogueCacheService,
+			// The warm path registers itself here at module init and is asked for a build at
+			// boot. These tests call the manager directly and never boot a module, so
+			// nothing is scheduled unless a test says so — the lazy rebuild in
+			// `_cachedGraph` is what the rest of them exercise.
+			cache as unknown as CatalogueCacheService,
 		),
 		world: full,
-		reads: { items, matches },
+		reads: { items, matches, cache },
 	};
 };
 
@@ -1595,6 +1603,59 @@ describe('MediaGroupManager', () => {
 			await manager.groups(query());
 
 			expect(reads.matches.findAppliedPairs.mock.calls.length).toBe(built);
+		});
+
+		it('asks for the graph to be built at boot, before anybody opens a page', async () => {
+			/*
+			 * The cache lives in memory, so every deployment and every crash leaves it
+			 * empty — and warming only after a scan left the one case where it is certain
+			 * to be cold completely uncovered. The minute after an update is also the
+			 * minute somebody is most likely to be looking at it.
+			 */
+			const { manager, reads } = build({
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' })],
+				matches: [correlation()],
+			});
+
+			manager.onApplicationBootstrap();
+
+			expect(reads.cache.schedule).toHaveBeenCalledWith(CacheRefreshReason.BOOT);
+		});
+
+		it('waits for a rebuild already running rather than racing it', async () => {
+			/*
+			 * The two paths do the same work and the wrong one wins: the background pass
+			 * reads in slices and breathes between them, this one reads the whole table in a
+			 * single synchronous statement. A page arriving during a warm must join it, or
+			 * it blocks the process for the length of a rebuild — the minute after a restart,
+			 * which is the minute somebody is most likely to be looking.
+			 */
+			const { manager, reads } = build({
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' })],
+				matches: [correlation()],
+			});
+
+			let warming = false;
+
+			reads.cache.refreshNow.mockImplementation(async () => {
+				await manager.refresh();
+				warming = false;
+			});
+			Object.defineProperty(reads.cache, 'refreshing', { get: () => warming });
+
+			warming = true;
+
+			const before = reads.matches.findAppliedPairs.mock.calls.length;
+
+			await manager.groups(query());
+
+			// Only the paged reads the warm itself made: nothing read the whole table at once.
+			expect(reads.cache.refreshNow).toHaveBeenCalled();
+			expect(
+				reads.matches.findAppliedPairs.mock.calls
+					.slice(before)
+					.every(([, , take]) => take > 0),
+			).toBe(true);
 		});
 
 		it('refuses to rebuild a graph that is already the current one', async () => {

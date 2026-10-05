@@ -96,13 +96,14 @@
 		"empty_title": "Nothing here",
 		"empty_text": "There is nothing to show yet.",
 		"error_title": "Something went wrong",
-		"error_text": "The gateway could not answer. Try again in a moment.",
+		"error_text": "The request did not get through. Check your connection, then try again.",
 		"never": "never",
 		"unknown": "unknown",
 		"yes": "Yes",
 		"no": "No",
 		"placeholder": "This page is not built yet.",
-		"copy_failed": "Copying failed. Select the value and copy it by hand."
+		"copy_failed": "Copying failed. Select the value and copy it by hand.",
+		"error_offline": "This device is offline. Reconnect, then try again."
 	},
 	"browse": {
 		"title": "Choose a folder",

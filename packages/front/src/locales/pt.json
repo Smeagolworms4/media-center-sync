@@ -96,13 +96,14 @@
 		"empty_title": "Nada aqui",
 		"empty_text": "Ainda não há nada para mostrar.",
 		"error_title": "Algo correu mal",
-		"error_text": "O gateway não conseguiu responder. Tente novamente daqui a pouco.",
+		"error_text": "O pedido não chegou. Verifique a sua ligação e tente novamente.",
 		"never": "nunca",
 		"unknown": "desconhecido",
 		"yes": "Sim",
 		"no": "Não",
 		"placeholder": "Esta página ainda não está construída.",
-		"copy_failed": "A cópia falhou. Selecione o valor e copie-o à mão."
+		"copy_failed": "A cópia falhou. Selecione o valor e copie-o à mão.",
+		"error_offline": "Este dispositivo está offline. Restabeleça a ligação e tente novamente."
 	},
 	"browse": {
 		"title": "Escolher uma pasta",

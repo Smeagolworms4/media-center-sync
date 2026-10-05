@@ -96,13 +96,14 @@
 		"empty_title": "Niente qui",
 		"empty_text": "Non c'è ancora nulla da mostrare.",
 		"error_title": "Qualcosa è andato storto",
-		"error_text": "Il gateway non ha risposto. Riprova tra un istante.",
+		"error_text": "La richiesta non è arrivata. Controlla la connessione e riprova.",
 		"never": "mai",
 		"unknown": "sconosciuto",
 		"yes": "Sì",
 		"no": "No",
 		"placeholder": "Questa pagina non è ancora stata costruita.",
-		"copy_failed": "La copia non è riuscita. Seleziona il valore e copialo a mano."
+		"copy_failed": "La copia non è riuscita. Seleziona il valore e copialo a mano.",
+		"error_offline": "Questo dispositivo è offline. Ripristina la connessione e riprova."
 	},
 	"browse": {
 		"title": "Scegli una cartella",

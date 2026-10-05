@@ -186,6 +186,29 @@ export const useMediaStore = defineStore('media', () => {
 		return caller('api').get<MediaGroup>(`/media/groups/${id}`);
 	}
 
+	/**
+	 * The group as the wall last drew it, if this session has it. Never a request.
+	 *
+	 * What it buys is the second between a click and an answer. A media page used to
+	 * start from nothing and paint only once the gateway replied — so clicking a card
+	 * whose title, poster, year and state were on screen a moment earlier gave a blank
+	 * page and a spinner, and on a loaded gateway that lasted long enough to look broken.
+	 *
+	 * Deliberately a seed and not a cache: it is whatever the bands happen to hold, it is
+	 * never consulted to *avoid* the call, and the real answer overwrites it the moment it
+	 * lands. A group this session has not listed simply returns null and the page behaves
+	 * as it always did.
+	 */
+	function knownGroup (id: string): MediaGroup | null {
+		for (const band of Object.values(groups.value)) {
+			const found = band.find(one => one.id === id);
+			if (found) {
+				return found;
+			}
+		}
+		return null;
+	}
+
 	function groupChildren (
 		id: string,
 		query: MediaGroupQuery = {},
@@ -369,6 +392,7 @@ export const useMediaStore = defineStore('media', () => {
 		searchGroups,
 		clearGroups,
 		group,
+		knownGroup,
 		groupChildren,
 		node,
 		classification,

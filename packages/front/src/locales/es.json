@@ -96,13 +96,14 @@
 		"empty_title": "Aquí no hay nada",
 		"empty_text": "Todavía no hay nada que mostrar.",
 		"error_title": "Algo ha salido mal",
-		"error_text": "La pasarela no ha respondido. Vuelve a intentarlo dentro de un momento.",
+		"error_text": "La petición no llegó. Comprueba tu conexión y vuelve a intentarlo.",
 		"never": "nunca",
 		"unknown": "desconocido",
 		"yes": "Sí",
 		"no": "No",
 		"placeholder": "Esta página todavía no está construida.",
-		"copy_failed": "La copia ha fallado. Selecciona el valor y cópialo a mano."
+		"copy_failed": "La copia ha fallado. Selecciona el valor y cópialo a mano.",
+		"error_offline": "Este dispositivo está sin conexión. Reconéctate y vuelve a intentarlo."
 	},
 	"browse": {
 		"title": "Elegir una carpeta",
