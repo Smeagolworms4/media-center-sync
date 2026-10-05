@@ -88,6 +88,40 @@ describe('MatchingService', () => {
 				options({}),
 			)).toBeNull();
 		});
+
+		it('refuses season one of two different shows that share a name', () => {
+			/*
+			 * Seen on a live catalogue: *Scrubs* and the *Scrubs* reboot, twenty-five years
+			 * apart. Both seasons are normalised under the show's title, both are season
+			 * one, so the coordinate check passes and the titles are identical — and the
+			 * old show's seasons appeared inside the new one's page.
+			 *
+			 * `contradicted` cannot catch it: that rule is films and series only, because a
+			 * season routinely carries its *series'* identifier rather than its own. What
+			 * settles it is the series above, which is not the same series.
+			 */
+			expect(service.score(
+				season({ id: 'old', title: 'Scrubs', normalizedTitle: 'scrubs', parentId: 'scrubs-2001' }),
+				season({
+					id: 'new',
+					serviceId: 't',
+					title: 'Scrubs',
+					normalizedTitle: 'scrubs',
+					parentId: 'scrubs-2026',
+				}),
+				options({}),
+			)).toBeNull();
+		});
+
+		it('allows it once the two shows above them are the same show', () => {
+			// The rule is about the parents and nothing else: correlate them, and a season
+			// matched by its title under them is an ordinary, correct match again.
+			expect(service.score(
+				season({ id: 'a', parentId: 'local-series' }),
+				season({ id: 'b', serviceId: 't', parentId: 'remote-series' }),
+				options({ parentMatches: new Map([['local-series', new Set(['remote-series'])]]) }),
+			)).not.toBeNull();
+		});
 	});
 
 	describe('episodes numbered two different ways', () => {

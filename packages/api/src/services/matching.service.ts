@@ -284,7 +284,7 @@ export class MatchingService {
 			return absolute;
 		}
 
-		const title = this._titleMatch(local, remote);
+		const title = this._titleMatch(local, remote, options);
 
 		if (title) {
 			return title;
@@ -766,20 +766,37 @@ export class MatchingService {
 		// Without a matched parent these numbers say nothing: every library has an
 		// `S01E02`, and matching on it alone would correlate the second episode of
 		// every series with the second episode of every other.
-		const remoteParents = local.parentId
-			? options.parentMatches?.get(local.parentId)
-			: undefined;
-
-		if (!remote.parentId || !remoteParents?.has(remote.parentId)) {
+		if (!this._underMatchedParents(local, remote, options)) {
 			return null;
 		}
 
 		return { strategy: MatchStrategy.SEASON_EPISODE, confidence: CONFIDENCE.seasonEpisode };
 	}
 
+	/**
+	 * Whether these two sit under series this pass has already joined.
+	 *
+	 * The one question that makes a season or an episode's own fields mean anything.
+	 * Shared by the numbering strategy and by the title one, because the reason is the
+	 * same in both: `S01E02` and "Scrubs" are each borrowed from the series above, and
+	 * neither distinguishes two shows until the shows themselves are correlated.
+	 */
+	private _underMatchedParents(
+		local: MatchCandidate,
+		remote: MatchCandidate,
+		options: MatchOptions,
+	): boolean {
+		const remoteParents = local.parentId
+			? options.parentMatches?.get(local.parentId)
+			: undefined;
+
+		return Boolean(remote.parentId) && Boolean(remoteParents?.has(remote.parentId as string));
+	}
+
 	private _titleMatch(
 		local: MatchCandidate,
 		remote: MatchCandidate,
+		options: MatchOptions,
 	): { strategy: MatchStrategy; confidence: number } | null {
 		const score = similarity(local.normalizedTitle, remote.normalizedTitle);
 
@@ -805,6 +822,35 @@ export class MatchingService {
 		 */
 		if (local.kind === MediaKind.EPISODE || local.kind === MediaKind.SEASON) {
 			if (local.seasonNumber === null || local.seasonNumber !== remote.seasonNumber) {
+				return null;
+			}
+
+			/*
+			 * And for a season, the series above it has to be the same series — which the
+			 * coordinate alone does not say.
+			 *
+			 * The coordinate stopped season one from matching season three of one show. It
+			 * cannot stop season one of *Scrubs* from matching season one of the *Scrubs*
+			 * reboot: both are normalised under the show's title, both are season one, and
+			 * every test above passes. Two different works, twenty-five years apart, folded
+			 * into one on a live catalogue — the old show's seasons appeared inside the new
+			 * one's page.
+			 *
+			 * `contradicted` cannot be the answer here. It is deliberately films and series
+			 * only, because a season routinely carries its *series'* identifier rather than
+			 * its own and reading that as disagreement would unpick shows that correlate
+			 * perfectly. So the rule is the one `_seasonEpisodeMatch` already applies and
+			 * for the same reason: a season's title *is* its series' title, so it says
+			 * nothing at all until the two series are known to be the same.
+			 *
+			 * **Seasons and not episodes**, and the asymmetry is the whole point. An
+			 * episode's title is its own — "Back to the Butcher" distinguishes it from
+			 * every other episode there is — so a title match on one carries real evidence
+			 * even where no season row exists to be correlated. Plenty of libraries hold
+			 * episodes with no parent at all, and demanding one would leave them unable to
+			 * correlate by any strategy whatsoever.
+			 */
+			if (local.kind === MediaKind.SEASON && !this._underMatchedParents(local, remote, options)) {
 				return null;
 			}
 		}
