@@ -222,7 +222,9 @@
 		},
 		"view": {
 			"grid": "Carátulas",
-			"list": "Lista"
+			"list": "Lista",
+			"switch_to_grid": "Ver en cuadrícula",
+			"switch_to_list": "Ver en lista"
 		},
 		"sync_selected": "Sincronizar {count} seleccionados",
 		"sync_started": "La sincronización se ha puesto en cola.",
@@ -1561,15 +1563,19 @@
 		},
 		"indexer": {
 			"not_configured": "No hay ningún indexador configurado. Configure uno en los ajustes.",
-			"unreachable": "El indexador no respondió. Compruebe su dirección y su clave.",
-			"unknown": "Esta versión no implementa ese indexador."
+			"unreachable": "El indexador no respondió. Comprueba su dirección.",
+			"unknown": "Esta versión no implementa ese indexador.",
+			"unauthorized": "El indexador rechazó la clave de API. Compruébala en los ajustes.",
+			"timeout": "El indexador tardó demasiado en responder. Inténtalo de nuevo en un momento."
 		},
 		"download_client": {
 			"not_configured": "No hay ningún cliente de descargas configurado.",
 			"unreachable": "El cliente de descargas no respondió.",
 			"unknown": "Esta versión no implementa ese cliente.",
 			"refused": "El cliente de descargas lo rechazó.",
-			"path_unreadable": "La pasarela no puede leer la carpeta donde escribe el cliente."
+			"path_unreadable": "La pasarela no puede leer la carpeta donde escribe el cliente.",
+			"unauthorized": "El cliente de descargas rechazó las credenciales. Compruébalas en los ajustes.",
+			"timeout": "El cliente de descargas tardó demasiado en responder. Inténtalo de nuevo en un momento."
 		},
 		"release": {
 			"not_found": "Esa publicación ya no está en los resultados. Busque de nuevo.",
@@ -1798,5 +1804,17 @@
 		"subtitle": "Lo que ha salido para las series que sigue.",
 		"upgrades": "Mejoras de versión ({count})",
 		"upgrades_help": "Los tiene, pero existe una copia mejor en otro sitio. No faltan."
+	},
+	"catalogue": {
+		"refreshing": "Actualizando el catálogo…",
+		"took": "{reason} — la última tardó {seconds} s",
+		"stale": "El catálogo ha cambiado.",
+		"reload": "Recargar",
+		"reason": {
+			"scan": "El catálogo se reorganiza tras un análisis.",
+			"settings": "El catálogo se reorganiza tras un cambio de ajustes.",
+			"manual": "El catálogo se reorganiza.",
+			"boot": "El catálogo se reorganiza al arrancar."
+		}
 	}
 }

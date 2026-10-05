@@ -222,7 +222,9 @@
 		},
 		"view": {
 			"grid": "海报",
-			"list": "列表"
+			"list": "列表",
+			"switch_to_grid": "以网格显示",
+			"switch_to_list": "以列表显示"
 		},
 		"sync_selected": "同步选中的 {count} 项",
 		"sync_started": "同步已排入队列。",
@@ -1561,15 +1563,19 @@
 		},
 		"indexer": {
 			"not_configured": "尚未配置索引器，请在设置中添加。",
-			"unreachable": "索引器没有响应，请检查地址和密钥。",
-			"unknown": "此版本不支持该索引器。"
+			"unreachable": "索引器没有响应。请检查它的地址。",
+			"unknown": "此版本不支持该索引器。",
+			"unauthorized": "索引器拒绝了 API 密钥。请在设置中检查。",
+			"timeout": "索引器响应超时。请稍后重试。"
 		},
 		"download_client": {
 			"not_configured": "尚未配置下载客户端。",
 			"unreachable": "下载客户端没有响应。",
 			"unknown": "此版本不支持该下载客户端。",
 			"refused": "下载客户端拒绝了该任务。",
-			"path_unreadable": "网关无法读取客户端写入的文件夹。"
+			"path_unreadable": "网关无法读取客户端写入的文件夹。",
+			"unauthorized": "下载客户端拒绝了凭据。请在设置中检查。",
+			"timeout": "下载客户端响应超时。请稍后重试。"
 		},
 		"release": {
 			"not_found": "该资源已不在搜索结果中，请重新搜索。",
@@ -1798,5 +1804,17 @@
 		"subtitle": "你关注的剧集有哪些新内容。",
 		"upgrades": "版本升级（{count}）",
 		"upgrades_help": "你已拥有，但别处有更好的副本。它们并不缺失。"
+	},
+	"catalogue": {
+		"refreshing": "正在更新目录…",
+		"took": "{reason} — 上一次用了 {seconds} 秒",
+		"stale": "目录已变化。",
+		"reload": "重新加载",
+		"reason": {
+			"scan": "扫描结束后目录正在重新整理。",
+			"settings": "设置更改后目录正在重新整理。",
+			"manual": "目录正在重新整理。",
+			"boot": "启动时目录正在重新整理。"
+		}
 	}
 }

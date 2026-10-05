@@ -222,7 +222,9 @@
 		},
 		"view": {
 			"grid": "Poster",
-			"list": "Liste"
+			"list": "Liste",
+			"switch_to_grid": "Als Raster anzeigen",
+			"switch_to_list": "Als Liste anzeigen"
 		},
 		"sync_selected": "{count} Ausgewählte synchronisieren",
 		"sync_started": "Die Synchronisierung steht in der Warteschlange.",
@@ -1561,15 +1563,19 @@
 		},
 		"indexer": {
 			"not_configured": "Kein Indexer eingerichtet. Richten Sie einen in den Einstellungen ein.",
-			"unreachable": "Der Indexer hat nicht geantwortet. Adresse und Schlüssel prüfen.",
-			"unknown": "Dieser Build kennt diesen Indexer nicht."
+			"unreachable": "Der Indexer hat nicht geantwortet. Prüfe seine Adresse.",
+			"unknown": "Dieser Build kennt diesen Indexer nicht.",
+			"unauthorized": "Der Indexer hat den API-Schlüssel abgelehnt. Prüfe ihn in den Einstellungen.",
+			"timeout": "Der Indexer hat zu lange gebraucht. Versuche es gleich noch einmal."
 		},
 		"download_client": {
 			"not_configured": "Kein Download-Client eingerichtet.",
 			"unreachable": "Der Download-Client hat nicht geantwortet.",
 			"unknown": "Dieser Build kennt diesen Client nicht.",
 			"refused": "Der Download-Client hat es abgelehnt.",
-			"path_unreadable": "Das Gateway kann den Schreibordner des Clients nicht lesen."
+			"path_unreadable": "Das Gateway kann den Schreibordner des Clients nicht lesen.",
+			"unauthorized": "Der Download-Client hat die Zugangsdaten abgelehnt. Prüfe sie in den Einstellungen.",
+			"timeout": "Der Download-Client hat zu lange gebraucht. Versuche es gleich noch einmal."
 		},
 		"release": {
 			"not_found": "Diese Veröffentlichung ist nicht mehr in den Ergebnissen. Erneut suchen.",
@@ -1798,5 +1804,17 @@
 		"subtitle": "Was für die Serien erschienen ist, denen Sie folgen.",
 		"upgrades": "Versionsverbesserungen ({count})",
 		"upgrades_help": "Sie haben diese, aber anderswo gibt es eine bessere Kopie. Sie fehlen nicht."
+	},
+	"catalogue": {
+		"refreshing": "Katalog wird aktualisiert…",
+		"took": "{reason} — der letzte dauerte {seconds} s",
+		"stale": "Der Katalog hat sich geändert.",
+		"reload": "Neu laden",
+		"reason": {
+			"scan": "Der Katalog wird nach einem Scan neu geordnet.",
+			"settings": "Der Katalog wird nach einer Einstellungsänderung neu geordnet.",
+			"manual": "Der Katalog wird neu geordnet.",
+			"boot": "Der Katalog wird beim Start neu geordnet."
+		}
 	}
 }

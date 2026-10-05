@@ -222,7 +222,9 @@
 		},
 		"view": {
 			"grid": "Affiches",
-			"list": "Liste"
+			"list": "Liste",
+			"switch_to_grid": "Afficher en grille",
+			"switch_to_list": "Afficher en liste"
 		},
 		"sync_selected": "Synchroniser {count} élément(s)",
 		"sync_started": "La synchronisation a été mise en file.",
@@ -1561,15 +1563,19 @@
 		},
 		"indexer": {
 			"not_configured": "Aucun indexeur configuré. Renseignez-en un dans les réglages.",
-			"unreachable": "L'indexeur n'a pas répondu. Vérifiez son adresse et sa clé.",
-			"unknown": "Cette version n'implémente pas cet indexeur."
+			"unreachable": "L'indexeur n'a pas répondu. Vérifiez son adresse.",
+			"unknown": "Cette version n'implémente pas cet indexeur.",
+			"unauthorized": "L'indexeur a refusé la clé API. Vérifiez-la dans les réglages.",
+			"timeout": "L'indexeur a mis trop de temps à répondre. Réessayez dans un instant."
 		},
 		"download_client": {
 			"not_configured": "Aucun client de téléchargement configuré. Renseignez-en un dans les réglages.",
 			"unreachable": "Le client de téléchargement n'a pas répondu.",
 			"unknown": "Cette version n'implémente pas ce client.",
 			"refused": "Le client de téléchargement a refusé.",
-			"path_unreadable": "La passerelle ne peut pas lire le dossier où écrit le client."
+			"path_unreadable": "La passerelle ne peut pas lire le dossier où écrit le client.",
+			"unauthorized": "Le client de téléchargement a refusé les identifiants. Vérifiez-les dans les réglages.",
+			"timeout": "Le client de téléchargement a mis trop de temps à répondre. Réessayez dans un instant."
 		},
 		"release": {
 			"not_found": "Cette version n'est plus dans les résultats. Relancez la recherche.",
@@ -1798,5 +1804,17 @@
 		"subtitle": "Ce qui est sorti pour les séries que vous suivez.",
 		"upgrades": "Montées en version ({count})",
 		"upgrades_help": "Vous les avez, mais une meilleure copie existe ailleurs. Ce ne sont pas des manquants."
+	},
+	"catalogue": {
+		"refreshing": "Mise à jour du catalogue…",
+		"took": "{reason} — la dernière a pris {seconds} s",
+		"stale": "Le catalogue a changé.",
+		"reload": "Recharger",
+		"reason": {
+			"scan": "Le catalogue se réorganise après une analyse.",
+			"settings": "Le catalogue se réorganise après un changement de réglage.",
+			"manual": "Le catalogue se réorganise.",
+			"boot": "Le catalogue se réorganise au démarrage."
+		}
 	}
 }

@@ -222,7 +222,9 @@
 		},
 		"view": {
 			"grid": "Cartazes",
-			"list": "Lista"
+			"list": "Lista",
+			"switch_to_grid": "Ver em grelha",
+			"switch_to_list": "Ver em lista"
 		},
 		"sync_selected": "Sincronizar {count} selecionados",
 		"sync_started": "A sincronização foi posta em fila.",
@@ -1561,15 +1563,19 @@
 		},
 		"indexer": {
 			"not_configured": "Nenhum indexador configurado. Configure um nas definições.",
-			"unreachable": "O indexador não respondeu. Verifique o endereço e a chave.",
-			"unknown": "Esta versão não implementa esse indexador."
+			"unreachable": "O indexador não respondeu. Verifique o endereço.",
+			"unknown": "Esta versão não implementa esse indexador.",
+			"unauthorized": "O indexador recusou a chave de API. Verifique-a nas definições.",
+			"timeout": "O indexador demorou demasiado a responder. Tente novamente dentro de instantes."
 		},
 		"download_client": {
 			"not_configured": "Nenhum cliente de transferências configurado.",
 			"unreachable": "O cliente de transferências não respondeu.",
 			"unknown": "Esta versão não implementa esse cliente.",
 			"refused": "O cliente de transferências recusou.",
-			"path_unreadable": "A gateway não consegue ler a pasta onde o cliente escreve."
+			"path_unreadable": "A gateway não consegue ler a pasta onde o cliente escreve.",
+			"unauthorized": "O cliente de transferências recusou as credenciais. Verifique-as nas definições.",
+			"timeout": "O cliente de transferências demorou demasiado a responder. Tente novamente dentro de instantes."
 		},
 		"release": {
 			"not_found": "Essa versão já não está nos resultados. Procure de novo.",
@@ -1798,5 +1804,17 @@
 		"subtitle": "O que saiu para as séries que segue.",
 		"upgrades": "Subidas de versão ({count})",
 		"upgrades_help": "Tem-nos, mas existe uma cópia melhor noutro lado. Não estão em falta."
+	},
+	"catalogue": {
+		"refreshing": "A atualizar o catálogo…",
+		"took": "{reason} — a última demorou {seconds} s",
+		"stale": "O catálogo mudou.",
+		"reload": "Recarregar",
+		"reason": {
+			"scan": "O catálogo está a reorganizar-se após uma análise.",
+			"settings": "O catálogo está a reorganizar-se após uma alteração de definições.",
+			"manual": "O catálogo está a reorganizar-se.",
+			"boot": "O catálogo está a reorganizar-se no arranque."
+		}
 	}
 }

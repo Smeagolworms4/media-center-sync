@@ -90,8 +90,8 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 		return `${row?.count ?? 0}:${String(row?.latest ?? '')}`;
 	}
 
-	public findAppliedPairs(threshold: number): Promise<MatchPair[]> {
-		return this.createQueryBuilder('match')
+	public findAppliedPairs(threshold: number, skip = 0, take = 0): Promise<MatchPair[]> {
+		const query = this.createQueryBuilder('match')
 			.select('match.localItemId', 'localItemId')
 			.addSelect('match.remoteItemId', 'remoteItemId')
 			.addSelect('match.state', 'state')
@@ -102,8 +102,22 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 			})
 			.andWhere('(match.confidence >= :threshold OR match.confirmedAt IS NOT NULL)', {
 				threshold,
-			})
-			.getRawMany<MatchPair>();
+			});
+
+		/*
+		 * Paged only when asked, and ordered only then.
+		 *
+		 * The whole table in one statement is still what a cold request wants: it is one
+		 * round trip instead of thirty, and the caller that needs an answer now cannot
+		 * spend the difference. Paging exists for the background rebuild, which has all
+		 * the time in the world and must hand the loop back between pages — and a page
+		 * without an order is a page the engine may repeat or skip.
+		 */
+		if (take > 0) {
+			query.orderBy('match.id', 'ASC').skip(skip).take(take);
+		}
+
+		return query.getRawMany<MatchPair>();
 	}
 
 	public findForLocalItem(localItemId: string): Promise<MediaMatch[]> {

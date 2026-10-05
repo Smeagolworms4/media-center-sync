@@ -222,7 +222,9 @@
 		},
 		"view": {
 			"grid": "Posters",
-			"list": "List"
+			"list": "List",
+			"switch_to_grid": "Show as a grid",
+			"switch_to_list": "Show as a list"
 		},
 		"sync_selected": "Sync {count} selected",
 		"sync_started": "The sync has been queued.",
@@ -1561,15 +1563,19 @@
 		},
 		"indexer": {
 			"not_configured": "No indexer is configured. Set one in Settings.",
-			"unreachable": "The indexer did not answer. Check its address and key.",
-			"unknown": "This build has no implementation for that indexer."
+			"unreachable": "The indexer did not answer. Check its address.",
+			"unknown": "This build has no implementation for that indexer.",
+			"unauthorized": "The indexer refused the API key. Check it in the settings.",
+			"timeout": "The indexer took too long to answer. Try again in a moment."
 		},
 		"download_client": {
 			"not_configured": "No download client is configured. Set one in Settings.",
 			"unreachable": "The download client did not answer.",
 			"unknown": "This build has no implementation for that download client.",
 			"refused": "The download client would not take it.",
-			"path_unreadable": "The gateway cannot read the folder the client writes into."
+			"path_unreadable": "The gateway cannot read the folder the client writes into.",
+			"unauthorized": "The download client refused the credentials. Check them in the settings.",
+			"timeout": "The download client took too long to answer. Try again in a moment."
 		},
 		"release": {
 			"not_found": "That release is no longer in the search results. Search again.",
@@ -1798,5 +1804,17 @@
 		"subtitle": "What has come out for the shows you follow.",
 		"upgrades": "Version upgrades ({count})",
 		"upgrades_help": "You have these, but a better copy exists elsewhere. They are not missing."
+	},
+	"catalogue": {
+		"refreshing": "Updating the catalogue…",
+		"took": "{reason} — the last one took {seconds}s",
+		"stale": "The catalogue has changed.",
+		"reload": "Reload",
+		"reason": {
+			"scan": "The catalogue is reorganising after a scan.",
+			"settings": "The catalogue is reorganising after a settings change.",
+			"manual": "The catalogue is reorganising.",
+			"boot": "The catalogue is reorganising at startup."
+		}
 	}
 }

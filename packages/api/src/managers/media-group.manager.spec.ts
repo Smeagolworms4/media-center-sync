@@ -20,7 +20,7 @@ import type {
 	GroupSeedQuery,
 	MatchPair,
 } from '@/repositories';
-import { QualityService, type SettingsService } from '@/services';
+import { type CatalogueCacheService, QualityService, type SettingsService } from '@/services';
 import type { LibraryManager } from './library.manager';
 import { MediaGroupManager } from './media-group.manager';
 
@@ -261,7 +261,7 @@ const build = (
 		// What the table looks like, so a cached graph can tell whether it is still the
 		// truth. Derived from the fixtures, so a test that adds a match changes it.
 		version: jest.fn(() => Promise.resolve(`${full.matches.length}`)),
-		findAppliedPairs: jest.fn((threshold: number) =>
+		findAppliedPairs: jest.fn((threshold: number, skip = 0, take = 0) =>
 			Promise.resolve(
 				full.matches
 					.filter(
@@ -281,7 +281,10 @@ const build = (
 							remoteItemId: match.remoteItemId,
 							state: match.state,
 						}),
-					),
+					)
+					// Paged only when asked, like the repository: the background rebuild reads
+					// in slices and a fake that ignored them would never exercise the loop.
+					.slice(skip, take > 0 ? skip + take : undefined),
 			),
 		),
 	};
@@ -307,6 +310,10 @@ const build = (
 			// Following is a sync plan covering a media and nothing else, so the plans are
 			// the whole of what the followed filter reads.
 			{ find: jest.fn(() => Promise.resolve(full.plans)) } as unknown as SyncPlanRepository,
+			// The warm path registers itself here at module init. These tests call the
+			// manager directly and never boot a module, so nothing registers and nothing
+			// is scheduled — the lazy rebuild in `_cachedGraph` is what they exercise.
+			{ onRefresh: jest.fn() } as unknown as CatalogueCacheService,
 		),
 		world: full,
 		reads: { items, matches },
@@ -1567,6 +1574,61 @@ describe('MediaGroupManager', () => {
 
 			expect(reads.matches.findAppliedPairs).toHaveBeenCalledTimes(2);
 			expect(reads.matches.findAppliedPairs).toHaveBeenLastCalledWith(0.95);
+		});
+
+		it('warms the graph so the next page does not pay to build it', async () => {
+			/*
+			 * The half that yielding never fixed. The graph is cached against a version of
+			 * the match table, so a scan invalidates it — and whoever opened a page next
+			 * rebuilt it, on their clock, for seconds. `refresh` is that rebuild done at the
+			 * end of the scan instead, which is the one moment the gateway knows it is coming.
+			 */
+			const { manager, reads } = build({
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' })],
+				matches: [correlation()],
+			});
+
+			expect(await manager.refresh()).toBe(true);
+
+			const built = reads.matches.findAppliedPairs.mock.calls.length;
+
+			await manager.groups(query());
+
+			expect(reads.matches.findAppliedPairs.mock.calls.length).toBe(built);
+		});
+
+		it('refuses to rebuild a graph that is already the current one', async () => {
+			// Returned so the caller does not tell every open tab to re-read a catalogue
+			// identical to the one it is holding.
+			const { manager } = build({
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' })],
+				matches: [correlation()],
+			});
+
+			await manager.groups(query());
+
+			expect(await manager.refresh()).toBe(false);
+		});
+
+		it('builds the same grouping a page at a time as it does in one read', async () => {
+			/*
+			 * The rebuild reads the table in slices so it can hand the event loop back
+			 * between them. Union-find does not care in what order it is told things, and
+			 * this is what says so: the grouping a warmed graph produces has to be the one
+			 * the lazy path produced, or warming would quietly change what people see.
+			 */
+			const world = {
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' }), item({ id: 'c' })],
+				matches: [correlation()],
+			};
+			const lazy = build(world);
+			const warmed = build(world);
+
+			await warmed.manager.refresh();
+
+			expect((await warmed.manager.groups(query())).items).toEqual(
+				(await lazy.manager.groups(query())).items,
+			);
 		});
 
 		it('reads the full rows only for the page it returns', async () => {

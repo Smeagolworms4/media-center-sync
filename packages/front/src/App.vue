@@ -14,6 +14,7 @@
 	import { storeTheme, type ThemeName } from '@/plugins/vuetify';
 	import { routes } from '@/router';
 	import { useAuthStore } from '@/stores/auth';
+	import { useCatalogueStore } from '@/stores/catalogue';
 	import { useEventsStore } from '@/stores/events';
 	import { useI18nStore } from '@/stores/i18n';
 	import { useLoaderStore } from '@/stores/loader';
@@ -49,6 +50,7 @@
 	const eventsStore = useEventsStore();
 	const i18nStore = useI18nStore();
 	const loaderStore = useLoaderStore();
+	const catalogueStore = useCatalogueStore();
 
 	const { ready, init } = useAppInit();
 
@@ -56,6 +58,10 @@
 
 	onMounted(() => {
 		void init();
+		// Subscribing costs one handler on a socket that is already open, and it has to
+		// happen in the shell: the indicator is in the app bar, and a screen that mounted
+		// after a rebuild started would otherwise be the only one that knew about it.
+		catalogueStore.listen();
 	});
 
 	/**
@@ -116,6 +122,23 @@
 		}
 	});
 
+	/**
+	 * What the rebuild is for, and what the last one cost.
+	 *
+	 * The duration is on the tooltip rather than the chip because it is the answer to a
+	 * question somebody asks once — "is this normal?" — and a number that changes under
+	 * the cursor is noise on a bar they are not acting on.
+	 */
+	const catalogueLabel = computed(() => {
+		const reason = catalogueStore.reason === null
+			? t('catalogue.reason.manual')
+			: t(`catalogue.reason.${catalogueStore.reason}`);
+
+		return catalogueStore.lastTookSeconds === null
+			? reason
+			: t('catalogue.took', { reason, seconds: catalogueStore.lastTookSeconds });
+	});
+
 	const accountName = computed(
 		() => authStore.user?.displayName || authStore.user?.username || '');
 
@@ -174,6 +197,35 @@
 							variant="text"
 							@click="pauseEverything"
 						/>
+					</template>
+				</v-tooltip>
+
+				<!--
+					What the gateway is doing to the catalogue behind the screens.
+					Shown only while it runs: a rebuild with no sign of it is
+					indistinguishable from a gateway that has hung, which is precisely
+					what people reported for months. The pages keep working throughout —
+					they answer from the previous pass until this one lands.
+				-->
+				<v-tooltip location="bottom" :text="catalogueLabel">
+					<template #activator="{ props: tooltipProps }">
+						<v-chip
+							v-if="catalogueStore.refreshing"
+							v-bind="tooltipProps"
+							class="app_catalogue mr-2"
+							color="info"
+							data-test="app-catalogue-refreshing"
+							size="small"
+							variant="tonal"
+						>
+							<v-progress-circular
+								class="mr-2"
+								indeterminate
+								:size="14"
+								:width="2"
+							/>
+							{{ $t('catalogue.refreshing') }}
+						</v-chip>
 					</template>
 				</v-tooltip>
 
@@ -245,10 +297,16 @@
 			</div>
 
 			<template v-else>
+				<!--
+					One bar for both, in two colours. A request somebody is waiting on is
+					`primary`; the catalogue rebuilding behind them is `info`, because it
+					is not their request and the screen under it still works. Two stacked
+					bars were tried and read as one flickering bar.
+				-->
 				<v-progress-linear
-					v-if="loaderStore.loading"
+					v-if="loaderStore.loading || catalogueStore.refreshing"
 					class="app_loading"
-					color="primary"
+					:color="loaderStore.loading ? 'primary' : 'info'"
 					height="2"
 					indeterminate
 				/>

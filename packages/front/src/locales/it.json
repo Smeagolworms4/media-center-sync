@@ -222,7 +222,9 @@
 		},
 		"view": {
 			"grid": "Locandine",
-			"list": "Elenco"
+			"list": "Elenco",
+			"switch_to_grid": "Mostra a griglia",
+			"switch_to_list": "Mostra a elenco"
 		},
 		"sync_selected": "Sincronizza {count} selezionati",
 		"sync_started": "La sincronizzazione è stata messa in coda.",
@@ -1561,15 +1563,19 @@
 		},
 		"indexer": {
 			"not_configured": "Nessun indicizzatore configurato. Impostane uno nelle impostazioni.",
-			"unreachable": "L'indicizzatore non ha risposto. Controlla indirizzo e chiave.",
-			"unknown": "Questa versione non implementa quell’indicizzatore."
+			"unreachable": "L'indicizzatore non ha risposto. Controlla il suo indirizzo.",
+			"unknown": "Questa versione non implementa quell’indicizzatore.",
+			"unauthorized": "L'indicizzatore ha rifiutato la chiave API. Controllala nelle impostazioni.",
+			"timeout": "L'indicizzatore ha impiegato troppo tempo a rispondere. Riprova tra un istante."
 		},
 		"download_client": {
 			"not_configured": "Nessun client di download configurato.",
 			"unreachable": "Il client di download non ha risposto.",
 			"unknown": "Questa versione non implementa quel client.",
 			"refused": "Il client di download lo ha rifiutato.",
-			"path_unreadable": "Il gateway non riesce a leggere la cartella in cui scrive il client."
+			"path_unreadable": "Il gateway non riesce a leggere la cartella in cui scrive il client.",
+			"unauthorized": "Il client di download ha rifiutato le credenziali. Controllale nelle impostazioni.",
+			"timeout": "Il client di download ha impiegato troppo tempo a rispondere. Riprova tra un istante."
 		},
 		"release": {
 			"not_found": "Quella release non è più nei risultati. Cerca di nuovo.",
@@ -1798,5 +1804,17 @@
 		"subtitle": "Che cosa è uscito per le serie che segui.",
 		"upgrades": "Passaggi di versione ({count})",
 		"upgrades_help": "Li hai, ma altrove esiste una copia migliore. Non mancano."
+	},
+	"catalogue": {
+		"refreshing": "Aggiornamento del catalogo…",
+		"took": "{reason} — l'ultimo ha richiesto {seconds} s",
+		"stale": "Il catalogo è cambiato.",
+		"reload": "Ricarica",
+		"reason": {
+			"scan": "Il catalogo si riorganizza dopo una scansione.",
+			"settings": "Il catalogo si riorganizza dopo una modifica delle impostazioni.",
+			"manual": "Il catalogo si riorganizza.",
+			"boot": "Il catalogo si riorganizza all'avvio."
+		}
 	}
 }

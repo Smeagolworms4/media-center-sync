@@ -6,7 +6,8 @@
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
 	import LibrarySection from '@/components/media/LibrarySection.vue';
-	import { useViewMode, VIEW_MODES } from '@/composables/useViewMode';
+	import ViewModeToggle from '@/components/media/ViewModeToggle.vue';
+	import { useViewMode } from '@/composables/useViewMode';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 	import { useServicesStore } from '@/stores/services';
@@ -216,33 +217,7 @@
 			:title="$t('pages.news')"
 		>
 			<template #actions>
-				<!-- The library's own toggle, down to the icons. See `Library.vue`. -->
-				<v-btn-toggle
-					v-model="view"
-					data-test="news-view-toggle"
-					density="compact"
-					divided
-					mandatory
-					variant="outlined"
-				>
-					<v-tooltip
-						v-for="mode of VIEW_MODES"
-						:key="mode"
-						location="bottom"
-						:text="$t(`library.view.${mode}`)"
-					>
-						<template #activator="{ props: tip }">
-							<v-btn
-								:aria-label="$t(`library.view.${mode}`)"
-								:data-test="`news-view-${mode}`"
-								:icon="mode === 'grid' ? 'mdi-view-grid' : 'mdi-view-list'"
-								size="small"
-								:value="mode"
-								v-bind="tip"
-							/>
-						</template>
-					</v-tooltip>
-				</v-btn-toggle>
+				<ViewModeToggle v-model="view" data-test="news-view-toggle" />
 
 				<v-btn
 					data-test="news-refresh"

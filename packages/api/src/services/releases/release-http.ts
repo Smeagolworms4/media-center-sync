@@ -31,6 +31,15 @@ export interface ReleaseHttpOptions extends HttpRequestOptions {
 	unreachable: string;
 	/** What a 401 or 403 is reported as. Falls back to `unreachable`. */
 	unauthorized?: string;
+	/**
+	 * What an answer that never arrived is reported as. Falls back to `unreachable`.
+	 *
+	 * Worth separating because the three failures have three different fixes and only one
+	 * of them is the settings. A timeout is load — at either end, and on this gateway it
+	 * is routinely a scan — and sending somebody to check an address that is correct is
+	 * the one answer guaranteed to waste their evening.
+	 */
+	timeout?: string;
 	/** Sent as a form body rather than JSON, which is what qBittorrent speaks. */
 	form?: Record<string, string>;
 	/**
@@ -78,11 +87,22 @@ const send = async (
 		});
 	} catch (cause) {
 		throw new ServiceUnavailableException({
-			key: options.unreachable,
+			key: isTimeout(cause) ? (options.timeout ?? options.unreachable) : options.unreachable,
 			detail: cause instanceof Error ? cause.message : String(cause),
 		});
 	}
 };
+
+/**
+ * Whether the request ran out of time rather than failing to go anywhere.
+ *
+ * `AbortSignal.timeout` rejects with a `TimeoutError`; an abort from anywhere else is an
+ * `AbortError`, and both are `DOMException` on this runtime. Matched on `name` because
+ * the class is not reliably the same object across realms, and a mis-read here only ever
+ * costs the more general message.
+ */
+const isTimeout = (cause: unknown): boolean =>
+	cause instanceof Error && (cause.name === 'TimeoutError' || cause.name === 'AbortError');
 
 const check = (response: Response, options: ReleaseHttpOptions): void => {
 	if (response.status === 401 || response.status === 403) {

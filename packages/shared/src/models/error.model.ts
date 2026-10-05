@@ -435,12 +435,29 @@ export const ErrorKey = {
 	 * naming it is the difference between "this is broken" and "this is not set up".
 	 */
 	INDEXER_NOT_CONFIGURED: 'error.indexer.not_configured',
-	/** Configured, and it did not answer. The address or the key, and the row says which. */
+	/**
+	 * Configured, and nothing came back from the address.
+	 *
+	 * Strictly the transport: the name did not resolve, the port refused, the certificate
+	 * was rejected. Not a refusal — see `INDEXER_UNAUTHORIZED` — and not a slow answer,
+	 * see `INDEXER_TIMEOUT`. The three were one key and one sentence that told somebody
+	 * to check their address and their key; so an indexer that was perfectly well
+	 * configured, behind a gateway busy with a scan, sent them to look at settings that
+	 * were right all along.
+	 */
 	INDEXER_UNREACHABLE: 'error.indexer.unreachable',
+	/** It answered, and refused the key. Nothing to do with the address. */
+	INDEXER_UNAUTHORIZED: 'error.indexer.unauthorized',
+	/** It is there and it did not answer in time — usually load, at either end. */
+	INDEXER_TIMEOUT: 'error.indexer.timeout',
 	/** A stored row names an indexer type this build has no implementation for. */
 	INDEXER_UNKNOWN: 'error.indexer.unknown',
 	DOWNLOAD_CLIENT_NOT_CONFIGURED: 'error.download_client.not_configured',
 	DOWNLOAD_CLIENT_UNREACHABLE: 'error.download_client.unreachable',
+	/** It answered, and refused the credentials. Nothing to do with the address. */
+	DOWNLOAD_CLIENT_UNAUTHORIZED: 'error.download_client.unauthorized',
+	/** It is there and it did not answer in time — usually load, at either end. */
+	DOWNLOAD_CLIENT_TIMEOUT: 'error.download_client.timeout',
 	DOWNLOAD_CLIENT_UNKNOWN: 'error.download_client.unknown',
 	/** The client took it and then would not say what it did with it. */
 	DOWNLOAD_CLIENT_REFUSED: 'error.download_client.refused',

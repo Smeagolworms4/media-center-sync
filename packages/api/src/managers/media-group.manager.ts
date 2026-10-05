@@ -16,7 +16,7 @@ import {
 	type QualitySummary,
 	type ResultList,
 } from '@mcs/shared';
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, type OnModuleInit } from '@nestjs/common';
 import { In } from 'typeorm';
 import type { MediaItem as MediaItemEntity, MediaService as MediaServiceEntity } from '@/entities';
 import {
@@ -30,6 +30,8 @@ import {
 	type MediaItemDigest,
 } from '@/repositories';
 import {
+	breathe,
+	CatalogueCacheService,
 	editionOf,
 	mappedLocalPath,
 	QualityService,
@@ -105,6 +107,15 @@ const ACTIONABLE_STATES = [SyncState.MISSING, SyncState.OUTDATED, SyncState.CONF
 const FOLLOWED_HOPS = 4;
 
 /**
+ * How many match rows one page of a background rebuild carries.
+ *
+ * Two thousand is the same figure the catalogue read uses, for the same reason: large
+ * enough that the round trips disappear beside the work, small enough that the pause
+ * between two of them is a few milliseconds rather than a visible stall.
+ */
+const GRAPH_PAGE = 2000;
+
+/**
  * Connected components of the applied-match graph.
  *
  * A union-find held for the length of one request, not a column and not a query. It
@@ -119,7 +130,22 @@ class MatchGraph {
 	private readonly _otherCut = new Set<string>();
 	private _components: Map<string, string[]> | null = null;
 
-	public constructor(pairs: MatchPair[]) {
+	public constructor(pairs: MatchPair[] = []) {
+		this.absorb(pairs);
+	}
+
+	/**
+	 * Fold more edges in, so the graph can be built a page at a time.
+	 *
+	 * Union-find does not care in what order it is told things — that is the whole point
+	 * of the structure — so a graph fed thirty pages is the same graph as one fed the
+	 * table at once. What it buys is a place to breathe between them, which a constructor
+	 * looping over sixty thousand rows had nowhere to put.
+	 */
+	public absorb(pairs: readonly MatchPair[]): void {
+		// Any component cached from an earlier page is a partial answer now.
+		this._components = null;
+
 		for (const pair of pairs) {
 			this._union(pair.localItemId, pair.remoteItemId);
 
@@ -308,7 +334,7 @@ interface Scope {
 }
 
 @Injectable()
-export class MediaGroupManager {
+export class MediaGroupManager implements OnModuleInit {
 	/** The grouping graph last built, and what the match table looked like then. */
 	private _graph: { version: string; threshold: number; graph: MatchGraph } | null = null;
 
@@ -321,7 +347,19 @@ export class MediaGroupManager {
 		private readonly _settings: SettingsService,
 		private readonly _libraries: LibraryManager,
 		private readonly _plans: SyncPlanRepository,
+		private readonly _cache: CatalogueCacheService,
 	) {}
+
+	/**
+	 * Hand the cache the one thing only this class can do.
+	 *
+	 * `onModuleInit` rather than the bootstrap hook: a scan can finish — and schedule a
+	 * refresh — before every bootstrap hook has run, and a refresher registered after
+	 * that point would miss it. Module init happens before any of them.
+	 */
+	public onModuleInit(): void {
+		this._cache.onRefresh(() => this.refresh());
+	}
 
 	public async groups(query: MediaGroupQuery): Promise<ResultList<MediaGroup>> {
 		const { page, limit } = pageBounds(query.page, query.limit);
@@ -864,16 +902,8 @@ export class MediaGroupManager {
 			this._peers.find(),
 		]);
 
-		if (this._graph === null || this._graph.version !== version || this._graph.threshold !== threshold) {
-			this._graph = {
-				version,
-				threshold,
-				graph: new MatchGraph(await this._matches.findAppliedPairs(threshold)),
-			};
-		}
-
 		return {
-			graph: this._graph.graph,
+			graph: await this._cachedGraph(version, threshold),
 			services: new Map(services.map((service) => [service.id, service])),
 			// A fresh map per caller: it is a per-request memo that `_read` fills while
 			// walking one page, and sharing it would hand one page another's folders.
@@ -890,6 +920,94 @@ export class MediaGroupManager {
 					.map((service) => service.id),
 			),
 		};
+	}
+
+	/**
+	 * Rebuild the shared graph now, off anybody's request, and say whether it moved.
+	 *
+	 * This is the half of the problem that making the work interruptible never touched.
+	 * Yielding stops a scan from strangling the server, but the graph is still rebuilt
+	 * *lazily*, by whoever asks first after it goes stale — and that is a person, who
+	 * waits the whole rebuild for a page they expected to be instant. Scans end at a
+	 * known moment; doing it there means the cost lands where nobody is looking at a
+	 * spinner.
+	 *
+	 * Paged and breathing, because it has no reason to hurry: a rebuild that takes four
+	 * seconds instead of one costs nothing if the server answers throughout, and the
+	 * previous graph stays in place and keeps answering until this one is complete. The
+	 * swap at the end is a single assignment, so no request ever sees a half-filled
+	 * graph — the thing that would quietly show somebody half their library.
+	 *
+	 * Returns false when nothing had changed, which is how the caller avoids telling
+	 * every open tab to re-read a catalogue that is the same as the one it has.
+	 */
+	public async refresh(): Promise<boolean> {
+		const threshold = await this._settings.getValue('matchThreshold');
+		const version = await this._matches.version();
+
+		if (!this._stale(version, threshold)) {
+			return false;
+		}
+
+		const graph = new MatchGraph();
+
+		for (let skip = 0; ; skip += GRAPH_PAGE) {
+			const page = await this._matches.findAppliedPairs(threshold, skip, GRAPH_PAGE);
+
+			if (page.length === 0) {
+				break;
+			}
+
+			graph.absorb(page);
+			await breathe(0);
+
+			if (page.length < GRAPH_PAGE) {
+				break;
+			}
+		}
+
+		/*
+		 * Re-read the version rather than trusting the one we started from.
+		 *
+		 * A correlation pass writing matches while this read its pages would leave a
+		 * graph that holds some of them, stored under a version that claims it holds all
+		 * of them — and it would stay wrong until something else changed the table.
+		 * Storing the version observed at the start of the read is the conservative lie:
+		 * at worst the next caller rebuilds once for nothing.
+		 */
+		this._graph = { version, threshold, graph };
+
+		return true;
+	}
+
+	/**
+	 * The graph for this version of the table, built in one statement if it is missing.
+	 *
+	 * One statement and not paged, because somebody is waiting on this answer and the
+	 * round trips would be theirs to pay. When `refresh` has done its job this never
+	 * builds anything — which is the entire point of `refresh`.
+	 */
+	private async _cachedGraph(version: string, threshold: number): Promise<MatchGraph> {
+		const cached = this._graph;
+
+		if (cached !== null && cached.version === version && cached.threshold === threshold) {
+			return cached.graph;
+		}
+
+		const graph = new MatchGraph(await this._matches.findAppliedPairs(threshold));
+
+		this._graph = { version, threshold, graph };
+
+		return graph;
+	}
+
+	/** The cached graph no longer answers for this version of the table, or this threshold. */
+	private _stale(version: string, threshold: number): boolean {
+		return (
+			this._graph === null
+			|| this._graph.version !== version
+			|| this._graph.threshold !== threshold
+		);
 	}
 
 	/**

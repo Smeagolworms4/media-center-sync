@@ -1,4 +1,5 @@
 import {
+	CacheRefreshReason,
 	ConnectionRoute,
 	ErrorKey,
 	EventName,
@@ -37,6 +38,7 @@ import { basename, dirname } from 'node:path';
 import {
 	applyOverride,
 	breathe,
+	CatalogueCacheService,
 	detectCompanions,
 	DirectoryRegistry,
 	FingerprintService,
@@ -172,6 +174,15 @@ export class ServiceManager implements OnApplicationBootstrap {
 		 * settings are what the service row is derived from.
 		 */
 		private readonly _settings: SettingsService,
+		/**
+		 * Warmed at the end of a pass rather than by whoever opens a page next.
+		 *
+		 * A scan is precisely what makes the shared projections stale, and it is also the
+		 * one moment the gateway knows the work is coming. Leaving the rebuild to the next
+		 * request meant the person who opened the library after a scan paid for it — the
+		 * nine-second page, every time.
+		 */
+		private readonly _cache: CatalogueCacheService,
 	) {}
 
 	/**
@@ -836,6 +847,13 @@ export class ServiceManager implements OnApplicationBootstrap {
 		// rows, and the decision about what two rows are the same media is the same
 		// decision whether a scan or a person triggered it.
 		await this._media.correlateService(service.id);
+
+		/*
+		 * Scheduled, never awaited. The pass is over as far as anybody watching it is
+		 * concerned, and holding the walk open for a cache rebuild would put the cost
+		 * straight back on the clock the progress bar is measuring.
+		 */
+		this._cache.schedule(CacheRefreshReason.SCAN);
 
 		this._progress(service.id, null, 0, true);
 

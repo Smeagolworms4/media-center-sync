@@ -211,6 +211,8 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 			headers: { 'X-Api-Key': settings.apiKey ?? '' },
 			timeoutMs: INDEXER_TIMEOUT_MS,
 			unreachable: ErrorKey.INDEXER_UNREACHABLE,
+			unauthorized: ErrorKey.INDEXER_UNAUTHORIZED,
+			timeout: ErrorKey.INDEXER_TIMEOUT,
 		});
 
 		// An answer of the wrong shape is an empty search rather than a crash: this is
@@ -242,6 +244,8 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 				headers: { 'X-Api-Key': settings.apiKey ?? '' },
 				timeoutMs: INDEXER_TIMEOUT_MS,
 				unreachable: ErrorKey.INDEXER_UNREACHABLE,
+				unauthorized: ErrorKey.INDEXER_UNAUTHORIZED,
+				timeout: ErrorKey.INDEXER_TIMEOUT,
 			});
 
 			if (!Array.isArray(rows)) {
@@ -271,6 +275,8 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 		await releaseJson<unknown>(settings.baseUrl, '/api/v1/indexer', {
 			headers: { 'X-Api-Key': settings.apiKey ?? '' },
 			unreachable: ErrorKey.INDEXER_UNREACHABLE,
+			unauthorized: ErrorKey.INDEXER_UNAUTHORIZED,
+			timeout: ErrorKey.INDEXER_TIMEOUT,
 		});
 
 		return true;
@@ -317,6 +323,8 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 					headers: { 'X-Api-Key': settings.apiKey ?? '' },
 					timeoutMs: CLIENT_TIMEOUT_MS,
 					unreachable: ErrorKey.INDEXER_UNREACHABLE,
+					unauthorized: ErrorKey.INDEXER_UNAUTHORIZED,
+					timeout: ErrorKey.INDEXER_TIMEOUT,
 				},
 			);
 

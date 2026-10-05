@@ -74,6 +74,24 @@ export const EventName = {
 	TRANSFER_REMOVED: 'transfer.removed',
 	/** A torrent was taken off the queue, and every screen showing it has to drop it. */
 	RELEASE_GRAB_REMOVED: 'release.grab.removed',
+	/**
+	 * The catalogue's shared projections are being rebuilt, or have finished being.
+	 *
+	 * Sent so a screen can say so rather than freeze. The rebuild happens after a scan,
+	 * away from anybody's request, and until it lands the answers are the previous ones —
+	 * correct, just one pass behind. A spinner over a list that still works is honest;
+	 * the alternative we shipped was a page that took nine seconds and looked broken.
+	 */
+	CACHE_STATE: 'cache.state',
+	/**
+	 * The catalogue changed underneath every open screen, and they should ask again.
+	 *
+	 * It carries a version and nothing else. The payload would have to be the whole
+	 * catalogue to be useful — megabytes, to every tab, for a change that affects four
+	 * rows — and a screen knows what it is showing far better than this does. So it says
+	 * "what you have is stale" and each screen re-reads what it needs.
+	 */
+	CATALOGUE_CHANGED: 'catalogue.changed',
 } as const;
 
 export type EventNameValue = (typeof EventName)[keyof typeof EventName];
@@ -101,7 +119,34 @@ export interface EventPayloads {
 	[EventName.TRANSFER_REVALIDATED]: Revalidation;
 	[EventName.RELEASE_GRAB]: ReleaseGrab;
 	[EventName.TRANSFER_LANDING]: { transferId: string; landing: MediaLandingState };
+	[EventName.CACHE_STATE]: CacheState;
+	[EventName.CATALOGUE_CHANGED]: { version: string };
 }
+
+/**
+ * What the background refresh is doing, for whoever wants to draw it.
+ *
+ * `reason` is carried because the interface shows it: "analyse terminée" after a scan
+ * and "réglage modifié" after the threshold moved are the same spinner to the code and
+ * two different things to somebody watching it, and the second one is how you find out
+ * a slider you touched is actually doing something.
+ */
+export interface CacheState {
+	refreshing: boolean;
+	reason: CacheRefreshReasonValue;
+	startedAt: string | null;
+	/** How long the pass that just ended took, in milliseconds. Null while one runs. */
+	tookMs: number | null;
+}
+
+export const CacheRefreshReason = {
+	SCAN: 'scan',
+	SETTINGS: 'settings',
+	MANUAL: 'manual',
+	BOOT: 'boot',
+} as const;
+
+export type CacheRefreshReasonValue = (typeof CacheRefreshReason)[keyof typeof CacheRefreshReason];
 
 export interface ServerEvent<K extends EventNameValue = EventNameValue> {
 	event: K;

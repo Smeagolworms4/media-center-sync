@@ -550,10 +550,36 @@ describe('ProwlarrIndexer', () => {
 		});
 
 		it('raises on a refused key rather than looking like an empty catalogue', async () => {
+			/*
+			 * Its own key, not the general one. The three failures have three different
+			 * fixes and only one of them is the settings — and the one sentence they all
+			 * shared told people to check an address and a key, so a refusal and a slow
+			 * answer both sent somebody to inspect configuration that was correct.
+			 */
 			answer({}, 401);
 
 			await expect(indexer.search(SETTINGS, episodeQuery)).rejects.toMatchObject({
-				response: { key: 'error.indexer.unreachable' },
+				response: { key: 'error.indexer.unauthorized' },
+			});
+		});
+
+		it('says it ran out of time rather than blaming the address', async () => {
+			// What a household actually hits: the indexer is there and well configured, and
+			// this gateway is busy with a scan. Telling them to check the address is the one
+			// answer guaranteed to waste their evening.
+			global.fetch = jest.fn(() => {
+				// What `AbortSignal.timeout` rejects with: a `DOMException` named
+				// `TimeoutError`, which is the only thing separating "too slow" from
+				// "nothing there" at this level.
+				const error = new Error('The operation was aborted due to timeout');
+
+				error.name = 'TimeoutError';
+
+				return Promise.reject(error);
+			}) as unknown as typeof fetch;
+
+			await expect(indexer.search(SETTINGS, episodeQuery)).rejects.toMatchObject({
+				response: { key: 'error.indexer.timeout' },
 			});
 		});
 	});
@@ -575,7 +601,7 @@ describe('ProwlarrIndexer', () => {
 			answer({}, 401);
 
 			await expect(indexer.probe(SETTINGS)).rejects.toMatchObject({
-				response: { key: 'error.indexer.unreachable' },
+				response: { key: 'error.indexer.unauthorized' },
 			});
 		});
 	});

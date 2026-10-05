@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+	CacheRefreshReason,
 	ConnectionRoute,
 	ErrorKey,
 	EventName,
@@ -23,6 +24,7 @@ import type {
 	MediaServiceRepository,
 } from '@/repositories';
 import type {
+	CatalogueCacheService,
 	DirectoryRegistry,
 	DirectoryServer,
 	EventGatewayService,
@@ -399,6 +401,7 @@ interface Fakes {
 	directory: { listServers: jest.Mock; resolve: jest.Mock };
 	directories: { find: jest.Mock };
 	settings: { get: jest.Mock };
+	cache: { schedule: jest.Mock };
 }
 
 const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes } => {
@@ -480,6 +483,9 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		// The request source is kept registered as a service from the settings, and that
 		// reconciliation runs at boot as well as on every write.
 		settings: { get: jest.fn().mockResolvedValue({ requestSource: null }) },
+		// A finished pass asks for the shared projections to be rebuilt. It is deliberately
+		// not awaited, so the fake only has to record that it was asked.
+		cache: { schedule: jest.fn() },
 	};
 
 	const manager = new ServiceManager(
@@ -501,6 +507,7 @@ const build = (seed: MediaItem[] = []): { manager: ServiceManager; fakes: Fakes 
 		// The request source is kept registered as a service from the settings, and the
 		// reconciliation runs at boot as well as on every write.
 		fakes.settings as unknown as SettingsService,
+		fakes.cache as unknown as CatalogueCacheService,
 	);
 
 	return { manager, fakes };
@@ -1220,6 +1227,40 @@ describe('ServiceManager', () => {
 			await settle(manager);
 
 			expect(order).toEqual(['reconcile', 'correlate']);
+		});
+
+		it('asks for the shared projections to be rebuilt once the pass is over', async () => {
+			/*
+			 * A scan is exactly what makes them stale, and the one moment the gateway knows
+			 * the work is coming. Leaving it to the next request meant whoever opened a page
+			 * after a scan paid for the rebuild — the nine-second page, every time.
+			 */
+			const { manager, fakes } = build();
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(fakes.cache.schedule).toHaveBeenCalledWith(CacheRefreshReason.SCAN);
+		});
+
+		it('does not wait for that rebuild before declaring the pass finished', async () => {
+			// Scheduling must not put the cost back on the clock the progress bar measures.
+			const { manager, fakes } = build();
+			const order: string[] = [];
+
+			fakes.cache.schedule.mockImplementation(() => {
+				order.push('schedule');
+			});
+			fakes.events.emit.mockImplementation((name: string, payload: { done?: boolean }) => {
+				if (name === EventName.SCAN_PROGRESS && payload.done === true) {
+					order.push('done');
+				}
+			});
+
+			await manager.scan('service-1');
+			await settle(manager);
+
+			expect(order.indexOf('schedule')).toBeLessThan(order.lastIndexOf('done'));
 		});
 
 		it('re-reads a service when a file has just landed in one of its libraries', async () => {
