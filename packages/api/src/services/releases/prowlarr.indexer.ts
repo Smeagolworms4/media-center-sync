@@ -10,6 +10,7 @@ import { ErrorKey } from '@mcs/shared';
 import { ReleaseIndexerFor } from './indexer.decorator';
 import { parseReleaseName } from './release-name';
 import { CLIENT_TIMEOUT_MS, INDEXER_TIMEOUT_MS, releaseJson } from './release-http';
+import { searchTerms } from './search-terms';
 import type { IndexerQuery, ReleaseIndexer } from './indexer.interface';
 
 /**
@@ -243,7 +244,7 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 	 * words were never the problem.
 	 *
 	 * A season pack asks for the season and names no episode, which is the same
-	 * distinction `_terms` draws for the text form.
+	 * distinction `searchTerms` draws for the text form.
 	 */
 	private _coordinate(query: IndexerQuery): Record<string, number> {
 		if (query.kind === ReleaseSearchKind.MOVIE) {
@@ -290,7 +291,7 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 				// The bare title on a structured ask: the coordinate travels as parameters,
 				// and spelling it in the words as well asks the tracker to find `S01E08`
 				// written that way in the release name too.
-				query: ask.structured ? query.term.trim() : this._terms(query),
+				query: ask.structured ? query.term.trim() : searchTerms(query),
 				categories: CATEGORIES[query.kind].join(','),
 				// `tvsearch` and `movie` carry the identifiers and the coordinate; `search`
 				// is the plain one and ignores both.
@@ -389,25 +390,6 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 	 * A season pack asks for `S02` alone. Asking for `S02E09` and hoping a pack comes
 	 * back is how somebody looking for the rest of a season finds one episode of it.
 	 */
-	private _terms(query: IndexerQuery): string {
-		const parts = [query.term.trim()];
-
-		// Without a season there is no coordinate to spell, and asking for a pack of
-		// nothing in particular is asking for the bare title — which silently turns
-		// "find me the rest of this season" into "find me anything called this". The
-		// caller has to name the season; a search that cannot is a search of the show.
-		if (query.seasonNumber !== null && query.seasonNumber !== undefined) {
-			const season = String(query.seasonNumber).padStart(2, '0');
-
-			if (query.seasonPack === true || query.episodeNumber === null || query.episodeNumber === undefined) {
-				parts.push(`S${season}`);
-			} else {
-				parts.push(`S${season}E${String(query.episodeNumber).padStart(2, '0')}`);
-			}
-		}
-
-		return parts.filter((part) => part !== '').join(' ');
-	}
 
 	public async trackers(settings: IndexerSettings): Promise<string[]> {
 		try {

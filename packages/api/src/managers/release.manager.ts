@@ -59,6 +59,7 @@ import {
 	PlacementService,
 	releaseBytes,
 	resolveReleasePreference,
+	searchTerms,
 	SettingsService,
 	toLocalPath,
 	type IndexerQuery,
@@ -432,9 +433,11 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		}));
 
 		return {
-			query: [asked.term, asked.seasonNumber === null || asked.seasonNumber === undefined
-				? ''
-				: `S${String(asked.seasonNumber).padStart(2, '0')}`].filter(Boolean).join(' '),
+			// The words that were actually sent, from the one function that spells them.
+			// This used to be built here a second time and said `S01` where the search had
+			// said `S01E08` — on the line somebody reads to correct a search that found
+			// nothing.
+			query: searchTerms(asked),
 			// One list, tracker and peer together. The rule that puts a copy that exists
 			// above a copy that is claimed is in `orderSuggestions`, with the reasoning.
 			suggestions: orderSuggestions(
@@ -1837,14 +1840,33 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		 * while quietly disagreeing with every screen.
 		 */
 		const series = await this._items.topAncestor(root);
+		const twins = await this._correlatedLocals(series);
 
-		for (const twin of await this._correlatedLocals(series)) {
+		for (const twin of twins) {
 			const held = await this._heldUnder(twin);
 
 			if (held !== null) {
+				this._logger.log(
+					`Filing beside ${held} — ${root.id} sits under ${series.id}, `
+					+ `which the grouping holds locally as ${twin.id}`,
+				);
+
 				return held;
 			}
 		}
+
+		/*
+		 * Said out loud, because the silence is what let this defect survive several
+		 * repairs. A new episode filed away from the show it belongs to looks, from the
+		 * outside, exactly like a gateway that chose a destination — and the one thing
+		 * nobody could see was whether it had looked for the show at all.
+		 */
+		this._logger.warn(
+			`Nothing to file beside for ${root.id}: its top row is ${series.id}, `
+			+ `the grouping names ${twins.length} local ${twins.length === 1 ? 'copy' : 'copies'}`
+			+ `${twins.length === 0 ? '' : ` (${twins.map((one) => one.id).join(', ')})`}`
+			+ ', and none of them holds a file this gateway can reach',
+		);
 
 		return null;
 	}
@@ -1886,7 +1908,13 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * exactly as they were, which is the behaviour this had before.
 	 */
 	private async _correlatedLocals(series: MediaItemEntity): Promise<MediaItemEntity[]> {
-		const group = await this._groups.group(series.id).catch(() => null);
+		const group = await this._groups.group(series.id).catch((error: unknown) => {
+			// Never fatal, and never silent either: a grouping that cannot be read is the
+			// difference between filing an episode with its show and filing it alone.
+			this._logger.warn(`Could not read the grouping for ${series.id}: ${String(error)}`);
+
+			return null;
+		});
 
 		if (group === null) {
 			return [];

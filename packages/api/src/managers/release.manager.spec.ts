@@ -822,6 +822,21 @@ describe('ReleaseManager', () => {
 			expect(found.query).toBe('Spartacus S02');
 		});
 
+		it('reports the words it really sent, episode and all', async () => {
+			/*
+			 * The line somebody reads when nothing came back, so that they can correct the
+			 * search. It was built here a second time and spelled only the season: standing
+			 * on episode eight and pressing search, the screen answered `Lanterns S01` while
+			 * `Lanterns S01E08` had gone out — telling a person the gateway did something
+			 * other than what it did.
+			 */
+			const { manager } = build();
+
+			const found = await manager.search({ itemId: 'ep-2' });
+
+			expect(found.query).toBe('Spartacus S01E02');
+		});
+
 		it('searches an episode by its series title, which is the name release names carry', async () => {
 			const { manager, fakes } = build();
 

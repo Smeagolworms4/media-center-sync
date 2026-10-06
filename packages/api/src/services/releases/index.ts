@@ -36,3 +36,4 @@ export const RELEASE_PROVIDERS = [
 	QbittorrentClient,
 	PeerSuggestionService,
 ];
+export * from './search-terms';

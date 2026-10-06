@@ -293,6 +293,21 @@ export class PlacementService {
 					reason: notes.length > 0 ? notes.join('; ') : null,
 				};
 
+				/*
+				 * Which rule won, said once per placement.
+				 *
+				 * The chain is a list of candidates tried in order and, until this line,
+				 * the only trace of its decision was the file appearing somewhere. An
+				 * episode filed away from its show looks exactly like an episode filed
+				 * deliberately, which is how the same defect was reported and repaired
+				 * several times over without anybody being able to see which step answered.
+				 */
+				this._logger.log(
+					`Placing under ${target.root} by ${attempt.strategy}`
+					+ `${request.existingPath ? ` (a copy sits at ${request.existingPath})` : ''}`
+					+ `${skipped.length > 0 ? `, after skipping ${skipped.join(', ')}` : ''}`,
+				);
+
 				return {
 					...target,
 					placedBy: request.pinned ? request.pinned.placedBy : placedByFor(target, request),
@@ -500,6 +515,16 @@ export class PlacementService {
 		 */
 		if (request.existingPath) {
 			const host = this._libraryHolding(usable, request.existingPath);
+
+			if (!host) {
+				// The rule the settings call unconditional, quietly not applying. Worth a
+				// line of its own: a copy was found and then discarded, which is a very
+				// different thing from no copy existing.
+				this._logger.warn(
+					`A copy sits at ${request.existingPath} and no writable library holds it, `
+					+ 'so the configured destinations decide instead',
+				);
+			}
 
 			if (host) {
 				attempts.push({
