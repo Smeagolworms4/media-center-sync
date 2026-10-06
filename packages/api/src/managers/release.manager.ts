@@ -170,6 +170,15 @@ const resolveMagnet = async (
  * else: no catalogue, no settings, no gateway state. See `Release.offTarget` for why the
  * answer marks a row instead of removing it.
  */
+/**
+ * How far up a row's parents the grouping is asked about it.
+ *
+ * Series, season, episode is three. Bounded rather than walked to the root because a
+ * parent chain that loops is somebody else's index, and this is not the place to find
+ * that out.
+ */
+const ANCESTRY_DEPTH = 3;
+
 const offTarget = (release: Release, season: number | null, episode: number | null): boolean => {
 	const { coverage } = release;
 
@@ -1727,14 +1736,30 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	): Promise<{ nameable: NameableItem; siblingPath: string | null }> {
 		if (item.kind === MediaKind.EPISODE) {
 			const show = await this._showFacts(item);
+			/*
+			 * The show is the anchor and the coordinate comes off the file.
+			 *
+			 * The series is the one thing a grab always knows: it is what was pressed, or
+			 * what the pressed row hangs from. The season and the episode are properties of
+			 * *this file*, and the file says so in its name — so a release named `S02E03`
+			 * is season two whatever row somebody started from. Reading the row instead was
+			 * fine while the two always agreed and wrong the moment they did not: a page
+			 * whose numbering a media server got wrong, a release that covers a different
+			 * episode than the one clicked, a pack named for its season.
+			 *
+			 * Only ever a correction, never an invention: a name that spells no numbers
+			 * leaves the row's own, which is what this did before and is still the right
+			 * answer when the name says nothing.
+			 */
+			const parsed = parseReleaseName(fileName);
 
 			return {
 				nameable: {
 					kind: MediaKind.EPISODE,
 					title: item.title,
 					year: item.year,
-					seasonNumber: item.seasonNumber,
-					episodeNumber: item.episodeNumber,
+					seasonNumber: parsed.seasonNumber ?? item.seasonNumber,
+					episodeNumber: parsed.episodeNumber ?? item.episodeNumber,
 					// The show, not the episode — see `_showFacts`. Null here filed an
 					// episode in a folder named after the episode.
 					seriesTitle: show?.title ?? null,
@@ -1839,17 +1864,25 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		 * correlation that needs fixing, and matching by title behind its back hid that
 		 * while quietly disagreeing with every screen.
 		 */
-		const series = await this._items.topAncestor(root);
-		const twins = await this._correlatedLocals(series);
+		/*
+		 * Every step of this row's own ancestry, not only the top of it.
+		 *
+		 * The grouping joins an episode to an episode, a season to a season and a series
+		 * to a series, and which of those three a given pair of libraries agreed on is not
+		 * something this code can assume. Asking only at the top found nothing whenever the
+		 * two sides had been joined lower down — and the folder is the same answer from any
+		 * of them, because they all stand over the same files.
+		 *
+		 * Nearest first: an episode's own twin points at the file itself, which is the
+		 * exact folder wanted, while a series' twin has to be walked down to reach one.
+		 */
+		const twins = await this._correlatedLocals(await this._ancestry(root));
 
 		for (const twin of twins) {
 			const held = await this._heldUnder(twin);
 
 			if (held !== null) {
-				this._logger.log(
-					`Filing beside ${held} — ${root.id} sits under ${series.id}, `
-					+ `which the grouping holds locally as ${twin.id}`,
-				);
+				this._logger.log(`Filing beside ${held} — the grouping holds ${root.id} as ${twin.id}`);
 
 				return held;
 			}
@@ -1862,8 +1895,8 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		 * nobody could see was whether it had looked for the show at all.
 		 */
 		this._logger.warn(
-			`Nothing to file beside for ${root.id}: its top row is ${series.id}, `
-			+ `the grouping names ${twins.length} local ${twins.length === 1 ? 'copy' : 'copies'}`
+			`Nothing to file beside for ${root.id}: the grouping names ${twins.length} local `
+			+ `${twins.length === 1 ? 'copy' : 'copies'} across its ancestry`
 			+ `${twins.length === 0 ? '' : ` (${twins.map((one) => one.id).join(', ')})`}`
 			+ ', and none of them holds a file this gateway can reach',
 		);
@@ -1878,17 +1911,34 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * containment, and `siblingPath` has its directory taken off by the naming service.
 	 * Handing either a directory would file the next episode one level too high.
 	 */
-	private async _heldUnder(series: MediaItemEntity): Promise<string | null> {
-		const seasons = series.kind === MediaKind.SERIES
-			? await this._items.findChildren(series.id)
-			: [series];
+	private async _heldUnder(row: MediaItemEntity): Promise<string | null> {
+		/*
+		 * This row first, and that is not a formality.
+		 *
+		 * An episode is the row that carries a file, and it has no children: a version of
+		 * this that only ever read children of children found nothing whenever the
+		 * grouping named an episode — which is most of the time, because an episode is
+		 * what a correlation joins. The same shape of mistake was already written down
+		 * once in this file, about a walk that read the children of the row it was handed.
+		 */
+		const own = await this._heldAt(row);
 
-		for (const season of seasons) {
-			for (const episode of await this._items.findChildren(season.id)) {
-				const local = await this._heldAt(episode);
+		if (own !== null) {
+			return own;
+		}
 
-				if (local !== null) {
-					return local;
+		for (const child of await this._items.findChildren(row.id)) {
+			const held = await this._heldAt(child);
+
+			if (held !== null) {
+				return held;
+			}
+
+			for (const grandchild of await this._items.findChildren(child.id)) {
+				const deeper = await this._heldAt(grandchild);
+
+				if (deeper !== null) {
+					return deeper;
 				}
 			}
 		}
@@ -1907,11 +1957,52 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * Never fatal. A grouping that cannot be read leaves the two searches around this one
 	 * exactly as they were, which is the behaviour this had before.
 	 */
-	private async _correlatedLocals(series: MediaItemEntity): Promise<MediaItemEntity[]> {
-		const group = await this._groups.group(series.id).catch((error: unknown) => {
+	private async _ancestry(row: MediaItemEntity): Promise<MediaItemEntity[]> {
+		const chain = [row];
+
+		// Bounded: a series, a season and an episode is three, and a parent chain that
+		// loops is somebody's index and not a reason to spin here.
+		for (let depth = 0; depth < ANCESTRY_DEPTH; depth += 1) {
+			const parentId = chain[chain.length - 1].parentId;
+
+			if (parentId === null) {
+				break;
+			}
+
+			const parent = await this._items.findOne({ where: { id: parentId } });
+
+			if (parent === null) {
+				break;
+			}
+
+			chain.push(parent);
+		}
+
+		return chain;
+	}
+
+	private async _correlatedLocals(rows: MediaItemEntity[]): Promise<MediaItemEntity[]> {
+		const twins: MediaItemEntity[] = [];
+		const seen = new Set<string>();
+
+		for (const row of rows) {
+			for (const twin of await this._localsOf(row)) {
+				if (!seen.has(twin.id)) {
+					seen.add(twin.id);
+					twins.push(twin);
+				}
+			}
+		}
+
+		return twins;
+	}
+
+	/** The local rows the grouping puts with this one. See `_correlatedLocals`. */
+	private async _localsOf(row: MediaItemEntity): Promise<MediaItemEntity[]> {
+		const group = await this._groups.group(row.id).catch((error: unknown) => {
 			// Never fatal, and never silent either: a grouping that cannot be read is the
 			// difference between filing an episode with its show and filing it alone.
-			this._logger.warn(`Could not read the grouping for ${series.id}: ${String(error)}`);
+			this._logger.warn(`Could not read the grouping for ${row.id}: ${String(error)}`);
 
 			return null;
 		});

@@ -2582,6 +2582,79 @@ describe('ReleaseManager', () => {
 			 * Neither is a special case any more. The grouping says which rows are the same
 			 * media, the placement asks it, and the copy is wherever that answer points.
 			 */
+			it('takes the folder from the season above, which is where the others are', async () => {
+				/*
+				 * The owner's rule, in his words: take the folder of the season above, full
+				 * stop — everything else applies only when he pins a folder or holds
+				 * nothing locally. Reported several times, because the lookup kept failing
+				 * in a new way while the rule itself was never in doubt.
+				 *
+				 * The grouping is asked about every step of the row's own ancestry and not
+				 * only the top of it: two libraries can be joined at the episode, at the
+				 * season or at the series, and which one they agreed on is not something
+				 * this code can assume. Here they are joined at the season, which is the
+				 * shape a request source produces.
+				 */
+				const { manager, fakes } = build();
+				const row = grab({ itemId: 'ep-3', state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+
+				const localSeason = item({ id: 'local-season', kind: MediaKind.SEASON, libraryId: 'lib-shows' });
+				const world = fakes.items.findOne.getMockImplementation() as
+					(request: { where: { id: string } }) => Promise<unknown>;
+
+				fakes.items.findOne.mockImplementation((request: { where: { id: string } }) =>
+					request.where.id === 'local-season' ? Promise.resolve(localSeason) : world(request));
+				// Nothing joined at the series, and nothing held under the grabbed row.
+				fakes.items.findChildren.mockImplementation((id: string) =>
+					Promise.resolve(id === 'local-season' ? [
+						item({
+							id: 'local-episode',
+							libraryId: 'lib-shows',
+							file: { path: '/media/shows/DC Comics/Series TV/Spartacus/Saison 1/S01E01.mkv', size: 1 },
+						}),
+					] : []));
+				fakes.groups.group.mockImplementation((id: string) => Promise.resolve(
+					id === 'season-1'
+						? { id, sources: [{ itemId: 'local-season', local: true }] }
+						: { id, sources: [] },
+				));
+
+				await manager.poll();
+
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(expect.objectContaining({
+					existingPath: '/media/shows/DC Comics/Series TV/Spartacus/Saison 1/S01E01.mkv',
+				}));
+			});
+
+			it('reads the season off the file rather than off the row that was pressed', async () => {
+				/*
+				 * The series is the one thing a grab always knows; the season and the
+				 * episode are properties of the file, and the file says so in its name. A
+				 * release named `S02E09` is season two whatever page somebody started from,
+				 * which is also what makes a season pack and a whole-series pack file
+				 * themselves correctly — each of their files answers for itself.
+				 */
+				const { manager, fakes } = build();
+				const row = grab({ itemId: 'ep-3', state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.filesystem.largestFileUnder.mockResolvedValue(
+					'/share/torrents/Spartacus.S02E09/Spartacus.S02E09.1080p.WEB-DL-GRP.mkv',
+				);
+
+				await manager.poll();
+
+				expect(fakes.naming.render).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ seasonNumber: 2, episodeNumber: 9 }),
+					expect.anything(),
+				);
+			});
+
 			it('files beside the copy the grouping names, wherever that row hangs', async () => {
 				const { manager, fakes } = build();
 				const row = grab({ itemId: 'ep-3', state: GrabState.DOWNLOADING });
