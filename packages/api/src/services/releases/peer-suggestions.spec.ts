@@ -373,6 +373,55 @@ describe('PeerSuggestionService', () => {
 			]);
 		});
 
+		it('lifts what covers a gap above a perfectly good copy of something held', () => {
+			/*
+			 * Reported from use. A season of which one episode was wanted answered the
+			 * other seven at the top, best-seeded first, with the pack holding the missing
+			 * one at the bottom of the page. Every row was a real release; none of them was
+			 * the answer. The gateway had already worked out which ones filled the gap and
+			 * then ordered the list without consulting its own answer.
+			 */
+			const ordered = orderSuggestions(
+				[],
+				[
+					group({ key: 'other-episode', fills: [], brings: [] }),
+					group({ key: 'the-pack', fills: [ref(8)] }),
+				],
+			);
+
+			expect(ordered.map((one) => one.key)).toEqual(['the-pack', 'other-episode']);
+		});
+
+		it('counts an episode no server here knows about as covering one', () => {
+			// The case that matters most on a running show: it aired since the last scan,
+			// so it hangs from no row and fills nothing by definition — and it is exactly
+			// what somebody came for.
+			const ordered = orderSuggestions(
+				[],
+				[
+					group({ key: 'held-elsewhere', fills: [], brings: [] }),
+					group({ key: 'just-aired', fills: [], brings: [{ seasonNumber: 1, episodeNumber: 9 }] }),
+				],
+			);
+
+			expect(ordered.map((one) => one.key)).toEqual(['just-aired', 'held-elsewhere']);
+		});
+
+		it('leaves the order alone when nothing on the page covers a gap', () => {
+			// Somebody replacing a copy rather than filling one: every row answers the
+			// question the same way, so the comparison has to fall through rather than
+			// shuffle a list the preference already sorted.
+			const ordered = orderSuggestions(
+				[],
+				[
+					group({ key: 'first', fills: [], brings: [] }),
+					group({ key: 'second', fills: [], brings: [] }),
+				],
+			);
+
+			expect(ordered.map((one) => one.key)).toEqual(['first', 'second']);
+		});
+
 		it('leaves the tracker rows in the order the preference already put them', () => {
 			const ordered = orderSuggestions(
 				[],

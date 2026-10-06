@@ -1685,7 +1685,15 @@
 			"title": "Postos de lado"
 		},
 		"claimed_quality": "Anunciada pelo nome da release, não medida no ficheiro.",
-		"failed_because": "{indexer}: {reason}"
+		"failed_because": "{indexer}: {reason}",
+		"fills_gap": {
+			"title": "O que preenche o que lhe falta",
+			"hint": "Estas trazem um episódio que não tem."
+		},
+		"other_options": {
+			"title": "As outras opções",
+			"hint": "Cópias do que já tem, ou outros episódios."
+		}
 	},
 	"classification": {
 		"title": "Onde isto poderia ficar",

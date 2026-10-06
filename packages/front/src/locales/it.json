@@ -1685,7 +1685,15 @@
 			"title": "Messi da parte"
 		},
 		"claimed_quality": "Dichiarata dal nome della release, non misurata sul file.",
-		"failed_because": "{indexer}: {reason}"
+		"failed_because": "{indexer}: {reason}",
+		"fills_gap": {
+			"title": "Ciò che colma quel che ti manca",
+			"hint": "Queste portano un episodio che non hai."
+		},
+		"other_options": {
+			"title": "Le altre opzioni",
+			"hint": "Copie di ciò che hai già, o altri episodi."
+		}
 	},
 	"classification": {
 		"title": "Dove questo potrebbe andare",

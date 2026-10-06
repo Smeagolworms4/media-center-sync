@@ -6,6 +6,7 @@
 		ReleaseGroup,
 		ReleaseKind,
 		ReleaseSearchQuery,
+		ReleaseSuggestion,
 	} from '@mcs/shared';
 	import {
 		GrabState,
@@ -257,6 +258,31 @@
 	const firstOffTarget = computed(() => suggestions.value.find(
 		one => one.source === SuggestionSource.INDEXER && one.release.offTarget)?.key ?? null);
 
+	/** Whether a row answers something somebody is short of. Mirrors the gateway's order. */
+	function coversAGap (one: ReleaseSuggestion): boolean {
+		return one.source === SuggestionSource.PEER
+			? one.copy.fills.length > 0
+			: one.release.fills.length > 0 || one.release.brings.length > 0;
+	}
+
+	/**
+	 * Where the rows that fill a gap stop, so the list can say so once.
+	 *
+	 * One list with a heading in it rather than two lists, which is the rule this screen
+	 * already follows for the off-target tail: "what are my options" is one question, and
+	 * two lists make somebody compare across a heading.
+	 *
+	 * Null when nothing covers a gap — there is no band to announce — and null when
+	 * everything does, because a heading over the whole list says nothing.
+	 */
+	const firstWithoutGap = computed(() => {
+		if (!suggestions.value.some(one => coversAGap(one))) {
+			return null;
+		}
+
+		return suggestions.value.find(one => !coversAGap(one))?.key ?? null;
+	});
+
 	const failures = computed(() =>
 		forThisMedia.value ? (releases.result?.failed ?? []) : []);
 
@@ -451,7 +477,41 @@
 		</div>
 
 		<div v-if="suggestions.length > 0" class="release-search_results mt-4">
+			<!--
+				Said once, over the head of the list, and only when some rows answer a gap
+				and others do not. The gateway puts them there — see `orderSuggestions` —
+				and without a word for it the band is invisible: a list of releases all
+				looks the same, which is how the pack holding the one missing episode sat
+				under seven perfectly good copies of episodes already on the disk.
+			-->
+			<div
+				v-if="firstWithoutGap !== null"
+				class="release-search_aside release-search_aside--lead"
+				data-test="release-fills-gap"
+			>
+				<v-icon color="success" icon="mdi-puzzle-check-outline" size="16" />
+
+				<strong class="text-caption">{{ $t('release.fills_gap.title') }}</strong>
+
+				<span class="text-caption text-medium-emphasis">
+					{{ $t('release.fills_gap.hint') }}
+				</span>
+			</div>
+
 			<template v-for="one of suggestions" :key="one.key">
+				<!-- Where that band ends and the ordinary options begin. -->
+				<div
+					v-if="one.key === firstWithoutGap"
+					class="release-search_aside"
+					data-test="release-other-options"
+				>
+					<strong class="text-caption">{{ $t('release.other_options.title') }}</strong>
+
+					<span class="text-caption text-medium-emphasis">
+						{{ $t('release.other_options.hint') }}
+					</span>
+				</div>
+
 				<!--
 					Said once, over the tail of the list. A search for one episode answers
 					every episode of the show — trackers match on words — and those rows
@@ -742,6 +802,14 @@
 			margin-top: 12px;
 			padding-top: 8px;
 			border-top: 1px solid rgb(var(--v-border-color), var(--v-border-opacity));
+
+			// The band at the head of the list opens it rather than closing what came
+			// before, so it carries no rule above it and no space to push it down.
+			&--lead {
+				margin-top: 0;
+				padding-top: 0;
+				border-top: none;
+			}
 		}
 
 		// Set back rather than hidden: still readable, plainly not the answer.

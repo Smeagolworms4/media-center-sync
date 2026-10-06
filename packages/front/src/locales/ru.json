@@ -1685,7 +1685,15 @@
 			"title": "Отложенные"
 		},
 		"claimed_quality": "Заявлено названием релиза, а не измерено по файлу.",
-		"failed_because": "{indexer}: {reason}"
+		"failed_because": "{indexer}: {reason}",
+		"fills_gap": {
+			"title": "То, что закрывает пробелы",
+			"hint": "Эти дают серию, которой у вас нет."
+		},
+		"other_options": {
+			"title": "Остальные варианты",
+			"hint": "Копии того, что уже есть, или другие серии."
+		}
 	},
 	"classification": {
 		"title": "Куда это может относиться",

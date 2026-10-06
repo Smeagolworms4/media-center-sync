@@ -1685,7 +1685,15 @@
 			"title": "Beiseitegelegt"
 		},
 		"claimed_quality": "Vom Release-Namen behauptet, nicht an der Datei gemessen.",
-		"failed_because": "{indexer}: {reason}"
+		"failed_because": "{indexer}: {reason}",
+		"fills_gap": {
+			"title": "Was deine Lücken füllt",
+			"hint": "Diese bringen eine Folge, die du nicht hast."
+		},
+		"other_options": {
+			"title": "Die übrigen Angebote",
+			"hint": "Kopien von bereits Vorhandenem oder andere Folgen."
+		}
 	},
 	"classification": {
 		"title": "Wohin das gehören könnte",

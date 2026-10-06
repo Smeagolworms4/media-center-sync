@@ -1685,7 +1685,15 @@
 			"title": "Set aside"
 		},
 		"claimed_quality": "Claimed by the release name, not measured on the file.",
-		"failed_because": "{indexer}: {reason}"
+		"failed_because": "{indexer}: {reason}",
+		"fills_gap": {
+			"title": "What fills what you are missing",
+			"hint": "These bring an episode you do not have."
+		},
+		"other_options": {
+			"title": "The other options",
+			"hint": "Copies of what you already hold, or other episodes."
+		}
 	},
 	"classification": {
 		"title": "Where this might belong",

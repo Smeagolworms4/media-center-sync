@@ -1685,7 +1685,15 @@
 			"title": "已搁置"
 		},
 		"claimed_quality": "由发布名称声称，并非在文件上测得。",
-		"failed_because": "{indexer}：{reason}"
+		"failed_because": "{indexer}：{reason}",
+		"fills_gap": {
+			"title": "能补齐缺失的",
+			"hint": "这些带来你还没有的剧集。"
+		},
+		"other_options": {
+			"title": "其他选项",
+			"hint": "你已有内容的副本，或其他剧集。"
+		}
 	},
 	"classification": {
 		"title": "这可能属于哪里",

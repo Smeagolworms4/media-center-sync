@@ -281,15 +281,49 @@ export const orderSuggestions = (
 	 * is not a choice at all, while one that brings nothing is a copy of something we
 	 * already hold — worth showing, worth sinking, not worth sinking as far. See
 	 * `Release.offTarget` for why these are sunk rather than dropped.
+	 *
+	 * Then, above everything that remains: what actually covers a gap.
+	 *
+	 * This was missing and it is what somebody notices. Searching a season of which one
+	 * episode is wanted answered the other seven at the top, best-seeded first, with the
+	 * pack that held the missing one at the bottom of the page — every row a perfectly
+	 * good release of something already on the disk. The gateway had worked out which
+	 * ones filled the gap and then ordered the list without consulting its own answer.
+	 *
+	 * `brings` counts as covering, and leaving it out would be the same defect in the
+	 * case that matters most: an episode that aired since the last scan hangs from no row
+	 * here, so it fills nothing by definition — and it is exactly what somebody came for.
+	 *
+	 * Asked only of the rows that bring something. Among those that bring nothing the
+	 * order is already settled by the line above and by the kind below it, and re-sorting
+	 * a bucket that is sunk either way would only move rows nobody is choosing between.
 	 */
 	return suggestions.sort(
 		(left, right) =>
 			Number(isOffTarget(left)) - Number(isOffTarget(right)) ||
 			Number(bringsNothing(left)) - Number(bringsNothing(right)) ||
+			Number(!bringsNothing(left) && coversNoGap(left)) -
+				Number(!bringsNothing(right) && coversNoGap(right)) ||
 			Number(left.source === SuggestionSource.INDEXER) -
 				Number(right.source === SuggestionSource.INDEXER),
 	);
 };
+
+/**
+ * An offer that answers nothing anybody is short of.
+ *
+ * Distinct from `bringsNothing`, which is about holding the file already: a release of an
+ * episode we do not hold and never asked for brings a file and covers no gap, and those
+ * are two different reasons to sink a row.
+ *
+ * When a search turns up no gap at all — somebody looking to replace a copy rather than
+ * to fill one — every row answers this the same way and the comparison falls through to
+ * the orders below it, which is the right behaviour rather than a special case.
+ */
+const coversNoGap = (one: ReleaseSuggestion): boolean =>
+	one.source === SuggestionSource.PEER
+		? one.copy.fills.length === 0
+		: one.release.fills.length === 0 && one.release.brings.length === 0;
 
 /**
  * An offer that names the wrong thing.

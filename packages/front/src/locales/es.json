@@ -1685,7 +1685,15 @@
 			"title": "Apartados"
 		},
 		"claimed_quality": "Anunciada por el nombre de la release, no medida en el archivo.",
-		"failed_because": "{indexer}: {reason}"
+		"failed_because": "{indexer}: {reason}",
+		"fills_gap": {
+			"title": "Lo que cubre lo que te falta",
+			"hint": "Estas aportan un episodio que no tienes."
+		},
+		"other_options": {
+			"title": "Las demás opciones",
+			"hint": "Copias de lo que ya tienes, u otros episodios."
+		}
 	},
 	"classification": {
 		"title": "Dónde podría ir esto",

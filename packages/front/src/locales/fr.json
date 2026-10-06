@@ -1685,7 +1685,15 @@
 			"title": "Écartés"
 		},
 		"claimed_quality": "Annoncée par le nom de la release, pas mesurée sur le fichier.",
-		"failed_because": "{indexer} : {reason}"
+		"failed_because": "{indexer} : {reason}",
+		"fills_gap": {
+			"title": "Ce qui comble ce qui vous manque",
+			"hint": "Ces lignes apportent un épisode que vous n'avez pas."
+		},
+		"other_options": {
+			"title": "Les autres options",
+			"hint": "Des copies de ce que vous avez déjà, ou d'autres épisodes."
+		}
 	},
 	"classification": {
 		"title": "Où ceci pourrait aller",
