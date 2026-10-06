@@ -64,7 +64,6 @@ interface Fakes {
 		findOne: jest.Mock;
 		find: jest.Mock;
 		findChildren: jest.Mock;
-		findHeldByNormalizedTitle: jest.Mock;
 		topAncestor: jest.Mock;
 	};
 	/** What the registry hands back, so a test can make the tracker fail on its own. */
@@ -243,7 +242,12 @@ const GROUPS: Record<string, unknown> = {
 		seasonNumber: null,
 		episodeNumber: null,
 		sync: SyncState.MISSING,
-		sources: [],
+		/*
+		 * The show, as this gateway holds it. Placement asks the grouping where a series
+		 * already lives rather than re-deriving it — see `_existingCopy` — so this is what
+		 * every test about filing an episode beside its neighbours now runs through.
+		 */
+		sources: [{ itemId: 'series-1', local: true }],
 	},
 	'season-1': {
 		id: 'season-1',
@@ -420,7 +424,6 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 			),
 			// Asked when the tree says nothing, which is what a hierarchy a media server
 			// misreads looks like from here. Empty by default.
-			findHeldByNormalizedTitle: jest.fn().mockResolvedValue([]),
 			// The walk the real repository does, over the same little world: up to the row
 			// with no parent, which is where a pinned folder is written.
 			topAncestor: jest.fn((item: { id: string; parentId: string | null }) => {
@@ -2552,35 +2555,73 @@ describe('ReleaseManager', () => {
 			});
 
 			/*
-			 * And when the tree cannot answer at all.
+			 * And when the grabbed row's own tree cannot answer at all.
 			 *
-			 * A library organised as `SeriesTV/DC Comics/Séries TV/<show>` is read by a
-			 * media server as one series with every show beneath it as a season, so the
-			 * episodes of a show hang from a row that is not that show. The owner's report:
-			 * the new episode landed in another library while "the others were elsewhere".
+			 * Two shapes of the same report, both seen on the owner's gateway. A library
+			 * organised as `SeriesTV/DC Comics/Séries TV/<show>` is read by a media server
+			 * as one series with every show beneath it as a season, so the episodes hang
+			 * from a row that is not that show. And a grab started from a page the request
+			 * source supplied climbs a tree made entirely of that source's rows, not one of
+			 * which carries a file — the ordinary case for an episode nothing holds yet.
+			 *
+			 * Neither is a special case any more. The grouping says which rows are the same
+			 * media, the placement asks it, and the copy is wherever that answer points.
 			 */
-			it('falls back to any held copy of the same show, whatever row it hangs from', async () => {
+			it('files beside the copy the grouping names, wherever that row hangs', async () => {
 				const { manager, fakes } = build();
 				const row = grab({ itemId: 'ep-3', state: GrabState.DOWNLOADING });
 
 				fakes.grabs.findLive.mockResolvedValue([row]);
 				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
-				// Nothing under this show's own tree, which is what a misread hierarchy
-				// looks like from here.
-				fakes.items.findChildren.mockResolvedValue([]);
-				fakes.items.findHeldByNormalizedTitle.mockResolvedValue([
-					item({
-						id: 'stray',
-						libraryId: 'lib-shows',
-						file: { path: '/media/shows/DC Comics/Series TV/Spartacus/S01E01.mkv', size: 1 },
-					}),
-				]);
+				// Nothing under the grabbed row's own tree, which is what both shapes look
+				// like from here.
+				fakes.items.findChildren.mockImplementation((id: string) =>
+					Promise.resolve(id === 'stray' ? [
+						item({
+							id: 'stray-episode',
+							libraryId: 'lib-shows',
+							file: { path: '/media/shows/DC Comics/Series TV/Spartacus/S01E01.mkv', size: 1 },
+						}),
+					] : []));
+				fakes.groups.group.mockResolvedValue({
+					id: 'series-1',
+					sources: [{ itemId: 'stray', local: true }],
+				});
+				// The stray row on top of the world the other tests share, never instead of
+				// it: `findOne` also answers for the row that was grabbed.
+				const stray = item({ id: 'stray', kind: MediaKind.SEASON, libraryId: 'lib-shows' });
+				const world = fakes.items.findOne.getMockImplementation() as
+					(request: { where: { id: string } }) => Promise<unknown>;
+
+				fakes.items.findOne.mockImplementation((request: { where: { id: string } }) =>
+					request.where.id === 'stray' ? Promise.resolve(stray) : world(request));
 
 				await manager.poll();
 
 				expect(fakes.placement.resolve).toHaveBeenCalledWith(expect.objectContaining({
 					existingPath: '/media/shows/DC Comics/Series TV/Spartacus/S01E01.mkv',
 				}));
+			});
+
+			it('ignores a copy this gateway only reaches over HTTP', async () => {
+				// A friend's server holds a real copy and none of its paths mean anything
+				// here. Filing an episode beside one would write into a folder that does
+				// not exist on this disk.
+				const { manager, fakes } = build();
+				const row = grab({ itemId: 'ep-3', state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.groups.group.mockResolvedValue({
+					id: 'series-1',
+					sources: [{ itemId: 'series-1', local: false }],
+				});
+
+				await manager.poll();
+
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(
+					expect.objectContaining({ existingPath: null }),
+				);
 			});
 
 			it('imitates the folders this library already uses, which a grab never did', async () => {

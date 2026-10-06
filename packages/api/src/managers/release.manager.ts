@@ -1815,21 +1815,48 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 */
 	private async _existingCopy(root: MediaItemEntity): Promise<string | null> {
 		/*
-		 * From the top of the tree, whatever was grabbed.
+		 * One question, asked once, of the thing that owns the answer.
 		 *
-		 * This used to read the children of the row it was handed, which is right for a
-		 * series and for a season and silently wrong for the case that matters most: an
-		 * **episode** has no children, so a download started from an episode page found no
-		 * copy at all. It then had no library to be held to and no folders to imitate, and
-		 * landed wherever the category or the default pointed — beside nothing, which is
-		 * the very thing this function exists to prevent. Reported twice before it was
-		 * understood: once on a show that was already in another library, once on an
-		 * episode that "should have landed next to the others".
+		 * This used to ask it three times over: walk the children of the row that was
+		 * grabbed, then walk them from the top of its tree, then compare normalised titles
+		 * across the whole catalogue. Each was added to repair the same defect reported
+		 * again — an episode filed away from the show it belongs to — and each repaired a
+		 * case rather than the cause, because none of them is where this application
+		 * decides that two rows are the same media. The grouping is.
 		 *
-		 * The series is where the answer is in all three cases, so that is where the walk
-		 * starts.
+		 * The grouping reads the applied match graph under the configured threshold, and
+		 * the library screens have been answering this correctly the whole time: the media
+		 * page displays `MisaMisa · Ici · /share/SeriesTV/…/Lanterns/Saison 1` beside a
+		 * placement that could not find it. A grab made from a page the request source
+		 * supplied is the ordinary case and the worst one for a hand-made walk — the tree
+		 * it climbs is made entirely of that source's rows, not one of which carries a
+		 * file.
+		 *
+		 * Losing the title search is deliberate. A show the grouping has not joined is a
+		 * correlation that needs fixing, and matching by title behind its back hid that
+		 * while quietly disagreeing with every screen.
 		 */
 		const series = await this._items.topAncestor(root);
+
+		for (const twin of await this._correlatedLocals(series)) {
+			const held = await this._heldUnder(twin);
+
+			if (held !== null) {
+				return held;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * The first file we hold anywhere beneath this row, as a path on our disk.
+	 *
+	 * A file and never a folder: `existingPath` is matched against library roots by
+	 * containment, and `siblingPath` has its directory taken off by the naming service.
+	 * Handing either a directory would file the next episode one level too high.
+	 */
+	private async _heldUnder(series: MediaItemEntity): Promise<string | null> {
 		const seasons = series.kind === MediaKind.SERIES
 			? await this._items.findChildren(series.id)
 			: [series];
@@ -1844,28 +1871,48 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			}
 		}
 
-		/*
-		 * The tree said nothing, so ask the catalogue by name.
-		 *
-		 * A library organised as `SeriesTV/DC Comics/Séries TV/<show>` is read by a media
-		 * server as one series called `DC Comics/Séries TV`, with every show beneath it as
-		 * a season — so the episodes of a show hang from a row that is not that show, and
-		 * the walk above finds nothing whatever. The owner's report is exactly that: the
-		 * new episode landed in another library while "the others were elsewhere", in a
-		 * folder tree the walk could not reach.
-		 *
-		 * The normalised title survives that, because handlers normalise an episode under
-		 * its series' name. It is the same question a person answers by looking.
-		 */
-		for (const held of await this._items.findHeldByNormalizedTitle(series.normalizedTitle)) {
-			const local = await this._heldAt(held);
+		return null;
+	}
 
-			if (local !== null) {
-				return local;
+	/**
+	 * The rows this gateway decided are the same media as this one, on our own disks.
+	 *
+	 * Asked of the grouping rather than re-derived, because grouping is where that
+	 * decision lives: one match graph, one threshold, one set of rules — and the library
+	 * screens have been answering this question correctly all along while the placement
+	 * answered it again, differently, and worse.
+	 *
+	 * Never fatal. A grouping that cannot be read leaves the two searches around this one
+	 * exactly as they were, which is the behaviour this had before.
+	 */
+	private async _correlatedLocals(series: MediaItemEntity): Promise<MediaItemEntity[]> {
+		const group = await this._groups.group(series.id).catch(() => null);
+
+		if (group === null) {
+			return [];
+		}
+
+		const twins: MediaItemEntity[] = [];
+
+		for (const source of group.sources) {
+			// `local` is the gateway reaching the files on disk rather than over HTTP: a
+			// friend's copy is a real copy and nothing we can file an episode beside.
+			//
+			// The row that was grabbed is not skipped. A show this gateway already holds
+			// is its own answer, and a group of one is exactly that case — which is why
+			// the plain walk this replaced is no longer needed beside it.
+			if (!source.local) {
+				continue;
+			}
+
+			const item = await this._items.findOne({ where: { id: source.itemId } });
+
+			if (item !== null) {
+				twins.push(item);
 			}
 		}
 
-		return null;
+		return twins;
 	}
 
 	/** Where one row's file is on **our** disk, or null when it is on nobody's we can read. */

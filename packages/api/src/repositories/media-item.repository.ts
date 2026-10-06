@@ -359,34 +359,6 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	 * episode coordinates cut it down to a few rows, and the composite index on those
 	 * three columns is what makes that lookup cheap.
 	 */
-	/**
-	 * Any copy of this show we hold, whatever row it hangs from.
-	 *
-	 * The tree is not always where the answer is. A library organised as
-	 * `SeriesTV/DC Comics/Séries TV/<show>` is read by a media server as one series called
-	 * `DC Comics/Séries TV` with every show beneath it as a season — so the episodes of a
-	 * show live under a row that is not that show, and walking the tree of the row
-	 * somebody grabbed finds nothing. The file is right there on the disk; only the
-	 * hierarchy disagrees.
-	 *
-	 * The normalised title is what survives that: handlers normalise an episode under its
-	 * *series'* name, so every copy of one show shares it however the folders are
-	 * arranged. Only rows that actually hold a file, since the question being asked is
-	 * "where do we already keep this".
-	 *
-	 * Bounded, because a show with two hundred episodes would otherwise be two hundred
-	 * rows to answer a question that the first one settles.
-	 */
-	public findHeldByNormalizedTitle(normalizedTitle: string, limit = 20): Promise<MediaItem[]> {
-		return this.createQueryBuilder('item')
-			.where('item.normalizedTitle = :normalizedTitle', { normalizedTitle })
-			.andWhere('item.file IS NOT NULL')
-			.orderBy('item.seasonNumber', 'ASC')
-			.addOrderBy('item.episodeNumber', 'ASC')
-			.take(limit)
-			.getMany();
-	}
-
 	public findCandidatesForMatch(
 		normalizedTitle: string,
 		seasonNumber: number | null,
