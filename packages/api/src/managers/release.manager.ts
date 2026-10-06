@@ -1461,6 +1461,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				// And, if asked, a symlink where the copy came from, so the seeding torrent
 				// and the filed library copy are one file on the disk. See `_link`.
 				linkSource: linksAfterCopy(settings),
+				absoluteLink: absoluteLinks(settings),
 				onProgress: (progress) => {
 					grab.bytesDone = progress.bytesDone;
 					grab.bytesTotal = progress.bytesTotal;
@@ -1520,6 +1521,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// A copy, as everywhere here: the torrent is still seeding.
 			keepSource: true,
 			linkSource: linksAfterCopy(settings),
+			absoluteLink: absoluteLinks(settings),
 			onProgress: (progress) => {
 				grab.bytesDone = progress.bytesDone;
 				grab.bytesTotal = progress.bytesTotal;
@@ -1627,6 +1629,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				// A copy, as everywhere here: the torrent is still seeding.
 				keepSource: true,
 				linkSource: linksAfterCopy(settings),
+				absoluteLink: absoluteLinks(settings),
 				onProgress: (progress) => {
 					// Across the whole pack rather than per file, because what somebody is
 					// watching is one line for one download.
@@ -2145,12 +2148,28 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			const categoryKeys = await this._libraries.categoryKeysByLibrary();
 			const show = await this._showFacts(item);
 			const pinned = folder ?? await this._pinnedFolder(item);
+			/*
+			 * The copy we already hold, asked for here too.
+			 *
+			 * This is what made three repairs of the placement look like no repair at all.
+			 * The rule that keeps a show together lives in the chain, and this prediction
+			 * called the chain without the one input that rule reads — so it answered the
+			 * category's folder while the placement itself answered the show's. Somebody
+			 * watching a download reads this, not the log: the gateway was promising the
+			 * wrong destination for hours and then quietly doing the right thing, which is
+			 * indistinguishable from doing the wrong thing.
+			 *
+			 * The comment above this method has claimed "the same chain that will place it"
+			 * all along. It is now true.
+			 */
+			const siblingPath = await this._existingCopy(item);
 			const target = await this._placement.resolve({
 				kind: item.kind as MediaKind,
 				categoryKey: categoryKeys.get(item.libraryId) ?? null,
 				settings: pinned
 					? { ...settings, placement: PlacementStrategy.FIXED_PATH, fixedPath: pinned }
 					: settings,
+				existingPath: siblingPath,
 				libraries,
 				preferredLibraryId: libraryId,
 				relativeName: (root: string) =>
@@ -2170,7 +2189,10 @@ export class ReleaseManager implements OnApplicationBootstrap {
 							// the hierarchy above the file rather than from its name.
 							sourcePath: null,
 						},
-						{ libraryRoot: root, siblingPath: null },
+						// The folders that library really uses, imitated rather than invented
+						// — `Saison 1` where that is what it says. The placement has done this
+						// since it existed and the prediction never did.
+						{ libraryRoot: root, siblingPath },
 					),
 				requiredBytes: 0,
 			});
@@ -2503,6 +2525,16 @@ const fillsOf = (group: ReleaseGroup, missing: EpisodeRef[]): EpisodeRef[] => {
  */
 const linksAfterCopy = (settings: Settings): boolean =>
 	settings.downloadClient?.linkSourceAfterCopy === true;
+
+/**
+ * Whether that link is written as an absolute path. True unless somebody said otherwise.
+ *
+ * Defaulting to absolute rather than to the stored value's falsiness: an absent setting
+ * is a household that has never been asked, and the answer it should get is the one that
+ * reads correctly to a person, an `ls -l` and an rsync. See `FileMoveRequest.absoluteLink`.
+ */
+const absoluteLinks = (settings: Settings): boolean =>
+	settings.downloadClient?.absoluteSymlinks !== false;
 
 const savePathOf = (client: DownloadClientSettings): string =>
 	client.savePath?.trim() || client.rootMappings?.[0]?.remoteRoot || '';

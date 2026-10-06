@@ -157,6 +157,13 @@ export interface FileMoveRequest {
 	 * behind to replace, and the two asked together are a caller who means the move.
 	 */
 	linkSource?: boolean;
+	/**
+	 * Write that link as an absolute path. Defaults to true. See `_link`.
+	 *
+	 * Optional rather than required because every caller that does not link has no
+	 * opinion about how a link it never makes would be spelled.
+	 */
+	absoluteLink?: boolean;
 }
 
 /**
@@ -560,13 +567,17 @@ export class FileMoveService {
 	 * engineering against. With the rename, the path holds either the real file or a
 	 * finished link at every instant.
 	 *
-	 * The target is **relative**. The client reads this link from inside its own
-	 * container, where the shared disk is mounted somewhere else — `/downloads` against
-	 * our `/share/torrents` is the ordinary case, and it is the reason `RootMapping`
-	 * exists. An absolute target would be our spelling and would dangle for the client;
-	 * `../library/Show/file.mkv` resolves for anybody who can see both directories,
-	 * whatever they call the root. It still cannot cross two separate mounts, and the
-	 * setting says so.
+	 * The target is **absolute by default**, and that is a reversal worth stating. It
+	 * used to be relative, on the reasoning that a client seeing the shared disk under
+	 * another mount point would still resolve `../library/Show/file.mkv` — which is true,
+	 * and is not what a household actually reads. A link is also looked at by a person, by
+	 * `ls -l`, by an rsync, and by whatever repairs a library after a move; to all of
+	 * those a relative target is a puzzle to resolve by hand while an absolute one says
+	 * where the file is.
+	 *
+	 * The relative form is still available — `absoluteLink: false` — for the deployment
+	 * the old reasoning describes: a client that reaches the same disk under a different
+	 * root, and nothing else. Neither form crosses two genuinely separate mounts.
 	 *
 	 * Every failure is logged and swallowed, for the same reason the unlink above is:
 	 * the copy is in the library and the download is placed. Not reclaiming the space is
@@ -583,7 +594,12 @@ export class FileMoveService {
 				return;
 			}
 
-			await this._fs.symlink(relative(dirname(request.source), request.destination), temporary);
+			await this._fs.symlink(
+				request.absoluteLink === false
+					? relative(dirname(request.source), request.destination)
+					: request.destination,
+				temporary,
+			);
 			await this._fs.rename(temporary, request.source);
 
 			// After the link and not before: a witness to a link that was never made is a

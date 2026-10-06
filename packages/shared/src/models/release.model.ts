@@ -681,10 +681,22 @@ export interface DownloadClientSettings {
 	 * Off by default, and it has to be: it only works where the client can reach the
 	 * library. A client in its own container with `/downloads` mounted and nothing else
 	 * would follow the link to a path it has never heard of — a torrent that errors,
-	 * which is the exact outcome `keepSource` was written to avoid. The link is written
-	 * relative to the original, so a shared root mounted at two different places is
-	 * fine; two genuinely separate mounts are not.
+	 * which is the exact outcome `keepSource` was written to avoid.
 	 */
 	linkSourceAfterCopy?: boolean;
+	/**
+	 * Write that link as an absolute path rather than relative to the original.
+	 *
+	 * **On by default**, which is a reversal. The link used to be written relative on
+	 * the reasoning that a client seeing the shared disk under another mount point would
+	 * still resolve `../library/Show/file.mkv` — true, and it is not what a household
+	 * actually reads. A link is also looked at by a person, by `ls -l`, by an rsync and
+	 * by whatever repairs a library after a move, and to all of those a relative target
+	 * is a puzzle to resolve by hand while an absolute one simply says where the file is.
+	 *
+	 * The relative form stays available for the deployment the old reasoning describes:
+	 * a client that reaches the same disk under a different root and nothing else.
+	 */
+	absoluteSymlinks?: boolean;
 	enabled: boolean;
 }

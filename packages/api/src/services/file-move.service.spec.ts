@@ -597,14 +597,33 @@ describe('FileMoveService', () => {
 				expect(await digestOf(destination)).toBe(digest(content));
 			});
 
-			it('writes the target relative to the original, not in our own spelling', async () => {
-				// The client reads this link from inside its own container, where the
-				// shared disk is mounted somewhere else — `/downloads` against our
-				// `/share/torrents`. An absolute target would be our path and would
-				// dangle for the one process that has to follow it.
+			it('writes the target absolutely, because that is what anybody reads', async () => {
+				/*
+				 * A reversal, and the owner's call. The link used to be written relative so
+				 * that a client seeing the shared disk under another mount point would still
+				 * resolve it — true, and not what a household actually reads. A link is
+				 * looked at by a person, by `ls -l`, by an rsync, and by whatever repairs a
+				 * library after a move, and to all of those a relative target is a puzzle.
+				 */
 				const service = new FileMoveService(operations());
 
 				await service.move({ source, destination, keepSource: true, linkSource: true });
+
+				expect(await readlink(source)).toBe(destination);
+			});
+
+			it('writes it relative where somebody asked for that instead', async () => {
+				// The deployment the old default was written for: a client that reaches the
+				// same disk under a different root, and nothing else.
+				const service = new FileMoveService(operations());
+
+				await service.move({
+					source,
+					destination,
+					keepSource: true,
+					linkSource: true,
+					absoluteLink: false,
+				});
 
 				const target = await readlink(source);
 

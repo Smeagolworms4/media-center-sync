@@ -1846,6 +1846,48 @@ describe('ReleaseManager', () => {
 		});
 	});
 
+	describe('where a download says it is going, before it gets there', () => {
+		/*
+		 * The screen somebody actually reads while a torrent runs, and it had no test at
+		 * all — which is how it drifted from the placement it claims to predict.
+		 *
+		 * Three repairs of the placement looked like no repair whatever, because the
+		 * prediction called the same chain without the one input the rule reads: it
+		 * answered the category's folder for hours while the placement would have answered
+		 * the show's. The gateway promising one destination and then quietly using another
+		 * is indistinguishable, from outside, from a gateway that is simply wrong.
+		 */
+		it('runs the chain with the copy we already hold, like the placement does', async () => {
+			const { manager, fakes } = build();
+
+			await manager.plannedFolderFor('ep-3', null);
+
+			expect(fakes.placement.resolve).toHaveBeenCalledWith(
+				expect.objectContaining({ existingPath: '/media/shows/S01E02.mkv' }),
+			);
+		});
+
+		it('imitates the folders that library already uses, like the placement does', async () => {
+			// `Saison 1` where that is what it says, rather than promising a `Season 01`
+			// the placement was never going to create.
+			const { manager, fakes } = build();
+
+			await manager.plannedFolderFor('ep-3', null);
+
+			const request = fakes.placement.resolve.mock.calls[0][0] as {
+				relativeName: (root: string) => string;
+			};
+
+			request.relativeName('/media/shows');
+
+			expect(fakes.naming.render).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.anything(),
+				expect.objectContaining({ siblingPath: '/media/shows/S01E02.mkv' }),
+			);
+		});
+	});
+
 	describe('setDestination', () => {
 		it('redirects a download that has not been filed yet', async () => {
 			const { manager, fakes } = build();
