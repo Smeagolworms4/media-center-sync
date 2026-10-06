@@ -28,7 +28,7 @@ import type { SecurityConfig } from '@/config';
 import type { MediaService, User } from '@/entities';
 import { MediaServiceRepository, SessionRepository, UserRepository } from '@/repositories';
 import { rightsForRole } from '@/security';
-import { HandlerRegistry, type ExternalIdentity } from '@/services';
+import { HandlerRegistry, isWorkerThread, type ExternalIdentity } from '@/services';
 import { toUser } from './mappers';
 
 /** The key of the provider that holds accounts of our own. */
@@ -41,6 +41,17 @@ export const INTERNAL_PROVIDER = 'internal';
  * machine somebody may later expose to the internet is not `abc`.
  */
 export const MINIMUM_PASSWORD_LENGTH = 8;
+
+/**
+ * How long a just-rotated refresh token is still answered rather than treated as stolen.
+ *
+ * Ten seconds, and the figure is bounded from both sides. Long enough for two browser
+ * tabs woken by the same event — this gateway restarting, a laptop coming back from
+ * sleep — to both present the token they had stored and both be served. Short enough that
+ * a token which leaked is still useless by the time anybody can use it: a thief is not
+ * racing the legitimate client to the same millisecond.
+ */
+export const REFRESH_RACE_MS = 10_000;
 
 /** `service:<uuid>` — the key a media service is offered under on the sign-in screen. */
 const SERVICE_PROVIDER = /^service:([0-9a-f-]{36})$/i;
@@ -156,6 +167,12 @@ export class AuthManager implements OnApplicationBootstrap {
 		const session = await this._sessions.findValidByHash(refreshTokenHash);
 
 		if (session === null) {
+			const racing = await this._justRotated(refreshTokenHash);
+
+			if (racing !== null) {
+				return this._issue(racing, context);
+			}
+
 			await this._reportReplay(refreshTokenHash);
 
 			throw new UnauthorizedException(ErrorKey.AUTH_SESSION_EXPIRED);
@@ -212,6 +229,12 @@ export class AuthManager implements OnApplicationBootstrap {
 	 * choice. Neither path ever invents a default password.
 	 */
 	public async onApplicationBootstrap(): Promise<void> {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		const username = process.env.MCS_ADMIN_USER?.trim();
 		const password = process.env.MCS_ADMIN_PASSWORD;
 
@@ -475,6 +498,46 @@ export class AuthManager implements OnApplicationBootstrap {
 	 * would leave the thief's own session — obtained from the same leak — working. So
 	 * the account's sessions all go, and both sides have to sign in again.
 	 */
+	/**
+	 * The same token presented twice within a breath, which is a race and not a theft.
+	 *
+	 * Rotation is single use and presenting a spent token revokes every session of the
+	 * account — correct against a leak, and catastrophic against the thing that actually
+	 * happens in a household: two browser tabs. Each tab serialises its own refreshes and
+	 * neither can serialise the other's, so two tabs waking together — which is what every
+	 * deployment of this gateway causes — both present the token they stored, the second
+	 * one loses, and somebody is signed out of everything they had open. Reported as
+	 * "I keep getting disconnected", and that is exactly what it is.
+	 *
+	 * A thief's replay is still caught. What separates the two is *when*: a legitimate
+	 * racer presents the token in the same instant the winner rotated it, while a stolen
+	 * one is presented whenever the thief gets round to it. Seconds, not minutes, and only
+	 * for the token that was just spent — anything older still takes the account down.
+	 */
+	private async _justRotated(refreshTokenHash: string): Promise<User | null> {
+		const spent = await this._sessions.findOne({ where: { refreshTokenHash } });
+
+		if (spent?.revokedAt == null) {
+			return null;
+		}
+
+		if (Date.now() - spent.revokedAt.getTime() > REFRESH_RACE_MS) {
+			return null;
+		}
+
+		const user = await this._users.findOne({ where: { id: spent.userId } });
+
+		if (user === null) {
+			return null;
+		}
+
+		this._logger.debug(
+			`Two refreshes raced for user ${user.id}; the late one is served rather than refused.`,
+		);
+
+		return user;
+	}
+
 	private async _reportReplay(refreshTokenHash: string): Promise<void> {
 		const spent = await this._sessions.findOne({ where: { refreshTokenHash } });
 

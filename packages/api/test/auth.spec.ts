@@ -89,7 +89,17 @@ describe('Sessions', () => {
 		expect(second.accessToken).toEqual(expect.any(String));
 	});
 
-	it('refuses the same refresh token a second time', async () => {
+	it('serves the same refresh token twice in a breath, because that is two tabs', async () => {
+		/*
+		 * Rotation is single use and a spent token takes the whole account down, which is
+		 * right against a leak and catastrophic against a second browser tab: each tab
+		 * serialises its own refreshes and neither can serialise the other's, so two woken
+		 * by the same event both present what they stored. Reported as "I keep getting
+		 * disconnected".
+		 *
+		 * What separates a racer from a thief is *when* — see `REFRESH_RACE_MS`. The late
+		 * replay is covered where the clock can be moved, in the manager's own tests.
+		 */
 		const pair = (await signIn().expect(200)).body as TokenPair;
 
 		await request(context.app.getHttpServer())
@@ -97,12 +107,24 @@ describe('Sessions', () => {
 			.send({ refreshToken: pair.refreshToken })
 			.expect(200);
 
-		const replay = await request(context.app.getHttpServer())
+		const racing = await request(context.app.getHttpServer())
 			.post('/api/auth/refresh')
 			.send({ refreshToken: pair.refreshToken })
+			.expect(200);
+
+		const served = racing.body as TokenPair;
+
+		expect(served.accessToken).toEqual(expect.any(String));
+		expect(served.refreshToken).not.toBe(pair.refreshToken);
+	});
+
+	it('refuses a refresh token nothing ever issued', async () => {
+		const refused = await request(context.app.getHttpServer())
+			.post('/api/auth/refresh')
+			.send({ refreshToken: 'a-token-from-nowhere' })
 			.expect(401);
 
-		expect(replay.body).toMatchObject({ message: 'error.auth.session_expired' });
+		expect(refused.body).toMatchObject({ message: 'error.auth.session_expired' });
 	});
 
 	it('says who is signed in, and refuses to say it to nobody', async () => {

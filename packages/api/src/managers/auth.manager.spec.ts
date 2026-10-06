@@ -21,7 +21,7 @@ import type {
 	UserRepository,
 } from '@/repositories';
 import type { ExternalIdentity, HandlerRegistry } from '@/services';
-import { AuthManager, durationSeconds } from './auth.manager';
+import { AuthManager, durationSeconds, REFRESH_RACE_MS } from './auth.manager';
 
 /** Four rounds rather than twelve: the suite hashes a password per test. */
 const ROUNDS = 4;
@@ -450,14 +450,14 @@ describe('AuthManager', () => {
 		it('revokes every session of the account when a spent token comes back', async () => {
 			const { manager, fakes } = build();
 
-			// Valid lookup finds nothing, but the hash is one we have seen: the
-			// legitimate client rotated it away, so whoever holds this one got it
-			// somewhere else.
+			// Valid lookup finds nothing, but the hash is one we have seen, and it was
+			// rotated away long enough ago that nobody is racing: the legitimate client
+			// moved on, so whoever holds this one got it somewhere else.
 			fakes.sessions.findValidByHash.mockResolvedValue(null);
 			fakes.sessions.findOne.mockResolvedValue({
 				id: 'session-1',
 				userId: 'user-1',
-				revokedAt: new Date(),
+				revokedAt: new Date(Date.now() - REFRESH_RACE_MS - 1_000),
 			} as Session);
 
 			await expect(manager.refresh('a-replayed-token')).rejects.toThrow(
@@ -465,6 +465,31 @@ describe('AuthManager', () => {
 			);
 
 			expect(fakes.sessions.revokeAllForUser).toHaveBeenCalledWith('user-1');
+		});
+
+		it('serves a token two tabs presented at once instead of signing both out', async () => {
+			/*
+			 * Reported as "I keep getting disconnected", and that is exactly what it was.
+			 * Rotation is single use and a spent token takes the whole account down —
+			 * right against a leak, catastrophic against two browser tabs. Each tab
+			 * serialises its own refreshes and neither can serialise the other's, so two
+			 * tabs woken by the same event — this gateway restarting — both present what
+			 * they stored and the slower one is treated as a thief.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.sessions.findValidByHash.mockResolvedValue(null);
+			fakes.sessions.findOne.mockResolvedValue({
+				id: 'session-1',
+				userId: 'user-1',
+				revokedAt: new Date(),
+			} as Session);
+			fakes.users.findOne.mockResolvedValue(await internalUser());
+
+			const pair = await manager.refresh('the-token-the-other-tab-just-rotated');
+
+			expect(pair.accessToken).toBeTruthy();
+			expect(fakes.sessions.revokeAllForUser).not.toHaveBeenCalled();
 		});
 
 		it('leaves the account alone for a token nothing ever issued', async () => {
