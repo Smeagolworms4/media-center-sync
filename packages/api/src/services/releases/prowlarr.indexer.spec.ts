@@ -133,6 +133,35 @@ describe('ProwlarrIndexer', () => {
 		};
 		const withIds: IndexerQuery = { ...episodeQuery, externalIds: { tvdb: '81189', imdb: 'tt0903747' } };
 
+		it('repeats the tracker parameter rather than joining it', async () => {
+			/*
+			 * Prowlarr answers `400 — The value '7,12,1' is not valid` to a comma-joined
+			 * `indexerIds`, and that refusal arrived on the screen as "the indexer did not
+			 * answer, check its address" — about a Prowlarr answering in forty-seven
+			 * milliseconds. The fault was dormant while only an identifier could scope an
+			 * ask; the day a season number could too, it fired on every episode search.
+			 */
+			answerRouted([capable, wordsOnly], {});
+
+			await indexer.search(SETTINGS, withIds);
+
+			const scoped = calls
+				.filter(one => one.url.pathname.endsWith('/search'))
+				.filter(one => one.url.searchParams.has('indexerIds'));
+
+			expect(scoped.length).toBeGreaterThan(0);
+
+			for (const ask of scoped) {
+				const values = ask.url.searchParams.getAll('indexerIds');
+
+				expect(values.length).toBeGreaterThan(0);
+
+				for (const value of values) {
+					expect(value).not.toContain(',');
+				}
+			}
+		});
+
 		it('asks the coordinate as parameters of the trackers that take it', async () => {
 			/*
 			 * The single most expensive line this indexer ever had. `S01E08` glued onto the

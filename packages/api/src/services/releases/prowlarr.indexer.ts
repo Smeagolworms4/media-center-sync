@@ -299,7 +299,8 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 					: 'search',
 				...identifiers,
 				...structured,
-				...(ask.indexerIds === null ? {} : { indexerIds: ask.indexerIds.join(',') }),
+				// Repeated, never joined: Prowlarr refuses `indexerIds=7,12,1` with a 400.
+				...(ask.indexerIds === null ? {} : { indexerIds: ask.indexerIds }),
 				limit: 200,
 			},
 			headers: { 'X-Api-Key': settings.apiKey ?? '' },

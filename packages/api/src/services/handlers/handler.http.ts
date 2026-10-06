@@ -21,7 +21,15 @@ export const STREAM_TIMEOUT_MS = 60_000;
 export interface HttpRequestOptions {
 	method?: string;
 	headers?: Record<string, string>;
-	query?: Record<string, string | number | boolean | null | undefined>;
+	/**
+	 * An array value becomes a *repeated* parameter, never a comma-joined one.
+	 *
+	 * Which is not a style choice: Prowlarr answers `400 — The value '7,12,1' is not
+	 * valid` to a joined `indexerIds`, and that refusal surfaced as "the indexer did not
+	 * answer, check its address" on a Prowlarr that was answering perfectly in forty-seven
+	 * milliseconds.
+	 */
+	query?: Record<string, string | number | boolean | readonly (string | number)[] | null | undefined>;
 	body?: unknown;
 	timeoutMs?: number;
 	signal?: AbortSignal;
@@ -45,6 +53,16 @@ export function buildUrl(
 
 	for (const [key, value] of Object.entries(query ?? {})) {
 		if (value === null || value === undefined || value === '') {
+			continue;
+		}
+
+		if (Array.isArray(value)) {
+			// Appended one by one. An empty array contributes nothing, which is the same
+			// thing as not naming the parameter at all.
+			for (const one of value) {
+				url.searchParams.append(key, String(one));
+			}
+
 			continue;
 		}
 
