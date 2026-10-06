@@ -290,9 +290,13 @@ export const orderSuggestions = (
 	 * good release of something already on the disk. The gateway had worked out which
 	 * ones filled the gap and then ordered the list without consulting its own answer.
 	 *
-	 * `brings` counts as covering, and leaving it out would be the same defect in the
-	 * case that matters most: an episode that aired since the last scan hangs from no row
-	 * here, so it fills nothing by definition — and it is exactly what somebody came for.
+	 * A gap, and strictly a gap: an episode this household is short of. `brings` — an
+	 * episode no server here has ever reported — was counted too and that was wrong, as
+	 * the first screen carrying this showed. A season search where only episode eight was
+	 * wanted put episodes one to six at the head of the list, under a heading promising
+	 * the opposite, because those releases name episodes and an episode a server did not
+	 * report reads as new whatever the household already holds. Two different claims, and
+	 * only one of them is "you are missing this".
 	 *
 	 * Asked only of the rows that bring something. Among those that bring nothing the
 	 * order is already settled by the line above and by the kind below it, and re-sorting
@@ -323,7 +327,7 @@ export const orderSuggestions = (
 const coversNoGap = (one: ReleaseSuggestion): boolean =>
 	one.source === SuggestionSource.PEER
 		? one.copy.fills.length === 0
-		: one.release.fills.length === 0 && one.release.brings.length === 0;
+		: one.release.fills.length === 0;
 
 /**
  * An offer that names the wrong thing.

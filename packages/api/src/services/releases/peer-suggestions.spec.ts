@@ -392,19 +392,24 @@ describe('PeerSuggestionService', () => {
 			expect(ordered.map((one) => one.key)).toEqual(['the-pack', 'other-episode']);
 		});
 
-		it('counts an episode no server here knows about as covering one', () => {
-			// The case that matters most on a running show: it aired since the last scan,
-			// so it hangs from no row and fills nothing by definition — and it is exactly
-			// what somebody came for.
+		it('does not call an episode nobody reported a gap, whatever else it is', () => {
+			/*
+			 * Counted as covering at first, and the screen carrying it showed why that is
+			 * wrong: a season search where only episode eight was wanted put episodes one to
+			 * six at the head of the list, under a heading promising the opposite. A release
+			 * names episodes, an episode a server did not report reads as new whatever the
+			 * household already holds, and "nobody here has heard of this" is simply not the
+			 * same claim as "you are missing this".
+			 */
 			const ordered = orderSuggestions(
 				[],
 				[
-					group({ key: 'held-elsewhere', fills: [], brings: [] }),
 					group({ key: 'just-aired', fills: [], brings: [{ seasonNumber: 1, episodeNumber: 9 }] }),
+					group({ key: 'a-real-gap', fills: [ref(8)], brings: [] }),
 				],
 			);
 
-			expect(ordered.map((one) => one.key)).toEqual(['just-aired', 'held-elsewhere']);
+			expect(ordered.map((one) => one.key)).toEqual(['a-real-gap', 'just-aired']);
 		});
 
 		it('leaves the order alone when nothing on the page covers a gap', () => {

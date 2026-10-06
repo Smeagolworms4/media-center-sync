@@ -258,11 +258,17 @@
 	const firstOffTarget = computed(() => suggestions.value.find(
 		one => one.source === SuggestionSource.INDEXER && one.release.offTarget)?.key ?? null);
 
-	/** Whether a row answers something somebody is short of. Mirrors the gateway's order. */
+	/**
+	 * Whether a row answers something somebody is short of. Mirrors the gateway's order.
+	 *
+	 * A gap and strictly a gap. An episode no server here has ever reported was counted
+	 * too, and it put episodes one to six at the head of a search where only episode eight
+	 * was wanted — under a heading promising the opposite.
+	 */
 	function coversAGap (one: ReleaseSuggestion): boolean {
 		return one.source === SuggestionSource.PEER
 			? one.copy.fills.length > 0
-			: one.release.fills.length > 0 || one.release.brings.length > 0;
+			: one.release.fills.length > 0;
 	}
 
 	/**
