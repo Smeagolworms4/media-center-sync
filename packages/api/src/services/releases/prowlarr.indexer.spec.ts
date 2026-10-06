@@ -133,6 +133,83 @@ describe('ProwlarrIndexer', () => {
 		};
 		const withIds: IndexerQuery = { ...episodeQuery, externalIds: { tvdb: '81189', imdb: 'tt0903747' } };
 
+		it('asks the coordinate as parameters of the trackers that take it', async () => {
+			/*
+			 * The single most expensive line this indexer ever had. `S01E08` glued onto the
+			 * title makes every tracker match that literal string inside a release name;
+			 * `season` and `ep` as parameters let each one answer from its own index.
+			 * Measured against a household's ten trackers, same Prowlarr, same second:
+			 * The Expanse S01E08 returned **zero** as words and **333** as parameters, on a
+			 * show every one of those trackers carries. The screen said "nothing came back,
+			 * try other words", and the words were never the problem.
+			 */
+			answerRouted([capable, wordsOnly], {});
+
+			await indexer.search(SETTINGS, withIds);
+
+			const searches = calls.filter(one => one.url.pathname.endsWith('/search'));
+			const structured = searches.filter(
+				one => one.url.searchParams.get('season') === '2',
+			);
+
+			expect(structured.length).toBeGreaterThan(0);
+
+			for (const ask of structured) {
+				expect(ask.url.searchParams.get('ep')).toBe('9');
+				expect(ask.url.searchParams.get('type')).toBe('tvsearch');
+				// The bare title: the coordinate travels as parameters, and spelling it in
+				// the words as well asks the tracker to find `S02E09` written that way too.
+				expect(ask.url.searchParams.get('query')).toBe('Spartacus');
+			}
+
+			// Both fixtures declare `season` and `ep`, so neither is left out of it.
+			const reached = structured.flatMap(
+				one => (one.url.searchParams.get('indexerIds') ?? '').split(','),
+			);
+
+			expect(new Set(reached)).toEqual(new Set(['3', '8']));
+		});
+
+		it('asks for the season alone when a pack is wanted, as a parameter too', async () => {
+			// Asking for `ep` and hoping a pack comes back is how somebody looking for the
+			// rest of a season finds one episode of it.
+			answerRouted([capable, wordsOnly], {});
+
+			await indexer.search(SETTINGS, { ...withIds, seasonPack: true });
+
+			const structured = calls
+				.filter(one => one.url.pathname.endsWith('/search'))
+				.filter(one => one.url.searchParams.get('season') === '2');
+
+			expect(structured.length).toBeGreaterThan(0);
+
+			for (const ask of structured) {
+				expect(ask.url.searchParams.get('ep')).toBeNull();
+			}
+		});
+
+		it('keeps the coordinate out of the ask of a tracker that does not declare it', async () => {
+			// A dropped parameter is a blank search: the tracker answers whatever it has
+			// for an empty query, which is how an identifier-only search once returned
+			// Formula 1 for Breaking Bad.
+			const noCoordinate = {
+				id: 11,
+				enable: true,
+				capabilities: { tvSearchParams: ['q'], movieSearchParams: ['q'] },
+			};
+
+			answerRouted([noCoordinate], {});
+
+			await indexer.search(SETTINGS, { ...episodeQuery, externalIds: {} });
+
+			const searches = calls.filter(one => one.url.pathname.endsWith('/search'));
+
+			expect(searches).toHaveLength(1);
+			expect(searches[0].url.searchParams.get('season')).toBeNull();
+			// And it still gets the coordinate the only way it can read one.
+			expect(searches[0].url.searchParams.get('query')).toBe('Spartacus S02E09');
+		});
+
 		it('never sends an identifier to a tracker that does not declare it', async () => {
 			/*
 			 * The defect this exists to prevent, measured rather than imagined: an
@@ -207,12 +284,13 @@ describe('ProwlarrIndexer', () => {
 				?.url.searchParams.get('type')).toBe('search');
 		});
 
-		it('falls back to one plain search when the query carries no identifier', async () => {
-			// Words somebody typed, about nothing in the catalogue. Nothing to read an
-			// identifier off, and no reason to ask Prowlarr what its trackers support.
+		it('falls back to one plain search when there is nothing to be precise with', async () => {
+			// Words somebody typed about a film nobody catalogued: no identifier, no
+			// coordinate. Nothing to narrow with, and no reason to ask Prowlarr what its
+			// trackers support.
 			answer([row()]);
 
-			await indexer.search(SETTINGS, episodeQuery);
+			await indexer.search(SETTINGS, { term: 'something', kind: ReleaseSearchKind.MOVIE });
 
 			expect(calls).toHaveLength(1);
 			expect(calls[0].url.searchParams.get('type')).toBe('search');
@@ -244,16 +322,23 @@ describe('ProwlarrIndexer', () => {
 
 	describe('the terms it searches for', () => {
 		/**
-		 * The coordinate goes in the query rather than in Prowlarr's own `season` and
-		 * `episode` parameters: those only apply to indexers that declare the tv-search
-		 * capability, and the ones that do not ignore them and return the whole show.
+		 * The plain ask spells the coordinate into the words, because it goes to every
+		 * tracker — including those that declare no tv-search capability, which would drop
+		 * `season` and `ep` and answer with the whole show.
+		 *
+		 * The trackers that *do* declare it are asked a second time with the coordinate as
+		 * parameters. See `_coordinate` for the measurement that made that worth a request.
 		 */
 		it('spells the coordinate into the words, because that is what release names hold', async () => {
 			answer([]);
 
 			await indexer.search(SETTINGS, episodeQuery);
 
-			expect(calls[0].url.searchParams.get('query')).toBe('Spartacus S02E09');
+			const plain = calls
+				.filter(one => one.url.pathname.endsWith('/search'))
+				.find(one => one.url.searchParams.get('indexerIds') === null);
+
+			expect(plain?.url.searchParams.get('query')).toBe('Spartacus S02E09');
 		});
 
 		it('pads a single-digit coordinate the way release names do', async () => {
@@ -261,7 +346,11 @@ describe('ProwlarrIndexer', () => {
 
 			await indexer.search(SETTINGS, { term: 'Scrubs', seasonNumber: 1, episodeNumber: 4, kind: ReleaseSearchKind.SHOW });
 
-			expect(calls[0].url.searchParams.get('query')).toBe('Scrubs S01E04');
+			const plain = calls
+				.filter(one => one.url.pathname.endsWith('/search'))
+				.find(one => one.url.searchParams.get('indexerIds') === null);
+
+			expect(plain?.url.searchParams.get('query')).toBe('Scrubs S01E04');
 		});
 
 		/**

@@ -78,6 +78,19 @@ const CATEGORIES: Record<ReleaseSearchKind, number[]> = {
 };
 
 /**
+ * One request to Prowlarr: which trackers, and how precisely to ask them.
+ *
+ * `indexerIds` of null means every tracker Prowlarr holds. `byId` carries the catalogue
+ * identifiers, `structured` carries the season and episode as parameters; both ride on
+ * `tvsearch`, and a tracker that declares neither gets the plain word search.
+ */
+interface Ask {
+	indexerIds: number[] | null;
+	byId: boolean;
+	structured: boolean;
+}
+
+/**
  * Searching through Prowlarr.
  *
  * One address and one key reach every tracker somebody configured there, which is the
@@ -136,54 +149,116 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 		return [...merged.values()];
 	}
 
-	/** One ask: which trackers, and what to ask them for. */
-	private async _split(
-		settings: IndexerSettings,
-		query: IndexerQuery,
-	): Promise<{ indexerIds: number[] | null; byId: boolean }[]> {
+	/**
+	 * Which trackers to ask, and in what form.
+	 *
+	 * Every ask is *added*, never substituted, and the merge is by release identity — see
+	 * `search` — so a tracker answering two ways contributes each release once. That rule
+	 * exists because breaking it was the bug: an earlier version sent the identifiers to
+	 * the trackers that understood them and the words only to the rest, so a tracker
+	 * holding the show under an identifier it does not carry answered nothing, and the
+	 * words that would have found it were never sent there.
+	 *
+	 * The plain text ask therefore always goes out, to everybody. It is the floor: it
+	 * needs no declared capability, it reaches a tracker that supports neither of the
+	 * other two forms, and it costs one request.
+	 *
+	 * On top of it, the trackers that declare a coordinate are asked with `season` and
+	 * `ep` as parameters — which is the difference between zero results and three hundred
+	 * on a show every one of them carries. See `_coordinate`. Those among them that also
+	 * declare identifiers get those in the same ask, since both ride on `tvsearch`.
+	 */
+	private async _split(settings: IndexerSettings, query: IndexerQuery): Promise<Ask[]> {
+		// The floor, and the only ask that needs nothing declared.
+		const plain: Ask = { indexerIds: null, byId: false, structured: false };
 		const ids = this._identifiers(query);
+		const coordinate = this._coordinate(query);
 
-		if (Object.keys(ids).length === 0) {
-			// Nothing to ask by. One search, every tracker, as it has always been.
-			return [{ indexerIds: null, byId: false }];
+		if (Object.keys(ids).length === 0 && Object.keys(coordinate).length === 0) {
+			// Nothing to be precise with. One search, every tracker, as it has always been.
+			return [plain];
 		}
 
 		const indexers = await this._indexers(settings);
 
 		if (indexers === null) {
-			return [{ indexerIds: null, byId: false }];
+			// Prowlarr would not say what its trackers take. Asking anyway would send
+			// parameters half of them drop, and a dropped parameter is a blank search.
+			return [plain];
 		}
 
-		const supporting: number[] = [];
+		const COORDINATE_PARAMS = ['season', 'ep'];
+		const withBoth: number[] = [];
+		const withCoordinate: number[] = [];
+		const withIds: number[] = [];
 
 		for (const indexer of indexers) {
 			const params = query.kind === ReleaseSearchKind.MOVIE
 				? indexer.movieSearchParams
 				: indexer.tvSearchParams;
+			const takesIds = Object.keys(ids).length > 0
+				&& Object.keys(ids).some((name) => params.includes(name));
+			const takesCoordinate = Object.keys(coordinate).length > 0
+				&& COORDINATE_PARAMS.every((name) => params.includes(name));
 
-			if (Object.keys(ids).some((name) => params.includes(name))) {
-				supporting.push(indexer.id);
+			if (takesIds && takesCoordinate) {
+				withBoth.push(indexer.id);
+			} else if (takesCoordinate) {
+				withCoordinate.push(indexer.id);
+			} else if (takesIds) {
+				withIds.push(indexer.id);
 			}
 		}
 
-		/*
-		 * The text search still goes to everybody, and the identifier search is asked
-		 * *as well* — never instead.
-		 *
-		 * Splitting them was the bug: a tracker that understands identifiers stopped
-		 * receiving the words, so when its catalogue had the show under an id it did not
-		 * carry, it answered nothing and the search that would have found it was never
-		 * sent there. Fewer results than before the identifiers existed, which is the
-		 * opposite of what they were added for.
-		 *
-		 * Asking both is one extra request to a subset of the trackers, and the merge is
-		 * by release identity — see `search` — so a tracker that answers both ways
-		 * contributes each release once. It can only add.
-		 */
 		return [
-			{ indexerIds: null, byId: false },
-			...(supporting.length > 0 ? [{ indexerIds: supporting, byId: true }] : []),
+			plain,
+			...(withBoth.length > 0
+				? [{ indexerIds: withBoth, byId: true, structured: true }]
+				: []),
+			...(withCoordinate.length > 0
+				? [{ indexerIds: withCoordinate, byId: false, structured: true }]
+				: []),
+			...(withIds.length > 0
+				? [{ indexerIds: withIds, byId: true, structured: false }]
+				: []),
 		];
+	}
+
+	/**
+	 * The season and episode as parameters rather than as words.
+	 *
+	 * The single most expensive line this indexer ever had. `S01E08` glued onto the title
+	 * makes every tracker match that literal string inside a release name; `season=1&ep=8`
+	 * lets each one answer from its own index. Measured against a household's ten
+	 * trackers, same Prowlarr, same second:
+	 *
+	 * | asked for      | as words | as parameters |
+	 * |----------------|---------:|--------------:|
+	 * | Dark S01E08    |      110 |           653 |
+	 * | Severance S01E08 |     10 |           319 |
+	 * | The Expanse S01E08 |    0 |           333 |
+	 *
+	 * Zero against three hundred and thirty-three, on a show that every one of those
+	 * trackers carries. The screen said "nothing came back, try other words", and the
+	 * words were never the problem.
+	 *
+	 * A season pack asks for the season and names no episode, which is the same
+	 * distinction `_terms` draws for the text form.
+	 */
+	private _coordinate(query: IndexerQuery): Record<string, number> {
+		if (query.kind === ReleaseSearchKind.MOVIE) {
+			return {};
+		}
+
+		if (query.seasonNumber === null || query.seasonNumber === undefined) {
+			return {};
+		}
+
+		const episode = query.episodeNumber;
+
+		return query.seasonPack === true || episode === null || episode === undefined
+			? { season: query.seasonNumber }
+			: { season: query.seasonNumber, ep: episode };
 	}
 
 	/** The provider identifiers this query carries, under the names Prowlarr uses. */
@@ -200,25 +275,30 @@ export class ProwlarrIndexer implements ReleaseIndexer {
 	private async _ask(
 		settings: IndexerSettings,
 		query: IndexerQuery,
-		ask: { indexerIds: number[] | null; byId: boolean },
+		ask: Ask,
 	): Promise<Release[]> {
 		/*
-		 * The words go out even on the identifier ask, and that is deliberate. A tracker
-		 * that declares `tmdbId` and not `tvdbId` would otherwise be sent an identifier it
-		 * drops and no words to fall back on — the blank search again, on the half of the
-		 * split that was supposed to be the precise one.
+		 * The words go out on every ask, and that is deliberate. A tracker that declares
+		 * `tmdbId` and not `tvdbId` would otherwise be sent an identifier it drops and no
+		 * words to fall back on — a blank search, on the very ask that was supposed to be
+		 * the precise one.
 		 */
 		const identifiers = ask.byId ? this._identifiers(query) : {};
+		const structured = ask.structured ? this._coordinate(query) : {};
 		const rows = await releaseJson<ProwlarrRelease[]>(settings.baseUrl, '/api/v1/search', {
 			query: {
-				query: this._terms(query),
+				// The bare title on a structured ask: the coordinate travels as parameters,
+				// and spelling it in the words as well asks the tracker to find `S01E08`
+				// written that way in the release name too.
+				query: ask.structured ? query.term.trim() : this._terms(query),
 				categories: CATEGORIES[query.kind].join(','),
-				// `tvsearch` and `movie` are what carry the identifier parameters; `search`
-				// is the plain one and ignores them.
-				type: ask.byId
+				// `tvsearch` and `movie` carry the identifiers and the coordinate; `search`
+				// is the plain one and ignores both.
+				type: ask.byId || ask.structured
 					? (query.kind === ReleaseSearchKind.MOVIE ? 'movie' : 'tvsearch')
 					: 'search',
 				...identifiers,
+				...structured,
 				...(ask.indexerIds === null ? {} : { indexerIds: ask.indexerIds.join(',') }),
 				limit: 200,
 			},
