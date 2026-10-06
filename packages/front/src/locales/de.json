@@ -961,7 +961,9 @@
 			"client_password": "Passwort",
 			"link_source": "Original durch einen Symlink ersetzen",
 			"link_source_hint": "Nach dem Kopieren wird die Datei des Clients zu einem Link auf die Kopie in der Bibliothek: derselbe Film belegt die Platte nicht mehr doppelt, und der Torrent verteilt weiter. Nur einschalten, wenn der Client die Bibliothek erreicht — sonst folgt er dem Link ins Leere.",
-			"paths_help": "Der Download-Ordner als Zuordnung, genau wie ein Medienserver seine Platten angibt: das Präfix, das der Client schreibt, und dasselbe Verzeichnis, wie dieses Gateway es erreicht."
+			"paths_help": "Der Download-Ordner als Zuordnung, genau wie ein Medienserver seine Platten angibt: das Präfix, das der Client schreibt, und dasselbe Verzeichnis, wie dieses Gateway es erreicht.",
+			"absolute_links": "Links als absolute Pfade schreiben",
+			"absolute_links_hint": "Ein absoluter Link sagt, wo die Datei liegt: lesbar für dich, für ls -l und für ein rsync. Nur abwählen, wenn dein Client dieselbe Platte unter einem anderen Pfad sieht."
 		},
 		"preference": {
 			"orders_only": "Dies ordnet die Suchergebnisse und verbirgt nie eines davon. Was Sie nicht eingeordnet haben, bleibt in der Liste, zuletzt — die einzige Kopie der Folge von gestern Abend ist also noch da, auch wenn sie von einer Gruppe kommt, die Sie nicht genannt haben.",

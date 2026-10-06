@@ -961,7 +961,9 @@
 			"client_password": "Password",
 			"link_source": "Replace the original with a symlink",
 			"link_source_hint": "After the copy, the client’s own file becomes a link to the library copy: the same film stops taking up the disk twice while the torrent keeps seeding. Only turn this on if the client can reach the library — otherwise it follows the link to nothing.",
-			"paths_help": "The download folder as a correspondence, exactly as a media server declares its disks: the prefix the client writes, and the same directory as this gateway reaches it."
+			"paths_help": "The download folder as a correspondence, exactly as a media server declares its disks: the prefix the client writes, and the same directory as this gateway reaches it.",
+			"absolute_links": "Write links as absolute paths",
+			"absolute_links_hint": "An absolute link says where the file is: readable by you, by ls -l and by an rsync. Uncheck only if your client reaches the same disk under a different root."
 		},
 		"preference": {
 			"orders_only": "This orders search results and never hides any of them. Anything you have not ranked stays on the list, last — so the only copy of last night’s episode is still there when it comes from a group you have not named.",

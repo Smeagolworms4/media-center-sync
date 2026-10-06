@@ -145,6 +145,7 @@
 		 */
 		clientRootMappings: [] as RootMapping[],
 		clientLinkSource: false,
+		clientAbsoluteLinks: true,
 		/*
 		 * The request source, flat for the reason the two above are: a refusal has to land
 		 * under the box it names, and the form helpers key on a field name.
@@ -221,6 +222,7 @@
 					...(values.clientPassword ? { password: values.clientPassword } : {}),
 					rootMappings: values.clientRootMappings,
 					linkSourceAfterCopy: values.clientLinkSource,
+					absoluteSymlinks: values.clientAbsoluteLinks,
 					enabled: values.clientEnabled,
 				}
 				: null,
@@ -328,6 +330,9 @@
 		// unsaved row look stored everywhere else that reads the settings.
 		model.clientRootMappings = [...(settings.downloadClient?.rootMappings ?? [])];
 		model.clientLinkSource = settings.downloadClient?.linkSourceAfterCopy ?? false;
+		// Absent means never asked, and the answer that reads correctly to a person is the
+		// one to show them. See `absoluteSymlinks`.
+		model.clientAbsoluteLinks = settings.downloadClient?.absoluteSymlinks !== false;
 		model.requestEnabled = settings.requestSource?.enabled ?? false;
 		model.requestUrl = settings.requestSource?.baseUrl ?? '';
 		// Never filled from the answer, for the reason the indexer's key is not: the
@@ -1318,6 +1323,23 @@
 							density="compact"
 							:hint="$t('settings.releases.link_source_hint')"
 							:label="$t('settings.releases.link_source')"
+							persistent-hint
+						/>
+
+						<!--
+							Only while links are being written: a choice about how to spell
+							something nobody is writing is a control that cannot be wrong, which
+							is the kind that teaches people to ignore the ones that can.
+						-->
+						<v-switch
+							v-if="model.clientLinkSource"
+							v-model="model.clientAbsoluteLinks"
+							class="mt-2 ml-6"
+							color="primary"
+							data-test="settings-client-absolute-links"
+							density="compact"
+							:hint="$t('settings.releases.absolute_links_hint')"
+							:label="$t('settings.releases.absolute_links')"
 							persistent-hint
 						/>
 					</v-card-text>

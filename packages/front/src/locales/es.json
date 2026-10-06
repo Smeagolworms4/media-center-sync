@@ -961,7 +961,9 @@
 			"client_password": "Contraseña",
 			"link_source": "Sustituir el original por un enlace simbólico",
 			"link_source_hint": "Tras la copia, el archivo del cliente pasa a ser un enlace a la copia de la biblioteca: la misma película deja de ocupar el disco dos veces y el torrent sigue compartiendo. Actívelo solo si el cliente puede llegar a la biblioteca; si no, seguirá el enlace hacia la nada.",
-			"paths_help": "La carpeta de descargas como correspondencia, igual que un servidor multimedia declara sus discos: el prefijo que escribe el cliente y la misma carpeta tal como la alcanza esta pasarela."
+			"paths_help": "La carpeta de descargas como correspondencia, igual que un servidor multimedia declara sus discos: el prefijo que escribe el cliente y la misma carpeta tal como la alcanza esta pasarela.",
+			"absolute_links": "Escribir los enlaces como rutas absolutas",
+			"absolute_links_hint": "Un enlace absoluto dice dónde está el archivo: legible por ti, por ls -l y por un rsync. Desmárcalo solo si tu cliente alcanza el mismo disco bajo otra raíz."
 		},
 		"preference": {
 			"orders_only": "Esto ordena los resultados de búsqueda y no oculta ninguno. Lo que no haya clasificado permanece en la lista, al final — así que la única copia del episodio de anoche sigue ahí aunque venga de un grupo que no ha nombrado.",

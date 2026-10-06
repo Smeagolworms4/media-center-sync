@@ -961,7 +961,9 @@
 			"client_password": "Mot de passe",
 			"link_source": "Remplacer l’original par un lien symbolique",
 			"link_source_hint": "Après la copie, le fichier du client devient un lien vers la copie de la bibliothèque : le même film cesse d’occuper le disque deux fois, et le torrent continue de partager. À n’activer que si le client voit la bibliothèque — sinon il suit le lien vers rien.",
-			"paths_help": "Le dossier de téléchargement sous forme de correspondance, exactement comme un serveur média déclare ses disques : le préfixe qu'écrit le client, et le même dossier tel que la passerelle l'atteint."
+			"paths_help": "Le dossier de téléchargement sous forme de correspondance, exactement comme un serveur média déclare ses disques : le préfixe qu'écrit le client, et le même dossier tel que la passerelle l'atteint.",
+			"absolute_links": "Écrire les liens en chemin absolu",
+			"absolute_links_hint": "Un lien absolu dit où est le fichier : lisible par vous, par ls -l et par un rsync. Décochez seulement si votre client atteint le même disque sous une autre racine."
 		},
 		"preference": {
 			"orders_only": "Ceci trie les résultats de recherche et n'en cache jamais aucun. Ce que vous n'avez pas classé reste dans la liste, en dernier — l'unique copie de l'épisode d'hier soir reste donc visible même si elle vient d'un groupe que vous n'avez pas nommé.",
