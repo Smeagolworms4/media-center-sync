@@ -409,6 +409,20 @@ export interface Settings {
 	 * recent additions — a few dozen rows — rather than by re-reading everything.
 	 */
 	refreshIntervalMinutes: number;
+	/**
+	 * How often the gateway looks for episodes of the shows this household follows.
+	 *
+	 * Six hours, and null to stop entirely. A show that is still running puts out an
+	 * episode and nothing here would otherwise notice: a scan reads what media servers
+	 * hold, and a tracker is nobody's library. Somebody had to open the search screen and
+	 * ask, show by show, which is the chore the watchlist exists to remove.
+	 *
+	 * Expensive enough to be a setting rather than a constant: one search per followed
+	 * show with a gap, against every tracker, and a household following forty of them
+	 * means forty searches each time it fires.
+	 */
+	episodeWatchHours: number | null;
+
 
 	/**
 	 * Cron expression for the full rescan.

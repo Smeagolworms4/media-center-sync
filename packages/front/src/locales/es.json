@@ -1009,7 +1009,13 @@
 			"url_help": "La misma dirección con la que lo abre, puerto incluido. Overseerr y Jellyseerr se leen igual.",
 			"key": "Clave de API",
 			"key_help": "En Seerr, en Parámetros → General. Se guarda una vez y nunca se vuelve a mostrar."
-		}
+		},
+		"episode_watch": "Vigilancia de nuevos episodios (horas)",
+		"episode_watch_help": "Cada N horas la pasarela busca los episodios que faltan de tus series seguidas y te los propone; nunca descarga sola. Vacía el campo para detenerla.",
+		"episode_watch_now": "Buscar ahora",
+		"episode_watch_found": "{count} serie(s) tienen algo que proponerte.",
+		"episode_watch_none": "Nada nuevo que proponer por ahora.",
+		"episode_watch_failed": "La búsqueda no se completó."
 	},
 	"sync": {
 		"subtitle": "Las intenciones permanentes, y lo que han hecho realmente.",

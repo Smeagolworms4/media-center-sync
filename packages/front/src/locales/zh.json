@@ -1009,7 +1009,13 @@
 			"url_help": "与您打开它时相同的地址，含端口。Overseerr 和 Jellyseerr 的读取方式相同。",
 			"key": "API 密钥",
 			"key_help": "在 Seerr 的「设置 → 常规」中。只保存一次，之后不再显示。"
-		}
+		},
+		"episode_watch": "新剧集守望（小时）",
+		"episode_watch_help": "每 N 小时网关会为你关注的剧集查找缺失的集并向你推荐——它从不自行下载。清空此项即可停止。",
+		"episode_watch_now": "立即查找",
+		"episode_watch_found": "有 {count} 部剧集可以推荐。",
+		"episode_watch_none": "目前没有新的可推荐。",
+		"episode_watch_failed": "查找没有完成。"
 	},
 	"sync": {
 		"subtitle": "长期的同步意图，以及它们实际做了什么。",

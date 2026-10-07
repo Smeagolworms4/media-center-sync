@@ -94,6 +94,19 @@ export const useReleasesStore = defineStore('releases', () => {
 	 * inside the search that produced it, so a plan assembled from the held result
 	 * would name rows the gateway may already have forgotten.
 	 */
+	/**
+	 * Look now for episodes of the shows this household follows.
+	 *
+	 * The same pass the timer runs — see `episodeWatchHours` — rather than a second
+	 * implementation of it: a button that ran its own version is a button that drifts
+	 * from the thing it claims to trigger.
+	 */
+	async function watchNow (): Promise<number> {
+		const answer = await caller('api').post<{ proposed: number }>('/releases/watch', {});
+
+		return answer.proposed;
+	}
+
 	async function planFor (query: ReleaseSearchQuery): Promise<CoveragePlan> {
 		planning.value = true;
 		try {
@@ -338,6 +351,7 @@ export const useReleasesStore = defineStore('releases', () => {
 		plannedFor,
 		search,
 		planFor,
+		watchNow,
 		clear,
 		clearPlan,
 		grab,

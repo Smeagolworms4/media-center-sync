@@ -107,6 +107,10 @@ export const DEFAULT_SETTINGS: Settings = {
 	// window would have removed the row that explains the hole.
 	failedHistoryDays: 180,
 	refreshIntervalMinutes: 15,
+	// Six hours: four passes a day over the shows somebody follows, which is often
+	// enough that an episode is proposed the evening it appears and rare enough that a
+	// household following forty shows is not searching every tracker all day.
+	episodeWatchHours: 6,
 	fullScanCron: '0 4 * * *',
 	cacheTtlSeconds: 60,
 	// Nothing dismissed, because nothing has been shown yet. Kept as a list of keys
@@ -131,6 +135,11 @@ const NUMERIC_BOUNDS: Partial<Record<keyof Settings, { min: number; max: number 
 	transferHistoryDays: { min: 0, max: 3650 },
 	failedHistoryDays: { min: 0, max: 3650 },
 	refreshIntervalMinutes: { min: 1, max: 1440 },
+	// One hour at the fastest: each pass is one search per followed show against every
+	// tracker, and a gateway asking that every few minutes is a gateway somebody's
+	// indexer will start refusing. A week at the slowest, past which the watch is not a
+	// watch — null is how it is turned off, and that is a clearer thing to say.
+	episodeWatchHours: { min: 1, max: 168 },
 	cacheTtlSeconds: { min: 1, max: 3600 },
 	// One is direct friends only, which has to stay reachable: it is the setting
 	// somebody picks the day they stop wanting a wider circle. The ceiling is not a

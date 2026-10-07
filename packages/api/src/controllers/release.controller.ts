@@ -42,7 +42,7 @@ import {
 	ValidateNested,
 } from 'class-validator';
 import { Granted } from '@/decorators';
-import { ReleaseManager } from '@/managers';
+import { EpisodeWatchManager, ReleaseManager } from '@/managers';
 
 /** What a search asks for. Everything optional but one of `itemId` and `term`. */
 class ReleaseSearchDto {
@@ -208,7 +208,26 @@ class DownloadsQueryDto {
 @ApiBearerAuth()
 @Controller('releases')
 export class ReleaseController {
-	public constructor(private readonly _releases: ReleaseManager) {}
+	public constructor(
+		private readonly _releases: ReleaseManager,
+		private readonly _watch: EpisodeWatchManager,
+	) {}
+
+	@Post('watch')
+	@Granted(Right.MEDIA_READ)
+	@HttpCode(HttpStatus.OK)
+	@ApiOperation({
+		summary: 'Look now for episodes of the shows this household follows',
+		description:
+			'The same pass the timer runs, on demand. It proposes and never fetches: which '
+			+ 'release to take is a decision about quality, size and who is seeding, and that '
+			+ 'is made on the search screen. Answers how many followed shows had something to '
+			+ 'propose. A pass already running is joined rather than doubled.',
+	})
+	@ApiOkResponse({ description: 'How many shows had something to propose' })
+	public async watchNow(): Promise<{ proposed: number }> {
+		return { proposed: await this._watch.sweep() };
+	}
 
 	@Get('search')
 	@Granted(Right.MEDIA_READ)

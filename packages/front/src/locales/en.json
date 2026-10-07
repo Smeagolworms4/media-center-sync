@@ -1009,7 +1009,13 @@
 			"url_help": "The same address you open it at, port included. Overseerr and Jellyseerr are read the same way.",
 			"key": "API key",
 			"key_help": "In Seerr, under Settings → General. It is stored once and never shown again."
-		}
+		},
+		"episode_watch": "Watch for new episodes (hours)",
+		"episode_watch_help": "Every N hours the gateway looks for the missing episodes of the shows you follow and proposes them — it never fetches on its own. Clear the field to stop.",
+		"episode_watch_now": "Look now",
+		"episode_watch_found": "{count} show(s) have something to propose.",
+		"episode_watch_none": "Nothing new to propose right now.",
+		"episode_watch_failed": "The search did not go through."
 	},
 	"sync": {
 		"subtitle": "Standing intents, and what they have actually done.",

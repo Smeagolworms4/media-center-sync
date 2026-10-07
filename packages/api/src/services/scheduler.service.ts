@@ -1,10 +1,12 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
+import { isWorkerThread } from './runtime-role';
 import { SettingsService } from './settings.service';
 
 /** Job names, so a re-registration replaces rather than duplicates. */
 const REFRESH_JOB = 'mcs:refresh';
+const EPISODE_WATCH_JOB = 'mcs:episode-watch';
 const FULL_SCAN_JOB = 'mcs:full-scan';
 const CLEANUP_JOB = 'mcs:cleanup';
 const PLAN_PREFIX = 'mcs:plan:';
@@ -30,6 +32,7 @@ export type ScheduledTask = () => Promise<void> | void;
  */
 export enum SchedulerHook {
 	REFRESH = 'refresh',
+	EPISODE_WATCH = 'episodeWatch',
 	FULL_SCAN = 'fullScan',
 	CLEANUP = 'cleanup',
 	PLAN = 'plan',
@@ -79,6 +82,11 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 		this._subscribe(SchedulerHook.REFRESH, task);
 	}
 
+	/** Look for episodes of the shows the household follows. See `episodeWatchHours`. */
+	public onEpisodeWatch(task: ScheduledTask): void {
+		this._subscribe(SchedulerHook.EPISODE_WATCH, task);
+	}
+
 	public onFullScan(task: ScheduledTask): void {
 		this._subscribe(SchedulerHook.FULL_SCAN, task);
 	}
@@ -106,6 +114,12 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 	}
 
 	public async onApplicationBootstrap(): Promise<void> {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		await this.reload();
 	}
 
@@ -121,6 +135,23 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 		this._replaceInterval(REFRESH_JOB, settings.refreshIntervalMinutes * 60 * 1000, async () => {
 			await this._safely(REFRESH_JOB, this._task(SchedulerHook.REFRESH));
 		});
+
+		/*
+		 * Null stops it, which is a different statement from a long interval and has to
+		 * stay sayable: a household on a metered connection, or one that would rather ask
+		 * for itself, is entitled to no automatic searching at all.
+		 */
+		if (settings.episodeWatchHours) {
+			this._replaceInterval(
+				EPISODE_WATCH_JOB,
+				settings.episodeWatchHours * 60 * 60 * 1000,
+				async () => {
+					await this._safely(EPISODE_WATCH_JOB, this._task(SchedulerHook.EPISODE_WATCH));
+				},
+			);
+		} else {
+			this._remove(EPISODE_WATCH_JOB);
+		}
 
 		if (settings.fullScanCron) {
 			this._replaceCron(FULL_SCAN_JOB, settings.fullScanCron, async () => {
@@ -191,7 +222,11 @@ export class SchedulerService implements OnApplicationBootstrap, OnModuleDestroy
 	}
 
 	public onModuleDestroy(): void {
-		for (const name of [REFRESH_JOB, FULL_SCAN_JOB, CLEANUP_JOB, ...this._planJobNames()]) {
+		// Every fixed job by name. A job added above and forgotten here outlives the
+		// module that owns it, which is a timer firing into a container that is gone.
+		const fixed = [REFRESH_JOB, EPISODE_WATCH_JOB, FULL_SCAN_JOB, CLEANUP_JOB];
+
+		for (const name of [...fixed, ...this._planJobNames()]) {
 			this._remove(name);
 		}
 	}

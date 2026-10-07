@@ -1009,7 +1009,13 @@
 			"url_help": "Dieselbe Adresse, unter der Sie es öffnen, samt Port. Overseerr und Jellyseerr werden genauso gelesen.",
 			"key": "API-Schlüssel",
 			"key_help": "In Seerr unter Einstellungen → Allgemein. Er wird einmal gespeichert und nie wieder angezeigt."
-		}
+		},
+		"episode_watch": "Nach neuen Folgen sehen (Stunden)",
+		"episode_watch_help": "Alle N Stunden sucht das Gateway die fehlenden Folgen deiner verfolgten Serien und schlägt sie vor — es lädt nie von selbst. Leeren beendet es.",
+		"episode_watch_now": "Jetzt suchen",
+		"episode_watch_found": "{count} Serie(n) haben einen Vorschlag.",
+		"episode_watch_none": "Im Moment gibt es nichts Neues.",
+		"episode_watch_failed": "Die Suche kam nicht durch."
 	},
 	"sync": {
 		"subtitle": "Stehende Absichten, und was sie tatsächlich getan haben.",

@@ -1009,7 +1009,13 @@
 			"url_help": "Lo stesso indirizzo con cui lo aprite, porta compresa. Overseerr e Jellyseerr si leggono allo stesso modo.",
 			"key": "Chiave API",
 			"key_help": "In Seerr, sotto Parametri → Generale. È salvata una volta e non viene più mostrata."
-		}
+		},
+		"episode_watch": "Sorveglianza nuovi episodi (ore)",
+		"episode_watch_help": "Ogni N ore il gateway cerca gli episodi mancanti delle serie che segui e te li propone: non scarica mai da solo. Svuota il campo per fermarlo.",
+		"episode_watch_now": "Cerca ora",
+		"episode_watch_found": "{count} serie hanno qualcosa da proporti.",
+		"episode_watch_none": "Niente di nuovo da proporre per ora.",
+		"episode_watch_failed": "La ricerca non è andata a buon fine."
 	},
 	"sync": {
 		"subtitle": "Intenzioni permanenti, e ciò che hanno fatto davvero.",

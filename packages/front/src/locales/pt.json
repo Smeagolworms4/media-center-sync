@@ -1009,7 +1009,13 @@
 			"url_help": "O mesmo endereço com que o abre, porta incluída. O Overseerr e o Jellyseerr leem-se da mesma maneira.",
 			"key": "Chave de API",
 			"key_help": "No Seerr, em Parâmetros → Geral. É guardada uma vez e nunca mais mostrada."
-		}
+		},
+		"episode_watch": "Vigilância de novos episódios (horas)",
+		"episode_watch_help": "A cada N horas a gateway procura os episódios em falta das séries que segue e propõe-lhos — nunca transfere sozinha. Esvazie o campo para parar.",
+		"episode_watch_now": "Procurar agora",
+		"episode_watch_found": "{count} série(s) têm algo a propor-lhe.",
+		"episode_watch_none": "Nada de novo para propor de momento.",
+		"episode_watch_failed": "A procura não foi concluída."
 	},
 	"sync": {
 		"subtitle": "As intenções permanentes, e o que fizeram de facto.",

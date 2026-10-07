@@ -93,7 +93,8 @@ describe('SchedulerService', () => {
 		await service.reload();
 		await service.reload();
 
-		expect(cronJobs.size + intervals.size).toBe(3);
+		// The refresh, the episode watch, the full scan and the cleanup — once each.
+		expect(cronJobs.size + intervals.size).toBe(4);
 	});
 
 	it('registers a plan that has a schedule', () => {
@@ -182,8 +183,9 @@ describe('SchedulerService', () => {
 			expect(service.unsubscribedHooks()).toEqual(Object.values(SchedulerHook));
 		});
 
-		it('reports none once all four are claimed', () => {
+		it('reports none once every hook is claimed', () => {
 			service.onRefresh(jest.fn());
+			service.onEpisodeWatch(jest.fn());
 			service.onFullScan(jest.fn());
 			service.onCleanup(jest.fn());
 			service.onPlan(jest.fn());
@@ -193,6 +195,7 @@ describe('SchedulerService', () => {
 
 		it('names exactly the hook that was forgotten', () => {
 			service.onRefresh(jest.fn());
+			service.onEpisodeWatch(jest.fn());
 			service.onFullScan(jest.fn());
 			service.onPlan(jest.fn());
 

@@ -1,6 +1,7 @@
 export * from './auth.manager';
 export * from './classification.manager';
 export * from './directory.manager';
+export * from './episode-watch.manager';
 export * from './filesystem.manager';
 export * from './landing.manager';
 export * from './library.manager';

@@ -44,6 +44,28 @@
 	const sharesStore = useSharesStore();
 	const validators = useValidators();
 	const { notify } = useNotifier();
+
+	/** The forced watch, and whether one is in flight. See `settings.episode_watch_now`. */
+	const watching = ref(false);
+
+	async function watchNow (): Promise<void> {
+		watching.value = true;
+		try {
+			const proposed = await releasesStore.watchNow();
+
+			// What it found, not that it ran: "done" on a button that searched forty shows
+			// and found nothing is the same word as one that found six.
+			// Translated here rather than handed over as a key: the count is part of the
+			// sentence, and `notify` takes a key with nothing to fill into it.
+			void notify(proposed > 0
+				? t('settings.episode_watch_found', { count: proposed })
+				: t('settings.episode_watch_none'));
+		} catch {
+			void notify('settings.episode_watch_failed');
+		} finally {
+			watching.value = false;
+		}
+	}
 	const { parseByteSize, toByteSizeInput } = useByteSize();
 	const { destinations } = useDestinationLibraries();
 
@@ -117,6 +139,7 @@
 		transferHistoryDays: 30,
 		failedHistoryDays: 180,
 		refreshIntervalMinutes: 15,
+		episodeWatchHours: '' as number | '' | null,
 		fullScanCron: '',
 		cacheTtlSeconds: 60,
 		/*
@@ -254,6 +277,10 @@
 			transferHistoryDays: Number(values.transferHistoryDays),
 			failedHistoryDays: Number(values.failedHistoryDays),
 			refreshIntervalMinutes: Number(values.refreshIntervalMinutes),
+			// Emptied means stopped, which is the one thing a number cannot say.
+			episodeWatchHours: values.episodeWatchHours === '' || values.episodeWatchHours === null
+				? null
+				: Number(values.episodeWatchHours),
 			fullScanCron: values.fullScanCron || null,
 			cacheTtlSeconds: Number(values.cacheTtlSeconds),
 		};
@@ -371,6 +398,7 @@
 		model.transferHistoryDays = settings.transferHistoryDays;
 		model.failedHistoryDays = settings.failedHistoryDays;
 		model.refreshIntervalMinutes = settings.refreshIntervalMinutes;
+		model.episodeWatchHours = settings.episodeWatchHours ?? '';
 		model.fullScanCron = settings.fullScanCron ?? '';
 		model.cacheTtlSeconds = settings.cacheTtlSeconds;
 		// Taken from the model rather than from the store, so that a value the
@@ -587,7 +615,13 @@
 		},
 		{
 			key: 'index',
-			fields: ['refreshIntervalMinutes', 'cacheTtlSeconds', 'fullScanCron', 'matchThreshold'],
+			fields: [
+				'refreshIntervalMinutes',
+				'episodeWatchHours',
+				'cacheTtlSeconds',
+				'fullScanCron',
+				'matchThreshold',
+			],
 		},
 		{ key: 'releases', fields: ['indexer', 'downloadClient', 'requestSource'] },
 		/*
@@ -1186,6 +1220,36 @@
 									persistent-hint
 									type="number"
 								/>
+							</v-col>
+
+							<!--
+								Empty stops it, which is a different statement from a long
+								interval and has to stay sayable: a household on a metered
+								connection is entitled to no automatic searching at all.
+							-->
+							<v-col cols="12" sm="6">
+								<v-text-field
+									v-model="model.episodeWatchHours"
+									v-bind="form.field('episodeWatchHours')"
+									clearable
+									data-test="settings-episode-watch"
+									:hint="$t('settings.episode_watch_help')"
+									:label="$t('settings.episode_watch')"
+									persistent-hint
+									type="number"
+								/>
+							</v-col>
+
+							<v-col class="d-flex align-center" cols="12" sm="6">
+								<v-btn
+									data-test="settings-episode-watch-now"
+									:loading="watching"
+									prepend-icon="mdi-magnify-scan"
+									variant="tonal"
+									@click="watchNow"
+								>
+									{{ $t('settings.episode_watch_now') }}
+								</v-btn>
 							</v-col>
 						</v-row>
 

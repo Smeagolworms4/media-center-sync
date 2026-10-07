@@ -50,6 +50,19 @@ export enum NotificationEvent {
 	DISK_FULL = 'disk_full',
 	/** A peer asked to link with us and is waiting on an answer. */
 	PEER_REQUEST = 'peer_request',
+	/**
+	 * An episode of a show the household follows can now be fetched.
+	 *
+	 * The point of following something. A show that is still running puts out an episode
+	 * and nothing here would ever say so: the gap appears in the catalogue when a media
+	 * server happens to index it, and whether a tracker has it is a question somebody has
+	 * to go and ask. The watch asks on a timer and says when the answer changes.
+	 *
+	 * It proposes and never fetches. What to take is a decision about quality, size and
+	 * language that the household makes on the search screen, and a gateway that grabbed
+	 * on its own would be answering it for them.
+	 */
+	EPISODE_AVAILABLE = 'episode_available',
 }
 
 export interface NotificationChannel {

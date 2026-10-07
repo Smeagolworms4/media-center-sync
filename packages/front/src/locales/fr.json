@@ -1009,7 +1009,13 @@
 			"url_help": "La même adresse que celle à laquelle vous l’ouvrez, port compris. Overseerr et Jellyseerr se lisent de la même façon.",
 			"key": "Clé d’API",
 			"key_help": "Dans Seerr, sous Paramètres → Général. Elle est enregistrée une fois et jamais réaffichée."
-		}
+		},
+		"episode_watch": "Veille des nouveaux épisodes (heures)",
+		"episode_watch_help": "Toutes les N heures, la passerelle cherche les épisodes manquants des séries que vous suivez et vous les propose — elle ne récupère jamais toute seule. Videz le champ pour arrêter.",
+		"episode_watch_now": "Chercher maintenant",
+		"episode_watch_found": "{count} série(s) ont quelque chose à vous proposer.",
+		"episode_watch_none": "Rien de nouveau à proposer pour l'instant.",
+		"episode_watch_failed": "La recherche n'a pas abouti."
 	},
 	"sync": {
 		"subtitle": "Les intentions permanentes, et ce qu'elles ont réellement fait.",

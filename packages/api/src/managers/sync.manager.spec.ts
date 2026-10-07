@@ -79,6 +79,7 @@ const SETTINGS: Settings = {
 	transferHistoryDays: 30,
 	failedHistoryDays: 180,
 	refreshIntervalMinutes: 15,
+	episodeWatchHours: 6,
 	fullScanCron: null,
 	cacheTtlSeconds: 60,
 	dismissedLibraryHints: [],
