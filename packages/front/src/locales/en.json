@@ -570,6 +570,10 @@
 				"relay": "Only Plex’s relay reaches this server from here. Plex caps the relay: fine for browsing, very slow for pulling files.",
 				"unreachable": "None of the addresses plex.tv gave for this server answered as this server from here."
 			}
+		},
+		"phase": {
+			"correlating": "Matching the copies",
+			"walking": "Reading the libraries"
 		}
 	},
 	"peer": {

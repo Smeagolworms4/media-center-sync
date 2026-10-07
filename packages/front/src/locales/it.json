@@ -570,6 +570,10 @@
 				"relay": "Da qui solo il relay di Plex raggiunge questo server. Plex limita il relay: va bene per sfogliare, è lentissimo per scaricare file.",
 				"unreachable": "Nessuno degli indirizzi forniti da plex.tv per questo server ha risposto da qui come questo server."
 			}
+		},
+		"phase": {
+			"correlating": "Confronto delle copie",
+			"walking": "Lettura delle librerie"
 		}
 	},
 	"peer": {

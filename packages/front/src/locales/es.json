@@ -570,6 +570,10 @@
 				"relay": "Solo el relé de Plex llega a este servidor desde aquí. Plex limita el relé: vale para explorar, muy lento para traer archivos.",
 				"unreachable": "Ninguna de las direcciones que dio plex.tv para este servidor respondió como este servidor desde aquí."
 			}
+		},
+		"phase": {
+			"correlating": "Emparejando las copias",
+			"walking": "Leyendo las bibliotecas"
 		}
 	},
 	"peer": {

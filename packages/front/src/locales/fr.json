@@ -570,6 +570,10 @@
 				"relay": "Seul le relais de Plex atteint ce serveur depuis ici. Plex bride ce relais : suffisant pour parcourir, très lent pour rapatrier des fichiers.",
 				"unreachable": "Aucune des adresses données par plex.tv pour ce serveur n’a répondu en tant que ce serveur depuis ici."
 			}
+		},
+		"phase": {
+			"correlating": "Rapprochement des copies",
+			"walking": "Lecture des bibliothèques"
 		}
 	},
 	"peer": {

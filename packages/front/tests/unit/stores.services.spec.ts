@@ -3,7 +3,8 @@ import {
 	EventName,
 	MediaServiceMode,
 	MediaServiceStatus,
-	MediaServiceType } from '@mcs/shared';
+	MediaServiceType,
+	ScanPhase } from '@mcs/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useServicesStore } from '@/stores/services';
 import { connectFakeSocket, createStoreContext, emitServerEvent, stubFetch } from './helpers';
@@ -137,12 +138,39 @@ describe('stores/services', () => {
 
 		emitServerEvent(EventName.SCAN_PROGRESS, {
 			serviceId: 'a', libraryId: null, itemsSeen: 10, itemsTotal: 100, done: false,
+			phase: ScanPhase.WALKING,
 		});
 		expect(store.scans.a.itemsSeen).toBe(10);
 
 		emitServerEvent(EventName.SCAN_PROGRESS, {
 			serviceId: 'a', libraryId: null, itemsSeen: 100, itemsTotal: 100, done: true,
+			phase: ScanPhase.WALKING,
 		});
 		expect(store.scans.a).toBeUndefined();
+	});
+
+	it('keeps the phase, so the bar can say which half of the scan it is drawing', async () => {
+		/*
+		 * The walk and the correlation both fill the same bar, one after the other, and
+		 * the second is the longer on a real catalogue. Without the phase the bar fills,
+		 * empties and fills again, and the obvious reading is that the scan restarted.
+		 */
+		stubFetch([{ body: [service({ id: 'a' })] }]);
+		const store = useServicesStore();
+		await store.load();
+		connectFakeSocket(pinia);
+
+		emitServerEvent(EventName.SCAN_PROGRESS, {
+			serviceId: 'a', libraryId: null, itemsSeen: 100, itemsTotal: 100, done: false,
+			phase: ScanPhase.WALKING,
+		});
+		expect(store.scans.a.phase).toBe(ScanPhase.WALKING);
+
+		emitServerEvent(EventName.SCAN_PROGRESS, {
+			serviceId: 'a', libraryId: null, itemsSeen: 200, itemsTotal: 4000, done: false,
+			phase: ScanPhase.CORRELATING,
+		});
+		// The same service, the same bar, a different half — and not a scan that restarted.
+		expect(store.scans.a).toMatchObject({ phase: ScanPhase.CORRELATING, itemsSeen: 200 });
 	});
 });

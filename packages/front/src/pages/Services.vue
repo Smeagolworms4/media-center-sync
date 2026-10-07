@@ -2,6 +2,7 @@
 	import type { MediaService } from '@mcs/shared';
 	import { ConnectionRoute, MediaServiceMode, MediaServiceType } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
+	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
 	import PageHeader from '@/components/common/PageHeader.vue';
@@ -26,6 +27,7 @@
 	 */
 	const servicesStore = useServicesStore();
 	const { notify, tryCallback } = useNotifier();
+	const { t } = useI18n();
 
 	const failed = ref(false);
 	const dialogOpen = ref(false);
@@ -167,6 +169,18 @@
 			return null;
 		}
 		return Math.min(100, (progress.itemsSeen / progress.itemsTotal) * 100);
+	}
+
+	/**
+	 * Which half of the scan the bar is drawing.
+	 *
+	 * Without it the bar fills, empties and fills again, and the obvious reading is that
+	 * the scan restarted. It did not: the libraries are walked first and the copies are
+	 * matched afterwards, and the second is the longer of the two on a real catalogue.
+	 */
+	function scanPhase (serviceId: string): string | null {
+		const progress = servicesStore.scans[serviceId];
+		return progress ? t(`service.phase.${progress.phase}`) : null;
 	}
 </script>
 
@@ -310,15 +324,23 @@
 								{{ $t('service.peer_note') }}
 							</v-list-item-subtitle>
 
-							<v-progress-linear
-								v-if="scanProgress(service.id) !== null"
-								class="mt-1"
-								color="state-syncing"
-								data-test="service-scan-progress"
-								height="4"
-								:model-value="scanProgress(service.id) ?? 0"
-								rounded
-							/>
+							<template v-if="scanProgress(service.id) !== null">
+								<v-list-item-subtitle
+									class="text-caption"
+									data-test="service-scan-phase"
+								>
+									{{ scanPhase(service.id) }}
+								</v-list-item-subtitle>
+
+								<v-progress-linear
+									class="mt-1"
+									color="state-syncing"
+									data-test="service-scan-progress"
+									height="4"
+									:model-value="scanProgress(service.id) ?? 0"
+									rounded
+								/>
+							</template>
 
 							<template #append>
 								<div class="services_actions">
