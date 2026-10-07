@@ -59,6 +59,7 @@ import {
 	PlacementService,
 	releaseBytes,
 	resolveReleasePreference,
+	releaseTitle,
 	searchTerms,
 	SettingsService,
 	toLocalPath,
@@ -2385,9 +2386,14 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		};
 	}
 
-	/** The title release names carry: the show's for anything under one, its own otherwise. */
+	/**
+	 * The title release names carry: the show's for anything under one, its own otherwise.
+	 *
+	 * Stripped of the bracket a media server files it under — see `releaseTitle`. What is
+	 * on the shelf is `Scrubs (2026)`; what is on the trackers is `Scrubs`.
+	 */
 	private async _showTitleOf(item: MediaItemEntity): Promise<string> {
-		return (await this._showOf(item)).title;
+		return releaseTitle((await this._showOf(item)).title);
 	}
 
 	/**

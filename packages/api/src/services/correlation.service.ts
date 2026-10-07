@@ -763,7 +763,35 @@ export class CorrelationService {
 			// thirty-thousand-item catalogue into a quadratic one.
 			const other = otherId === null ? undefined : context.byId.get(otherId);
 
-			if (other === undefined || decidedByHand(match)) {
+			/*
+			 * The row on the other side is gone, so the match joins nothing.
+			 *
+			 * `byId` is the whole catalogue, read at the top of this pass, so absent here
+			 * means absent from the index — a row a stale sweep removed, a library somebody
+			 * deleted, a service unregistered. The match outlived it and nothing was ever
+			 * going to clear it: this loop skipped exactly these rows, because there was no
+			 * candidate to score them against.
+			 *
+			 * What that looks like on a screen: a correlation listed against a media that
+			 * cannot be opened, counted among the copies a media has, and offered as a
+			 * source. Seen on the owner's gateway, where the matches of one show included
+			 * an entry resolving to a 404.
+			 *
+			 * A decision by hand is no protection here. Somebody confirmed a pair of rows,
+			 * and one of the two no longer exists; there is nothing left to respect.
+			 */
+			if (other === undefined) {
+				this._logger.warn(
+					`${item.title}: dropping a match with a media that no longer exists`,
+				);
+
+				await this._matches.delete({ id: match.id });
+				CorrelationService._forget(context.settled, match);
+
+				continue;
+			}
+
+			if (decidedByHand(match)) {
 				continue;
 			}
 

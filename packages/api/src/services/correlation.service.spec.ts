@@ -1135,4 +1135,55 @@ describe('CorrelationService', () => {
 			await expect(correlation.correlate('service-a', THRESHOLD)).resolves.toBe(0);
 		});
 	});
+
+	describe('a match whose other side is gone', () => {
+		it('drops it, because a correlation that joins nothing is not a correlation', async () => {
+			/*
+			 * Seen on the owner's gateway: a show whose list of matches held an entry
+			 * resolving to a 404. The row outlived the media it pointed at — a stale sweep,
+			 * a deleted library, a service unregistered — and nothing was ever going to
+			 * clear it, because the loop that revokes a contradicted pair needs a candidate
+			 * to score and skipped exactly the rows that had none.
+			 */
+			const mine = item({ id: 'item-a' });
+			const { correlation, fakes } = build({
+				items: [mine],
+				matches: [match({ id: 'match-1', localItemId: 'item-a', remoteItemId: 'nobody' })],
+			});
+
+			await correlation.correlate('service-a', THRESHOLD);
+
+			expect(fakes.matches.delete).toHaveBeenCalledWith({ id: 'match-1' });
+		});
+
+		it('drops it even when somebody confirmed it by hand', async () => {
+			// A decision by hand is no protection: somebody confirmed a pair of rows and
+			// one of the two no longer exists, so there is nothing left to respect.
+			const { correlation, fakes } = build({
+				items: [item({ id: 'item-a' })],
+				matches: [match({
+					id: 'match-1',
+					localItemId: 'item-a',
+					remoteItemId: 'nobody',
+					strategy: MatchStrategy.MANUAL,
+					confirmedAt: new Date('2026-01-01T00:00:00.000Z'),
+				})],
+			});
+
+			await correlation.correlate('service-a', THRESHOLD);
+
+			expect(fakes.matches.delete).toHaveBeenCalledWith({ id: 'match-1' });
+		});
+
+		it('keeps a match whose other side is still there', async () => {
+			const { correlation, fakes } = build({
+				items: [item({ id: 'item-a' }), item({ id: 'item-b', serviceId: 'service-b', externalId: 'b-5' })],
+				matches: [match({ id: 'match-1', localItemId: 'item-a', remoteItemId: 'item-b' })],
+			});
+
+			await correlation.correlate('service-a', THRESHOLD);
+
+			expect(fakes.matches.delete).not.toHaveBeenCalled();
+		});
+	});
 });
