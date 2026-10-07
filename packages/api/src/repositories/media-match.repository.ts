@@ -55,7 +55,7 @@ export class MediaMatchRepository extends Repository<MediaMatch> {
 	 *   or a person. Two cuts of one film are then one work in two versions, and one
 	 *   card reading `conflict` says so where two unrelated-looking cards never could.
 	 *   Every other conflict is a disputed identity and stays two. The same bytes filed
-	 *   under two episode numbers — `MediaManager.labelDisagreement` — is written over a
+	 *   under two episode numbers — `CorrelationService.labelDisagreement` — is written over a
 	 *   checksum, and joining it would silently renumber one library after the other;
 	 *   a title or a path that agrees over two different running times is exactly the
 	 *   evidence `MatchingService` refuses to merge a film on, and it proves no more for

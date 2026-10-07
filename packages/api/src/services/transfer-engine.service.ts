@@ -24,6 +24,7 @@ import { Transfer } from '@/entities';
 import { TransferChunkRepository, TransferRepository } from '@/repositories';
 import { planChunks, type ChunkPlan, type PlannedChunk } from './chunk-planner';
 import { EventGatewayService } from './event-gateway.service';
+import { isWorkerThread } from './runtime-role';
 import {
 	FileMoveError,
 	FileMoveOutcome,
@@ -300,6 +301,12 @@ export class TransferEngineService implements OnApplicationBootstrap, OnModuleDe
 	 * nothing more.
 	 */
 	public async onApplicationBootstrap(): Promise<void> {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		const settings = await this._settings.get();
 
 		this._limiter.limit = settings.downloadRateLimit;

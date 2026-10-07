@@ -41,13 +41,14 @@ import {
 	CatalogueCacheService,
 	detectCompanions,
 	DirectoryRegistry,
-	FingerprintService,
-	normalizeTitle,
-	toLocalPath,
 	EventGatewayService,
+	FingerprintService,
 	HandlerRegistry,
+	isWorkerThread,
+	normalizeTitle,
 	QualityService,
 	SettingsService,
+	toLocalPath,
 	type MediaServiceHandler,
 	type NormalisedLibrary,
 	type NormalisedMediaItem,
@@ -199,6 +200,12 @@ export class ServiceManager implements OnApplicationBootstrap {
 	 * library per finished episode would make a season arriving unbearable.
 	 */
 	public onApplicationBootstrap(): void {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		this._landings.onRescan((serviceId) => {
 			this._start(serviceId, false);
 		});

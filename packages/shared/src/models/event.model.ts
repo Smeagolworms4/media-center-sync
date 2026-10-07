@@ -92,6 +92,17 @@ export const EventName = {
 	 * "what you have is stale" and each screen re-reads what it needs.
 	 */
 	CATALOGUE_CHANGED: 'catalogue.changed',
+	/**
+	 * A job somebody started is making progress, under the identifier they were given.
+	 *
+	 * Heavy work runs on a worker thread, and the caller chooses how to hear about it:
+	 * wait for it, or take a run identifier and be told. This is the second half of the
+	 * second shape — without it, a pass measured in minutes would be a request held open
+	 * for minutes, which is its own kind of broken.
+	 */
+	JOB_PROGRESS: 'job.progress',
+	/** A job finished, well or badly, under the identifier its caller was given. */
+	JOB_FINISHED: 'job.finished',
 } as const;
 
 export type EventNameValue = (typeof EventName)[keyof typeof EventName];
@@ -121,6 +132,23 @@ export interface EventPayloads {
 	[EventName.TRANSFER_LANDING]: { transferId: string; landing: MediaLandingState };
 	[EventName.CACHE_STATE]: CacheState;
 	[EventName.CATALOGUE_CHANGED]: { version: string };
+	[EventName.JOB_PROGRESS]: JobProgressEvent;
+	[EventName.JOB_FINISHED]: JobFinishedEvent;
+}
+
+/** Where a running job has got to. The fields beyond these are the job's own. */
+export interface JobProgressEvent {
+	runId: string;
+	kind: string;
+	[key: string]: unknown;
+}
+
+export interface JobFinishedEvent {
+	runId: string;
+	kind: string;
+	output: unknown;
+	/** Null when it went well. A job that failed in silence is the defect, not the failure. */
+	error: string | null;
 }
 
 /**

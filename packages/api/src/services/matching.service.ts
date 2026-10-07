@@ -321,7 +321,7 @@ export class MatchingService {
 	 * carrying each episode's own number produces a disagreement on every episode of a
 	 * series the two servers hold identically — and reading that as "two different
 	 * works" would unpick a show that correlates perfectly today, episode by episode,
-	 * on the very numbering it is matched by. `MediaManager._workKeys` draws the same
+	 * on the very numbering it is matched by. `CorrelationService._workKeys` draws the same
 	 * line for the same reason, and the two have to agree: an index that introduces two
 	 * copies and a veto that then refuses them would be a pass that does nothing but
 	 * churn.

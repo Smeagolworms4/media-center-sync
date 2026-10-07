@@ -25,6 +25,7 @@ import {
 import {
 	EventGatewayService,
 	HandlerRegistry,
+	isWorkerThread,
 	LANDING_GRACE_MS,
 	LANDING_SETTLE_MS,
 	landingSyncState,
@@ -155,6 +156,12 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 	 * container building the graph.
 	 */
 	public onApplicationBootstrap(): void {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		this._engine.onTransferState((transfer) => this.record(transfer));
 	}
 

@@ -59,6 +59,21 @@ describe('EpisodeWatchManager', () => {
 		expect(fakes.scheduler.onEpisodeWatch).toHaveBeenCalled();
 	});
 
+	it('really sweeps when the timer calls, rather than only having registered', async () => {
+		// Subscribing and doing nothing is the same feature as not subscribing, and it is
+		// the half a test that only counts the registration cannot see. So the task the
+		// scheduler was handed is called here, exactly as the tick would call it.
+		const { manager, fakes } = build();
+
+		manager.onModuleInit();
+
+		const task = fakes.scheduler.onEpisodeWatch.mock.calls[0][0] as () => Promise<void>;
+
+		await task();
+
+		expect(fakes.groups.groups).toHaveBeenCalled();
+	});
+
 	it('asks only about shows that are both followed and worth acting on', async () => {
 		// A show with nothing missing is not searched at all: one pass is one search per
 		// show against every tracker, and asking about a complete series is asking

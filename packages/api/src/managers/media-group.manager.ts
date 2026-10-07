@@ -39,6 +39,7 @@ import {
 	breathe,
 	CatalogueCacheService,
 	editionOf,
+	isWorkerThread,
 	mappedLocalPath,
 	QualityService,
 	serviceMode,
@@ -383,6 +384,12 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	 * would be trading a slow first page for no gateway at all.
 	 */
 	public onApplicationBootstrap(): void {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		this._cache.schedule(CacheRefreshReason.BOOT);
 	}
 

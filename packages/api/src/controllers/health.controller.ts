@@ -9,6 +9,7 @@ import { DataSource } from 'typeorm';
 import type { Health, HealthCheck } from '@mcs/shared';
 import type { MediaConfig } from '@/config';
 import { Public } from '@/decorators';
+import { WorkerPoolService } from '@/services';
 
 /**
  * What the container healthcheck and the status screen read.
@@ -27,6 +28,8 @@ export class HealthController {
 		@InjectDataSource()
 		private readonly _dataSource: DataSource,
 		private readonly _config: ConfigService,
+		/** Asked whether heavy passes are delegated. See `_checkWorker`. */
+		private readonly _workers: WorkerPoolService,
 	) {}
 
 	@Get()
@@ -34,7 +37,7 @@ export class HealthController {
 	@ApiOkResponse({ description: 'Gateway status, its version and its dependency checks.' })
 	public async read(@Res({ passthrough: true }) response: Response): Promise<Health> {
 		const database = await this._checkDatabase();
-		const checks = [database, await this._checkMediaRoot()];
+		const checks = [database, await this._checkMediaRoot(), this._checkWorker()];
 		// Only the database decides. An unreadable media root is worth reporting and
 		// worth fixing, but restarting the container over it would take away the one
 		// interface somebody could have used to see what is wrong.
@@ -100,6 +103,25 @@ export class HealthController {
 	 * still worth answering — somebody has to be able to open the interface and see
 	 * what is wrong.
 	 */
+	/**
+	 * Whether the long database work runs beside this gateway or inside it.
+	 *
+	 * Worth a line somebody can read, because the two deployments look identical and
+	 * behave nothing alike. `better-sqlite3` is synchronous: a correlation pass over a
+	 * real catalogue does not slow this process, it stops it — eight seconds on an API
+	 * call, measured on a household's gateway, while a static file from the same proxy
+	 * answered in a tenth of one. A worker thread is what removes that, and an image that
+	 * shipped without one would go straight back to stalling with nothing saying why.
+	 *
+	 * Not a failure. The gateway works either way, and inside a worker the honest answer
+	 * is "no" — a thread must never spawn a thread.
+	 */
+	private _checkWorker(): HealthCheck {
+		return this._workers.available
+			? { name: 'worker', ok: true, detail: 'heavy passes run on a thread of their own' }
+			: { name: 'worker', ok: false, detail: 'heavy passes run on the gateway thread and block it' };
+	}
+
 	private async _checkMediaRoot(): Promise<HealthCheck> {
 		const root = this._config.getOrThrow<MediaConfig>('media').root;
 

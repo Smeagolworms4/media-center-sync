@@ -38,7 +38,27 @@ describe('GET /api/health', () => {
 		const response = await request(context.app.getHttpServer()).get('/api/health');
 		const health = response.body as Health;
 
-		expect(health.checks.map((check) => check.name)).toEqual(['database', 'media-root']);
+		expect(health.checks.map((check) => check.name)).toEqual(['database', 'media-root', 'worker']);
+	});
+
+	it('says whether the heavy work runs beside the gateway or inside it', async () => {
+		/*
+		 * No in this run, and that is the honest answer rather than a gap: this suite runs
+		 * on `:memory:`, a database that belongs to the connection that opened it, so a
+		 * worker would open its own, find an empty schema and correlate nothing.
+		 *
+		 * The line exists for the deployment where the answer is unexpectedly no — an
+		 * image shipped without its worker would otherwise go back to stalling for eight
+		 * seconds at a time with nothing anywhere saying why.
+		 */
+		const response = await request(context.app.getHttpServer()).get('/api/health');
+		const health = response.body as Health;
+		const worker = health.checks.find((check) => check.name === 'worker');
+
+		expect(worker?.ok).toBe(false);
+		expect(worker?.detail).toContain('gateway thread');
+		// And it is not what decides whether this gateway is healthy: it works either way.
+		expect(health.ok).toBe(true);
 	});
 
 	it('is served under the api prefix and nowhere else', async () => {

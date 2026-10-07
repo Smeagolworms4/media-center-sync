@@ -52,12 +52,13 @@ import type { AppConfig } from '@/config';
 import type { PeerCredentialVerifier } from '@/security';
 import {
 	EventGatewayService,
+	isWorkerThread,
+	peerBaseUrl,
 	PeerDialOutcome,
 	PeerIntroductionService,
 	PeerLinkService,
 	PeerReconnectService,
 	SettingsService,
-	peerBaseUrl,
 	type PeerAdmission,
 	type PeerCredential,
 	type PeerLinkAuthority,
@@ -189,6 +190,12 @@ implements PeerCredentialVerifier, PeerLinkAuthority, OnModuleInit, OnApplicatio
 	 * changes nothing about whether this gateway can serve its own library.
 	 */
 	public onApplicationBootstrap(): void {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		void this._resume();
 	}
 

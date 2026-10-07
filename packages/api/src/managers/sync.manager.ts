@@ -68,26 +68,27 @@ import {
 	TransferRepository,
 } from '@/repositories';
 import {
-	EventGatewayService,
-	MetadataService,
-	NamingService,
-	pinnedFolderOf,
-	PlacementService,
-	QualityService,
-	SchedulerService,
-	SettingsService,
-	TransferEngineService,
 	applyCeilings,
 	editionOf,
 	episodeLabel,
+	EventGatewayService,
 	isInside,
+	isWorkerThread,
+	MetadataService,
+	NamingService,
 	needsAcknowledgement,
+	normalizeTitle,
+	pinnedFolderOf,
+	PlacementService,
+	QualityService,
 	refusesRun,
 	sameContent,
-	normalizeTitle,
+	SchedulerService,
 	serviceMode,
+	SettingsService,
 	targetSpace,
 	toLocalPath,
+	TransferEngineService,
 	versionIdOf,
 	type PlacementLibrary,
 	type PlacementPin,
@@ -293,6 +294,12 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	}
 
 	public async onApplicationBootstrap(): Promise<void> {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		const plans = await this._plans.find().catch(() => [] as SyncPlanEntity[]);
 
 		this._scheduler.registerPlans(plans);

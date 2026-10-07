@@ -42,16 +42,17 @@ import {
 	TransferRepository,
 } from '@/repositories';
 import {
+	derivedLocalRoots,
 	EventGatewayService,
 	FileMoveError,
 	FileMoveService,
 	FilesystemService,
+	isInside,
+	isWorkerThread,
 	serviceMode,
 	SettingsService,
 	TransferEngineService,
 	VerificationService,
-	derivedLocalRoots,
-	isInside,
 } from '@/services';
 import { LandingManager } from './landing.manager';
 import { LibraryManager } from './library.manager';
@@ -177,6 +178,12 @@ export class TransferManager implements OnApplicationBootstrap {
 	 * landing manager asks for rescans: see `ServiceRemovalListener`.
 	 */
 	public onApplicationBootstrap(): void {
+		if (isWorkerThread()) {
+			// The gateway owns this. See `isWorkerThread`: a worker that armed it too would
+			// give the household two of everything.
+			return;
+		}
+
 		this._serviceManager.onRemoving(async (serviceId) => {
 			await this.cancelFromService(serviceId);
 		});
