@@ -107,7 +107,7 @@ describe('the jobs worker', () => {
 		expect(correlate).toHaveBeenCalledTimes(2);
 	});
 
-	it('reports where it has got to, without a message per row', async () => {
+	it('relays each position the pass reports, deciding none of them itself', async () => {
 		correlate.mockImplementation(
 			async (_service: string, _threshold: number, onProgress: (done: number, total: number) => void) => {
 				for (let walked = 1; walked <= 400; walked += 1) {
@@ -124,9 +124,14 @@ describe('the jobs worker', () => {
 			(answer) => answer.type === 'progress' && 'done' in answer.payload,
 		);
 
-		// Four hundred rows, two positions: a structured clone per row would be the cost
-		// landing on the thread doing the work.
-		expect(walked).toHaveLength(2);
+		/*
+		 * Every one of them, because how often to speak is the pass's decision and not
+		 * this file's — see `PROGRESS_EVERY` in `CorrelationService`. A second throttle
+		 * here would be two numbers to keep in step, and it was: the in-process path ran
+		 * unthrottled while the worker trimmed its own messages, so the same pass reported
+		 * once per row or once per two hundred depending on where it happened to run.
+		 */
+		expect(walked).toHaveLength(400);
 		expect(walked.at(-1)).toMatchObject({ payload: { done: 400, total: 400 } });
 	});
 

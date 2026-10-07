@@ -31,7 +31,6 @@ import {
 } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-	IsBoolean,
 	IsEnum,
 	IsInt,
 	IsOptional,
@@ -41,7 +40,7 @@ import {
 	Min,
 	ValidateNested,
 } from 'class-validator';
-import { Granted } from '@/decorators';
+import { Granted, IsBooleanQuery } from '@/decorators';
 import { EpisodeWatchManager, ReleaseManager } from '@/managers';
 
 /** What a search asks for. Everything optional but one of `itemId` and `term`. */
@@ -77,8 +76,7 @@ class ReleaseSearchDto {
 
 	@ApiPropertyOptional({ description: 'Ask for the whole season rather than one episode.' })
 	@IsOptional()
-	@Type(() => Boolean)
-	@IsBoolean()
+	@IsBooleanQuery()
 	public seasonPack?: boolean;
 
 	/**

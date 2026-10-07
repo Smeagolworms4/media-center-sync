@@ -27,6 +27,7 @@ import {
 import {
 	CacheService,
 	CorrelationService,
+	type WalkProgress,
 	HandlerRegistry,
 	applyOverride,
 	breathe,
@@ -88,6 +89,15 @@ const ARTWORK_TTL_SECONDS = 3600;
  * would be the gateway spending its memory on somebody else's error.
  */
 const MAX_ARTWORK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * How many rows the twin-finding pass reads per statement. See `_fileIdentities`.
+ *
+ * The same two thousand the correlation uses, for the same reason: large enough that a
+ * catalogue is tens of statements rather than thousands, small enough that one of them
+ * sits between two turns of the event loop instead of owning it.
+ */
+const IDENTITY_PAGE = 2000;
 
 /**
  * What the identifier of a row the gateway invented starts with.
@@ -258,7 +268,7 @@ export class MediaManager {
 		 * a content identifier and decides about a handful of rows, and it was holding the
 		 * whole catalogue with every column to do it.
 		 */
-		const everything = await this._items.findFileIdentities();
+		const everything = await this._fileIdentities();
 		const identified = new Set<number>();
 
 		for (const item of everything) {
@@ -338,6 +348,35 @@ export class MediaManager {
 	}
 
 	/**
+	 * Every row's identity, read a page at a time.
+	 *
+	 * The last whole-table read left on the gateway thread, and it sat in the middle of a
+	 * scan: three columns are cheap per row, but tens of thousands of rows is still one
+	 * statement, and a synchronous driver answers nothing for as long as it lasts. Moving
+	 * the correlation to a worker left this one in place, which is how a scan went from
+	 * stalling for minutes to stalling once, briefly, for no reason anybody could name.
+	 *
+	 * Here rather than on a worker because the rest of this pass is network: it fetches
+	 * three windows from a media server per candidate, and an `await` on a socket already
+	 * leaves this loop free. It is the read that had to be broken up, not the pass.
+	 */
+	private async _fileIdentities(): Promise<MediaItemEntity[]> {
+		const everything: MediaItemEntity[] = [];
+
+		for (let page = 0; ; page += 1) {
+			const rows = await this._items.findFileIdentities(page * IDENTITY_PAGE, IDENTITY_PAGE);
+
+			everything.push(...rows);
+
+			if (rows.length < IDENTITY_PAGE) {
+				return everything;
+			}
+
+			await breathe(0);
+		}
+	}
+
+	/**
 	 * Correlate everything one service holds, on a thread of its own when there is one.
 	 *
 	 * The pass itself moved out — see `CorrelationService`, which is five dependencies and
@@ -359,14 +398,67 @@ export class MediaManager {
 	 * The threshold is read here rather than in there: it is a setting, this side owns the
 	 * settings, and a worker has no cache and no Nest config to read one with.
 	 */
-	public async correlateService(serviceId: string): Promise<number> {
+	/**
+	 * Re-correlate a service after a correction, without making anybody wait for it.
+	 *
+	 * Renumbering one episode changes what it matches, and leaving that until the next
+	 * scan means the screen that made the correction still shows the old state. So it is
+	 * run — but it was run *awaited*, which made correcting one episode a request held
+	 * open for a pass over the whole catalogue. Sixty-five thousand rows on the owner's
+	 * gateway, for a dialog about one of them: "l'édition d'une corrélation est hyper
+	 * lente", and it was, by construction.
+	 *
+	 * The correction itself is already written when this is called, so there is nothing in
+	 * the answer that depends on the pass. This is the second of the two shapes a worker
+	 * offers, and the one it is for: the caller takes a run identifier instead of waiting,
+	 * and the result arrives on the event stream — where the screens are already listening
+	 * for the catalogue to change.
+	 *
+	 * Without a worker it still runs here, and it still blocks, because that is the truth
+	 * about a gateway with no thread to put it on. It is not awaited even then: the dialog
+	 * has no reason to hold the request open for work whose answer it does not use.
+	 */
+	public recorrelate(serviceId: string): void {
+		void this._settings
+			.getValue('matchThreshold')
+			.then(async (threshold) => {
+				if (this._workers.available) {
+					// Handed over and not awaited: `start` answers with the identifier the
+					// result will carry, and pushes it to the stream when the pass is done.
+					this._workers.start(JobKind.CORRELATE, { serviceId, threshold });
+
+					return;
+				}
+
+				await this._correlation.correlate(serviceId, threshold);
+			})
+			.catch((error: unknown) => {
+				// Nobody is waiting for this, which is exactly why it has to be said out
+				// loud: a correction whose re-correlation failed in silence leaves a screen
+				// showing the old state with nothing to explain it.
+				this._logger.error(`Re-correlating ${serviceId} failed: ${String(error)}`);
+			});
+	}
+
+	public async correlateService(serviceId: string, onProgress?: WalkProgress): Promise<number> {
 		const threshold = await this._settings.getValue('matchThreshold');
 
 		if (this._workers.available) {
-			return this._workers.run<number>(JobKind.CORRELATE, { serviceId, threshold });
+			return this._workers.run<number>(
+				JobKind.CORRELATE,
+				{ serviceId, threshold },
+				// The thread's position, handed back to whoever asked for the pass rather
+				// than only pushed to the stream. A scan turns it into the progress bar the
+				// services screen already draws, which is where somebody is watching.
+				(payload) => {
+					if (typeof payload.done === 'number' && typeof payload.total === 'number') {
+						onProgress?.(payload.done, payload.total);
+					}
+				},
+			);
 		}
 
-		return this._correlation.correlate(serviceId, threshold);
+		return this._correlation.correlate(serviceId, threshold, onProgress);
 	}
 
 	public async search(query: MediaSearchQuery): Promise<ResultList<MediaItem>> {
@@ -488,7 +580,7 @@ export class MediaManager {
 		const saved = await this._items.save(item);
 
 		await this.refile(saved);
-		await this.correlateService(saved.serviceId);
+		this.recorrelate(saved.serviceId);
 
 		return toMediaItem(await this._require(id));
 	}

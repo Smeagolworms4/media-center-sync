@@ -133,6 +133,17 @@ interface CorrelationContext {
  */
 export type WalkProgress = (done: number, total: number) => void;
 
+/**
+ * How often a long pass says where it has got to.
+ *
+ * Here rather than at either call site, because both of them had it wrong in opposite
+ * directions: a worker throttling its own messages left the in-process path reporting
+ * once per row, which on a real catalogue is tens of thousands of events pushed to every
+ * open browser to move a bar by a pixel. One cadence, stated once, for whoever is
+ * listening.
+ */
+const PROGRESS_EVERY = 200;
+
 /** A person's decision about a pair, which no later pass is allowed to overturn. */
 const decidedByHand = (match: MediaMatchEntity): boolean =>
 	match.strategy === MatchStrategy.MANUAL || match.confirmedAt !== null;
@@ -295,7 +306,12 @@ export class CorrelationService {
 			written += await this._correlateItem(item, context, touched);
 			walked += 1;
 
-			onProgress?.(walked, mine.length);
+			// The last position always, however small the catalogue: a bar that never
+			// reaches the end is worse than no bar, and a household with forty rows would
+			// otherwise see nothing at all.
+			if (walked % PROGRESS_EVERY === 0 || walked === mine.length) {
+				onProgress?.(walked, mine.length);
+			}
 
 			// Correlation is the longest pass of a scan and it was the one with no yield
 			// in it: the walk handed the loop back and this did not, so a scan stopped

@@ -1105,4 +1105,34 @@ describe('CorrelationService', () => {
 			).toBeNull();
 		});
 	});
+
+	describe('saying where it has got to', () => {
+		it('reports every two hundred rows, and the last one whatever the total', async () => {
+			/*
+			 * The cadence lives here rather than at either call site, and that is the fix:
+			 * the worker throttled its own messages while the in-process path called the
+			 * reporter once per row, so the same pass spoke once per two hundred or tens of
+			 * thousands of times depending on where it happened to run. On a real catalogue
+			 * the second is a structured clone per row, pushed to every open browser, to
+			 * move a bar by a pixel.
+			 */
+			const mine = Array.from({ length: 450 }, (_, at) =>
+				item({ id: `mine-${at}`, externalId: `a-${at}`, episodeNumber: at + 1 }));
+			const { correlation } = build({ items: mine });
+			const seen: number[] = [];
+
+			await correlation.correlate('service-a', THRESHOLD, (done) => {
+				seen.push(done);
+			});
+
+			expect(seen).toEqual([200, 400, 450]);
+		});
+
+		it('says nothing to a caller that asked for nothing', async () => {
+			// The reporter is optional, and a pass nobody is watching must not pay for one.
+			const { correlation } = build({ items: [item()] });
+
+			await expect(correlation.correlate('service-a', THRESHOLD)).resolves.toBe(0);
+		});
+	});
 });

@@ -25,6 +25,7 @@ import {
 	ReleasePreferenceDimension,
 	SyncState,
 } from '@mcs/shared';
+import { IsBooleanQuery } from '@/decorators';
 
 /**
  * Browsing the index.
@@ -191,8 +192,7 @@ export class MediaGroupQueryDto {
 	 */
 	@ApiPropertyOptional()
 	@IsOptional()
-	@Transform(({ value }) => value === true || value === 'true' || value === '1')
-	@IsBoolean()
+	@IsBooleanQuery()
 	public rootsOnly?: boolean;
 
 	/**
@@ -204,8 +204,7 @@ export class MediaGroupQueryDto {
 	 */
 	@ApiPropertyOptional({ description: 'Hide media held locally with no gap beneath them.' })
 	@IsOptional()
-	@Transform(({ value }) => value === true || value === 'true' || value === '1')
-	@IsBoolean()
+	@IsBooleanQuery()
 	public hideOwned?: boolean;
 
 	/**
@@ -248,8 +247,7 @@ export class MediaGroupQueryDto {
 	 */
 	@ApiPropertyOptional({ description: 'Only media a sync plan covers.' })
 	@IsOptional()
-	@Transform(({ value }) => value === true || value === 'true' || value === '1')
-	@IsBoolean()
+	@IsBooleanQuery()
 	public followed?: boolean;
 
 	/**
@@ -261,8 +259,7 @@ export class MediaGroupQueryDto {
 	 */
 	@ApiPropertyOptional({ description: 'Only media a plan covers or the request source holds.' })
 	@IsOptional()
-	@Transform(({ value }) => value === true || value === 'true' || value === '1')
-	@IsBoolean()
+	@IsBooleanQuery()
 	public watched?: boolean;
 
 	/**
@@ -286,8 +283,7 @@ export class MediaGroupQueryDto {
 	/** Only what there is something to do about. Transformed like the two booleans above. */
 	@ApiPropertyOptional({ description: 'Only media with a gap beneath them or something newer elsewhere.' })
 	@IsOptional()
-	@Transform(({ value }) => value === true || value === 'true' || value === '1')
-	@IsBoolean()
+	@IsBooleanQuery()
 	public actionable?: boolean;
 
 	@ApiPropertyOptional()

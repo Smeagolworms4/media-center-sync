@@ -1,3 +1,4 @@
+export * from './boolean-query.decorator';
 export * from './current-user.decorator';
 export * from './granted.decorator';
 export * from './peer-route.decorator';

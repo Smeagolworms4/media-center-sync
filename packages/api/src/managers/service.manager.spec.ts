@@ -1586,7 +1586,9 @@ describe('ServiceManager', () => {
 			expect(fakes.items.rows[0].parentId).toBeNull();
 			// The rest of the pass still ran, which is what tells us the failure was
 			// swallowed where it happens rather than aborting the walk.
-			expect(fakes.media.correlateService).toHaveBeenCalledWith('service-1');
+			// With a reporter: the pass is the longer half of a scan and it used to say
+			// nothing, so the bar reached the end of the libraries and sat there.
+			expect(fakes.media.correlateService).toHaveBeenCalledWith('service-1', expect.any(Function));
 		});
 
 		it('fetches a parent the service never enumerated, once for all its children', async () => {
@@ -2001,7 +2003,7 @@ describe('ServiceManager', () => {
 			await settle(manager);
 
 			expect(fakes.media.correlateService).toHaveBeenCalledTimes(1);
-			expect(fakes.media.correlateService).toHaveBeenCalledWith('service-1');
+			expect(fakes.media.correlateService).toHaveBeenCalledWith('service-1', expect.any(Function));
 		});
 	});
 

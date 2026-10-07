@@ -6,16 +6,18 @@ import {
 	LibraryKind,
 	MediaServiceStatus,
 	MediaServiceType,
+	ScanPhase,
 	normaliseRootPath,
 	type CreateMediaServiceRequest,
-	type MediaCompanions,
 	type Library,
+	type MediaCompanions,
 	type MediaService,
 	type MediaServiceProbe,
 	type RootMapping,
+	type ScanPhaseValue,
 	type ServerStructure,
-	type Settings,
 	type ServerStructureRequest,
+	type Settings,
 	type UpdateMediaServiceRequest,
 } from '@mcs/shared';
 import {
@@ -850,10 +852,19 @@ export class ServiceManager implements OnApplicationBootstrap {
 		 */
 		await this._media.identifyTwins(service.id);
 
-		// Correlation belongs to the media manager: it owns the index and the match
-		// rows, and the decision about what two rows are the same media is the same
-		// decision whether a scan or a person triggered it.
-		await this._media.correlateService(service.id);
+		/*
+		 * Correlation belongs to the media manager: it owns the index and the match rows,
+		 * and the decision about what two rows are the same media is the same decision
+		 * whether a scan or a person triggered it.
+		 *
+		 * Reported on the same bar as the walk, under its own phase. It is the longer half
+		 * on a real catalogue and it used to say nothing: the bar reached the end of the
+		 * libraries and sat there looking finished for as long again, which is how a scan
+		 * that was working read as a scan that had hung.
+		 */
+		await this._media.correlateService(service.id, (walked, total) => {
+			this._progress(service.id, null, walked, false, total, ScanPhase.CORRELATING);
+		});
 
 		/*
 		 * Scheduled, never awaited. The pass is over as far as anybody watching it is
@@ -1533,6 +1544,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 		itemsSeen: number,
 		done: boolean,
 		itemsTotal: number | null = null,
+		phase: ScanPhaseValue = ScanPhase.WALKING,
 	): void {
 		this._events.emit(EventName.SCAN_PROGRESS, {
 			serviceId,
@@ -1540,6 +1552,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 			itemsSeen,
 			itemsTotal: itemsTotal !== null && itemsTotal > 0 ? itemsTotal : null,
 			done,
+			phase,
 		});
 	}
 

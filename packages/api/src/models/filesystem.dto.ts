@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBooleanQuery } from '@/decorators';
 
 /** What a directory browse may ask for. Read-only: there is nothing else to send. */
 export class BrowseDirectoriesDto {
@@ -28,7 +28,6 @@ export class BrowseDirectoriesDto {
 	 */
 	@ApiPropertyOptional({ description: 'Include dot directories, hidden by default.' })
 	@IsOptional()
-	@Transform(({ value }) => value === true || value === 'true' || value === '1')
-	@IsBoolean()
+	@IsBooleanQuery()
 	public includeHidden?: boolean;
 }

@@ -107,12 +107,29 @@ export const EventName = {
 
 export type EventNameValue = (typeof EventName)[keyof typeof EventName];
 
+/**
+ * Which part of a scan the numbers below are about.
+ *
+ * Walking is the libraries; correlating is the pass that decides which rows across every
+ * server are the same media. The second is the longer of the two on a real catalogue and
+ * it reported nothing at all — the bar reached the end of the walk and then sat there,
+ * finished-looking, for as long again. A phase is cheaper than two sets of fields and it
+ * lets the screen say which half it is drawing.
+ */
+export const ScanPhase = {
+	WALKING: 'walking',
+	CORRELATING: 'correlating',
+} as const;
+
+export type ScanPhaseValue = (typeof ScanPhase)[keyof typeof ScanPhase];
+
 export interface ScanProgress {
 	serviceId: string;
 	libraryId: string | null;
 	itemsSeen: number;
 	itemsTotal: number | null;
 	done: boolean;
+	phase: ScanPhaseValue;
 }
 
 export interface EventPayloads {

@@ -153,11 +153,23 @@ interface Fakes {
 	 * for one, and what a correlation does is its own suite. See `CorrelationService`.
 	 */
 	correlation: { correlate: jest.Mock };
-	workers: { available: boolean; run: jest.Mock };
+	workers: { available: boolean; run: jest.Mock; start: jest.Mock };
 	remoteFingerprint: jest.Mock;
 	cache: { get: jest.Mock; set: jest.Mock };
 	openArtwork: jest.Mock;
 }
+
+/**
+ * Let what was started rather than awaited actually start.
+ *
+ * A correction answers before its re-correlation has run — that is the point of it — so
+ * a test about the pass has to give the loop the turns the detour takes: reading the
+ * threshold is itself a promise. A fixed number of `Promise.resolve()` calls is the same
+ * wait spelled as a flake.
+ */
+const settled = (): Promise<void> => new Promise((resolve) => {
+	setImmediate(resolve);
+});
 
 const build = (
 	world: { items?: MediaItem[]; matches?: MediaMatch[] } = {},
@@ -295,7 +307,7 @@ const build = (
 		 * pin the delegation without ever proving the thread can run the pass. The journey
 		 * that proves that is in `test/worker.spec.ts`.
 		 */
-		workers: { available: false, run: jest.fn() },
+		workers: { available: false, run: jest.fn(), start: jest.fn() },
 		/*
 		 * One library whose mapping is the identity, so a path a service reports is a
 		 * path the gateway can name. Erasing is the only thing here that needs it, and
@@ -473,11 +485,52 @@ describe('MediaManager', () => {
 			const { manager, fakes } = build({ items: [item()] });
 
 			await manager.setOverride('item-a', { seasonNumber: 2 });
+			await settled();
 
 			// The service the corrected row belongs to, with the threshold this side read:
 			// a correlation asked for without one would score every pair against a default
-			// nobody chose.
+			// nobody chose. No reporter: nobody is watching a pass nobody waited for.
 			expect(fakes.correlation.correlate).toHaveBeenCalledWith('service-a', 0.8);
+		});
+
+		it('answers the correction without waiting for the catalogue to be re-correlated', async () => {
+			/*
+			 * The pass is over sixty-five thousand rows on the owner's gateway, and the
+			 * dialog was holding its request open for every one of them: "l'édition d'une
+			 * corrélation est hyper lente". The correction itself is already written when
+			 * the pass starts, so there is nothing in this answer that depends on it.
+			 */
+			const { manager, fakes } = build({ items: [item()] });
+			let settled = false;
+
+			fakes.correlation.correlate.mockImplementation(
+				async () => new Promise(() => {
+					// Never. A pass that does not finish must not stop this answering.
+				}),
+			);
+
+			await manager.setOverride('item-a', { seasonNumber: 2 }).then(() => {
+				settled = true;
+			});
+
+			expect(settled).toBe(true);
+		});
+
+		it('hands the re-correlation to a thread as a job nobody is waiting for', async () => {
+			// The second of the two shapes, and what it is for: the caller takes a run
+			// identifier and the result arrives on the stream the screens already read.
+			const { manager, fakes } = build({ items: [item()] });
+
+			fakes.workers.available = true;
+
+			await manager.setOverride('item-a', { seasonNumber: 2 });
+			await settled();
+
+			expect(fakes.workers.start).toHaveBeenCalledWith(JobKind.CORRELATE, {
+				serviceId: 'service-a',
+				threshold: 0.8,
+			});
+			expect(fakes.workers.run).not.toHaveBeenCalled();
 		});
 
 		it('puts the service’s answer back when the correction is withdrawn', async () => {
@@ -1533,10 +1586,12 @@ describe('MediaManager', () => {
 
 			await expect(manager.correlateService('service-a')).resolves.toBe(7);
 
-			expect(fakes.workers.run).toHaveBeenCalledWith(JobKind.CORRELATE, {
-				serviceId: 'service-a',
-				threshold: 0.8,
-			});
+			expect(fakes.workers.run).toHaveBeenCalledWith(
+				JobKind.CORRELATE,
+				{ serviceId: 'service-a', threshold: 0.8 },
+				// The reporter the pass's position comes back through, so a scan can draw it.
+				expect.any(Function),
+			);
 			// Not both. A pass that ran on the thread and here again would write every row
 			// twice and cost the stall this exists to remove.
 			expect(fakes.correlation.correlate).not.toHaveBeenCalled();
@@ -1551,7 +1606,7 @@ describe('MediaManager', () => {
 
 			await expect(manager.correlateService('service-a')).resolves.toBe(3);
 
-			expect(fakes.correlation.correlate).toHaveBeenCalledWith('service-a', 0.8);
+			expect(fakes.correlation.correlate).toHaveBeenCalledWith('service-a', 0.8, undefined);
 			expect(fakes.workers.run).not.toHaveBeenCalled();
 		});
 

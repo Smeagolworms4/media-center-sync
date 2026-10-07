@@ -23,15 +23,6 @@ import { MatchingService } from '@/services/matching.service';
 import { QualityService } from '@/services/quality.service';
 import { JobKind, type JobAnswer, type JobRequest } from './protocol';
 
-/**
- * How often a long pass says where it has got to.
- *
- * Every two hundred items rather than every item: a message per row would be tens of
- * thousands of structured clones to draw a bar that moves by a pixel, and the cost would
- * land on the thread doing the work.
- */
-const PROGRESS_EVERY = 200;
-
 const say = (answer: JobAnswer): void => {
 	parentPort?.postMessage(answer);
 };
@@ -98,13 +89,10 @@ const correlate = async (id: string, input: Record<string, unknown>): Promise<un
 
 	const { correlation } = await connection;
 
+	// Relayed as it comes: the pass decides how often to speak — see `PROGRESS_EVERY`
+	// there — and a second throttle here would be two numbers to keep in step.
 	return correlation.correlate(serviceId, threshold, (done, total) => {
-		// The last position always, however small the catalogue: a bar that never reaches
-		// the end is worse than no bar, and a household with forty rows would otherwise
-		// see nothing at all.
-		if (done % PROGRESS_EVERY === 0 || done === total) {
-			say({ type: 'progress', id, kind: JobKind.CORRELATE, payload: { done, total } });
-		}
+		say({ type: 'progress', id, kind: JobKind.CORRELATE, payload: { done, total } });
 	});
 };
 

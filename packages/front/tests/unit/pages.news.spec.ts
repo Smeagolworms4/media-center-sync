@@ -1,4 +1,4 @@
-import { LibraryKind, MediaKind, SyncState } from '@mcs/shared';
+import { LibraryKind, MediaKind, ScanPhase, type ScanProgress, SyncState } from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 import NewReleases from '@/pages/NewReleases.vue';
@@ -82,7 +82,7 @@ const CATEGORIES = [
 /** The wall, with each category answering whatever `byCategory` says it holds. */
 async function open (
 	everything: Record<string, unknown>[],
-	scans: { serviceId: string; libraryId: string | null; itemsSeen: number; itemsTotal: number | null; done: boolean }[] = [],
+	scans: ScanProgress[] = [],
 ) {
 	const stub = stubFetchRoutes({
 		'/api/libraries/categories': { body: CATEGORIES },
@@ -176,7 +176,7 @@ describe('pages/NewReleases', () => {
 		 * finished and concludes the feature does not work — which is what happened.
 		 */
 		const { wrapper } = await open([], [
-			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: null, done: false },
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: null, done: false, phase: ScanPhase.WALKING },
 		]);
 
 		expect(wrapper.find('[data-test="news-scanning"]').exists()).toBe(true);
@@ -188,7 +188,7 @@ describe('pages/NewReleases', () => {
 		// is nearly done". The gateway reports the previous scan's count as the estimate,
 		// since counting first would mean reading the library twice.
 		const { wrapper } = await open([], [
-			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false },
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false, phase: ScanPhase.WALKING },
 		]);
 		const bar = wrapper.find('[data-test="news-scanning-progress"]');
 
@@ -203,8 +203,8 @@ describe('pages/NewReleases', () => {
 		 * a total that does not include them.
 		 */
 		const { wrapper } = await open([], [
-			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false },
-			{ serviceId: 'sv2', libraryId: null, itemsSeen: 900, itemsTotal: null, done: false },
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 300, itemsTotal: 1200, done: false, phase: ScanPhase.WALKING },
+			{ serviceId: 'sv2', libraryId: null, itemsSeen: 900, itemsTotal: null, done: false, phase: ScanPhase.WALKING },
 		]);
 
 		expect(wrapper.find('[data-test="news-scanning-progress"]').attributes('aria-valuenow'))
@@ -213,7 +213,7 @@ describe('pages/NewReleases', () => {
 
 	it('goes back to saying nothing is new once the scan is over', async () => {
 		const { wrapper } = await open([], [
-			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: 120, done: true },
+			{ serviceId: 'sv1', libraryId: null, itemsSeen: 120, itemsTotal: 120, done: true, phase: ScanPhase.WALKING },
 		]);
 
 		expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(true);

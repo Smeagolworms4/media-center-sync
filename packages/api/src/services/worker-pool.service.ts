@@ -67,7 +67,12 @@ export class WorkerPoolService implements OnModuleDestroy {
 
 	private readonly _waiting = new Map<
 		string,
-		{ resolve: (output: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
+		{
+			resolve: (output: unknown) => void;
+			reject: (error: Error) => void;
+			timer: NodeJS.Timeout;
+			onProgress?: (payload: Record<string, unknown>) => void;
+		}
 	>();
 
 
@@ -78,11 +83,20 @@ export class WorkerPoolService implements OnModuleDestroy {
 		private readonly _dataSource: DataSource,
 	) {}
 
-	/** Run a job and wait for its answer. The event loop stays free throughout. */
-	public run<T>(kind: JobKindValue, input: Record<string, unknown>): Promise<T> {
-		const { id, answer } = this._send(kind, input);
-
-		void id;
+	/**
+	 * Run a job and wait for its answer. The event loop stays free throughout.
+	 *
+	 * `onProgress` is for the caller that is waiting and has somewhere better to put the
+	 * position than the generic stream — a scan draws it on the bar the services screen
+	 * already has. It is handed the worker's payload as it came, because what a job
+	 * reports is the job's business and this class decides none of it.
+	 */
+	public run<T>(
+		kind: JobKindValue,
+		input: Record<string, unknown>,
+		onProgress?: (payload: Record<string, unknown>) => void,
+	): Promise<T> {
+		const { answer } = this._send(kind, input, onProgress);
 
 		return answer as Promise<T>;
 	}
@@ -205,6 +219,7 @@ export class WorkerPoolService implements OnModuleDestroy {
 	private _send(
 		kind: JobKindValue,
 		input: Record<string, unknown>,
+		onProgress?: (payload: Record<string, unknown>) => void,
 	): { id: string; answer: Promise<unknown> } {
 		const id = randomUUID();
 		const worker = this._start();
@@ -217,7 +232,7 @@ export class WorkerPoolService implements OnModuleDestroy {
 
 			// So a gateway with nothing else to do can still exit.
 			timer.unref?.();
-			this._waiting.set(id, { resolve, reject, timer });
+			this._waiting.set(id, { resolve, reject, timer, onProgress });
 
 			const request: JobRequest = { id, kind, input };
 
@@ -289,6 +304,11 @@ export class WorkerPoolService implements OnModuleDestroy {
 			 * its allowance queued behind another.
 			 */
 			this._reprieve(answer.id);
+			// To whoever is waiting for this job, when they asked, and to the stream for
+			// whoever is not. Both, because the two shapes have different audiences: a scan
+			// puts it on its own bar, and a job started with `start` has nobody holding a
+			// request open to hand it to.
+			this._waiting.get(answer.id)?.onProgress?.(answer.payload);
 			this._events.emit(EventName.JOB_PROGRESS, {
 				runId: answer.id,
 				kind: answer.kind,

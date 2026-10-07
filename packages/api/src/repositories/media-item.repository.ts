@@ -708,8 +708,15 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	 * saved back is a row with its other columns blanked, which is the one way this could
 	 * do damage.
 	 */
-	public findFileIdentities(): Promise<MediaItem[]> {
-		return this.find({ select: ['id', 'serviceId', 'file'] });
+	public findFileIdentities(skip = 0, take = 0): Promise<MediaItem[]> {
+		return this.find({
+			// Paged for the same reason `findForCorrelation` is, and it was the one read in
+			// a scan still doing it in a single statement: three columns are cheap per row
+			// and tens of thousands of rows is still one uninterruptible call, during which
+			// a synchronous driver answers nothing at all.
+			...(take > 0 ? { skip, take, order: { id: 'ASC' as const } } : {}),
+			select: ['id', 'serviceId', 'file'],
+		});
 	}
 
 	public findForCorrelation(skip = 0, take = 0): Promise<MediaItem[]> {
