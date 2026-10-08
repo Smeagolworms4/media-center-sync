@@ -292,6 +292,7 @@
 		"no_children_title": "此项目下没有内容",
 		"no_children_text": "索引中此项目没有季、集或成员。",
 		"season_episode": "S{season}E{episode}",
+		"season_episode_range": "S{season}E{episode}-E{last}",
 		"held_by": "拥有者：{services}",
 		"fetchable": {
 			"copy": "你能连上的服务器或好友持有其中一集缺失的剧集。",

@@ -292,6 +292,7 @@
 		"no_children_title": "Nichts unterhalb dieses Elements",
 		"no_children_text": "Dieses Element hat weder Staffel noch Episode noch Mitglied im Index.",
 		"season_episode": "S{season}E{episode}",
+		"season_episode_range": "S{season}E{episode}-E{last}",
 		"held_by": "vorhanden auf {services}",
 		"fetchable": {
 			"copy": "Ein erreichbarer Server oder ein Freund hat eine der fehlenden Episoden.",

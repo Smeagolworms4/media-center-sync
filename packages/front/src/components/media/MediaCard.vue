@@ -8,6 +8,7 @@
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SourceMarks from '@/components/media/SourceMarks.vue';
 	import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
+	import { useEpisodeLabel } from '@/composables/useEpisodeLabel';
 	import { OPEN_OVERRIDE } from '@/composables/useMediaOverride';
 
 	/**
@@ -56,6 +57,8 @@
 	 */
 	const openOverride = inject(OPEN_OVERRIDE, null);
 
+	const { episodeLabel } = useEpisodeLabel();
+
 	const to = computed(() => ({ name: 'library-item', params: { itemId: props.group.id } }));
 	const missing = computed(() => props.group.sync === SyncState.MISSING);
 	const subtitle = computed(() => {
@@ -63,8 +66,12 @@
 		if (props.group.year !== null) {
 			parts.push(String(props.group.year));
 		}
-		if (props.group.seasonNumber !== null && props.group.episodeNumber !== null) {
-			parts.push(`S${props.group.seasonNumber}E${props.group.episodeNumber}`);
+		// Through the shared label, which is what writes `S1E1-E2` for a file holding
+		// two episodes. Built by hand here, it wrote the first number and silently
+		// dropped the second.
+		const episode = episodeLabel(props.group);
+		if (episode !== null) {
+			parts.push(episode);
 		}
 		return parts.join(' · ');
 	});

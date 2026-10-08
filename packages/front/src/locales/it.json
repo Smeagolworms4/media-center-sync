@@ -292,6 +292,7 @@
 		"no_children_title": "Niente sotto questo elemento",
 		"no_children_text": "Questo elemento non ha stagioni, episodi o membri nell'indice.",
 		"season_episode": "S{season}E{episode}",
+		"season_episode_range": "S{season}E{episode}-E{last}",
 		"held_by": "detenuto da {services}",
 		"fetchable": {
 			"copy": "Un server o un amico raggiungibile ha uno degli episodi che mancano.",

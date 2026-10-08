@@ -1046,6 +1046,40 @@ describe('ReleaseManager', () => {
 				expect(trackerGroups(found)[0].brings).toEqual([{ seasonNumber: 2, episodeNumber: null }]);
 			});
 
+			/**
+			 * The owner's Monk, Beetlejuice and Eureka, from the other side.
+			 *
+			 * One file named `S01E01-E02` is one row and two episodes, so there is no row
+			 * for the second — which is precisely why it reads as something no server here
+			 * has ever reported. The gap detection was taught to expand the range; this is
+			 * the same trap one layer along, and the symptom is the same sentence on the
+			 * screen: an episode offered as news while it plays off the disk.
+			 */
+			it('says nothing new about the second half of a two-part file we hold', async () => {
+				const { manager, fakes } = build();
+
+				fakes.groups.groupChildren.mockImplementation((id: string) =>
+					Promise.resolve(id === 'season-1'
+						? {
+							items: [{ ...episodeGroup(1, SyncState.IN_SYNC), episodeNumberEnd: 2 }],
+							total: 0,
+						}
+						: { items: CHILDREN[id] ?? [], total: 0 }));
+				fakes.indexer.search.mockResolvedValue([
+					release({
+						title: 'Spartacus.S01E02.1080p-GRP',
+						episodeNumber: 2,
+						coverage: { seasonNumber: 1, episodeNumbers: [2], wholeSeason: false, wholeSeries: false },
+					}),
+				]);
+
+				const found = await manager.search({ itemId: 'series-1' });
+
+				expect(trackerGroups(found)[0].brings).toEqual([]);
+				// And no gap either, for the same reason: both halves are on the disk.
+				expect(found.missing).toEqual([]);
+			});
+
 			it('says nothing new about a pack of a season we already know', async () => {
 				const { manager, fakes } = build();
 

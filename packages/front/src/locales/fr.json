@@ -292,6 +292,7 @@
 		"no_children_title": "Rien sous cet élément",
 		"no_children_text": "Cet élément n'a ni saison, ni épisode, ni membre dans l'index.",
 		"season_episode": "S{season}E{episode}",
+		"season_episode_range": "S{season}E{episode}-E{last}",
 		"held_by": "détenu par {services}",
 		"fetchable": {
 			"copy": "Un serveur ou un ami accessible a l’un des épisodes manquants.",

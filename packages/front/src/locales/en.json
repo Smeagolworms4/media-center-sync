@@ -292,6 +292,7 @@
 		"no_children_title": "Nothing below this item",
 		"no_children_text": "This item has no season, episode or member in the index.",
 		"season_episode": "S{season}E{episode}",
+		"season_episode_range": "S{season}E{episode}-E{last}",
 		"held_by": "held by {services}",
 		"fetchable": {
 			"copy": "A server or a friend you can reach holds one of the missing episodes.",

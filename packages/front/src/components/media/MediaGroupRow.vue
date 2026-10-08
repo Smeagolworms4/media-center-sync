@@ -6,6 +6,7 @@
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SourceMarks from '@/components/media/SourceMarks.vue';
 	import SyncStateIcon from '@/components/media/SyncStateIcon.vue';
+	import { useEpisodeLabel } from '@/composables/useEpisodeLabel';
 	import { OPEN_OVERRIDE } from '@/composables/useMediaOverride';
 
 	/**
@@ -40,6 +41,8 @@
 	 * row one place against a `thead` that knows nothing about it.
 	 */
 	const openOverride = inject(OPEN_OVERRIDE, null);
+
+	const { episodeLabel } = useEpisodeLabel();
 
 	const missing = computed(() => props.group.sync === SyncState.MISSING);
 	const bytes = computed(() => props.group.quality?.totalBytes ?? null);
@@ -95,11 +98,17 @@
 
 			<router-link class="media-row_link" :to="to">{{ group.title }}</router-link>
 
-			<span v-if="group.seasonNumber !== null" class="text-caption text-medium-emphasis ml-2">
-				{{ $t('media.season_episode', {
-					season: group.seasonNumber,
-					episode: group.episodeNumber ?? 0,
-				}) }}
+			<!--
+				`S1E1`, or `S1E1-E2` for one file holding two episodes. A season has no
+				episode number, so the label answers null and the element is not drawn —
+				where this used to write `S1E0`.
+			-->
+			<span
+				v-if="episodeLabel(group) !== null"
+				class="text-caption text-medium-emphasis ml-2"
+				data-test="media-row-episode"
+			>
+				{{ episodeLabel(group) }}
 			</span>
 
 			<span v-if="group.missingCount > 0" class="media-row_missing text-caption ml-2">

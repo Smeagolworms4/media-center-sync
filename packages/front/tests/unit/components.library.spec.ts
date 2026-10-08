@@ -18,6 +18,7 @@ import FetchableMarks from '@/components/media/FetchableMarks.vue';
 import LibrarySection from '@/components/media/LibrarySection.vue';
 import MediaBreadcrumb from '@/components/media/MediaBreadcrumb.vue';
 import MediaCard from '@/components/media/MediaCard.vue';
+import MediaGroupRow from '@/components/media/MediaGroupRow.vue';
 import MediaPoster from '@/components/media/MediaPoster.vue';
 import SourceMarks from '@/components/media/SourceMarks.vue';
 import SyncStateBadge from '@/components/media/SyncStateBadge.vue';
@@ -205,6 +206,48 @@ describe('components/media/SyncStateBadge', () => {
  * wall of followed shows was a wall of identical disappointments with two obtainable
  * ones hidden among them.
  */
+/**
+ * `S1E1`, and `S1E1-E2` for the one file that holds two episodes.
+ *
+ * The second form is the whole reason the label is written once rather than per
+ * component: a screen that wrote only the first number said the household had episode
+ * one and said nothing at all about episode two, which is how four shows in this library
+ * read as having a hole in them.
+ */
+describe('composables/useEpisodeLabel', () => {
+	const row = (overrides: Partial<MediaGroup>) =>
+		mountWithApp(MediaGroupRow, {
+			props: { group: { ...group(), kind: MediaKind.EPISODE, ...overrides } },
+			global: { stubs: tooltipStub },
+		}).wrapper;
+
+	it('writes one episode as one coordinate', () => {
+		const wrapper = row({ seasonNumber: 1, episodeNumber: 1, episodeNumberEnd: null });
+
+		expect(wrapper.find('[data-test="media-row-episode"]').text()).toBe('S1E1');
+	});
+
+	it('writes both halves of a file that holds two episodes', () => {
+		const wrapper = row({ seasonNumber: 1, episodeNumber: 1, episodeNumberEnd: 2 });
+
+		expect(wrapper.find('[data-test="media-row-episode"]').text()).toBe('S1E1-E2');
+	});
+
+	it('writes the one number when the range says nothing more', () => {
+		// An end at or below the start is a parse that went wrong upstream, and `S1E4-E2`
+		// would put the mistake on screen instead of the part that is certainly true.
+		const wrapper = row({ seasonNumber: 1, episodeNumber: 4, episodeNumberEnd: 2 });
+
+		expect(wrapper.find('[data-test="media-row-episode"]').text()).toBe('S1E4');
+	});
+
+	it('writes nothing at all for a season, rather than S1E0', () => {
+		const wrapper = row({ kind: MediaKind.SEASON, seasonNumber: 1, episodeNumber: null });
+
+		expect(wrapper.find('[data-test="media-row-episode"]').exists()).toBe(false);
+	});
+});
+
 describe('components/media/FetchableMarks', () => {
 	const mark = (fetchable: NewsSignal[]) =>
 		mountWithApp(FetchableMarks, { props: { fetchable }, global: { stubs: tooltipStub } }).wrapper;

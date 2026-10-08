@@ -62,6 +62,7 @@ import {
 	releaseTitle,
 	searchTerms,
 	SettingsService,
+	spanOf,
 	toLocalPath,
 	type IndexerQuery,
 	type NameableItem,
@@ -678,7 +679,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		if (group.kind === MediaKind.MOVIE || group.kind === MediaKind.EPISODE) {
 			const ref = refOf(group);
 
-			known.add(keyOf(ref));
+			remember(known, group);
 
 			if (group.sync === SyncState.MISSING) {
 				holdings.push({ ref, sources: group.sources });
@@ -701,7 +702,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 
 			const ref = refOf(one);
 
-			known.add(keyOf(ref));
+			remember(known, one);
 
 			if (one.sync === SyncState.MISSING) {
 				missing.push(ref);
@@ -2577,6 +2578,36 @@ const newIn = (group: ReleaseGroup, known: Set<string>): { seasonNumber: number 
 
 /** A media's coordinate, which is what a plan and a partial grab are keyed on. */
 const keyOf = (one: EpisodeRef): string => `${one.seasonNumber ?? ''}:${one.episodeNumber ?? ''}`;
+
+/**
+ * Write down every coordinate one row accounts for, range and all.
+ *
+ * One file is usually one episode. It exists for the case where it is not: `S01E01-E02`
+ * is one row carrying two, and there is no row at all for the second — so without the
+ * expansion the search reports it as an episode no server here has ever heard of, and
+ * the household is invited to download an episode playing off its own disk. The owner's
+ * Monk, Beetlejuice and Eureka are all this shape.
+ *
+ * The same `spanOf` the gap detection and the season's missing count read, which is the
+ * point of its existing at all: three readers of one range that must not disagree about
+ * what is held.
+ *
+ * It widens `known` and never `missing`, and that is safe only because the group answers
+ * its range off a copy *we hold* — see where `episodeNumberEnd` is assembled. A remote
+ * server's two-part file therefore still announces its second half as news, which is
+ * correct: nobody here has it.
+ */
+const remember = (known: Set<string>, group: MediaGroup): void => {
+	for (const episodeNumber of spanOf(group)) {
+		known.add(keyOf({ itemId: group.id, seasonNumber: group.seasonNumber, episodeNumber, title: group.title }));
+	}
+
+	// A film and a season carry no episode number, so the span is empty and the
+	// coordinate is still theirs to claim.
+	if (group.episodeNumber === null) {
+		known.add(keyOf(refOf(group)));
+	}
+};
 
 const refOf = (group: { id: string; seasonNumber: number | null; episodeNumber: number | null; title: string }): EpisodeRef => ({
 	itemId: group.id,

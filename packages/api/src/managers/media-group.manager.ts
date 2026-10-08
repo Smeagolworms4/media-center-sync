@@ -1526,6 +1526,24 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 				this._preferring(ranked, 'episodeNumber'),
 				(item) => item.episodeNumber,
 			),
+			/*
+			 * Read off a copy *we hold*, never off the widest claim among them.
+			 *
+			 * Every reader expands this range and treats what is inside it as held, so a
+			 * remote row claiming `E01-E04` would silence three real gaps on the strength
+			 * of somebody else's file name. Ours is the only copy whose range says
+			 * anything about what is on this disk — which is the same rule `_rangesUnder`
+			 * applies one level down, for the same reason.
+			 *
+			 * The flag is derived from the row rather than read off a digest because this
+			 * is the one path that works from the full entities; the digest's `hasFile` is
+			 * the same test written in SQL so the projection can skip the column.
+			 */
+			episodeNumberEnd: this._first(
+				ranked.filter((item) =>
+					this._holds({ ...item, hasFile: item.file !== null }, context)),
+				(item) => item.episodeNumberEnd,
+			),
 			externalIds: this._externalIds(ranked),
 			overview: this._first(this._preferring(ranked, 'overview'), (item) => item.overview),
 			// The local copy's poster when there is one: artwork is fetched through the

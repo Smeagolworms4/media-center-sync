@@ -438,6 +438,19 @@ export interface MediaGroup {
 	year: number | null;
 	seasonNumber: number | null;
 	episodeNumber: number | null;
+	/**
+	 * The last episode of a file that holds several, and null when it holds one.
+	 *
+	 * Carried on the group because a reader asking "do we have episode four" has to
+	 * expand the range, and several of them do: the gap count on a season, and the
+	 * release search deciding whether a line brings anything new. The owner’s Monk,
+	 * Beetlejuice and Eureka are all one file per two episodes, and a question asked
+	 * without this answers that the second half is absent — which is an invitation to
+	 * download an episode playing off the disk.
+	 *
+	 * Optional for wire compatibility, exactly as `MediaFileInfo.edition` is.
+	 */
+	episodeNumberEnd?: number | null;
 	externalIds: ExternalIds;
 	overview: string | null;
 	/**

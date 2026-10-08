@@ -1536,6 +1536,39 @@ describe('MediaGroupManager', () => {
 			} as Partial<MediaItem>;
 		};
 
+		/**
+		 * The range, which is the one field a friend's copy must never decide.
+		 *
+		 * Every reader of it expands the range and treats what is inside as held, so a
+		 * remote row claiming `E01-E04` would silence three real gaps on the strength of
+		 * somebody else's file name — and the gap it silences is a gap on *our* disk.
+		 */
+		it('takes the episode range off a copy we hold, not off the widest claim', async () => {
+			const { manager } = build({
+				items: pair(
+					{ episodeNumber: 1, episodeNumberEnd: null },
+					{ episodeNumber: 1, episodeNumberEnd: 4, syncState: SyncState.MISSING },
+				),
+				matches: [correlation()],
+			});
+
+			expect((await manager.groups(query({}))).items[0].episodeNumberEnd).toBeNull();
+		});
+
+		it('answers the range our own two-part file carries', async () => {
+			// The other half: `S01E01-E02` on the disk really does hold both, and a
+			// reader that answered null here would offer the second for download.
+			const { manager } = build({
+				items: pair(
+					{ episodeNumber: 1, episodeNumberEnd: 2 },
+					{ episodeNumber: 1, episodeNumberEnd: null, syncState: SyncState.MISSING },
+				),
+				matches: [correlation()],
+			});
+
+			expect((await manager.groups(query({}))).items[0].episodeNumberEnd).toBe(2);
+		});
+
 		it('lets a correction made on a friend’s copy win over our server’s answer', async () => {
 			const { manager } = build({
 				items: pair(

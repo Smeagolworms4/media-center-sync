@@ -13,10 +13,17 @@
  * them disagreeing about what is held.
  */
 
-/** The least a row has to say for its coverage to be readable. */
+/**
+ * The least a row has to say for its coverage to be readable.
+ *
+ * Both absent and null are accepted, because the callers genuinely differ: a database
+ * row always carries the column, and a group answered over the wire by a gateway running
+ * an older image carries no key at all. `spanOf` normalises the difference — which it had
+ * better, since treating `undefined` as a number is the one way this file has gone wrong.
+ */
 export interface EpisodeSpan {
 	episodeNumber: number | null;
-	episodeNumberEnd: number | null;
+	episodeNumberEnd?: number | null;
 }
 
 /**

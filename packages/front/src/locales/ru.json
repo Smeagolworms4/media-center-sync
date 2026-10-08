@@ -292,6 +292,7 @@
 		"no_children_title": "Ниже этого элемента ничего нет",
 		"no_children_text": "У этого элемента нет ни сезонов, ни серий, ни участников в индексе.",
 		"season_episode": "S{season}E{episode}",
+		"season_episode_range": "S{season}E{episode}-E{last}",
 		"held_by": "хранится на {services}",
 		"fetchable": {
 			"copy": "Доступный сервер или друг хранит один из недостающих эпизодов.",

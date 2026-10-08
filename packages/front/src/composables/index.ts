@@ -4,6 +4,7 @@ export * from './useChunkMap';
 export * from './useCron';
 export * from './useDestinationLibraries';
 export * from './useDirectorySignIn';
+export * from './useEpisodeLabel';
 export * from './useForm';
 export * from './useFormat';
 export * from './useMediaOrigin';
