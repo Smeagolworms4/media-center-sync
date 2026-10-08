@@ -5,6 +5,7 @@ import {
 	MediaKind,
 	MediaServiceStatus,
 	MediaServiceType,
+	NewsSignal,
 	SyncState,
 	UserRole,
 	type MediaGroup,
@@ -423,6 +424,36 @@ describe('Browsing the index by media rather than by row', () => {
 		// Whitelisting validation turns a field the manager understands but the DTO does
 		// not into a 400 that blames the caller. The library screen filters on this.
 		await browse('/media/groups?categoryKey=nothing-of-that-name&limit=5').expect(200);
+	});
+
+	/**
+	 * What something was last seen for, over the real column and the real DTO.
+	 *
+	 * Worth booting a database for twice over: the two dates are read raw by the digest
+	 * projection, so what arrives is the driver's own spelling of a `datetime` rather
+	 * than a `Date`, and no unit test can see which — a reader that assumed either would
+	 * draw the chip on the page and never match in the filter. And the query parameter
+	 * is a list of one here, which is the shape a screen with one box ticked sends.
+	 *
+	 * Last in the file because it writes to the fixture.
+	 */
+	it('narrows to what something was last seen for, reading the stored date back', async () => {
+		const items = context.app.get(MediaItemRepository);
+
+		await items.markSighting(id['series-ours'], { release: new Date(), copy: null });
+
+		const page = await groups('/media/groups?rootsOnly=true&signals=release');
+
+		expect(page.items.map((group) => group.id)).toEqual([id['series-ours']]);
+		expect(page.items[0].fetchable).toEqual([NewsSignal.RELEASE]);
+		// The pager counts what survived the filter, not what the catalogue holds.
+		expect(page.pagination.total).toBe(1);
+	});
+
+	it('refuses a signal nobody can answer rather than quietly ignoring it', async () => {
+		// A typo in an address must not read as "no filter": that answers the whole
+		// library to a request for one slice of it.
+		await browse('/media/groups?signals=torrents').expect(400);
 	});
 
 });

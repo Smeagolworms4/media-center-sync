@@ -6,6 +6,7 @@ import {
 	MediaResolution,
 	MediaServiceType,
 	MediaWatchState,
+	NewsSignal,
 	SyncState,
 	type MediaFileInfo,
 	type MediaGroupQuery,
@@ -22,7 +23,12 @@ import type {
 	GroupSeedQuery,
 	MatchPair,
 } from '@/repositories';
-import { type CatalogueCacheService, QualityService, type SettingsService } from '@/services';
+import {
+	type CatalogueCacheService,
+	QualityService,
+	type SettingsService,
+	SIGHTED_FRESH_FOR,
+} from '@/services';
 import type { LibraryManager } from './library.manager';
 import { MediaGroupManager } from './media-group.manager';
 
@@ -75,6 +81,11 @@ const item = (overrides: Partial<MediaItem> = {}): MediaItem =>
 		ignored: false,
 		addedAt: null,
 		childCount: 0,
+		// Nothing seen, which is what most of the catalogue says: the watch looks at a
+		// batch of followed shows per pass, so a default of "seen" would make every
+		// fixture in this file fetchable and prove the filter against nothing.
+		releaseSeenAt: null,
+		copySeenAt: null,
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
 		updatedAt: new Date('2026-01-01T00:00:00.000Z'),
 		...overrides,
@@ -159,6 +170,8 @@ const digest = (row: MediaItem): MediaItemDigest => ({
 	// Read off the fixture rather than defaulted, because a default would make every
 	// fileless row in this file read as a copy and silence the rule that says it is not.
 	hasFile: row.file !== null,
+	releaseSeenAt: row.releaseSeenAt ?? null,
+	copySeenAt: row.copySeenAt ?? null,
 });
 
 /**
@@ -2415,6 +2428,144 @@ describe('MediaGroupManager', () => {
 			);
 
 			expect(page.items.map((one) => one.id)).toEqual(['followed-short']);
+		});
+	});
+
+	/**
+	 * What can actually be had, which is the complaint `actionable` does not answer.
+	 *
+	 * `actionable` says there is a hole. It says nothing about whether anybody can fill
+	 * it — so the news screen offered twelve cards of which perhaps two were obtainable,
+	 * and the other ten were shows nobody is seeding and nobody here holds, told apart
+	 * only by opening each one and searching the trackers by hand. That is the whole of
+	 * "pas juste notifier sur overseer".
+	 *
+	 * The dates are written by the episode watch, which already ran those searches every
+	 * six hours and dropped the answers.
+	 */
+	describe('the fetchable filter', () => {
+		const show = (id: string, title: string, seen: Partial<MediaItem> = {}): MediaItem =>
+			item({ id, title, kind: MediaKind.SERIES, file: null, quality: null, ...seen });
+
+		/** A hole under the show, so every row below is actionable to begin with. */
+		const gap = (id: string): MediaItem =>
+			item({
+				id: `${id}-1`,
+				title: 'One',
+				parentId: id,
+				serviceId: 'remote',
+				libraryId: 'library-remote',
+				syncState: SyncState.MISSING,
+			});
+
+		const world = () => ({
+			items: [
+				show('tracker', 'Alpha', { releaseSeenAt: new Date() }),
+				gap('tracker'),
+				show('friend', 'Bravo', { copySeenAt: new Date() }),
+				gap('friend'),
+				show('nothing', 'Charlie'),
+				gap('nothing'),
+			],
+		});
+
+		it('answers what was seen on each group, so a card can say which it is', async () => {
+			const { manager } = build(world());
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+			const byId = new Map(page.items.map((one) => [one.id, one.fetchable]));
+
+			expect(byId.get('tracker')).toEqual([NewsSignal.RELEASE]);
+			expect(byId.get('friend')).toEqual([NewsSignal.COPY]);
+			// Nothing known, which is not nothing available: the watch looks at a batch
+			// of shows per pass and has not reached this one.
+			expect(byId.get('nothing')).toEqual([]);
+		});
+
+		it('keeps only the shows a tracker was seen carrying something for', async () => {
+			const { manager } = build(world());
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, actionable: true, signals: [NewsSignal.RELEASE] }),
+			);
+
+			expect(page.items.map((one) => one.id)).toEqual(['tracker']);
+		});
+
+		it('keeps only the shows somebody reachable holds something for', async () => {
+			const { manager } = build(world());
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, actionable: true, signals: [NewsSignal.COPY] }),
+			);
+
+			expect(page.items.map((one) => one.id)).toEqual(['friend']);
+		});
+
+		it('takes either when either will do', async () => {
+			// The common answer: somebody who wants whatever can be had tonight does not
+			// care which of the two it comes from.
+			const { manager } = build(world());
+
+			const page = await manager.groups(
+				query({
+					rootsOnly: true,
+					actionable: true,
+					signals: [NewsSignal.RELEASE, NewsSignal.COPY],
+				}),
+			);
+
+			expect(page.items.map((one) => one.id)).toEqual(['tracker', 'friend']);
+		});
+
+		it('reads no filter and an empty one as the whole list, not as nothing', async () => {
+			// An empty list arrives from a screen where somebody has unticked every box,
+			// and an empty page reads as a quiet week rather than as a filter.
+			const { manager } = build(world());
+
+			for (const signals of [undefined, []]) {
+				const page = await manager.groups(
+					query({ rootsOnly: true, actionable: true, signals }),
+				);
+
+				expect(page.items.map((one) => one.id)).toEqual(['tracker', 'friend', 'nothing']);
+			}
+		});
+
+		it('forgets a sighting nobody has refreshed', async () => {
+			// A swarm empties. The watch rewrites both columns on every pass, and a
+			// sighting it has not managed to come back round to is not believed for ever.
+			const { manager } = build({
+				items: [
+					show('stale', 'Alpha', {
+						releaseSeenAt: new Date(Date.now() - SIGHTED_FRESH_FOR - 1000),
+					}),
+					gap('stale'),
+				],
+			});
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, actionable: true, signals: [NewsSignal.RELEASE] }),
+			);
+
+			expect(page.items).toHaveLength(0);
+			expect((await manager.groups(query({ rootsOnly: true, actionable: true })))
+				.items[0].fetchable).toEqual([]);
+		});
+
+		it('counts the groups it kept, so the pager does not count the ones it dropped', async () => {
+			/*
+			 * Narrowed by the gateway and not by the screen. A wall that dropped rows
+			 * after receiving them would page over the ones it dropped: twelve asked for,
+			 * four drawn, and a pager still saying twelve.
+			 */
+			const { manager } = build(world());
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, actionable: true, signals: [NewsSignal.RELEASE] }),
+			);
+
+			expect(page.pagination.total).toBe(1);
 		});
 	});
 });

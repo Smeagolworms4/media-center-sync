@@ -9,6 +9,7 @@ import {
 	MediaKind,
 	MediaServiceType,
 	MediaWatchState,
+	NewsSignal,
 	SyncState,
 	type ExternalIds,
 	type MediaGroup,
@@ -46,6 +47,7 @@ import {
 	QualityService,
 	serviceMode,
 	SettingsService,
+	fetchableOf,
 	spanOf,
 	versionIdOf,
 	type EpisodeSpan,
@@ -262,6 +264,15 @@ interface GroupSkeleton {
 	 * make the common case slower to serve a question nobody asked.
 	 */
 	missingCount: number;
+	/**
+	 * What was last seen that could fill a gap beneath it. See `fetchableOf`.
+	 *
+	 * Read off the digests rather than with the page, because the filter has to narrow
+	 * the catalogue before it is paged: a screen that dropped rows after receiving them
+	 * would page over the ones it dropped — twelve asked for, four drawn, and a pager
+	 * counting twelve.
+	 */
+	fetchable: NewsSignal[];
 }
 
 /** What a listing needs to know about the world, read once per request. */
@@ -486,9 +497,25 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		 * exists would hide exactly that. So holding it is not enough — the gaps have
 		 * to be closed too, and an ignored child is not a gap.
 		 */
-		const matching = query.hideOwned === true
+		const owned = query.hideOwned === true
 			? actionable.filter((skeleton) => !skeleton.held || skeleton.missingCount > 0)
 			: actionable;
+
+		/*
+		 * And finally what can actually be had, which is the one filter here that reads a
+		 * sighting rather than the catalogue.
+		 *
+		 * Last on purpose. It is the narrowest of them and the only one whose answer is
+		 * unknown rather than false for most of the library: a show the episode watch has
+		 * not reached yet carries no signal, so asking this first would throw away the
+		 * work every filter before it does. An empty list is read as no filter, for the
+		 * same reason `reasons` is — it arrives from a screen where somebody has unticked
+		 * every box, and an empty page reads as a quiet week rather than as a filter.
+		 */
+		const matching = query.signals === undefined || query.signals.length === 0
+			? owned
+			: owned.filter((skeleton) =>
+				skeleton.fetchable.some((signal) => (query.signals as NewsSignal[]).includes(signal)));
 
 		const window = matching.slice((page - 1) * limit, page * limit);
 		const groups = await this._read(
@@ -1246,6 +1273,9 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			return {
 				memberIds,
 				sync: this._state(members, context),
+				// Over every copy, because the watch wrote its answer on whichever one
+				// represented the group the day it searched.
+				fetchable: fetchableOf(members),
 				// A media whose file we have already downloaded counts as held, so that
 				// "hide what I already have" hides it. It is the same answer the wall
 				// gives about it, and a filter that kept offering a file already on the
@@ -1516,6 +1546,17 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			// on `addedAt` is asking for: when did this media become available to me,
 			// not when did one particular server happen to index it.
 			addedAt: this._addedAt(ranked),
+			/*
+			 * The same rule the filter read, off the same rows.
+			 *
+			 * Read again here rather than carried down from the skeleton because this
+			 * method is also how one media is answered on its own page, where there is no
+			 * skeleton to carry anything. Both go through `fetchableOf`, which is the whole
+			 * reason that function exists: a wall that filtered on "a torrent was found"
+			 * and then drew the chip on half of what it kept would read as a broken
+			 * filter, and the fault would be two readings of one rule.
+			 */
+			fetchable: fetchableOf(ranked),
 		};
 	}
 

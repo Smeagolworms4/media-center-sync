@@ -86,6 +86,19 @@ export interface MediaItemDigest {
 	 * rows exist to reveal are counted as filled. See `_holds`.
 	 */
 	hasFile: boolean;
+	/**
+	 * When something that fills a gap beneath this row was last seen. See `fetchableOf`.
+	 *
+	 * Carried here rather than read with the page, because the news filter narrows the
+	 * whole catalogue before anything is paged: a wall that hid rows after receiving
+	 * them would page over the hidden ones. They are two scalars on a row the projection
+	 * already reads, which is why this one can be answered without the expensive path.
+	 *
+	 * Raw, so a `datetime` arrives as the driver's own spelling — a string on SQLite —
+	 * and is read by `fetchableOf` rather than compared here.
+	 */
+	releaseSeenAt: Date | string | null;
+	copySeenAt: Date | string | null;
 }
 
 /**
@@ -510,6 +523,25 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	}
 
 	/**
+	 * Write down what was last seen that could fill a gap beneath one media.
+	 *
+	 * Both columns on every call, present or absent, and that is the whole contract: a
+	 * swarm empties and a friend deletes the episode off their server, so a write that
+	 * only ever set a date would mark a show fetchable on the strength of one lucky
+	 * evening and never take it back. Null is an answer here — "looked, found nothing".
+	 *
+	 * `update` rather than `save`, so a pass that races a scan over the same row writes
+	 * two columns instead of overwriting everything the scan has just read off the
+	 * service.
+	 */
+	public async markSighting(
+		itemId: string,
+		seen: { release: Date | null; copy: Date | null },
+	): Promise<void> {
+		await this.update({ id: itemId }, { releaseSeenAt: seen.release, copySeenAt: seen.copy });
+	}
+
+	/**
 	 * Items of one library that hold a file with no content identity yet.
 	 *
 	 * The filter cannot be pushed into SQL: the file lives in a `simple-json` column
@@ -901,7 +933,9 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			 * the widest JSON column in the table. `CASE` rather than a cast, which the two
 			 * engines spell differently, and a `null` file is stored as SQL `NULL` on both.
 			 */
-			.addSelect('CASE WHEN item.file IS NULL THEN 0 ELSE 1 END', 'hasFile');
+			.addSelect('CASE WHEN item.file IS NULL THEN 0 ELSE 1 END', 'hasFile')
+			.addSelect('item.releaseSeenAt', 'releaseSeenAt')
+			.addSelect('item.copySeenAt', 'copySeenAt');
 	}
 
 	private async _chunked<T>(ids: string[], read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {

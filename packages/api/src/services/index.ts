@@ -23,6 +23,7 @@ export * from './matching.service';
 export * from './media-override';
 export * from './metadata.service';
 export * from './naming.service';
+export * from './news-signals';
 export * from './notifications';
 export * from './nfo';
 export * from './path-containment';

@@ -1,4 +1,5 @@
-import { NotificationEvent } from '@mcs/shared';
+import { NewsSignal, NotificationEvent } from '@mcs/shared';
+import type { MediaItemRepository } from '@/repositories';
 import type { SchedulerService, SettingsService } from '@/services';
 import { EpisodeWatchManager, WATCH_BATCH } from './episode-watch.manager';
 import type { MediaGroupManager } from './media-group.manager';
@@ -11,15 +12,24 @@ interface Fakes {
 	groups: { groups: jest.Mock };
 	releases: { search: jest.Mock };
 	notifications: { notify: jest.Mock };
+	items: { markSighting: jest.Mock };
 }
 
-const show = (id: string, title = 'Spartacus') => ({ id, title, kind: 'series' });
+const show = (id: string, title = 'Spartacus', fetchable: NewsSignal[] = []) =>
+	({ id, title, kind: 'series', fetchable });
 
 /** A tracker line that covers a gap, which is the only kind worth saying anything about. */
 const fillable = (fills = [{ itemId: 'ep-1', seasonNumber: 1, episodeNumber: 8, title: 'Eight' }]) => ({
 	source: 'indexer',
 	key: 'grp-1',
 	release: { fills },
+});
+
+/** The same, held by somebody we can reach — the better of the two where it exists. */
+const held = (fills = [{ itemId: 'ep-1', seasonNumber: 1, episodeNumber: 8, title: 'Eight' }]) => ({
+	source: 'peer',
+	key: 'peer:copy-1',
+	copy: { fills },
 });
 
 const build = (): { manager: EpisodeWatchManager; fakes: Fakes } => {
@@ -34,6 +44,7 @@ const build = (): { manager: EpisodeWatchManager; fakes: Fakes } => {
 			}),
 		},
 		notifications: { notify: jest.fn().mockResolvedValue(undefined) },
+		items: { markSighting: jest.fn().mockResolvedValue(undefined) },
 	};
 
 	return {
@@ -43,6 +54,7 @@ const build = (): { manager: EpisodeWatchManager; fakes: Fakes } => {
 			fakes.groups as unknown as MediaGroupManager,
 			fakes.releases as unknown as ReleaseManager,
 			fakes.notifications as unknown as NotificationManager,
+			fakes.items as unknown as MediaItemRepository,
 		),
 		fakes,
 	};
@@ -145,6 +157,115 @@ describe('EpisodeWatchManager', () => {
 			.mockResolvedValue({ suggestions: [fillable()], missing: [{ itemId: 'ep-1' }] });
 
 		expect(await manager.sweep()).toBe(1);
+	});
+
+	/**
+	 * The half of the pass that was being thrown away.
+	 *
+	 * Every search here already ran, every answer was dropped the moment a notification
+	 * had gone out, and the one screen built to show what is new could say a show was
+	 * short three episodes and never whether any of the three could be had.
+	 */
+	describe('what it writes down', () => {
+		it('records a tracker sighting against the show it searched for', async () => {
+			const { manager, fakes } = build();
+
+			await manager.sweep();
+
+			expect(fakes.items.markSighting).toHaveBeenCalledWith(
+				'series-1',
+				expect.objectContaining({ release: expect.any(Date), copy: null }),
+			);
+		});
+
+		it('records a copy held by somebody we can reach, which the search already answered', async () => {
+			// Both kinds come back from one search and this manager used to read only the
+			// tracker lines. A friend's copy arrives over the local network at disk speed
+			// and is the same file they are watching; it is the better of the two.
+			const { manager, fakes } = build();
+
+			fakes.releases.search.mockResolvedValue({
+				suggestions: [held()],
+				missing: [{ itemId: 'ep-1' }],
+			});
+
+			await manager.sweep();
+
+			expect(fakes.items.markSighting).toHaveBeenCalledWith(
+				'series-1',
+				expect.objectContaining({ release: null, copy: expect.any(Date) }),
+			);
+		});
+
+		it('writes the absence too, rather than leaving yesterday’s answer standing', async () => {
+			/*
+			 * A swarm empties and a friend deletes the episode off their server. A column
+			 * that was only ever set would mark a show fetchable on the strength of one
+			 * lucky evening and never take it back — and the filter built on it would be
+			 * a filter that only ever grows.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.releases.search.mockResolvedValue({
+				suggestions: [{ source: 'indexer', key: 'grp-1', release: { fills: [] } }],
+				missing: [],
+			});
+
+			await manager.sweep();
+
+			expect(fakes.items.markSighting).toHaveBeenCalledWith(
+				'series-1',
+				{ release: null, copy: null },
+			);
+		});
+
+		it('ignores a line that fills nothing, however many of them come back', async () => {
+			// Thirty releases of an episode already on the disk is not a sighting.
+			const { manager, fakes } = build();
+
+			fakes.releases.search.mockResolvedValue({
+				suggestions: [held([]), { source: 'indexer', key: 'g', release: { fills: [] } }],
+				missing: [],
+			});
+
+			expect(await manager.sweep()).toBe(0);
+			expect(fakes.items.markSighting).toHaveBeenCalledWith(
+				'series-1',
+				{ release: null, copy: null },
+			);
+		});
+
+		it('says it once, not every six hours until somebody gives in', async () => {
+			/*
+			 * The intent was always "a notification per show that changed, never a digest
+			 * of everything still missing" — and the code notified whenever anything
+			 * fillable existed, which for a show nobody gets round to fetching is the same
+			 * sentence every pass. What is new is now a question the record can answer.
+			 */
+			const { manager, fakes } = build();
+
+			fakes.groups.groups.mockResolvedValue({
+				items: [show('series-1', 'Spartacus', [NewsSignal.RELEASE])],
+			});
+
+			// Still counted as something to propose, and still written down: it is the
+			// announcement that is spent, not the sighting.
+			expect(await manager.sweep()).toBe(1);
+			expect(fakes.items.markSighting).toHaveBeenCalled();
+			expect(fakes.notifications.notify).not.toHaveBeenCalled();
+		});
+
+		it('says it again once the sighting has lapsed and come back', async () => {
+			// Nothing was on record, so this is news however many times it was news
+			// before: the record is what the forgetting is measured on.
+			const { manager, fakes } = build();
+
+			fakes.groups.groups.mockResolvedValue({ items: [show('series-1')] });
+
+			await manager.sweep();
+
+			expect(fakes.notifications.notify).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it('joins a pass already running rather than doubling every search', async () => {

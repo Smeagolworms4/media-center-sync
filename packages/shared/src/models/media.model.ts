@@ -474,6 +474,19 @@ export interface MediaGroup {
 	parentId: string | null;
 	/** Most recent addition among the sources, which is what `sort=addedAt` orders on. */
 	addedAt: string | null;
+	/**
+	 * What can actually be fetched for the gaps beneath it, when anything is known.
+	 *
+	 * Empty means "nothing known", which is not the same as "nothing exists": the
+	 * episode watch looks at a batch of followed shows per pass, so a show it has not
+	 * reached yet carries nothing and is not thereby hopeless. A screen must word it as
+	 * what was found and never as what is unavailable.
+	 *
+	 * Optional for wire compatibility, exactly as `MediaFileInfo.edition` is: a gateway
+	 * running an older image sends a group without the key, and a required field would
+	 * make every one of its catalogue rows fail to parse over a chip.
+	 */
+	fetchable?: NewsSignal[];
 }
 
 /**
@@ -529,6 +542,46 @@ export enum ActionableReason {
 	GAP = 'gap',
 	/** We hold it, and a better version exists somewhere we can reach. */
 	UPGRADE = 'upgrade',
+}
+
+/**
+ * What makes a piece of news something somebody can act on tonight.
+ *
+ * `actionable` says there is a hole; it says nothing about whether the hole can be
+ * filled. That is the whole of the complaint this answers — "pas juste notifier sur
+ * overseer": a watchlist tells the household a show exists and an episode aired, and
+ * then the screen offers them twelve cards of which perhaps two can be fetched at all.
+ * The rest are shows nobody is seeding and nobody here holds, and they are
+ * indistinguishable from the two until somebody opens each one and searches.
+ *
+ * Two of them because they are two different evenings. A copy on a friend's server
+ * arrives over the local network at disk speed and is the same file they are watching;
+ * a tracker release is a download of unknown duration from strangers, in whatever
+ * encoding the release group chose. Somebody who wants one of those does not
+ * necessarily want the other, which is why this is a set and a filter rather than one
+ * flag saying "fetchable".
+ *
+ * **Only ever said about a gap.** Neither signal is claimed for an upgrade: a better
+ * version existing is already the news, and the thing that says so is the state.
+ */
+export enum NewsSignal {
+	/**
+	 * A tracker carries a release that fills a gap beneath it.
+	 *
+	 * Found by the episode watch, which searches the followed shows on a timer and used
+	 * to throw the answer away the moment it had sent a notification. It is a sighting
+	 * and not a promise: the search ran hours ago, a swarm can empty, and what the line
+	 * claims about its own quality is what somebody typed into a release name.
+	 */
+	RELEASE = 'release',
+	/**
+	 * Somebody we can reach holds a copy that fills a gap beneath it.
+	 *
+	 * The better of the two wherever it exists, and the one a catalogue can answer on
+	 * its own — a friend's server reporting the episode is this gateway's own index
+	 * rather than a question asked of a stranger.
+	 */
+	COPY = 'copy',
 }
 
 export enum MediaOrigin {
@@ -703,6 +756,19 @@ export interface MediaGroupQuery {
 	 * statement about a list that is already restricted to what there is to do.
 	 */
 	reasons?: ActionableReason[];
+	/**
+	 * Keep only media one of these signals has been seen for.
+	 *
+	 * Narrows `actionable` the way `reasons` does and for the same screen, so omitting
+	 * it changes nothing for any caller written before it existed. Named as a list
+	 * because "either" is the common answer: somebody who wants whatever can be had
+	 * tonight does not care which of the two it comes from.
+	 *
+	 * Asked of the gateway rather than folded in the interface, because a wall that
+	 * hid rows after receiving them would page over the hidden ones — a screen of
+	 * twelve showing four, and a pager counting twelve.
+	 */
+	signals?: NewsSignal[];
 	/** Children of this group, addressed by the parent's representative item. */
 	parentId?: string;
 	/**

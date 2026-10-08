@@ -249,4 +249,31 @@ export class MediaItem extends Timestampable {
 	@ApiProperty()
 	@Column({ type: 'int', default: 0 })
 	public childCount!: number;
+
+	/**
+	 * When a tracker was last seen carrying a release that fills a gap beneath this row.
+	 *
+	 * Written by the episode watch, which already ran the search — it searched every
+	 * followed show with a gap, sent a notification and dropped the answer, so the one
+	 * screen built to show what is new could say only that something was missing and
+	 * never that it could be had. Two plain columns rather than a table of sightings:
+	 * the question is "is there anything for this, now", a history of searches answers
+	 * nobody's question, and they are read by the grouped index for the whole filtered
+	 * catalogue, where a join would be a second query per page.
+	 *
+	 * A date rather than a flag so a stale answer can be told from a fresh one. The
+	 * watch sees a batch of shows per pass, so a full cycle over a large watchlist
+	 * takes days; see `SIGHTED_FRESH_FOR` for how long one is believed.
+	 *
+	 * Cleared on a pass that finds nothing, or the first lucky evening would mark a
+	 * show fetchable for good.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'datetime', nullable: true })
+	public releaseSeenAt!: Date | null;
+
+	/** The same, for a copy held by a service or a friend we can reach. */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'datetime', nullable: true })
+	public copySeenAt!: Date | null;
 }

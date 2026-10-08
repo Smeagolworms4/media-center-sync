@@ -22,6 +22,7 @@ import {
 	MediaWatchState,
 	MediaOrigin,
 	MediaResolution,
+	NewsSignal,
 	RELEASE_PREFERENCE_DIMENSIONS,
 	ReleasePreferenceDimension,
 	SyncState,
@@ -303,6 +304,21 @@ export class MediaGroupQueryDto {
 	@IsArray()
 	@IsEnum(ActionableReason, { each: true })
 	public reasons?: ActionableReason[];
+
+	/**
+	 * Only what something was last seen for. Read as a list of one, like `reasons`.
+	 *
+	 * Narrows `actionable` rather than standing on its own: "only what can be fetched"
+	 * is a statement about a list already restricted to what there is to do.
+	 */
+	@ApiPropertyOptional({ enum: NewsSignal, isArray: true })
+	@IsOptional()
+	@Transform(({ value }) => (Array.isArray(value)
+		? (value as NewsSignal[])
+		: [value as NewsSignal]))
+	@IsArray()
+	@IsEnum(NewsSignal, { each: true })
+	public signals?: NewsSignal[];
 
 	@ApiPropertyOptional()
 	@IsOptional()

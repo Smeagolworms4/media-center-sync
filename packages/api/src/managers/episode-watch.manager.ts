@@ -1,5 +1,11 @@
-import { NotificationEvent, type MediaGroup } from '@mcs/shared';
+import {
+	isIndexerSuggestion,
+	isPeerSuggestion,
+	NotificationEvent,
+	type MediaGroup,
+} from '@mcs/shared';
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { MediaItemRepository } from '@/repositories';
 import { breathe, SchedulerService, SettingsService } from '@/services';
 import { MediaGroupManager } from './media-group.manager';
 import { NotificationManager } from './notification.manager';
@@ -48,6 +54,7 @@ export class EpisodeWatchManager implements OnModuleInit {
 		private readonly _groups: MediaGroupManager,
 		private readonly _releases: ReleaseManager,
 		private readonly _notifications: NotificationManager,
+		private readonly _items: MediaItemRepository,
 	) {}
 
 	public onModuleInit(): void {
@@ -110,7 +117,19 @@ export class EpisodeWatchManager implements OnModuleInit {
 	}
 
 	/**
-	 * One show: search, and say so when a gap can be filled.
+	 * One show: search, write down what was found, and say so when it is news.
+	 *
+	 * **The writing down is the point of the pass, not a side effect of it.** This method
+	 * ran the searches and dropped every answer the moment it had sent a notification, so
+	 * the screen built to show what is new could say a show was short three episodes and
+	 * never whether any of the three could be had. A wall of twelve cards of which two
+	 * were obtainable, indistinguishable until somebody opened each one and searched the
+	 * trackers again by hand — which is the whole of "pas juste notifier sur overseer".
+	 *
+	 * Both kinds are recorded and they are not the same news. A copy on a friend's server
+	 * comes over the local network at disk speed and is the same file they are watching; a
+	 * tracker release is a download of unknown length from strangers. The search already
+	 * answers with both and this method used to read only one of them.
 	 *
 	 * Every failure is swallowed deliberately. An indexer that refuses one show must not
 	 * end the pass for the thirty-nine behind it, and a tracker having a bad evening is an
@@ -119,12 +138,44 @@ export class EpisodeWatchManager implements OnModuleInit {
 	private async _look(show: MediaGroup): Promise<boolean> {
 		try {
 			const found = await this._releases.search({ itemId: show.id });
-			const fillable = found.suggestions.filter(
-				(one) => one.source === 'indexer' && one.release.fills.length > 0,
+			const release = found.suggestions.some(
+				(one) => isIndexerSuggestion(one) && one.release.fills.length > 0,
+			);
+			const copy = found.suggestions.some(
+				(one) => isPeerSuggestion(one) && one.copy.fills.length > 0,
 			);
 
-			if (fillable.length === 0) {
+			/*
+			 * Written on every pass, including the ones that find nothing, because the
+			 * absence has to be written too: a swarm empties and a friend's server has the
+			 * episode deleted off it, and a column that was only ever set would mark a show
+			 * fetchable on the strength of one lucky evening and never take it back.
+			 */
+			// What was on record before this pass, read off the group the pass is working
+			// from: the grouped read answers it by the same rule this writes, so there is
+			// nothing to look up and no second reading to disagree with.
+			const already = show.fetchable ?? [];
+
+			await this._items.markSighting(show.id, {
+				release: release ? new Date() : null,
+				copy: copy ? new Date() : null,
+			});
+
+			if (!release && !copy) {
 				return false;
+			}
+
+			/*
+			 * Said once per sighting, not once per pass.
+			 *
+			 * The intent was always "a notification per show that changed, never a digest
+			 * of everything still missing" — and the code notified whenever anything
+			 * fillable existed, which for a show nobody gets round to fetching is the same
+			 * sentence every six hours until somebody turns the channel off. What is new is
+			 * now a question the columns can answer, so it is asked.
+			 */
+			if (already.length > 0) {
+				return true;
 			}
 
 			await this._notifications.notify({
