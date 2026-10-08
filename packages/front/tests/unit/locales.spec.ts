@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { ErrorKey } from '@mcs/shared';
+import { ErrorKey, NotificationEvent } from '@mcs/shared';
 import { glob } from 'glob';
 import { describe, expect, it } from 'vitest';
 import deMessages from '@/locales/de.json';
@@ -173,6 +173,31 @@ describe('locales', () => {
 
 		for (const key of Object.values(ErrorKey)) {
 			expect(messages[key], `${locale}: ${key}`).toBeTruthy();
+		}
+	});
+
+	/**
+	 * The hole the comparison above cannot see.
+	 *
+	 * Every other check here reads the catalogues against *each other*, so a key that
+	 * is missing from all eight is unanimous and passes. That is not a hypothetical:
+	 * `episode_available` shipped with the episode watch, was named by the enum, read
+	 * by the notification list, and existed in no catalogue — so the one screen the
+	 * feature exists to fill showed `notification.event.episode_available` to the
+	 * household, and the suite was green the whole time.
+	 *
+	 * Written against the enum for the same reason `SchedulerHook` is: the vocabulary
+	 * the gateway can emit is a list code can read, so "did anybody write this one
+	 * down" stops being a question somebody has to remember to ask.
+	 */
+	it.each(SUPPORTED_LOCALES)('%s names every notification the gateway can send', locale => {
+		const messages = flatten(CATALOGUES[locale]);
+
+		for (const event of Object.values(NotificationEvent)) {
+			expect(
+				messages[`notification.event.${event}`],
+				`${locale}: notification.event.${event}`,
+			).toBeTruthy();
 		}
 	});
 });

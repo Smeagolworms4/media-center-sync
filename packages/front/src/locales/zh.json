@@ -732,6 +732,7 @@
 		"events": "何时发送",
 		"events_all": "什么都不勾表示全部，包括以后版本新增的事件。",
 		"event": {
+			"episode_available": "有新剧集可获取",
 			"placement_unconfigured": "文件落到了没人选过的地方",
 			"transfer_failed": "一个传输放弃了",
 			"sync_finished": "一次运行结束了",

@@ -732,6 +732,7 @@
 		"events": "Enviar quando",
 		"events_all": "Nada assinalado significa tudo, incluindo os eventos acrescentados em versões posteriores.",
 		"event": {
+			"episode_available": "Um novo episódio pode ser obtido",
 			"placement_unconfigured": "Um ficheiro foi parar onde ninguém escolheu",
 			"transfer_failed": "Uma transferência desistiu",
 			"sync_finished": "Uma execução terminou",

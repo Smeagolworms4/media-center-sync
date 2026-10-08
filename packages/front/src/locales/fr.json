@@ -732,6 +732,7 @@
 		"events": "Envoyer pour",
 		"events_all": "Rien de coché signifie tout, y compris les événements ajoutés dans les versions suivantes.",
 		"event": {
+			"episode_available": "Un nouvel épisode est récupérable",
 			"placement_unconfigured": "Un fichier a atterri là où personne ne l'avait choisi",
 			"transfer_failed": "Un transfert a abandonné",
 			"sync_finished": "Une exécution s'est terminée",

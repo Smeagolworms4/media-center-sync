@@ -732,6 +732,7 @@
 		"events": "Senden bei",
 		"events_all": "Nichts angehakt bedeutet alles, auch die Ereignisse späterer Versionen.",
 		"event": {
+			"episode_available": "Eine neue Folge ist verfügbar",
 			"placement_unconfigured": "Eine Datei landete dort, wo es niemand festgelegt hat",
 			"transfer_failed": "Eine Übertragung hat aufgegeben",
 			"sync_finished": "Ein Lauf ist fertig",

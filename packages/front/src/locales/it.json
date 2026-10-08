@@ -732,6 +732,7 @@
 		"events": "Invia quando",
 		"events_all": "Niente spuntato significa tutto, compresi gli eventi aggiunti nelle versioni successive.",
 		"event": {
+			"episode_available": "Un nuovo episodio è recuperabile",
 			"placement_unconfigured": "Un file è finito dove nessuno aveva scelto",
 			"transfer_failed": "Un trasferimento ha rinunciato",
 			"sync_finished": "Un'esecuzione è terminata",

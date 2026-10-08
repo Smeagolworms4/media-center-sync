@@ -732,6 +732,7 @@
 		"events": "Send on",
 		"events_all": "Nothing ticked means everything, including the events added in later versions.",
 		"event": {
+			"episode_available": "A new episode can be fetched",
 			"placement_unconfigured": "A file landed where nobody chose",
 			"transfer_failed": "A transfer gave up",
 			"sync_finished": "A run finished",
