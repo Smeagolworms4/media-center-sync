@@ -728,6 +728,86 @@ describe('MediaManager', () => {
 			}));
 		});
 
+		/**
+		 * The half that never making the mistake again cannot fix.
+		 *
+		 * A row was minted for `S01E10` before this gateway could read `S01E09-E10`, and
+		 * nothing removes it afterwards: the stale pass excludes synthetic rows on
+		 * purpose. So the household kept being offered an episode playing off its own
+		 * disk, and would have for ever.
+		 */
+		it('takes back an episode it invented that a real file turns out to cover', async () => {
+			const { manager, fakes } = build({
+				items: [
+					...show().slice(0, -1),
+					item({
+						id: 'episode-9',
+						externalId: 'jf-episode-9',
+						parentId: 'season-1',
+						parentExternalId: 'jf-season-1',
+						seasonNumber: 1,
+						episodeNumber: 9,
+						episodeNumberEnd: 10,
+					}),
+					// What an earlier pass wrote, before the range could be read.
+					item({
+						id: 'ghost-10',
+						externalId: 'mcs:synthetic:ghost',
+						synthetic: true,
+						parentId: 'season-1',
+						parentExternalId: 'jf-season-1',
+						seasonNumber: 1,
+						episodeNumber: 10,
+						file: null,
+					}),
+				],
+			});
+
+			fakes.requestSource.episodes.mockResolvedValue([
+				{ seasonNumber: 1, episodeNumber: 9, title: 'Nine', airDate: '2026-09-11' },
+				{ seasonNumber: 1, episodeNumber: 10, title: 'Ten', airDate: '2026-09-18' },
+			]);
+
+			// Nothing new to add — both episodes are on the disk, in one file.
+			expect(await manager.discoverEpisodes('series-1')).toBe(0);
+			expect(fakes.items.remove).toHaveBeenCalledWith([
+				expect.objectContaining({ id: 'ghost-10' }),
+			]);
+		});
+
+		it('keeps a row a server reports, however much a neighbour claims to cover', async () => {
+			// Only rows *we* invented are withdrawn. A server's own row is evidence and
+			// this pass has no business deleting it.
+			const { manager, fakes } = build({
+				items: [
+					...show().slice(0, -1),
+					item({
+						id: 'episode-9',
+						externalId: 'jf-episode-9',
+						parentId: 'season-1',
+						parentExternalId: 'jf-season-1',
+						seasonNumber: 1,
+						episodeNumber: 9,
+						episodeNumberEnd: 10,
+					}),
+					item({
+						id: 'episode-10',
+						externalId: 'jf-episode-10',
+						parentId: 'season-1',
+						parentExternalId: 'jf-season-1',
+						seasonNumber: 1,
+						episodeNumber: 10,
+					}),
+				],
+			});
+
+			fakes.requestSource.episodes.mockResolvedValue([]);
+
+			await manager.discoverEpisodes('series-1');
+
+			expect(fakes.items.remove).not.toHaveBeenCalled();
+		});
+
 		it('does not offer to fetch the second half of a two-part file', async () => {
 			/*
 			 * The owner's Eureka, Monk and Beetlejuice, all four of them this shape.

@@ -658,8 +658,11 @@ export class MediaManager {
 			// Season zero is specials, and nobody is missing a behind-the-scenes clip.
 			.filter((season) => (season.seasonNumber ?? 0) > 0);
 		let created = 0;
+		let withdrawn = 0;
 
 		for (const season of seasons) {
+			withdrawn += await this._withdrawCovered(await this._items.findChildren(season.id));
+
 			const known = await this._items.findChildren(season.id);
 			const held = episodesCovered(known);
 			const listed = await source.episodes(configured, providerId, season.seasonNumber as number);
@@ -674,13 +677,59 @@ export class MediaManager {
 			}
 		}
 
-		if (created > 0) {
-			this._logger.log(`Added ${created} aired episode(s) of ${series.title} nothing here reports`);
+		if (created > 0 || withdrawn > 0) {
+			this._logger.log(
+				`Added ${created} aired episode(s) of ${series.title} nothing here reports`
+				+ (withdrawn > 0 ? `, and withdrew ${withdrawn} a file here already covers` : ''),
+			);
 
 			await this._settle(series.id);
 		}
 
 		return created;
+	}
+
+	/**
+	 * Take back the episodes this gateway invented that a real file turns out to cover.
+	 *
+	 * The other half of knowing that one file can hold two episodes, and the half that
+	 * cannot be fixed by never making the mistake again. A row was minted for `S01E12`
+	 * because `S01E11-E12` reported one number, and nothing removes it afterwards: the
+	 * stale pass at the end of a scan excludes synthetic rows on purpose, since they
+	 * carry no identifier any server would report and it would delete them all every
+	 * time. So they outlive the defect, and the household keeps being offered an episode
+	 * that plays off its own disk — the owner's Monk, Beetlejuice and Eureka.
+	 *
+	 * Only rows **we** invented, and only where a row we did *not* invent accounts for
+	 * the number. A synthetic row covered by another synthetic row would be two guesses
+	 * agreeing with each other, which is not evidence of anything.
+	 *
+	 * Here rather than in the scan because this is the operation whose whole purpose is
+	 * to make a show's episode list match what exists — it is what the button on the
+	 * show's page asks for, and adding a hole while leaving a false one beside it would
+	 * be half an answer.
+	 */
+	private async _withdrawCovered(children: MediaItemEntity[]): Promise<number> {
+		const reported = children.filter((child) => !child.synthetic);
+		const covered = episodesCovered(reported);
+		const ghosts = children.filter(
+			(child) =>
+				child.synthetic &&
+				child.episodeNumber !== null &&
+				covered.has(child.episodeNumber) &&
+				// Never one that claims a range of its own: that is not a row this pass
+				// invented from a single number, and removing it would lose the claim.
+				(child.episodeNumberEnd ?? null) === null,
+		);
+
+		if (ghosts.length === 0) {
+			return 0;
+		}
+
+		await this._matches.deleteForItems(ghosts.map((ghost) => ghost.id));
+		await this._items.remove(ghosts);
+
+		return ghosts.length;
 	}
 
 	/**
