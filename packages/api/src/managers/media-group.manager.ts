@@ -75,6 +75,18 @@ import { pageBounds, paginate } from './mappers';
 const LANDED_STATES = new Set<SyncState>(LANDED_SYNC_STATES);
 
 /**
+ * The kinds for which holding the media means holding a file.
+ *
+ * A series and a season hold nothing themselves — what is under them does — so a row
+ * of either is evidence that a server knows the show and never evidence of bytes. An
+ * episode and a film are the opposite: a row of one with no file names something a
+ * server listed and does not have, which is a gap and not a holding. Testing the file
+ * without the kind would make every season of every library a gap; testing the kind
+ * without the file is what let a discovered episode read as held.
+ */
+const CARRIES_A_FILE = new Set<MediaKind>([MediaKind.EPISODE, MediaKind.MOVIE]);
+
+/**
  * The fields a group fills per copy and a person can correct by hand.
  *
  * Named as a type rather than left open because the rule only holds where the item
@@ -1599,10 +1611,28 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	 * episode numbers, which never joins, and which we hold perfectly well.
 	 */
 	private _holds(copy: MediaItemDigest, context: GroupContext): boolean {
-		return (
-			(context.local.has(copy.serviceId) && !context.graph.besideAnotherCut(copy.id))
-			|| LANDED_STATES.has(copy.syncState)
-		);
+		if (LANDED_STATES.has(copy.syncState)) {
+			return true;
+		}
+
+		/*
+		 * Asked before the service, and that order is the fix: a row with no file is not
+		 * a copy, wherever it sits. Media servers list episodes they do not have and the
+		 * gateway mints rows for episodes nobody has at all, both on *our* service — so
+		 * reading the service alone answered "we hold it" about the very rows that exist
+		 * to say nobody does, and every one of those holes vanished from the count on its
+		 * season, from the news screen, and from what the episode watch searches for.
+		 *
+		 * After the landed states on purpose. A file this gateway has just put on the disk
+		 * is held before any server has a row for it, which is the whole reason those
+		 * states exist, and testing the file first would re-introduce the double download
+		 * they were added to stop.
+		 */
+		if (CARRIES_A_FILE.has(copy.kind) && !copy.hasFile) {
+			return false;
+		}
+
+		return context.local.has(copy.serviceId) && !context.graph.besideAnotherCut(copy.id);
 	}
 
 	/**
@@ -1618,7 +1648,13 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	 * pulled twice. The landing is carried on the copy we pulled from, which is one of
 	 * these members, so the group can read it here without a second query.
 	 */
-	private _state(members: MediaItemDigest[], context: GroupContext): SyncState {
+	private _state(
+		// The two fields it reads, rather than a digest: this is called with full rows
+		// for the page being rendered and with digests everywhere else, and a digest
+		// carries a derived flag no entity has.
+		members: { serviceId: string; syncState: SyncState }[],
+		context: GroupContext,
+	): SyncState {
 		const held = members.filter((member) => context.local.has(member.serviceId));
 
 		if (held.length === 0) {

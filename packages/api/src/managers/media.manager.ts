@@ -720,7 +720,17 @@ export class MediaManager {
 				overview: null,
 				artworkUrl: null,
 				file: null,
-				syncState: SyncState.UNKNOWN,
+				/*
+				 * `missing`, which is what this row exists to say, and not `unknown`.
+				 *
+				 * A series' gap count is over its *seasons*, so an episode-shaped hole only
+				 * reaches the show's poster — the news screen, the episode watch, anything
+				 * that asks what is actionable — by being in a state that says somebody
+				 * should fetch it. `unknown` says correlation has not run yet, which every
+				 * one of those readers takes for "nothing to do here", so an episode
+				 * discovered this way was written down and then never mentioned again.
+				 */
+				syncState: SyncState.MISSING,
 				/*
 				 * The air date, which is the only date this row has and the one the new
 				 * releases screen is ordered by. Not when a server added it — no server has

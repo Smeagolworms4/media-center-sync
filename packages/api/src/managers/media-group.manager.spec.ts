@@ -156,6 +156,9 @@ const digest = (row: MediaItem): MediaItemDigest => ({
 	episodeNumberEnd: row.episodeNumberEnd,
 	syncState: row.syncState,
 	ignored: row.ignored ?? false,
+	// Read off the fixture rather than defaulted, because a default would make every
+	// fileless row in this file read as a copy and silence the rule that says it is not.
+	hasFile: row.file !== null,
 });
 
 /**
@@ -2231,6 +2234,81 @@ describe('MediaGroupManager', () => {
 			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
 
 			expect(page.items.map((one) => one.id)).toEqual(['dated']);
+			expect(page.items[0].missingCount).toBe(0);
+		});
+
+		/**
+		 * The episode nobody here reports, which is what the whole watch exists for.
+		 *
+		 * `discoverEpisodes` mints a row for an aired episode no server has, and hangs it
+		 * under the series — so it carries the *series'* service, which is normally our own
+		 * Jellyfin. Read through `_holds`, a row on one of our services is a row we hold,
+		 * so the hole this feature exists to reveal is counted as filled.
+		 */
+		it('counts an episode the gateway minted for a show on our own server', async () => {
+			const { manager } = build({
+				items: [
+					show('aired', 'Alpha'),
+					item({ id: 'aired-1', title: 'One', parentId: 'aired' }),
+					// What `_createEpisode` writes, field for field: our service, no file,
+					// and no state yet because nothing has correlated it.
+					item({
+						id: 'aired-2',
+						title: 'Two',
+						parentId: 'aired',
+						episodeNumber: 2,
+						file: null,
+						quality: null,
+						syncState: SyncState.UNKNOWN,
+					}),
+				],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['aired']);
+			expect(page.items[0].missingCount).toBe(1);
+		});
+
+		/**
+		 * The same show as the tree really holds it: series, season, episode.
+		 *
+		 * A series' own gap count is over its *seasons*, so an episode-shaped hole has to
+		 * reach the poster through its state and the walk up — which is why the row the
+		 * gateway mints has to say `missing` and not `unknown`. One screen is at stake and
+		 * it is the one this feature exists for: the show is followed, the episode aired,
+		 * and the news screen asks only for what is actionable.
+		 */
+		it('shows a series an aired episode is missing under, two levels down', async () => {
+			const { manager } = build({
+				items: [
+					show('aired', 'Alpha'),
+					item({
+						id: 'aired-s1',
+						title: 'Season 1',
+						kind: MediaKind.SEASON,
+						parentId: 'aired',
+						file: null,
+						quality: null,
+					}),
+					item({ id: 'aired-s1e1', title: 'One', parentId: 'aired-s1' }),
+					item({
+						id: 'aired-s1e2',
+						title: 'Two',
+						parentId: 'aired-s1',
+						episodeNumber: 2,
+						file: null,
+						quality: null,
+						syncState: SyncState.MISSING,
+					}),
+				],
+			});
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(page.items.map((one) => one.id)).toEqual(['aired']);
+			// Over its seasons, and the season itself is not a hole — the hole is one
+			// level further down, which is the whole reason the state has to carry it.
 			expect(page.items[0].missingCount).toBe(0);
 		});
 

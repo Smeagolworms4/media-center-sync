@@ -138,6 +138,16 @@ describe('Browsing the index by media rather than by row', () => {
 			syncState: SyncState.IN_SYNC,
 		});
 
+		/**
+		 * An episode as a server that holds it reports it, file and all.
+		 *
+		 * The file is not decoration. A row with no file is a row for something the
+		 * server listed and does not have — which is how a media server announces a
+		 * missing episode, and how the gateway writes down one the provider says aired —
+		 * so a fileless copy is counted as a gap however local it is. A fixture without
+		 * files describes seven episodes nobody holds, and would have this whole season
+		 * read as missing while claiming to prove the opposite.
+		 */
 		const episode = async (
 			key: string,
 			serviceId: string,
@@ -152,6 +162,20 @@ describe('Browsing the index by media rather than by row', () => {
 				title: `Episode ${number}`,
 				normalizedTitle: `episode ${number}`,
 				syncState,
+				file: {
+					path: `/media/shows/Big Buck Bunny/Season 1/S01E0${number}.mkv`,
+					size: 1_048_576,
+					container: 'mkv',
+					videoCodec: 'hevc',
+					audioCodec: 'aac',
+					width: 1920,
+					height: 1080,
+					durationMs: 4000,
+					bitrate: 2_000_000,
+					quickHash: null,
+					contentId: null,
+					checksum: null,
+				},
 			});
 
 		await episode('e1-ours', ours.id, ourLibrary, id['season-ours'], 1, SyncState.IN_SYNC);

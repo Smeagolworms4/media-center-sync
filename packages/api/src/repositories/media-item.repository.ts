@@ -76,6 +76,16 @@ export interface MediaItemDigest {
 	episodeNumberEnd: number | null;
 	/** Excluded from gap counts and from what a sync plans. See `MediaOverride.ignored`. */
 	ignored: boolean;
+	/**
+	 * Whether this row names bytes, read as a flag so the JSON column stays unread.
+	 *
+	 * A media server reports episodes it does not have — Jellyfin lists the whole run of
+	 * a season when it is told to show what is missing — and the gateway mints rows of
+	 * exactly that kind itself, for episodes the provider says aired and nobody reports.
+	 * Without this, a row on one of our own services is a row we hold, so the holes those
+	 * rows exist to reveal are counted as filled. See `_holds`.
+	 */
+	hasFile: boolean;
 }
 
 /**
@@ -751,7 +761,13 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	 * would simply appear not to work, on the engine that ships by default.
 	 */
 	private static _digests(rows: MediaItemDigest[]): MediaItemDigest[] {
-		return rows.map((row) => ({ ...row, ignored: row.ignored === true || Number(row.ignored) === 1 }));
+		// Both booleans arrive as 0 or 1 from SQLite and as a boolean from PostgreSQL, so
+		// neither can be handed on untouched: `0` is falsy and `'0'` is not.
+		return rows.map((row) => ({
+			...row,
+			ignored: row.ignored === true || Number(row.ignored) === 1,
+			hasFile: row.hasFile === true || Number(row.hasFile) === 1,
+		}));
 	}
 
 	/** Rows a resolved coverage filter keeps: named outright, or filed under one that is. */
@@ -878,7 +894,14 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			.addSelect('item.syncState', 'syncState')
 			.addSelect('item.episodeNumber', 'episodeNumber')
 			.addSelect('item.episodeNumberEnd', 'episodeNumberEnd')
-			.addSelect('item.ignored', 'ignored');
+			.addSelect('item.ignored', 'ignored')
+			/*
+			 * A flag rather than the column, because this projection is read for the whole
+			 * filtered index — forty thousand rows on the owner's server — and `file` is
+			 * the widest JSON column in the table. `CASE` rather than a cast, which the two
+			 * engines spell differently, and a `null` file is stored as SQL `NULL` on both.
+			 */
+			.addSelect('CASE WHEN item.file IS NULL THEN 0 ELSE 1 END', 'hasFile');
 	}
 
 	private async _chunked<T>(ids: string[], read: (chunk: string[]) => Promise<T[]>): Promise<T[]> {

@@ -719,9 +719,12 @@ describe('MediaManager', () => {
 				seasonNumber: 1,
 				episodeNumber: 10,
 				title: 'Ten',
-				// No file, which is the entire point: it reads as missing everywhere an
-				// episode's state is read, so a search offers to fill it.
+				// No file, which is the entire point. It was believed to read as missing
+				// everywhere on that alone and it did not: a row on one of our own
+				// services read as a copy we hold, and a series' gap count is over its
+				// seasons rather than its episodes — so both halves are asserted here.
 				file: null,
+				syncState: SyncState.MISSING,
 			}));
 		});
 
