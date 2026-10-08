@@ -39,12 +39,15 @@ import {
 	breathe,
 	CatalogueCacheService,
 	editionOf,
+	episodesCovered,
 	isWorkerThread,
 	mappedLocalPath,
 	QualityService,
 	serviceMode,
 	SettingsService,
+	spanOf,
 	versionIdOf,
+	type EpisodeSpan,
 } from '@/services';
 import { LibraryManager } from './library.manager';
 import { pageBounds, paginate } from './mappers';
@@ -1233,6 +1236,7 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 
 		const counted = new Map<string, Set<string>>();
 		const gaps = new Map<string, number>();
+		const covered = this._rangesUnder(children, parentOf, context);
 
 		for (const child of children) {
 			const parentRoot = parentOf.get(child.id);
@@ -1267,12 +1271,74 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 				return copy !== undefined && this._holds(copy, context);
 			});
 
-			if (!held) {
+			if (!held && !this._insideARange(child, covered.get(parentRoot))) {
 				gaps.set(parentRoot, (gaps.get(parentRoot) ?? 0) + 1);
 			}
 		}
 
 		return gaps;
+	}
+
+	/**
+	 * Episode numbers held under each parent by a file that holds several.
+	 *
+	 * Only files actually on a disk here count, which is the whole point: a row
+	 * claiming to cover four episodes while holding none of them would silence the
+	 * gap for all four.
+	 */
+	private _rangesUnder(
+		children: MediaItemDigest[],
+		parentOf: Map<string, string>,
+		context: GroupContext,
+	): Map<string, Set<number>> {
+		const covered = new Map<string, Set<number>>();
+
+		for (const child of children) {
+			const parentRoot = parentOf.get(child.id);
+
+			if (
+				parentRoot === undefined ||
+				child.episodeNumberEnd === null ||
+				!this._holds(child, context)
+			) {
+				continue;
+			}
+
+			const under = covered.get(parentRoot) ?? new Set<number>();
+
+			for (const number of spanOf(child)) {
+				under.add(number);
+			}
+
+			covered.set(parentRoot, under);
+		}
+
+		return covered;
+	}
+
+	/**
+	 * Whether this child is the second half of a neighbour's two-part file.
+	 *
+	 * A row for episode two exists beside the `S01E01-E02` file in every catalogue
+	 * scanned before the range was read, because the gap detection minted one and
+	 * nothing deletes it. Drawn as a gap it is an episode the household is told to
+	 * fetch while it is already watching it, so the row survives — it is a real
+	 * episode and the provider really lists it — and simply stops being counted.
+	 *
+	 * Its own number is what is tested, never the range it would itself carry: a
+	 * two-part file covers its own first episode, and reading that as "somebody else
+	 * has it" would excuse every gap in the season.
+	 */
+	private _insideARange(child: EpisodeSpan, covered: Set<number> | undefined): boolean {
+		// Absent normalised before comparing, for the reason `spanOf` sets out.
+		const number = child.episodeNumber ?? null;
+
+		return (
+			covered !== undefined &&
+			(child.episodeNumberEnd ?? null) === null &&
+			number !== null &&
+			covered.has(number)
+		);
 	}
 
 	/** The full rows for one page of groups, and the children those groups count. */
@@ -1421,6 +1487,18 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		context: GroupContext,
 	): Map<string, boolean> {
 		const groups = new Map<string, boolean>();
+		/*
+		 * The episodes held by a file that holds several, under this group.
+		 *
+		 * Flat rather than per parent, because this runs for one media: the children
+		 * are the seasons of a series, which carry no episode number at all, or the
+		 * episodes of a single season, which cannot collide.
+		 */
+		const covered = episodesCovered(
+			[...children.byId.values()].filter(
+				(child) => child.episodeNumberEnd !== null && this._holds(child, context),
+			),
+		);
 
 		for (const member of members) {
 			for (const child of children.byParent.get(member.id) ?? []) {
@@ -1454,16 +1532,17 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 				// for the same reason it does in `_gapCounts` — the same count is read
 				// off both, and a season card that disagreed with itself between the
 				// listing and the detail page would be unexplainable from the screen.
-				groups.set(
-					root,
-					context.graph
-						.members(child.id)
-						.some((id) => {
-							const copy = children.byId.get(id);
+				const held = context.graph.members(child.id).some((id) => {
+					const copy = children.byId.get(id);
 
-							return copy !== undefined && this._holds(copy, context);
-						}),
-				);
+					return copy !== undefined && this._holds(copy, context);
+				});
+
+				// The second half of a neighbour's two-part file reads as held, for the
+				// reason spelled out on `_insideARange`: the same count is read off this
+				// map and off `_gapCounts`, and the two disagreeing would put one number
+				// on the season card and another on the page behind it.
+				groups.set(root, held || this._insideARange(child, covered));
 			}
 		}
 

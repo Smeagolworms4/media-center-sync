@@ -80,6 +80,9 @@ const LEADING_ARTICLES = [
 /** A year we are willing to believe belongs to a film, not to a title. */
 const YEAR_PATTERN = /^(19|20)\d{2}$/;
 
+/** How many episodes one file is believed to hold. See `runEndOf`. */
+const MAX_EPISODE_RUN = 8;
+
 export interface ParsedTitle {
 	/** The human title, cleaned of release noise but still readable and cased. */
 	title: string;
@@ -88,11 +91,20 @@ export interface ParsedTitle {
 	year: number | null;
 	seasonNumber: number | null;
 	episodeNumber: number | null;
+	episodeNumberEnd: number | null;
 }
 
 export interface EpisodeNumbers {
 	seasonNumber: number;
 	episodeNumber: number;
+	/**
+	 * The last episode of a file that holds several, or null for the usual one.
+	 *
+	 * `S01E01-E02` is one file and two episodes, and the second one is the whole
+	 * point: without it the household is told an episode is missing while it is
+	 * sitting on the disk, and the gap detection mints a row to go and fetch it.
+	 */
+	episodeNumberEnd: number | null;
 }
 
 /**
@@ -270,20 +282,38 @@ export function parseEpisodeNumbers(raw: string): EpisodeNumbers | null {
 	);
 
 	if (sxxexx) {
-		return { seasonNumber: Number(sxxexx[1]), episodeNumber: Number(sxxexx[2]) };
+		const first = Number(sxxexx[2]);
+
+		return {
+			seasonNumber: Number(sxxexx[1]),
+			episodeNumber: first,
+			episodeNumberEnd: runEndOf(value.slice(sxxexx.index + sxxexx[0].length), first),
+		};
 	}
 
 	const cross = /\b(\d{1,2})x(\d{1,3})(?!\d)/i.exec(value);
 
 	if (cross) {
-		return { seasonNumber: Number(cross[1]), episodeNumber: Number(cross[2]) };
+		const first = Number(cross[2]);
+
+		return {
+			seasonNumber: Number(cross[1]),
+			episodeNumber: first,
+			episodeNumberEnd: runEndOf(value.slice(cross.index + cross[0].length), first),
+		};
 	}
 
 	// `Season 1/Episode 2`, the form a folder tree produces rather than a file name.
 	const spelled = /\bseason\s*(\d{1,3})\b[^\d]{0,12}\bepisode\s*(\d{1,4})(?!\d)/i.exec(value);
 
 	if (spelled) {
-		return { seasonNumber: Number(spelled[1]), episodeNumber: Number(spelled[2]) };
+		const first = Number(spelled[2]);
+
+		return {
+			seasonNumber: Number(spelled[1]),
+			episodeNumber: first,
+			episodeNumberEnd: runEndOf(value.slice(spelled.index + spelled[0].length), first),
+		};
 	}
 
 	// Last resort: a bare `102` or `1102`. A four-digit token that parses as a year
@@ -296,11 +326,37 @@ export function parseEpisodeNumbers(raw: string): EpisodeNumbers | null {
 		const episode = Number(digits.slice(-2));
 
 		if (season >= 1 && season <= 99) {
-			return { seasonNumber: season, episodeNumber: episode };
+			return { seasonNumber: season, episodeNumber: episode, episodeNumberEnd: null };
 		}
 	}
 
 	return null;
+}
+
+/**
+ * The last episode of a multi-part tag, read from what follows the first one.
+ *
+ * Only the shapes a scanner actually produces are accepted — `-E02`, `E02`, `-02` —
+ * and only immediately after the opening tag, so the `02` of `S01E01 1080p x264 02`
+ * is not read as a second episode. A run that does not climb is refused rather than
+ * guessed: `S01E02-E01` is somebody's typo, and inventing a backwards range from it
+ * would mark a whole season held.
+ *
+ * Capped, because the cost of being wrong is asymmetric. A tag claiming forty parts
+ * is a parse that went wrong, and believing it would silence the gap detection for
+ * forty episodes the household does not have — whereas missing a genuine range only
+ * costs the one false gap this function exists to remove.
+ */
+function runEndOf(tail: string, first: number): number | null {
+	const run = /^\s*(?:-\s*e?|e)(\d{1,4})(?!\d)/i.exec(tail);
+
+	if (!run) {
+		return null;
+	}
+
+	const last = Number(run[1]);
+
+	return last > first && last - first <= MAX_EPISODE_RUN ? last : null;
 }
 
 /**
@@ -371,6 +427,7 @@ export function parseTitle(raw: string): ParsedTitle {
 		year: extractYear(name),
 		seasonNumber: numbers?.seasonNumber ?? null,
 		episodeNumber: numbers?.episodeNumber ?? null,
+		episodeNumberEnd: numbers?.episodeNumberEnd ?? null,
 	};
 }
 

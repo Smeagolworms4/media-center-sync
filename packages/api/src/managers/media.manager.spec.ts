@@ -725,6 +725,68 @@ describe('MediaManager', () => {
 			}));
 		});
 
+		it('does not offer to fetch the second half of a two-part file', async () => {
+			/*
+			 * The owner's Eureka, Monk and Beetlejuice, all four of them this shape.
+			 *
+			 * One file named `S01E09-E10` holds both episodes, the provider lists them
+			 * separately, and a gap is the difference between those two lists. Reading
+			 * only the first number made the second a hole, so a row was minted for it
+			 * and the household was invited to download an episode it was watching.
+			 */
+			const { manager, fakes } = build({
+				items: [
+					...show().slice(0, -1),
+					item({
+						id: 'episode-9-10',
+						externalId: 'jf-episode-9-10',
+						parentId: 'season-1',
+						parentExternalId: 'jf-season-1',
+						seasonNumber: 1,
+						episodeNumber: 9,
+						episodeNumberEnd: 10,
+					}),
+				],
+			});
+
+			fakes.requestSource.episodes.mockResolvedValue([
+				{ seasonNumber: 1, episodeNumber: 9, title: 'Nine', airDate: '2026-09-11' },
+				{ seasonNumber: 1, episodeNumber: 10, title: 'Ten', airDate: '2026-09-18' },
+			]);
+
+			expect(await manager.discoverEpisodes('series-1')).toBe(0);
+			expect(fakes.items.save).not.toHaveBeenCalled();
+		});
+
+		it('still finds a real hole beside a two-part file', async () => {
+			// The range must not become a blanket excuse: episode eleven is genuinely
+			// absent and has to keep being found.
+			const { manager, fakes } = build({
+				items: [
+					...show().slice(0, -1),
+					item({
+						id: 'episode-9-10',
+						externalId: 'jf-episode-9-10',
+						parentId: 'season-1',
+						parentExternalId: 'jf-season-1',
+						seasonNumber: 1,
+						episodeNumber: 9,
+						episodeNumberEnd: 10,
+					}),
+				],
+			});
+
+			fakes.requestSource.episodes.mockResolvedValue([
+				{ seasonNumber: 1, episodeNumber: 10, title: 'Ten', airDate: '2026-09-18' },
+				{ seasonNumber: 1, episodeNumber: 11, title: 'Eleven', airDate: '2026-09-25' },
+			]);
+
+			expect(await manager.discoverEpisodes('series-1')).toBe(1);
+			expect(fakes.items.save).toHaveBeenCalledWith(
+				expect.objectContaining({ episodeNumber: 11 }),
+			);
+		});
+
 		it('leaves an episode that has not aired alone', async () => {
 			// It is not missing from a library; it is missing from the world. A row
 			// proposing a search for it sends somebody looking for something that does not

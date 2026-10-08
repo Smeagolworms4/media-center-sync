@@ -127,6 +127,23 @@ export class MediaItem extends Timestampable {
 	@Column({ type: 'int', nullable: true })
 	public episodeNumber!: number | null;
 
+	/**
+	 * The last episode of a file holding several, or null for the usual one.
+	 *
+	 * Null is not "unknown", it is "one episode" — which is why nothing back-fills
+	 * it and every reader treats it as `episodeNumber` when it is absent.
+	 *
+	 * It exists because a gap is found by listing what a season holds and asking
+	 * the metadata provider what it should hold: a file named `S01E01-E02` reports
+	 * one number, so the second episode is absent from that list, and the gap
+	 * detection mints a row for an episode already on the disk and offers to go and
+	 * fetch it. Keeping the range on the row is the only way the two lists can be
+	 * compared honestly.
+	 */
+	@ApiProperty({ nullable: true })
+	@Column({ type: 'int', nullable: true })
+	public episodeNumberEnd!: number | null;
+
 	@ApiProperty()
 	@Column({ type: 'simple-json', default: '{}' })
 	public externalIds!: ExternalIds;

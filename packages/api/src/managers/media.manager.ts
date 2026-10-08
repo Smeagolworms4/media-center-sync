@@ -31,6 +31,7 @@ import {
 	HandlerRegistry,
 	applyOverride,
 	breathe,
+	episodesCovered,
 	normalizeTitle,
 	RemoteFingerprintService,
 	serviceMode,
@@ -660,9 +661,7 @@ export class MediaManager {
 
 		for (const season of seasons) {
 			const known = await this._items.findChildren(season.id);
-			const held = new Set(
-				known.map((episode) => episode.episodeNumber).filter((number) => number !== null),
-			);
+			const held = episodesCovered(known);
 			const listed = await source.episodes(configured, providerId, season.seasonNumber as number);
 
 			for (const episode of listed) {

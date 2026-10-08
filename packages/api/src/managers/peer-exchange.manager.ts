@@ -676,6 +676,7 @@ export class PeerExchangeManager implements PeerMethodHandler {
 			year: item.year,
 			seasonNumber: item.seasonNumber,
 			episodeNumber: item.episodeNumber,
+			episodeNumberEnd: item.episodeNumberEnd,
 			parentExternalId: item.parentId,
 			externalIds,
 			contentId: item.file?.contentId ?? null,

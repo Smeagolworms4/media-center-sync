@@ -71,6 +71,9 @@ export interface MediaItemDigest {
 	parentId: string | null;
 	kind: MediaKind;
 	syncState: SyncState;
+	/** Carried so a two-part file can be told apart from a hole. See `episodesCovered`. */
+	episodeNumber: number | null;
+	episodeNumberEnd: number | null;
 	/** Excluded from gap counts and from what a sync plans. See `MediaOverride.ignored`. */
 	ignored: boolean;
 }
@@ -873,6 +876,8 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			.addSelect('item.parentId', 'parentId')
 			.addSelect('item.kind', 'kind')
 			.addSelect('item.syncState', 'syncState')
+			.addSelect('item.episodeNumber', 'episodeNumber')
+			.addSelect('item.episodeNumberEnd', 'episodeNumberEnd')
 			.addSelect('item.ignored', 'ignored');
 	}
 

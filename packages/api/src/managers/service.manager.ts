@@ -1020,6 +1020,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 		row.year = item.year;
 		row.seasonNumber = item.seasonNumber;
 		row.episodeNumber = item.episodeNumber;
+		row.episodeNumberEnd = item.episodeNumberEnd;
 		row.externalIds = item.externalIds;
 		row.overview = item.overview;
 		row.artworkUrl = item.artworkUrl;

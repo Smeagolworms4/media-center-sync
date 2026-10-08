@@ -64,6 +64,7 @@ const item = (overrides: Partial<MediaItem> = {}): MediaItem =>
 		year: 2008,
 		seasonNumber: 1,
 		episodeNumber: 1,
+		episodeNumberEnd: null,
 		externalIds: {},
 		overview: null,
 		artworkUrl: null,
@@ -150,6 +151,8 @@ const digest = (row: MediaItem): MediaItemDigest => ({
 	libraryId: row.libraryId,
 	parentId: row.parentId,
 	kind: row.kind,
+	episodeNumber: row.episodeNumber,
+	episodeNumberEnd: row.episodeNumberEnd,
 	syncState: row.syncState,
 	ignored: row.ignored ?? false,
 });
@@ -1102,6 +1105,91 @@ describe('MediaGroupManager', () => {
 			// two rows and counts once; E4 is ours and is not missing from anywhere we
 			// are being asked about.
 			expect(group.missingCount).toBe(2);
+		});
+
+		it('does not count the second half of a two-part file as a gap', async () => {
+			/*
+			 * The rows an older gateway already minted, which nothing deletes.
+			 *
+			 * Before the range was read, a file named `S01E01-E02` reported one episode,
+			 * the provider listed two, and the difference was written to the database as
+			 * a row for episode two. Reading the range now stops new ones appearing; it
+			 * does nothing about the ones already there, and they are the ones the owner
+			 * is looking at. The row stays — it is a real episode and the provider really
+			 * lists it — and simply stops being counted against the season.
+			 */
+			const { manager } = build({
+				items: [
+					item({ id: 'season-local', kind: MediaKind.SEASON, file: null, title: 'Season 1' }),
+					item({
+						id: 'season-remote',
+						serviceId: 'remote',
+						kind: MediaKind.SEASON,
+						file: null,
+						title: 'Season 1',
+					}),
+					// One file on our disk, holding both episodes.
+					item({
+						id: 'e1-e2',
+						parentId: 'season-local',
+						title: 'E1-E2',
+						episodeNumber: 1,
+						episodeNumberEnd: 2,
+					}),
+					// Episode two as the followed show lists it, which nothing here matched
+					// to the file above because the file reports a single number.
+					item({
+						id: 'e2-listed',
+						serviceId: 'remote',
+						parentId: 'season-remote',
+						title: 'E2',
+						episodeNumber: 2,
+						file: null,
+					}),
+				],
+				matches: [correlation({ localItemId: 'season-local', remoteItemId: 'season-remote' })],
+			});
+
+			const group = (await manager.groups(query({ kind: MediaKind.SEASON }))).items[0];
+
+			expect(group.missingCount).toBe(0);
+		});
+
+		it('still counts a hole the two-part file does not reach', async () => {
+			// The range excuses the episodes it covers and no others, or one two-part
+			// file would mark a whole season held.
+			const { manager } = build({
+				items: [
+					item({ id: 'season-local', kind: MediaKind.SEASON, file: null, title: 'Season 1' }),
+					item({
+						id: 'season-remote',
+						serviceId: 'remote',
+						kind: MediaKind.SEASON,
+						file: null,
+						title: 'Season 1',
+					}),
+					item({
+						id: 'e1-e2',
+						parentId: 'season-local',
+						title: 'E1-E2',
+						episodeNumber: 1,
+						episodeNumberEnd: 2,
+					}),
+					item({
+						id: 'e4-listed',
+						serviceId: 'remote',
+						parentId: 'season-remote',
+						title: 'E4',
+						episodeNumber: 4,
+						file: null,
+					}),
+				],
+				matches: [correlation({ localItemId: 'season-local', remoteItemId: 'season-remote' })],
+			});
+
+			const group = (await manager.groups(query({ kind: MediaKind.SEASON }))).items[0];
+
+			expect(group.missingCount).toBe(1);
 		});
 
 		it('counts a child we hold under a parent that never matched as held', async () => {

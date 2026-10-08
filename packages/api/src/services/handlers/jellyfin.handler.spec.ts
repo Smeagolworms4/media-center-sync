@@ -215,6 +215,29 @@ describe('JellyfinHandler', () => {
 			expect(items[0].file).toBeNull();
 		});
 
+		it('keeps both episodes of a file that holds two', async () => {
+			/*
+			 * `IndexNumberEnd` is how Jellyfin says one file is two episodes, and reading
+			 * only `IndexNumber` is what made the owner's Monk, Eureka and Beetlejuice
+			 * report holes: a gap is the difference between what a season holds and what
+			 * the metadata provider lists, so the unreported half came back absent and
+			 * earned a row offering to download an episode already on the disk.
+			 */
+			stubFetch(() => ({
+				Items: [{ ...EPISODE, IndexNumber: 1, IndexNumberEnd: 2 }],
+				TotalRecordCount: 1,
+			}));
+
+			const items = [];
+
+			for await (const item of handler.scanLibrary(connection, library)) {
+				items.push(item);
+			}
+
+			expect(items[0].episodeNumber).toBe(1);
+			expect(items[0].episodeNumberEnd).toBe(2);
+		});
+
 		it('maps a full item onto the normalised shape', async () => {
 			stubFetch(() => ({ Items: [EPISODE], TotalRecordCount: 1 }));
 
@@ -237,6 +260,8 @@ describe('JellyfinHandler', () => {
 				year: 2015,
 				seasonNumber: 1,
 				episodeNumber: 2,
+				// One episode, so no range. `IndexNumberEnd` is what a two-part file sets.
+				episodeNumberEnd: null,
 				externalIds: {
 					tvdb: '5312341',
 					tmdb: undefined,

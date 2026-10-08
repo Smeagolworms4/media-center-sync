@@ -90,14 +90,49 @@ describe('title-normalizer', () => {
 			expect(parseEpisodeNumbers(raw)).toEqual({
 				seasonNumber: season,
 				episodeNumber: episode,
+				episodeNumberEnd: null,
 			});
 		});
 
-		it('takes the first episode of a multi-episode file', () => {
-			expect(parseEpisodeNumbers('Show.S02E03E04.mkv')).toEqual({
-				seasonNumber: 2,
-				episodeNumber: 3,
+		/*
+		 * Both halves of a two-part file, which is the half that used to be thrown away.
+		 *
+		 * The first number alone is not wrong, it is incomplete, and the cost of the
+		 * missing one is specific: a season holding `S01E01-E02` reported one episode,
+		 * the metadata provider listed two, and the difference was minted as a row
+		 * offering to download an episode already on the disk.
+		 */
+		const ranges: [string, number, number, number][] = [
+			['Show.S02E03E04.mkv', 2, 3, 4],
+			['Monk.S01E01-E02.mkv', 1, 1, 2],
+			['Eureka S01E01-02 1080p', 1, 1, 2],
+			['Beetlejuice.S01E04-E05.avi', 1, 4, 5],
+			['Show - 1x01-02 - Title', 1, 1, 2],
+		];
+
+		it.each(ranges)('reads %s as covering %i.%i to %i', (raw, season, first, last) => {
+			expect(parseEpisodeNumbers(raw)).toEqual({
+				seasonNumber: season,
+				episodeNumber: first,
+				episodeNumberEnd: last,
 			});
+		});
+
+		it('does not read the next number in a file name as a second episode', () => {
+			// `S01E01 ... 02` is a resolution, a codec, a part number of something else.
+			// Only a run written immediately after the tag is believed.
+			expect(parseEpisodeNumbers('Show.S01E01.1080p.x264.02.mkv')?.episodeNumberEnd)
+				.toBeNull();
+		});
+
+		it('refuses a range that runs backwards', () => {
+			expect(parseEpisodeNumbers('Show.S01E05-E02.mkv')?.episodeNumberEnd).toBeNull();
+		});
+
+		it('refuses a range too long to be one file', () => {
+			// A tag claiming forty parts is a parse that went wrong, and believing it
+			// would silence the gap detection for forty episodes nobody has.
+			expect(parseEpisodeNumbers('Show.S01E01-E40.mkv')?.episodeNumberEnd).toBeNull();
 		});
 
 		it('refuses to read a year as a season and an episode', () => {
@@ -141,6 +176,7 @@ describe('title-normalizer', () => {
 				year: null,
 				seasonNumber: 1,
 				episodeNumber: 2,
+				episodeNumberEnd: null,
 			});
 		});
 
@@ -151,6 +187,7 @@ describe('title-normalizer', () => {
 				year: 2001,
 				seasonNumber: null,
 				episodeNumber: null,
+				episodeNumberEnd: null,
 			});
 		});
 

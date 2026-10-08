@@ -7,6 +7,7 @@ export * from './classification';
 export * from './companions';
 export * from './correlation.service';
 export * from './directories';
+export * from './episode-coverage';
 export * from './episode-numbering';
 export * from './error-key';
 export * from './event-gateway.service';

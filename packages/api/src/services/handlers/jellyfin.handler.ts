@@ -719,6 +719,20 @@ export class JellyfinHandler implements MediaServiceHandler {
 			episodeNumber:
 				(kind === MediaKind.EPISODE ? asNumber(raw.IndexNumber) : null) ??
 				(kind === MediaKind.EPISODE ? (fromPath?.episodeNumber ?? null) : null),
+			/*
+			 * `IndexNumberEnd` is how Jellyfin says one file is two episodes, and
+			 * reading only `IndexNumber` is why the second half of every `S01E01-E02`
+			 * looked absent: the gap detection compares what the season holds against
+			 * what the provider lists, so the unreported number came back as a hole and
+			 * earned a row offering to download an episode already on the disk.
+			 *
+			 * The path is consulted the same way it is for the number itself, because a
+			 * library whose files are named correctly and whose metadata was never
+			 * refreshed reports neither.
+			 */
+			episodeNumberEnd:
+				(kind === MediaKind.EPISODE ? asNumber(raw.IndexNumberEnd) : null) ??
+				(kind === MediaKind.EPISODE ? (fromPath?.episodeNumberEnd ?? null) : null),
 			externalIds: this._toExternalIds(raw, externalId),
 			overview: asString(raw.Overview),
 			artworkUrl: pick(raw, 'ImageTags', 'Primary')

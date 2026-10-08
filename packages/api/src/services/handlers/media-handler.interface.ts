@@ -61,6 +61,8 @@ export interface NormalisedMediaItem {
 	year: number | null;
 	seasonNumber: number | null;
 	episodeNumber: number | null;
+	/** Last episode of a file holding several; null means it holds one. */
+	episodeNumberEnd: number | null;
 	externalIds: ExternalIds;
 	overview: string | null;
 	artworkUrl: string | null;

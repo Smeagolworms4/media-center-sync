@@ -194,6 +194,7 @@ describe('PlexHandler', () => {
 				year: 2015,
 				seasonNumber: 1,
 				episodeNumber: 2,
+				episodeNumberEnd: null,
 				externalIds: {
 					tvdb: '5312341',
 					tmdb: undefined,

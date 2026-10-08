@@ -251,6 +251,7 @@ describe('A media whose file has landed but which nothing has indexed', () => {
 				normalizedTitle: 'expanse back to the butcher',
 				seasonNumber: 1,
 				episodeNumber: 2,
+				episodeNumberEnd: null,
 				syncState: SyncState.MISSING,
 				file: {
 					path: '/data/shows/The Expanse/S01E02.mkv',
@@ -352,6 +353,7 @@ describe('A media whose file has landed but which nothing has indexed', () => {
 				year: 2015,
 				seasonNumber: 1,
 				episodeNumber: 2,
+				episodeNumberEnd: null,
 				externalIds: {},
 				overview: null,
 				artworkUrl: null,

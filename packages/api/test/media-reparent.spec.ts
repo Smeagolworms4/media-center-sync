@@ -111,6 +111,7 @@ const reported = (overrides: Partial<NormalisedMediaItem> = {}): NormalisedMedia
 	year: 2001,
 	seasonNumber: 1,
 	episodeNumber: 1,
+	episodeNumberEnd: null,
 	externalIds: {},
 	overview: null,
 	artworkUrl: null,

@@ -283,6 +283,8 @@ describe('The peer protocol', () => {
 				year: 2012,
 				seasonNumber: null,
 				episodeNumber: null,
+				// Announced, so a peer's two-part file is not read here as a hole.
+				episodeNumberEnd: null,
 				parentExternalId: null,
 				// The metadata identifiers are the point: both sides can correlate on
 				// them. `provider` is how *our* service keys the row and means nothing at

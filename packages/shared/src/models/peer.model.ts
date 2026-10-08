@@ -254,6 +254,11 @@ export interface CatalogueEntry {
 	year: number | null;
 	seasonNumber: number | null;
 	episodeNumber: number | null;
+	/**
+	 * Last episode of a file holding several; absent on a peer running an older
+	 * gateway, which is why it is optional where the handler's own shape is not.
+	 */
+	episodeNumberEnd?: number | null;
 	parentExternalId: string | null;
 	externalIds: Record<string, string>;
 	/** Present only when they share the files, absent when they share the catalogue. */

@@ -355,6 +355,7 @@ export class RequestsHandler implements MediaServiceHandler {
 				year: details.year,
 				seasonNumber: null,
 				episodeNumber: null,
+				episodeNumberEnd: null,
 				externalIds,
 				overview: details.overview,
 				artworkUrl: details.artworkUrl,
@@ -390,6 +391,7 @@ export class RequestsHandler implements MediaServiceHandler {
 					year: null,
 					seasonNumber,
 					episodeNumber: null,
+					episodeNumberEnd: null,
 					externalIds: {},
 					overview: null,
 					artworkUrl: null,
@@ -417,6 +419,9 @@ export class RequestsHandler implements MediaServiceHandler {
 						year: null,
 						seasonNumber,
 						episodeNumber: episode.episodeNumber,
+						// A provider lists episodes one by one; a range is a property of a
+						// file on a disk, and this source has no files.
+						episodeNumberEnd: null,
 						externalIds: {},
 						overview: null,
 						artworkUrl: null,

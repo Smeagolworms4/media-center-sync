@@ -492,6 +492,8 @@ export class PeerHandler implements MediaServiceHandler {
 			year: entry.year ?? null,
 			seasonNumber: entry.seasonNumber ?? null,
 			episodeNumber: entry.episodeNumber ?? null,
+			// A peer announces what it holds, and a two-part file is one thing held.
+			episodeNumberEnd: entry.episodeNumberEnd ?? null,
 			externalIds: this._toExternalIds(entry),
 			// Neither crosses the wire. A description and a poster are what a media
 			// server holds about an item, and the catalogue is deliberately the thinner

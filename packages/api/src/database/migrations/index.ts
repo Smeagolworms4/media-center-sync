@@ -8,6 +8,7 @@ import { AddGrabLot1758758400000 } from './1758758400000-AddGrabLot';
 import { AddTransferErrorDetail1758844800000 } from './1758844800000-AddTransferErrorDetail';
 import { AddGrabQuality1759017600000 } from './1759017600000-AddGrabQuality';
 import { AddMediaWatchStates1759190400000 } from './1759190400000-AddMediaWatchStates';
+import { AddEpisodeNumberEnd1759276800000 } from './1759276800000-AddEpisodeNumberEnd';
 
 /*
  * The thirteen digits at the end of every migration name are not decoration.
@@ -50,6 +51,7 @@ export const MIGRATIONS = [
 	AddTransferErrorDetail1758844800000,
 	AddGrabQuality1759017600000,
 	AddMediaWatchStates1759190400000,
+	AddEpisodeNumberEnd1759276800000,
 ];
 
 export * from './1758240000000-InitialSchema';
@@ -62,3 +64,4 @@ export * from './1758758400000-AddGrabLot';
 export * from './1758844800000-AddTransferErrorDetail';
 export * from './1759017600000-AddGrabQuality';
 export * from './1759190400000-AddMediaWatchStates';
+export * from './1759276800000-AddEpisodeNumberEnd';

@@ -928,6 +928,16 @@ export class PlexHandler implements MediaServiceHandler {
 				kind === MediaKind.EPISODE
 					? (asNumber(raw.index) ?? fromPath?.episodeNumber ?? null)
 					: null,
+			/*
+			 * Plex spells the end of a multi-part episode `index2` on the older
+			 * endpoints and `parentIndex2` on none of them; where it says nothing the
+			 * file name is all there is, and a correctly named `S01E01-E02` is read
+			 * from the path exactly as the episode number itself would be.
+			 */
+			episodeNumberEnd:
+				kind === MediaKind.EPISODE
+					? (asNumber(raw.index2) ?? fromPath?.episodeNumberEnd ?? null)
+					: null,
 			externalIds: this._toExternalIds(raw, externalId),
 			overview: asString(raw.summary),
 			artworkUrl: asString(raw.thumb)

@@ -110,6 +110,7 @@ const film = (overrides: Partial<NormalisedMediaItem> = {}): NormalisedMediaItem
 	year: 2001,
 	seasonNumber: null,
 	episodeNumber: null,
+	episodeNumberEnd: null,
 	externalIds: {},
 	overview: null,
 	artworkUrl: null,
