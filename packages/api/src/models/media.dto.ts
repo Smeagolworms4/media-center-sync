@@ -17,6 +17,7 @@ import {
 	ValidateNested,
 } from 'class-validator';
 import {
+	ActionableReason,
 	MediaKind,
 	MediaWatchState,
 	MediaOrigin,
@@ -285,6 +286,23 @@ export class MediaGroupQueryDto {
 	@IsOptional()
 	@IsBooleanQuery()
 	public actionable?: boolean;
+
+	/**
+	 * Which halves of `actionable` count. Omitted means both.
+	 *
+	 * One value is read as a list of one, for the reason `MediaSearchDto` states: a
+	 * query string carries `reasons=gap` as a string and `reasons=gap&reasons=upgrade`
+	 * as an array, and a screen with one box ticked must not be a different shape of
+	 * request from the same screen with two.
+	 */
+	@ApiPropertyOptional({ enum: ActionableReason, isArray: true })
+	@IsOptional()
+	@Transform(({ value }) => (Array.isArray(value)
+		? (value as ActionableReason[])
+		: [value as ActionableReason]))
+	@IsArray()
+	@IsEnum(ActionableReason, { each: true })
+	public reasons?: ActionableReason[];
 
 	@ApiPropertyOptional()
 	@IsOptional()

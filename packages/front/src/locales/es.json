@@ -1815,6 +1815,8 @@
 		"watched": "Seguido: la fuente de peticiones ya lo conoce."
 	},
 	"news": {
+		"reason_gap": "Nuevos episodios",
+		"reason_upgrade": "Mejores versiones",
 		"empty_text": "No falta ningún episodio emitido de las series que sigue. Seguir es la lista de seguimiento de su fuente de peticiones — una serie solo pedida no es una serie seguida.",
 		"empty_title": "Nada nuevo",
 		"hint": "El más reciente salió",

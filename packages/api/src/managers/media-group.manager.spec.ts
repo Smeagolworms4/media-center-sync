@@ -1,4 +1,5 @@
 import {
+	ActionableReason,
 	CacheRefreshReason,
 	MatchStrategy,
 	MediaKind,
@@ -2231,6 +2232,73 @@ describe('MediaGroupManager', () => {
 
 			expect(page.items.map((one) => one.id)).toEqual(['dated']);
 			expect(page.items[0].missingCount).toBe(0);
+		});
+
+		/*
+		 * Asked for on the news screen: the two halves, told apart.
+		 *
+		 * A new episode is tonight and a better encoding of a film already on the disk
+		 * is a weekend job — the same list answers both and somebody on a metered
+		 * connection wants to read one of them at a time. The world below holds exactly
+		 * one of each, so a filter that quietly did nothing would return both and fail.
+		 */
+		const oneOfEach = () => ({
+			items: [
+				show('gapped', 'Alpha'),
+				item({ id: 'gapped-1', title: 'One', parentId: 'gapped' }),
+				item({
+					id: 'gapped-2',
+					title: 'Two',
+					parentId: 'gapped',
+					serviceId: 'remote',
+					libraryId: 'library-remote',
+					syncState: SyncState.MISSING,
+				}),
+				show('dated', 'Bravo'),
+				item({ id: 'dated-1', title: 'One', parentId: 'dated', syncState: SyncState.OUTDATED }),
+			],
+		});
+
+		it('keeps only the gaps when that is the half asked for', async () => {
+			const { manager } = build(oneOfEach());
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, actionable: true, reasons: [ActionableReason.GAP] }),
+			);
+
+			expect(page.items.map((one) => one.id)).toEqual(['gapped']);
+		});
+
+		it('keeps only the better copies when that is the half asked for', async () => {
+			const { manager } = build(oneOfEach());
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, actionable: true, reasons: [ActionableReason.UPGRADE] }),
+			);
+
+			expect(page.items.map((one) => one.id)).toEqual(['dated']);
+		});
+
+		it('answers both when no half is named, exactly as it did before the filter', async () => {
+			// The default has to be the old behaviour or every caller written before this
+			// existed quietly loses rows.
+			const { manager } = build(oneOfEach());
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(page.items.map((one) => one.id).sort()).toEqual(['dated', 'gapped']);
+		});
+
+		it('reads an empty choice as both rather than as nothing', async () => {
+			// It arrives from a screen where somebody unticked every box. A blank page
+			// there reads as "you have nothing", which is a different and alarming claim.
+			const { manager } = build(oneOfEach());
+
+			const page = await manager.groups(
+				query({ rootsOnly: true, actionable: true, reasons: [] }),
+			);
+
+			expect(page.items.map((one) => one.id).sort()).toEqual(['dated', 'gapped']);
 		});
 
 		/** The tab itself: one listing, two filters, and they narrow together. */

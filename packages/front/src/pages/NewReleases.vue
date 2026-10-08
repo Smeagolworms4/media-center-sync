@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { MediaGroup, MediaGroupQuery } from '@mcs/shared';
+	import { ActionableReason, type MediaGroup, type MediaGroupQuery } from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
@@ -129,6 +129,59 @@
 	 */
 	const KEY = 'new-releases';
 
+	/**
+	 * Which half of the news to show, remembered between visits.
+	 *
+	 * The screen answers two questions at once — something to fetch, something to
+	 * replace — and they are not read in the same mood. A new episode is tonight; a
+	 * better encoding of a film already on the disk is a weekend job, and on a metered
+	 * connection it may be never. Asked for explicitly, and kept per browser rather
+	 * than per account because it is a way of reading a screen and not a setting of
+	 * the household's.
+	 *
+	 * Both ticked is the default and is what this screen has always shown, so nobody
+	 * loses anything by never touching it.
+	 */
+	const REASONS_KEY = 'mcs.news.reasons';
+
+	function readReasons (): ActionableReason[] {
+		const known = [ActionableReason.GAP, ActionableReason.UPGRADE];
+
+		try {
+			const stored = JSON.parse(localStorage.getItem(REASONS_KEY) ?? 'null') as unknown;
+
+			if (!Array.isArray(stored)) {
+				return known;
+			}
+
+			const kept = known.filter(one => stored.includes(one));
+
+			// Never an empty filter out of storage: a value written by an older build, or
+			// edited by hand, must not leave somebody on a permanently blank screen with
+			// no way to tell it from "nothing new".
+			return kept.length > 0 ? kept : known;
+		} catch {
+			// Private browsing, cleared site data, storage refused. The default reads the
+			// same as it always has.
+			return known;
+		}
+	}
+
+	const reasons = ref<ActionableReason[]>(readReasons());
+
+	/** Toggling the filter re-asks the gateway: the narrowing is done there, not here. */
+	async function chooseReasons (chosen: ActionableReason[]): Promise<void> {
+		reasons.value = chosen.length > 0 ? chosen : [ActionableReason.GAP, ActionableReason.UPGRADE];
+
+		try {
+			localStorage.setItem(REASONS_KEY, JSON.stringify(reasons.value));
+		} catch {
+			// Not worth failing a reload over; the filter simply will not be remembered.
+		}
+
+		await load();
+	}
+
 	const QUERY: MediaGroupQuery = {
 		/*
 		 * Roots, never episodes. `actionable` is what makes it news rather than a
@@ -154,7 +207,11 @@
 
 		try {
 			await librariesStore.loadCategories();
-			await mediaStore.searchGroups(KEY, QUERY);
+			// Both reasons is the same request as no reasons at all, and sending neither
+			// keeps the query identical to the one every earlier build sent.
+			await mediaStore.searchGroups(KEY, reasons.value.length === 2
+				? QUERY
+				: { ...QUERY, reasons: reasons.value });
 		} catch {
 			failed.value = true;
 		} finally {
@@ -217,6 +274,38 @@
 			:title="$t('pages.news')"
 		>
 			<template #actions>
+				<!--
+					Which half of the news, as two toggles rather than a dropdown: both are
+					on by default and the state has to be readable without opening
+					anything, or somebody looking at a short wall cannot tell a quiet week
+					from a filter they set last month.
+				-->
+				<v-btn-toggle
+					class="news-reasons"
+					data-test="news-reasons"
+					density="comfortable"
+					:model-value="reasons"
+					multiple
+					variant="outlined"
+					@update:model-value="chooseReasons($event as ActionableReason[])"
+				>
+					<v-btn
+						data-test="news-reason-gap"
+						prepend-icon="mdi-playlist-plus"
+						:value="ActionableReason.GAP"
+					>
+						{{ $t('news.reason_gap') }}
+					</v-btn>
+
+					<v-btn
+						data-test="news-reason-upgrade"
+						prepend-icon="mdi-arrow-up-bold-circle-outline"
+						:value="ActionableReason.UPGRADE"
+					>
+						{{ $t('news.reason_upgrade') }}
+					</v-btn>
+				</v-btn-toggle>
+
 				<ViewModeToggle v-model="view" test-id="news-view-toggle" />
 
 				<v-btn

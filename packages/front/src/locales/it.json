@@ -1815,6 +1815,8 @@
 		"watched": "Seguito: la sorgente di richieste ora lo conosce."
 	},
 	"news": {
+		"reason_gap": "Nuovi episodi",
+		"reason_upgrade": "Versioni migliori",
 		"empty_text": "Non manca nessun episodio uscito tra le serie che segui. Seguire è la watchlist della tua fonte di richieste — una serie soltanto richiesta non è una serie seguita.",
 		"empty_title": "Niente di nuovo",
 		"hint": "Il più recente è uscito",

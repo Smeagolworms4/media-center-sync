@@ -1815,6 +1815,8 @@
 		"watched": "Followed: the request source knows about it now."
 	},
 	"news": {
+		"reason_gap": "New episodes",
+		"reason_upgrade": "Better versions",
 		"empty_text": "No aired episode is missing from the shows you follow. Following is the watchlist on your request source — a show you merely asked for is not a show you follow.",
 		"empty_title": "Nothing new",
 		"hint": "The most recent came out",

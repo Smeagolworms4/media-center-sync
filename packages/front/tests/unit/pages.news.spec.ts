@@ -136,6 +136,39 @@ describe('pages/NewReleases', () => {
 		expect(url).toContain('direction=desc');
 	});
 
+	/*
+	 * The two halves of the news, told apart.
+	 *
+	 * A new episode is tonight; a better encoding of a film already on the disk is a
+	 * weekend job, and on a metered connection it may be never. Both are `actionable`
+	 * and they are not the same news.
+	 */
+	it('sends no reason when both halves are wanted, exactly as it always did', async () => {
+		const { stub } = await open([]);
+		const url = String(
+			stub.mock.calls.find(one => String(one[0]).includes('/media/groups'))?.[0],
+		);
+
+		// The default has to be byte-for-byte the old request, or every household that
+		// never touches the filter gets a different screen for no reason.
+		expect(url).not.toContain('reasons');
+	});
+
+	it('asks only for the gaps once the upgrades are unticked', async () => {
+		const { wrapper, stub } = await open([]);
+
+		await wrapper.find('[data-test="news-reason-upgrade"]').trigger('click');
+		await settle();
+
+		const asked = stub.mock.calls.filter(one => String(one[0]).includes('/media/groups'));
+		const url = String(asked.at(-1)?.[0]);
+
+		// Narrowed by the gateway, not here: the page never receives the rows it is not
+		// showing, which is the difference between a filter and a fold.
+		expect(url).toContain('reasons=gap');
+		expect(url).not.toContain('reasons=upgrade');
+	});
+
 	it('draws one band per category, like the library it belongs to', async () => {
 		const { wrapper } = await open([
 			series(),

@@ -510,6 +510,27 @@ export enum MediaWatchState {
 	REQUESTED = 'requested',
 }
 
+/**
+ * Why a media is worth acting on — the two halves of `actionable`, told apart.
+ *
+ * `actionable` answers them together, which is right for a list whose question is
+ * "what is left to do". It is wrong for the one screen whose question is "what is
+ * new": a show with three episodes nobody has sent us and a film we hold in 1080p
+ * while a friend has the 2160p are both actionable and are not the same news. One
+ * is an episode to watch, the other is the same evening in better quality, and
+ * somebody on a metered connection wants to see one of those lists and not the
+ * other.
+ *
+ * Asked for as a list, so "either" stays sayable and remains the default: omitting
+ * it means both, which is what `actionable` has always meant.
+ */
+export enum ActionableReason {
+	/** Something beneath it is absent here — a new episode, most often. */
+	GAP = 'gap',
+	/** We hold it, and a better version exists somewhere we can reach. */
+	UPGRADE = 'upgrade',
+}
+
 export enum MediaOrigin {
 	/** A service whose libraries we can write into. */
 	LOCAL = 'local',
@@ -673,6 +694,15 @@ export interface MediaGroupQuery {
 	 * vocabulary `SyncState` already speaks.
 	 */
 	actionable?: boolean;
+	/**
+	 * Which halves of `actionable` count, when only one of them is wanted.
+	 *
+	 * Omitted means both, so every caller written before this existed keeps the
+	 * answer it had. It narrows `actionable` and does not replace it: asked for
+	 * without it, nothing is filtered, because "show me only the upgrades" is a
+	 * statement about a list that is already restricted to what there is to do.
+	 */
+	reasons?: ActionableReason[];
 	/** Children of this group, addressed by the parent's representative item. */
 	parentId?: string;
 	/**

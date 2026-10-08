@@ -1,4 +1,5 @@
 import {
+	ActionableReason,
 	CacheRefreshReason,
 	ErrorKey,
 	LANDED_SYNC_STATES,
@@ -105,7 +106,6 @@ const GROUP_STATE_ORDER = [
  * not hold. `syncing` is left out because a transfer already running is not something to
  * ask anybody to do, and `local_only` because nobody else has anything to offer.
  */
-const ACTIONABLE_STATES = [SyncState.MISSING, SyncState.OUTDATED, SyncState.CONFLICT] as const;
 
 /**
  * How far up a parent chain the followed scope climbs.
@@ -462,7 +462,7 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 				: await this._inState(skeletons, states, seedQuery, context);
 		const actionable =
 			query.actionable === true
-				? await this._actionable(byState, seedQuery, context)
+				? await this._actionable(byState, seedQuery, context, query.reasons)
 				: byState;
 
 		/*
@@ -759,12 +759,46 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		skeletons: GroupSkeleton[],
 		seedQuery: GroupSeedQuery,
 		context: GroupContext,
+		reasons?: ActionableReason[],
 	): Promise<GroupSkeleton[]> {
-		const newer = new Set(
-			await this._inState(skeletons, [...ACTIONABLE_STATES], seedQuery, context),
-		);
+		/*
+		 * No reasons named is both of them, which is what this filter has always meant.
+		 * An empty list is read the same way rather than as "nothing": it arrives from a
+		 * screen where somebody has unticked every box, and answering an empty page to
+		 * that reads as a catalogue with nothing in it rather than as a filter.
+		 */
+		const wanted = reasons === undefined || reasons.length === 0
+			? [ActionableReason.GAP, ActionableReason.UPGRADE]
+			: reasons;
+		const gaps = wanted.includes(ActionableReason.GAP);
+		const upgrades = wanted.includes(ActionableReason.UPGRADE);
 
-		return skeletons.filter((skeleton) => skeleton.missingCount > 0 || newer.has(skeleton));
+		/*
+		 * Two passes rather than one over every state, because the states divide the
+		 * same way the reasons do and a single set could not be split afterwards.
+		 * `conflict` goes with the gaps: two cuts that cannot be ordered means the one
+		 * we do not hold is not held by anything, which is an absence and not an
+		 * upgrade.
+		 */
+		const absent = gaps
+			? new Set(
+				await this._inState(
+					skeletons,
+					[SyncState.MISSING, SyncState.CONFLICT],
+					seedQuery,
+					context,
+				),
+			)
+			: new Set<GroupSkeleton>();
+		const better = upgrades
+			? new Set(await this._inState(skeletons, [SyncState.OUTDATED], seedQuery, context))
+			: new Set<GroupSkeleton>();
+
+		return skeletons.filter(
+			(skeleton) =>
+				(gaps && (skeleton.missingCount > 0 || absent.has(skeleton))) ||
+				(upgrades && better.has(skeleton)),
+		);
 	}
 
 	/**
