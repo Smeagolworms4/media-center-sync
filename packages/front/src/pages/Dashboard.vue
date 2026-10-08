@@ -11,6 +11,7 @@
 	import UnconfiguredPlacements from '@/components/transfer/UnconfiguredPlacements.vue';
 	import { useDestinationLibraries } from '@/composables/useDestinationLibraries';
 	import { useNotifier } from '@/hooks/useNotifier';
+	import { AbortCallerException } from '@/libs/caller';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 	import { usePeersStore } from '@/stores/peers';
@@ -82,7 +83,13 @@
 						notIndexedCount.value = total;
 					}),
 			]);
-		} catch {
+		} catch (error) {
+			// Superseded, not broken: a newer read under the same `keepLastKey` aborted
+			// this one. See `NewReleases.load`.
+			if (error instanceof AbortCallerException) {
+				return;
+			}
+
 			failed.value = true;
 		} finally {
 			loading.value = false;

@@ -6,8 +6,9 @@ import {
 	type ScanProgress,
 	SyncState,
 } from '@mcs/shared';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
+import ErrorState from '@/components/common/ErrorState.vue';
 import NewReleases from '@/pages/NewReleases.vue';
 import { useServicesStore } from '@/stores/services';
 import { mountWithApp, stubFetchRoutes, tooltipStub } from './helpers';
@@ -270,6 +271,53 @@ describe('pages/NewReleases', () => {
 			expect(String(asked.at(-1)?.[0])).not.toContain('signals');
 			expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(true);
 		});
+	});
+
+	/**
+	 * A read somebody cancelled is not a read that failed.
+	 *
+	 * Every call here carries a `keepLastKey`, so starting a newer one aborts the one in
+	 * flight — and this screen shares `libraries|categories` with the library and
+	 * `media|groups|…` with every other wall. Leaving the page quickly, or toggling a
+	 * filter, therefore kills a request *on purpose*; the dead one then lit up
+	 * "something went wrong" over the live one's results, and it is the slowest read in
+	 * the product so it lost that race most often. "J'ai toujours des erreurs de
+	 * chargement, surtout quand je change de page assez vite."
+	 */
+	it('shows no error when the read was cancelled by a newer one', async () => {
+		stubFetchRoutes({
+			'/api/libraries/categories': { body: CATEGORIES },
+			'/api/libraries': { body: [] },
+		});
+		// What the caller raises for an aborted fetch, which is what it turns into an
+		// `AbortCallerException`: a `DOMException` named `AbortError`, and nothing else.
+		const stub = vi.fn((input: unknown) => (String(input).includes('/media/groups')
+			? Promise.reject(new DOMException('aborted', 'AbortError'))
+			: Promise.resolve(Response.json(CATEGORIES))));
+
+		globalThis.fetch = stub as unknown as typeof fetch;
+
+		const { wrapper } = mountWithApp(NewReleases, { global: { stubs: tooltipStub } });
+
+		await settle();
+
+		expect(wrapper.findComponent(ErrorState).exists()).toBe(false);
+	});
+
+	it('still shows the error when the gateway really refuses', async () => {
+		// The other half, or the guard above would hide every real failure: a screen that
+		// never says anything went wrong is worse than one that says it too often.
+		const stub = vi.fn((input: unknown) => (String(input).includes('/media/groups')
+			? Promise.reject(new TypeError('Failed to fetch'))
+			: Promise.resolve(Response.json(CATEGORIES))));
+
+		globalThis.fetch = stub as unknown as typeof fetch;
+
+		const { wrapper } = mountWithApp(NewReleases, { global: { stubs: tooltipStub } });
+
+		await settle();
+
+		expect(wrapper.findComponent(ErrorState).exists()).toBe(true);
 	});
 
 	it('draws one band per category, like the library it belongs to', async () => {

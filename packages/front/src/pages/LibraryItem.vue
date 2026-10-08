@@ -29,6 +29,7 @@
 	import { OPEN_OVERRIDE, withoutReleasePreference } from '@/composables/useMediaOverride';
 	import { useMediaTrail } from '@/composables/useMediaTrail';
 	import { useNotifier } from '@/hooks/useNotifier';
+	import { AbortCallerException } from '@/libs/caller';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 	import { usePeersStore } from '@/stores/peers';
@@ -165,7 +166,13 @@
 			children.value = loadedChildren?.items ?? [];
 			plans.value = loadedPlans;
 			item.value = loadedItem;
-		} catch {
+		} catch (error) {
+			// Superseded, not broken: a newer read under the same `keepLastKey` aborted
+			// this one. See `NewReleases.load`.
+			if (error instanceof AbortCallerException) {
+				return;
+			}
+
 			// Only the group reaching here is a failure: everything after it is caught
 			// above. A seed on screen is not an answer, so the error replaces it.
 			failed.value = true;

@@ -18,6 +18,7 @@
 	import { useViewMode } from '@/composables/useViewMode';
 	import { useDebounce } from '@/hooks/useDebounce';
 	import { useNotifier } from '@/hooks/useNotifier';
+	import { AbortCallerException } from '@/libs/caller';
 	import { queryRef, queryTypes } from '@/libs/vue3-query-ref';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
@@ -457,7 +458,13 @@
 		failed.value = false;
 		try {
 			await Promise.all(bands.value.map(band => mediaStore.searchGroups(band.key, queryOf(band))));
-		} catch {
+		} catch (error) {
+			// Superseded, not broken: a newer read under the same `keepLastKey` aborted
+			// this one. See `NewReleases.load`.
+			if (error instanceof AbortCallerException) {
+				return;
+			}
+
 			failed.value = true;
 		}
 	}

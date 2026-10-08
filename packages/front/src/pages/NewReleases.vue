@@ -13,6 +13,7 @@
 	import LibrarySection from '@/components/media/LibrarySection.vue';
 	import ViewModeToggle from '@/components/media/ViewModeToggle.vue';
 	import { useViewMode } from '@/composables/useViewMode';
+	import { AbortCallerException } from '@/libs/caller';
 	import { useLibrariesStore } from '@/stores/libraries';
 	import { useMediaStore } from '@/stores/media';
 	import { useServicesStore } from '@/stores/services';
@@ -287,7 +288,21 @@
 				// is a real filter and not the absence of one.
 				...(onlyFetchable.value ? { signals: signals.value } : {}),
 			});
-		} catch {
+		} catch (error) {
+			/*
+			 * A cancelled call is not a failure, and saying it is was the whole bug.
+			 *
+			 * Every read here carries a `keepLastKey`, so starting a newer one aborts the
+			 * one in flight — and this screen shares `libraries|categories` with the
+			 * library and `media|groups|…` with every other wall. Leaving a page quickly,
+			 * or toggling a filter, therefore kills a request *on purpose*, and the dead
+			 * one used to light up "something went wrong" over the live one's results.
+			 * It is the slowest read in the product, so it lost that race most often.
+			 */
+			if (error instanceof AbortCallerException) {
+				return;
+			}
+
 			failed.value = true;
 		} finally {
 			loading.value = false;
