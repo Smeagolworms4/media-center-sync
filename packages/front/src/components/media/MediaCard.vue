@@ -3,6 +3,7 @@
 	import { SyncState } from '@mcs/shared';
 	import { computed, inject } from 'vue';
 	import ByteSize from '@/components/common/ByteSize.vue';
+	import FetchableMarks from '@/components/media/FetchableMarks.vue';
 	import MediaPoster from '@/components/media/MediaPoster.vue';
 	import QualityChip from '@/components/media/QualityChip.vue';
 	import SourceMarks from '@/components/media/SourceMarks.vue';
@@ -105,6 +106,16 @@
 
 				<span class="media-card_marks">
 					<SourceMarks :sources="group.sources" />
+				</span>
+
+				<!--
+					Beside the missing count rather than beside the source marks: the two
+					answer one question together — this many are missing, and this is what
+					can be had — while the source marks answer where the copies sit. Drawn
+					at all only when something has been seen; see `FetchableMarks`.
+				-->
+				<span class="media-card_fetchable">
+					<FetchableMarks :fetchable="group.fetchable" />
 				</span>
 
 				<span
@@ -269,6 +280,16 @@
 			&:focus-within {
 				opacity: 1;
 			}
+		}
+
+		// Directly above the missing count, which is the line it belongs to: "three
+		// missing" and "one of them can be had tonight" are one sentence. Left, because
+		// the opposite corner is where the copies are, and the two were being read as
+		// one row of pills.
+		&_fetchable {
+			position: absolute;
+			bottom: 28px;
+			left: 6px;
 		}
 
 		&_missing {

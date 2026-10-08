@@ -1,4 +1,11 @@
-import { LibraryKind, MediaKind, ScanPhase, type ScanProgress, SyncState } from '@mcs/shared';
+import {
+	LibraryKind,
+	MediaKind,
+	NewsSignal,
+	ScanPhase,
+	type ScanProgress,
+	SyncState,
+} from '@mcs/shared';
 import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 import NewReleases from '@/pages/NewReleases.vue';
@@ -52,6 +59,10 @@ function series (overrides: Record<string, unknown> = {}) {
 		libraryId: 'l1',
 		parentId: null,
 		addedAt: '2026-09-28T00:00:00.000Z',
+		// Nothing seen, which is what most of a watchlist says: the watch looks at a
+		// batch of followed shows per pass, so a default of "seen" would make every
+		// fixture here fetchable and prove nothing about the marks.
+		fetchable: [],
 		...overrides,
 	};
 }
@@ -169,6 +180,98 @@ describe('pages/NewReleases', () => {
 		expect(url).not.toContain('reasons=upgrade');
 	});
 
+	/**
+	 * What can actually be had, which `actionable` never said.
+	 *
+	 * The wall showed twelve followed shows with holes, of which perhaps two were
+	 * obtainable tonight, and the other ten were shows nobody is seeding and nobody
+	 * reachable holds — told apart only by opening each one and searching the trackers by
+	 * hand. That is the whole of "pas juste notifier sur overseer".
+	 */
+	describe('only what can be fetched', () => {
+		it('asks for everything until somebody says otherwise', async () => {
+			/*
+			 * Off by default, and that is not timidity. A show the episode watch has not
+			 * come round to carries no signal at all, so switching this on by default
+			 * would hide most of a fresh watchlist from the one screen built to show it.
+			 */
+			const { stub } = await open([]);
+			const url = String(
+				stub.mock.calls.find(one => String(one[0]).includes('/media/groups'))?.[0],
+			);
+
+			expect(url).not.toContain('signals');
+		});
+
+		it('asks the gateway for the fetchable ones once it is switched on', async () => {
+			const { wrapper, stub } = await open([]);
+
+			await wrapper.find('[data-test="news-only-fetchable"]').trigger('click');
+			await settle();
+
+			const asked = stub.mock.calls.filter(one => String(one[0]).includes('/media/groups'));
+			const url = String(asked.at(-1)?.[0]);
+
+			// Both signals, which is a real filter here rather than the absence of one —
+			// the asymmetry with `reasons` that the page comments on.
+			expect(url).toContain('signals=copy');
+			expect(url).toContain('signals=release');
+		});
+
+		it('narrows to one kind of source without turning the filter off', async () => {
+			const { wrapper, stub } = await open([]);
+
+			await wrapper.find('[data-test="news-only-fetchable"]').trigger('click');
+			await settle();
+			await wrapper.find('[data-test="news-signal-release"]').trigger('click');
+			await settle();
+
+			const asked = stub.mock.calls.filter(one => String(one[0]).includes('/media/groups'));
+			const url = String(asked.at(-1)?.[0]);
+
+			expect(url).toContain('signals=copy');
+			expect(url).not.toContain('signals=release');
+		});
+
+		it('offers no kinds to choose between while the filter is off', async () => {
+			// Three pills in a row read as one filter with three boxes, and unticking the
+			// wrong one empties the screen. The choice appears with the thing it narrows.
+			const { wrapper } = await open([]);
+
+			expect(wrapper.find('[data-test="news-signals"]').exists()).toBe(false);
+		});
+
+		it('says nothing can be fetched rather than saying nothing is new', async () => {
+			/*
+			 * The third empty, and a lie somebody would act on. There may be ten new
+			 * episodes with nothing seeding them; "nothing new" said over that is the same
+			 * mistake as saying it during a scan, which somebody already read off a screen
+			 * and concluded the feature was broken.
+			 */
+			const { wrapper } = await open([]);
+
+			await wrapper.find('[data-test="news-only-fetchable"]').trigger('click');
+			await settle();
+
+			expect(wrapper.find('[data-test="news-empty-fetchable"]').exists()).toBe(true);
+			expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(false);
+		});
+
+		it('offers the way back out of the filter it is showing an empty screen for', async () => {
+			const { wrapper, stub } = await open([]);
+
+			await wrapper.find('[data-test="news-only-fetchable"]').trigger('click');
+			await settle();
+			await wrapper.find('[data-test="news-show-everything"]').trigger('click');
+			await settle();
+
+			const asked = stub.mock.calls.filter(one => String(one[0]).includes('/media/groups'));
+
+			expect(String(asked.at(-1)?.[0])).not.toContain('signals');
+			expect(wrapper.find('[data-test="news-empty"]').exists()).toBe(true);
+		});
+	});
+
 	it('draws one band per category, like the library it belongs to', async () => {
 		const { wrapper } = await open([
 			series(),
@@ -185,6 +288,20 @@ describe('pages/NewReleases', () => {
 
 		expect(wrapper.find('[data-test="news-band-series"]').exists()).toBe(true);
 		expect(wrapper.find('[data-test="news-band-films"]').exists()).toBe(false);
+	});
+
+	it('marks a card with what was seen for it, so the wall reads without opening one', async () => {
+		const { wrapper } = await open([
+			series({ fetchable: [NewsSignal.COPY, NewsSignal.RELEASE] }),
+			series({ id: 's2', title: 'Severance', fetchable: [] }),
+		]);
+		const marks = wrapper.findAll('[data-test="fetchable-marks"]');
+
+		// One card marked, one not: nothing is drawn where nothing is known, because a
+		// card saying "unavailable" about a show nobody has searched for states as fact
+		// something nobody has looked into.
+		expect(marks).toHaveLength(1);
+		expect(marks[0].attributes('data-signals')).toBe('copy release');
 	});
 
 	it('keeps the library’s own grid-or-list preference', async () => {

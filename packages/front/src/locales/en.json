@@ -293,6 +293,10 @@
 		"no_children_text": "This item has no season, episode or member in the index.",
 		"season_episode": "S{season}E{episode}",
 		"held_by": "held by {services}",
+		"fetchable": {
+			"copy": "A server or a friend you can reach holds one of the missing episodes.",
+			"release": "A tracker was carrying a release that fills one of the missing episodes."
+		},
 		"missing_count": "nothing missing | {count} missing | {count} missing",
 		"sync_missing": "Sync {count} missing",
 		"column": {
@@ -1817,6 +1821,12 @@
 	"news": {
 		"reason_gap": "New episodes",
 		"reason_upgrade": "Better versions",
+		"only_fetchable": "Only what can be fetched",
+		"signal_copy": "On a friend’s server",
+		"signal_release": "On a tracker",
+		"empty_fetchable_title": "Nothing can be fetched yet",
+		"empty_fetchable_text": "There may well be new episodes — nobody is seeding them and no server you can reach holds them, or the watch has not looked at those shows yet. This is not “nothing new”.",
+		"show_everything": "Show everything that is new",
 		"empty_text": "No aired episode is missing from the shows you follow. Following is the watchlist on your request source — a show you merely asked for is not a show you follow.",
 		"empty_title": "Nothing new",
 		"hint": "The most recent came out",

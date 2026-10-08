@@ -293,6 +293,10 @@
 		"no_children_text": "Questo elemento non ha stagioni, episodi o membri nell'indice.",
 		"season_episode": "S{season}E{episode}",
 		"held_by": "detenuto da {services}",
+		"fetchable": {
+			"copy": "Un server o un amico raggiungibile ha uno degli episodi che mancano.",
+			"release": "Un tracker offriva una release che copre uno degli episodi che mancano."
+		},
 		"missing_count": "non manca nulla | {count} mancante | {count} mancanti",
 		"sync_missing": "Sincronizza {count} mancanti",
 		"column": {
@@ -1817,6 +1821,12 @@
 	"news": {
 		"reason_gap": "Nuovi episodi",
 		"reason_upgrade": "Versioni migliori",
+		"only_fetchable": "Solo ciò che si può ottenere",
+		"signal_copy": "Su un server amico",
+		"signal_release": "Su un tracker",
+		"empty_fetchable_title": "Per ora non c’è nulla da ottenere",
+		"empty_fetchable_text": "Episodi nuovi ci possono essere: nessuno li condivide e nessun server raggiungibile li ha, oppure la sorveglianza non ha ancora guardato quelle serie. Questo non è «nulla di nuovo».",
+		"show_everything": "Mostra tutte le novità",
 		"empty_text": "Non manca nessun episodio uscito tra le serie che segui. Seguire è la watchlist della tua fonte di richieste — una serie soltanto richiesta non è una serie seguita.",
 		"empty_title": "Niente di nuovo",
 		"hint": "Il più recente è uscito",

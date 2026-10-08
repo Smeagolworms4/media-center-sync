@@ -1,5 +1,10 @@
 <script lang="ts" setup>
-	import { ActionableReason, type MediaGroup, type MediaGroupQuery } from '@mcs/shared';
+	import {
+		ActionableReason,
+		type MediaGroup,
+		type MediaGroupQuery,
+		NewsSignal,
+	} from '@mcs/shared';
 	import { computed, onMounted, ref } from 'vue';
 	import { useI18n } from 'vue-i18n';
 	import EmptyState from '@/components/common/EmptyState.vue';
@@ -144,11 +149,33 @@
 	 */
 	const REASONS_KEY = 'mcs.news.reasons';
 
-	function readReasons (): ActionableReason[] {
-		const known = [ActionableReason.GAP, ActionableReason.UPGRADE];
+	/**
+	 * Which of the things that can fill a gap to show, remembered the same way.
+	 *
+	 * The second half of the same complaint. `actionable` says a show has a hole; it
+	 * says nothing about whether anybody can fill it, so the wall offered twelve cards
+	 * of which two were obtainable and the rest were shows nobody is seeding and nobody
+	 * here holds — "pas juste notifier sur overseer".
+	 *
+	 * Beware the asymmetry with the reasons above, which is why this takes two pieces of
+	 * state rather than one: both ticked here does *not* mean "no filter". A show the
+	 * episode watch has not come round to carries no signal at all, so asking for either
+	 * signal still drops it. This remembers *which* of the two somebody wants;
+	 * `onlyFetchable` below remembers whether to narrow by them at all, and starts off.
+	 */
+	const SIGNALS_KEY = 'mcs.news.signals';
 
+	/**
+	 * A remembered multiple choice, or the default when storage says nothing usable.
+	 *
+	 * Never an empty answer: a value written by an older build, or edited by hand, must
+	 * not leave somebody on a permanently blank screen with no way to tell it from
+	 * "nothing new". Written once rather than twice because both toggles want exactly
+	 * this and the second would have been the first with a different enum pasted in.
+	 */
+	function remembered<T extends string> (key: string, known: T[]): T[] {
 		try {
-			const stored = JSON.parse(localStorage.getItem(REASONS_KEY) ?? 'null') as unknown;
+			const stored = JSON.parse(localStorage.getItem(key) ?? 'null') as unknown;
 
 			if (!Array.isArray(stored)) {
 				return known;
@@ -156,9 +183,6 @@
 
 			const kept = known.filter(one => stored.includes(one));
 
-			// Never an empty filter out of storage: a value written by an older build, or
-			// edited by hand, must not leave somebody on a permanently blank screen with
-			// no way to tell it from "nothing new".
 			return kept.length > 0 ? kept : known;
 		} catch {
 			// Private browsing, cleared site data, storage refused. The default reads the
@@ -167,17 +191,63 @@
 		}
 	}
 
-	const reasons = ref<ActionableReason[]>(readReasons());
-
-	/** Toggling the filter re-asks the gateway: the narrowing is done there, not here. */
-	async function chooseReasons (chosen: ActionableReason[]): Promise<void> {
-		reasons.value = chosen.length > 0 ? chosen : [ActionableReason.GAP, ActionableReason.UPGRADE];
-
+	function remember (key: string, value: unknown): void {
 		try {
-			localStorage.setItem(REASONS_KEY, JSON.stringify(reasons.value));
+			localStorage.setItem(key, JSON.stringify(value));
 		} catch {
 			// Not worth failing a reload over; the filter simply will not be remembered.
 		}
+	}
+
+	/** Guarded like every other read of it: storage can refuse outright. */
+	function rememberedFlag (key: string): boolean {
+		try {
+			return localStorage.getItem(key) === 'true';
+		} catch {
+			return false;
+		}
+	}
+
+	const REASONS = [ActionableReason.GAP, ActionableReason.UPGRADE];
+	const SIGNALS = [NewsSignal.COPY, NewsSignal.RELEASE];
+
+	const reasons = ref<ActionableReason[]>(remembered(REASONS_KEY, REASONS));
+	const signals = ref<NewsSignal[]>(remembered(SIGNALS_KEY, SIGNALS));
+
+	/**
+	 * Whether the signals narrow the wall at all, which is off until somebody says so.
+	 *
+	 * Kept apart from *which* signals, because the two answer different questions and
+	 * folding them would make the common case unreachable: unticking both to mean "show
+	 * me everything" is exactly what `remembered` refuses to store, and it has to stay
+	 * sayable. So this is the switch and the toggles below are the choice.
+	 *
+	 * Off by default, because on by default would hide every show the episode watch has
+	 * not come round to yet — most of a fresh watchlist — from the one screen built to
+	 * show them.
+	 */
+	const SIGNALS_ON_KEY = 'mcs.news.signals_on';
+	const onlyFetchable = ref(rememberedFlag(SIGNALS_ON_KEY));
+
+	/** Toggling a filter re-asks the gateway: the narrowing is done there, not here. */
+	async function chooseReasons (chosen: ActionableReason[]): Promise<void> {
+		reasons.value = chosen.length > 0 ? chosen : REASONS;
+		remember(REASONS_KEY, reasons.value);
+
+		await load();
+	}
+
+	async function chooseSignals (chosen: NewsSignal[]): Promise<void> {
+		signals.value = chosen.length > 0 ? chosen : SIGNALS;
+		remember(SIGNALS_KEY, signals.value);
+
+		await load();
+	}
+
+	async function chooseOnlyFetchable (on: boolean): Promise<void> {
+		onlyFetchable.value = on;
+		// A bare `true` or `false`, which is what `rememberedFlag` reads back.
+		remember(SIGNALS_ON_KEY, on);
 
 		await load();
 	}
@@ -207,11 +277,16 @@
 
 		try {
 			await librariesStore.loadCategories();
-			// Both reasons is the same request as no reasons at all, and sending neither
-			// keeps the query identical to the one every earlier build sent.
-			await mediaStore.searchGroups(KEY, reasons.value.length === 2
-				? QUERY
-				: { ...QUERY, reasons: reasons.value });
+			await mediaStore.searchGroups(KEY, {
+				...QUERY,
+				// Both reasons is the same request as no reasons at all, and sending
+				// neither keeps the query identical to the one every earlier build sent.
+				...(reasons.value.length === 2 ? {} : { reasons: reasons.value }),
+				// Unlike the reasons, this is omitted unless it is switched on: a show
+				// nobody has searched for yet carries no signal, so sending both values
+				// is a real filter and not the absence of one.
+				...(onlyFetchable.value ? { signals: signals.value } : {}),
+			});
 		} catch {
 			failed.value = true;
 		} finally {
@@ -306,6 +381,52 @@
 					</v-btn>
 				</v-btn-toggle>
 
+				<!--
+					And whether it can be had, which is the other half of the same question.
+					A switch beside the two marks rather than a third toggle in the group
+					above: "only what I can fetch" is a different kind of choice from
+					"which half of the news", and three pills in a row read as one filter
+					with three boxes — unticking the wrong one then empties the screen.
+				-->
+				<v-btn
+					class="news-fetchable"
+					:color="onlyFetchable ? 'primary' : undefined"
+					data-test="news-only-fetchable"
+					density="comfortable"
+					prepend-icon="mdi-download-circle-outline"
+					:variant="onlyFetchable ? 'flat' : 'outlined'"
+					@click="chooseOnlyFetchable(!onlyFetchable)"
+				>
+					{{ $t('news.only_fetchable') }}
+				</v-btn>
+
+				<v-btn-toggle
+					v-if="onlyFetchable"
+					class="news-signals"
+					data-test="news-signals"
+					density="comfortable"
+					:model-value="signals"
+					multiple
+					variant="outlined"
+					@update:model-value="chooseSignals($event as NewsSignal[])"
+				>
+					<v-btn
+						data-test="news-signal-copy"
+						prepend-icon="mdi-lan-connect"
+						:value="NewsSignal.COPY"
+					>
+						{{ $t('news.signal_copy') }}
+					</v-btn>
+
+					<v-btn
+						data-test="news-signal-release"
+						prepend-icon="mdi-magnet"
+						:value="NewsSignal.RELEASE"
+					>
+						{{ $t('news.signal_release') }}
+					</v-btn>
+				</v-btn-toggle>
+
 				<ViewModeToggle v-model="view" test-id="news-view-toggle" />
 
 				<v-btn
@@ -351,6 +472,31 @@
 					:model-value="scannedPercent ?? 0"
 					rounded
 				/>
+			</EmptyState>
+
+			<!--
+				And the third empty, which is a filter and not an answer either. "Nothing
+				new" said while "only what I can fetch" is on would be a lie somebody
+				acts on: there may be ten new episodes, none of them seeded and none of
+				them on a friend's server yet, and the honest reading is that nothing can
+				be had rather than that nothing has happened. Same lesson as the scan
+				above, learnt the same way.
+			-->
+			<EmptyState
+				v-else-if="!loading && total === 0 && onlyFetchable"
+				data-test="news-empty-fetchable"
+				icon="mdi-download-off-outline"
+				:text="$t('news.empty_fetchable_text')"
+				:title="$t('news.empty_fetchable_title')"
+			>
+				<v-btn
+					class="mt-4"
+					data-test="news-show-everything"
+					variant="text"
+					@click="chooseOnlyFetchable(false)"
+				>
+					{{ $t('news.show_everything') }}
+				</v-btn>
 			</EmptyState>
 
 			<EmptyState

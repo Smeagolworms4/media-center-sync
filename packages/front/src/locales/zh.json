@@ -293,6 +293,10 @@
 		"no_children_text": "索引中此项目没有季、集或成员。",
 		"season_episode": "S{season}E{episode}",
 		"held_by": "拥有者：{services}",
+		"fetchable": {
+			"copy": "你能连上的服务器或好友持有其中一集缺失的剧集。",
+			"release": "某个站点曾有一个能补上缺失剧集的资源。"
+		},
 		"missing_count": "缺失 {count} 项",
 		"sync_missing": "同步缺失的 {count} 项",
 		"column": {
@@ -1817,6 +1821,12 @@
 	"news": {
 		"reason_gap": "新剧集",
 		"reason_upgrade": "更佳版本",
+		"only_fetchable": "只看能获取的",
+		"signal_copy": "在好友的服务器上",
+		"signal_release": "在站点上",
+		"empty_fetchable_title": "暂时还没有能获取的",
+		"empty_fetchable_text": "也许确实有新剧集：没有人在做种，你能连上的服务器也都没有，或者监视还没轮到这些剧。这并不等于“没有更新”。",
+		"show_everything": "显示全部更新",
 		"empty_text": "你关注的剧集中没有已播出却缺失的剧集。关注指的是请求源上的关注列表——仅仅请求过的剧集并不算关注。",
 		"empty_title": "没有新内容",
 		"hint": "最新的一集播出于",

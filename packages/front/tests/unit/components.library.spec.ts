@@ -5,6 +5,7 @@ import {
 	LibraryLayoutSignal,
 	MediaKind,
 	MediaServiceType,
+	NewsSignal,
 	PeerStatus,
 	PeerTrust,
 	SyncState,
@@ -13,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { nextTick } from 'vue';
 import LibraryHints from '@/components/library/LibraryHints.vue';
 import CompanionMarks from '@/components/media/CompanionMarks.vue';
+import FetchableMarks from '@/components/media/FetchableMarks.vue';
 import LibrarySection from '@/components/media/LibrarySection.vue';
 import MediaBreadcrumb from '@/components/media/MediaBreadcrumb.vue';
 import MediaCard from '@/components/media/MediaCard.vue';
@@ -193,6 +195,62 @@ describe('components/media/SyncStateBadge', () => {
 		});
 
 		expect(wrapper.find('.sync-state-badge_label').exists()).toBe(false);
+	});
+});
+
+/**
+ * Whether the hole can be filled, which the card never said.
+ *
+ * It said three were missing and nothing about whether anybody could supply them, so a
+ * wall of followed shows was a wall of identical disappointments with two obtainable
+ * ones hidden among them.
+ */
+describe('components/media/FetchableMarks', () => {
+	const mark = (fetchable: NewsSignal[]) =>
+		mountWithApp(FetchableMarks, { props: { fetchable }, global: { stubs: tooltipStub } }).wrapper;
+
+	it('draws nothing at all when nothing has been seen', () => {
+		/*
+		 * Not a "nothing available" mark, and that is the whole of the honesty here. The
+		 * episode watch looks at a batch of followed shows per pass, so an empty answer
+		 * means "not looked at yet" — a card stating unavailability about it would be
+		 * asserting as fact something nobody has looked into.
+		 */
+		expect(mark([]).find('[data-test="fetchable-marks"]').exists()).toBe(false);
+	});
+
+	it('tells a copy on a reachable server from a release on a tracker', () => {
+		// Two different evenings: a friend's copy comes over the local network at disk
+		// speed and is the file they are watching; a tracker release is a download of
+		// unknown length from strangers.
+		expect(mark([NewsSignal.COPY]).find('[data-test="fetchable-mark-copy"]').exists()).toBe(true);
+		expect(mark([NewsSignal.COPY]).find('[data-test="fetchable-mark-release"]').exists())
+			.toBe(false);
+		expect(mark([NewsSignal.RELEASE]).find('[data-test="fetchable-mark-release"]').exists())
+			.toBe(true);
+	});
+
+	it('puts the copy first when both were seen, since it is the better of the two', () => {
+		const wrapper = mark([NewsSignal.RELEASE, NewsSignal.COPY]);
+
+		// Its own order, not the order the answer happened to arrive in: the gateway
+		// sorts it too, and a card that followed the array would disagree with the next
+		// reload.
+		expect(wrapper.find('[data-test="fetchable-marks"]').attributes('data-signals'))
+			.toBe('copy release');
+	});
+
+	it('names each one in words, which no catalogue test can check', () => {
+		/*
+		 * The keys are built from a literal table inside the component and read through
+		 * `$t(mark.labelKey)`, so the guard that scans the sources for `$t('literal')`
+		 * cannot see them. vue-i18n renders a missing key as the key itself, which is how
+		 * `transfer.retarget.into` once shipped onto a screen.
+		 */
+		const text = mark([NewsSignal.COPY, NewsSignal.RELEASE]).text();
+
+		expect(text).not.toContain('media.fetchable');
+		expect(text.length).toBeGreaterThan(0);
 	});
 });
 

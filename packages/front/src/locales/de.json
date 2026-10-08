@@ -293,6 +293,10 @@
 		"no_children_text": "Dieses Element hat weder Staffel noch Episode noch Mitglied im Index.",
 		"season_episode": "S{season}E{episode}",
 		"held_by": "vorhanden auf {services}",
+		"fetchable": {
+			"copy": "Ein erreichbarer Server oder ein Freund hat eine der fehlenden Episoden.",
+			"release": "Ein Tracker führte ein Release, das eine der fehlenden Episoden füllt."
+		},
 		"missing_count": "nichts fehlt | {count} fehlt | {count} fehlen",
 		"sync_missing": "{count} fehlende holen",
 		"column": {
@@ -1817,6 +1821,12 @@
 	"news": {
 		"reason_gap": "Neue Folgen",
 		"reason_upgrade": "Bessere Versionen",
+		"only_fetchable": "Nur was zu holen ist",
+		"signal_copy": "Auf einem Freundesserver",
+		"signal_release": "Auf einem Tracker",
+		"empty_fetchable_title": "Noch ist nichts zu holen",
+		"empty_fetchable_text": "Es kann durchaus neue Episoden geben: niemand verteilt sie und kein erreichbarer Server hat sie, oder die Überwachung hat diese Serien noch nicht angesehen. Das heißt nicht „nichts Neues“.",
+		"show_everything": "Alles Neue anzeigen",
 		"empty_text": "Bei den Serien, denen Sie folgen, fehlt keine erschienene Folge. Gefolgt wird über die Merkliste Ihrer Anfragequelle — eine nur angefragte Serie ist keine, der Sie folgen.",
 		"empty_title": "Nichts Neues",
 		"hint": "Die neueste erschien",
