@@ -240,7 +240,20 @@ const build = (
 								row.normalizedTitle.includes(query.search.toLowerCase())),
 					)
 					.sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id))
-					.map(digest),
+					.map(digest)
+					/*
+					 * The slice the caller asked for, honoured rather than ignored.
+					 *
+					 * `_wholeScope` reads the scope a page at a time and stops when a page
+					 * comes back short. A double that answered the whole scope to every
+					 * page would never return a short one, so any world larger than
+					 * `SCOPE_PAGE` would loop here for ever — a hang in the suite rather
+					 * than a failure, which is the worst kind to diagnose.
+					 */
+					.slice(
+						query.skip ?? 0,
+						query.take === undefined ? undefined : (query.skip ?? 0) + query.take,
+					),
 			),
 		),
 		findDigests: jest.fn((ids: string[]) =>

@@ -89,6 +89,16 @@ const LANDED_STATES = new Set<SyncState>(LANDED_SYNC_STATES);
 const CARRIES_A_FILE = new Set<MediaKind>([MediaKind.EPISODE, MediaKind.MOVIE]);
 
 /**
+ * How many rows of the scope one statement reads.
+ *
+ * Four thousand, which on the owner's catalogue turns one 177 ms block into eight of
+ * about twenty — short enough that a request waiting behind it is not noticed, long
+ * enough that the per-statement cost stays noise. The same trade-off, and nearly the
+ * same number, as the match graph's own page a few methods down.
+ */
+const SCOPE_PAGE = 4_000;
+
+/**
  * The fields a group fills per copy and a person can correct by hand.
  *
  * Named as a type rather than left open because the rule only holds where the item
@@ -738,19 +748,16 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			return skeletons.filter(ownState);
 		}
 
-		const scope = await this._items.findGroupSeeds({
-			...seedQuery,
-			rootsOnly: false,
-			search: undefined,
-			kind: undefined,
-		});
+		const scope = await this._wholeScope(seedQuery);
 		const parentOf = new Map(scope.map((seed) => [seed.id, seed.parentId]));
 		const below = scope.filter((seed) => seed.parentId !== null);
 		const matching = (await this._skeletons(below, context)).filter(ownState);
 
 		const roots = new Set<string>();
 
-		for (const skeleton of matching) {
+		for (const [index, skeleton] of matching.entries()) {
+			await breathe(index);
+
 			for (const memberId of skeleton.memberIds) {
 				let current: string | null | undefined = memberId;
 
@@ -773,6 +780,40 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		return skeletons.filter(
 			(skeleton) => ownState(skeleton) || skeleton.memberIds.some((memberId) => roots.has(memberId)),
 		);
+	}
+
+	/**
+	 * Every row in scope, read a page at a time so the gateway keeps answering.
+	 *
+	 * One statement over the whole scope was a single uninterruptible block — 177 ms for
+	 * thirty-one thousand rows on the owner's catalogue, measured — and `better-sqlite3`
+	 * is synchronous, so nothing can breathe through it. The only way to interrupt a
+	 * statement is to make it several, which is the same thing the match graph does a
+	 * few methods up and for the same reason.
+	 *
+	 * The order the query applies is total and ends on the identifier, so the pages
+	 * cannot overlap or lose a row between them.
+	 */
+	private async _wholeScope(seedQuery: GroupSeedQuery): Promise<MediaItemDigest[]> {
+		const scope: MediaItemDigest[] = [];
+
+		for (let skip = 0; ; skip += SCOPE_PAGE) {
+			const page = await this._items.findGroupSeeds({
+				...seedQuery,
+				rootsOnly: false,
+				search: undefined,
+				kind: undefined,
+				skip,
+				take: SCOPE_PAGE,
+			});
+
+			scope.push(...page);
+			await breathe(0);
+
+			if (page.length < SCOPE_PAGE) {
+				return scope;
+			}
+		}
 	}
 
 	/**
@@ -1264,13 +1305,30 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			? await this._gapCounts([...byRoot.values()].flat(), context)
 			: new Map<string, number>();
 
-		return order.map((root) => {
+		const built: GroupSkeleton[] = [];
+
+		/*
+		 * A loop with a breath in it rather than a `map`, and that is the whole reason it
+		 * is not one.
+		 *
+		 * This runs once over the roots and again, through `_inState`, over every
+		 * descendant in scope. Measured on the owner's catalogue it is where a grouped
+		 * read with `actionable` spends its time: 543 ms in which a 10 ms heartbeat did
+		 * not fire once — the gateway was not slow, it was deaf, and every artwork
+		 * request and the event socket died together because nothing was reading the
+		 * sockets. `await` alone does not help: `better-sqlite3` is synchronous and the
+		 * awaits here resolve at once, so the loop never reaches the poll phase. See
+		 * `breathe`.
+		 */
+		for (const [index, root] of order.entries()) {
+			await breathe(index);
+
 			const memberIds = byRoot.get(root) as string[];
 			const members = memberIds
 				.map((id) => digests.get(id))
 				.filter((digest): digest is MediaItemDigest => digest !== undefined);
 
-			return {
+			built.push({
 				memberIds,
 				sync: this._state(members, context),
 				// Over every copy, because the watch wrote its answer on whichever one
@@ -1282,8 +1340,10 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 				// disk is the behaviour this whole state exists to remove.
 				held: members.some((member) => this._holds(member, context)),
 				missingCount: gaps.get(root) ?? 0,
-			};
-		});
+			});
+		}
+
+		return built;
 	}
 
 	/**
@@ -1314,7 +1374,11 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		const gaps = new Map<string, number>();
 		const covered = this._rangesUnder(children, parentOf, context);
 
-		for (const child of children) {
+		for (const [index, child] of children.entries()) {
+			// The other half of the same stall: this walks every child of every group in
+			// the result, not just the page. See the loop in `_skeletons`.
+			await breathe(index);
+
 			const parentRoot = parentOf.get(child.id);
 
 			if (parentRoot === undefined) {
