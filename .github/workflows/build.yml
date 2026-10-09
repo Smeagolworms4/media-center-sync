@@ -74,8 +74,32 @@ jobs:
   journeys:
     name: Playwright journeys
     runs-on: ubuntu-latest
+    # Lifted to the job because a step's `if:` cannot read `secrets` — that context is
+    # not available there, and a guard written against it is silently always false. Named
+    # here, the value becomes an ordinary environment variable the guard can test.
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      # The journeys' lab pulls Jellyfin and Plex from Docker Hub, which rations
+      # unauthenticated pulls **by IP** — and the IP belongs to GitHub's shared runners,
+      # so the budget is spent by whoever else happens to be building at that moment. It
+      # cost a release: three consecutive runs died within five seconds on
+      # `toomanyrequests`, nothing wrong in the code, and the image was never published.
+      #
+      # Signing in moves the count onto an account, where it is this project's alone.
+      # The guard and `continue-on-error` keep it optional: a fork, or this repository
+      # before the secrets existed, skips the step and pulls anonymously exactly as it
+      # did before — a build must not fail because a credential is absent.
+      - name: Docker Hub
+        if: env.DOCKER_USERNAME != ''
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
 
       - name: Stack and journeys
         run: make e2e/ci
