@@ -9,6 +9,7 @@ import type { Library, MediaService } from '@/entities';
 import { createTestDataSource } from '../../test/utils/database';
 import { LibraryRepository } from './library.repository';
 import { MediaItemRepository } from './media-item.repository';
+import type { ReadPoolService } from '@/services/read-pool.service';
 import { MediaServiceRepository } from './media-service.repository';
 
 describe('MediaItemRepository', () => {
@@ -474,5 +475,105 @@ describe('MediaItemRepository', () => {
 			await expect(items.findByIds([child.id])).resolves.toHaveLength(1);
 			await expect(items.findDigests([])).resolves.toEqual([]);
 		});
+	});
+
+	/*
+	 * Where the statement runs, which is the difference between a gateway that answers
+	 * during a listing and one that is deaf for the duration.
+	 *
+	 * `better-sqlite3` is synchronous, so a read over thirty thousand rows does not slow
+	 * this process, it stops it. `ReadPoolService` moves the execution onto a thread; the
+	 * query is still built here, and these pin the three cases that must stay on this
+	 * thread even so — because each of them is a wrong answer rather than a slow one.
+	 */
+	describe('reading on a thread of its own', () => {
+		const pool = {
+			available: true,
+			bindable: jest.fn(() => true),
+			all: jest.fn(async () => [] as unknown[]),
+		};
+
+		beforeEach(() => {
+			pool.available = true;
+			pool.bindable.mockReset().mockReturnValue(true);
+			pool.all.mockReset().mockResolvedValue([]);
+		});
+
+		const pooled = (): MediaItemRepository =>
+			new MediaItemRepository(dataSource, pool as unknown as ReadPoolService);
+
+		it('sends the statement to a reader and answers with what came back', async () => {
+			const item = await anItem({ kind: MediaKind.MOVIE });
+
+			pool.all.mockResolvedValue([
+				{
+					id: item.id,
+					serviceId: service.id,
+					libraryId: library.id,
+					parentId: null,
+					kind: MediaKind.MOVIE,
+					syncState: SyncState.UNKNOWN,
+					episodeNumber: null,
+					episodeNumberEnd: null,
+					ignored: 0,
+					hasFile: 0,
+					releaseSeenAt: null,
+					copySeenAt: null,
+				},
+			]);
+
+			const seeds = await pooled().findGroupSeeds({});
+
+			expect(pool.all).toHaveBeenCalledTimes(1);
+			expect(seeds).toHaveLength(1);
+			// Hydrated the same way as a read on this thread: the flags come back as
+			// booleans whichever connection produced the row.
+			expect(seeds[0]).toMatchObject({ id: item.id, hasFile: false, ignored: false });
+		});
+
+		it('stays on this thread when there is no pool at all', async () => {
+			await anItem();
+			pool.available = false;
+
+			await expect(pooled().findGroupSeeds({})).resolves.toHaveLength(1);
+			expect(pool.all).not.toHaveBeenCalled();
+		});
+
+		it('stays on this thread for a parameter the driver would refuse', async () => {
+			// Converting a `Date` here risks writing a different format than the column
+			// holds, which matches nothing and says nothing about why.
+			await anItem();
+			pool.bindable.mockReturnValue(false);
+
+			await expect(pooled().findGroupSeeds({})).resolves.toHaveLength(1);
+			expect(pool.all).not.toHaveBeenCalled();
+		});
+
+		it('stays on this thread inside a transaction, where a reader cannot see the writes',
+			async () => {
+				const runner = dataSource.createQueryRunner();
+
+				await runner.startTransaction();
+
+				const scoped = new MediaItemRepository(
+					{ createEntityManager: () => runner.manager } as unknown as DataSource,
+					pool as unknown as ReadPoolService,
+				);
+
+				await scoped.findGroupSeeds({});
+
+				expect(pool.all).not.toHaveBeenCalled();
+
+				await runner.rollbackTransaction();
+				await runner.release();
+			});
+
+		it('answers on this thread when the reader fails, so a broken pool only costs time',
+			async () => {
+				await anItem();
+				pool.all.mockRejectedValue(new Error('the reader went away'));
+
+				await expect(pooled().findGroupSeeds({})).resolves.toHaveLength(1);
+			});
 	});
 });
