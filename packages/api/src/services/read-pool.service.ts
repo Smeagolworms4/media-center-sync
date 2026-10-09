@@ -148,6 +148,22 @@ export class ReadPoolService implements OnModuleInit, OnModuleDestroy {
 
 		const id = randomUUID();
 
+		/*
+		 * Referenced while it has work, released when it has none.
+		 *
+		 * An unreferenced worker does not keep the event loop alive, and during startup
+		 * nothing else does either: the HTTP server is not listening yet. A boot that
+		 * awaited a read whose only pending handles were an unreferenced worker and an
+		 * unreferenced timer left Node with nothing to wait for, so it **exited, code 0,
+		 * in silence** — eight seconds in, no error, no stack, the gateway simply gone.
+		 * In CI that surfaced as `api 000`: the journeys found nothing listening and the
+		 * stack was never up. Nothing in the logs says why, which is what makes this
+		 * worth a paragraph rather than a line.
+		 */
+		if (reader.inFlight === 0) {
+			reader.worker.ref();
+		}
+
 		reader.inFlight += 1;
 
 		return new Promise<T[]>((resolve, reject) => {
@@ -211,6 +227,12 @@ export class ReadPoolService implements OnModuleInit, OnModuleDestroy {
 		clearTimeout(pending.timer);
 		pending.reader.inFlight -= 1;
 		this._waiting.delete(id);
+
+		// Idle again: stop holding the process open, which is what lets a gateway with
+		// nothing left to do exit instead of lingering on two sleeping threads.
+		if (pending.reader.inFlight === 0) {
+			pending.reader.worker.unref();
+		}
 	}
 
 	private _idlest(): Reader | null {
@@ -286,6 +308,7 @@ export class ReadPoolService implements OnModuleInit, OnModuleDestroy {
 				this._collapse(error);
 			});
 
+			// Idle from birth; `all()` references it for as long as it has work.
 			worker.unref();
 			readers.push(reader);
 		}

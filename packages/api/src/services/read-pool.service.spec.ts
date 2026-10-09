@@ -19,6 +19,8 @@ class FakeWorker extends EventEmitter {
 
 	public unreferenced = 0;
 
+	public referenced = 0;
+
 	public constructor(
 		public readonly entry: string,
 		public readonly options: { workerData?: unknown; execArgv?: string[] },
@@ -39,6 +41,10 @@ class FakeWorker extends EventEmitter {
 
 	public unref(): void {
 		this.unreferenced += 1;
+	}
+
+	public ref(): void {
+		this.referenced += 1;
 	}
 }
 
@@ -258,6 +264,69 @@ describe('ReadPoolService', () => {
 			});
 	});
 
+	/*
+	 * Whether a read keeps the process alive, which is not a detail.
+	 *
+	 * An unreferenced worker does not hold the event loop, and during startup nothing
+	 * else does either — the HTTP server is not listening yet. A boot awaiting a read
+	 * with nothing referenced left Node with nothing to wait for, and it exited, code 0,
+	 * in silence. The journeys saw `api 000` and no log said why.
+	 */
+	describe('holding the process open', () => {
+		it('references its reader while a read is outstanding', () => {
+			const pool = build();
+
+			pool.all('SELECT 1', []).catch(() => undefined);
+
+			expect(readers()[0].referenced).toBe(1);
+		});
+
+		it('releases it once the answer is in, so an idle gateway can still exit', async () => {
+			const pool = build();
+			const rows = pool.all('SELECT 1', []);
+
+			expect(readers()[0].unreferenced).toBe(1);
+			readers()[0].emit('message', { id: readers()[0].posted[0].id, rows: [] });
+			await rows;
+
+			expect(readers()[0].unreferenced).toBe(2);
+		});
+
+		it('references once for two reads on the same reader, and releases once', async () => {
+			const pool = build();
+			const first = pool.all('SELECT 1', []);
+			const second = pool.all('SELECT 2', []);
+
+			// Both on the first reader: the second would go to the idle one otherwise.
+			readers()[1].emit('message', { id: readers()[1].posted[0].id, rows: [] });
+			await second;
+			expect(readers()[0].referenced).toBe(1);
+
+			readers()[0].emit('message', { id: readers()[0].posted[0].id, rows: [] });
+			await first;
+
+			expect(readers()[0].referenced).toBe(1);
+			expect(readers()[0].unreferenced).toBe(2);
+		});
+
+		it('releases it when a read times out rather than holding the process for ever', () => {
+			jest.useFakeTimers();
+
+			try {
+				const pool = build();
+
+				pool.all('SELECT 1', []).catch(() => undefined);
+				expect(readers()[0].unreferenced).toBe(1);
+
+				jest.advanceTimersByTime(30_000);
+
+				expect(readers()[0].unreferenced).toBe(2);
+			} finally {
+				jest.useRealTimers();
+			}
+		});
+	});
+
 	describe('shutting down', () => {
 		it('releases the callers and the threads', async () => {
 			const pool = build();
@@ -271,7 +340,7 @@ describe('ReadPoolService', () => {
 		});
 
 		it('leaves the process free to exit while a reader is idle', () => {
-			void build().all('SELECT 1', []).catch(() => undefined);
+			build().all('SELECT 1', []).catch(() => undefined);
 
 			expect(readers()[0].unreferenced).toBe(1);
 		});
