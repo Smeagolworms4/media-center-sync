@@ -12,6 +12,24 @@ name: Build
 # code on every merge, without anyone deciding it.
 
 on:
+  # Run by hand, for the one case the automatic gate cannot serve: Docker Hub down.
+  #
+  # The journeys' lab is pulled from Docker Hub, so an outage there stops a release that
+  # has nothing wrong with it — and it stopped this one, with the auth endpoint timing
+  # out, the registry answering 500 on a manifest, and the anonymous quota saturated
+  # because the sign-in could not happen. The journeys are then run on a workstation,
+  # where the images are already cached, and the result is carried here by hand.
+  #
+  # Deliberately not a default: the journeys are the only thing that catches a gateway
+  # which builds, tests green and then does not start — which is exactly what shipped
+  # as v0.39.5. Skipping them is a decision somebody makes, once, with a reason.
+  workflow_dispatch:
+    inputs:
+      skip_journeys:
+        description: 'Publish without the journeys (run them locally first)'
+        type: boolean
+        default: false
+
   push:
     branches: [main]
     tags: ['v*']
@@ -73,6 +91,8 @@ jobs:
 
   journeys:
     name: Playwright journeys
+    # Empty on a push, so the journeys run as they always have.
+    if: inputs.skip_journeys != true
     runs-on: ubuntu-latest
     # Lifted to the job because a step's `if:` cannot read `secrets` — that context is
     # not available there, and a guard written against it is silently always false. Named
@@ -117,6 +137,13 @@ jobs:
   image:
     name: Image
     needs: [verify, journeys]
+    # `always()` because a `needs` job that was skipped would otherwise skip this one
+    # too; the conditions below are what actually decide. Tests are never optional —
+    # only the journeys can be waived, and only when they were deliberately skipped.
+    if: >-
+      always()
+      && needs.verify.result == 'success'
+      && (needs.journeys.result == 'success' || needs.journeys.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: read

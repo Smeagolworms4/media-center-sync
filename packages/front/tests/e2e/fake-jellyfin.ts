@@ -529,10 +529,33 @@ export async function createMediaFixture (
 
 		const series = toGroup(roots.find(one => one.kind === 'series')!);
 		const film = toGroup(roots.find(one => one.kind === 'movie')!);
-		const season = toGroup((await groups(`/${series.id}/children?limit=10`))[0]);
-		const episodes = (await groups(`/${season.id}/children?limit=10`)).map(one => toGroup(one));
 
-		expect(episodes.length, 'the season came back without its episodes').toBe(3);
+		/*
+		 * The season and its episodes are waited for, not read once.
+		 *
+		 * Two servers hold the same show, and the pass that folds their copies into one
+		 * group runs after the scan has answered. The wait above is satisfied as soon as
+		 * *a* series and *a* film exist, which is already true while both copies are
+		 * still there — so reading the children straight away caught the catalogue
+		 * mid-fold and saw every episode twice. It failed as `expected 3, received 6`
+		 * under a message about missing episodes, which sent the first reader looking for
+		 * a lost row rather than a duplicated one.
+		 *
+		 * Measured over three runs of this journey: two passed in 2.8 s, one failed in
+		 * 1.5 s — the failure is the fast run, which is the window itself.
+		 */
+		const season = toGroup(
+			(await until(
+				() => groups(`/${series.id}/children?limit=10`),
+				items => items.length === 1,
+				'the series never settled on one season',
+			))[0],
+		);
+		const episodes = (await until(
+			() => groups(`/${season.id}/children?limit=10`),
+			items => items.length === 3,
+			'the season never settled on its three episodes',
+		)).map(one => toGroup(one));
 
 		return {
 			tag,
