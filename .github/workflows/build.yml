@@ -38,7 +38,6 @@ on:
       - 'docs/**'
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 # One group per reference, never a single group. GitHub keeps only one run queued and
 # cancels the previous one as soon as a third arrives: a tagged version could be
