@@ -1,11 +1,8 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Brackets, DataSource, In, IsNull, Not, Repository, type SelectQueryBuilder } from 'typeorm';
 import type { MediaGroupQuery, MediaSearchQuery } from '@mcs/shared';
 import { MediaKind, MediaWatchState, SyncState } from '@mcs/shared';
 import { MediaItem } from '@/entities';
-// The file rather than the barrel: `services/index` pulls in the services that depend on
-// the repositories, and importing it from here closes the circle.
-import { ReadPoolService } from '@/services/read-pool.service';
 
 /** The columns a list may be ordered by, and the only ones. */
 const SORTABLE = {
@@ -228,69 +225,8 @@ const ANCESTOR_DEPTH = 4;
 
 @Injectable()
 export class MediaItemRepository extends Repository<MediaItem> {
-	private readonly _logger = new Logger(MediaItemRepository.name);
-
-	/**
-	 * Optional, and every caller has to survive its absence.
-	 *
-	 * The repository is constructed by hand in the unit tests and in `jobs.worker.ts`,
-	 * neither of which has a Nest container to ask — and a worker must not open threads
-	 * of its own anyway. See `_rawMany`, which is the only place this is read.
-	 */
-	public constructor(
-		dataSource: DataSource,
-		@Optional()
-		private readonly _reads?: ReadPoolService,
-	) {
+	public constructor(dataSource: DataSource) {
 		super(MediaItem, dataSource.createEntityManager());
-	}
-
-	/**
-	 * Raw rows for a projection, off this thread when that is possible.
-	 *
-	 * `better-sqlite3` is synchronous, so a listing over thirty thousand rows does not
-	 * slow the gateway, it stops it: no socket is read while the statement runs and
-	 * everything in flight — the other calls, the posters still arriving, the websocket
-	 * — dies together. `ReadPoolService` exists to move exactly this kind of statement
-	 * onto a thread; the query is built here as it always was, and only its execution
-	 * moves.
-	 *
-	 * Three conditions send it back to this thread, and each is correctness rather than
-	 * caution:
-	 *
-	 * - no pool at all — PostgreSQL, `:memory:`, a worker, a reader that has died;
-	 * - a parameter the driver will not bind, because converting a `Date` here risks
-	 *   writing a different format than the column holds and matching nothing;
-	 * - an open transaction, because a reader is a separate connection and cannot see
-	 *   work the caller has not committed. A listing never runs in one; the guard is
-	 *   here so that a caller who later puts one around it gets the right rows rather
-	 *   than a silent change of meaning.
-	 *
-	 * A reader that fails is logged once and answered on this thread, so the worst a
-	 * broken pool costs is the performance it was added to win.
-	 */
-	private async _rawMany<T>(builder: SelectQueryBuilder<MediaItem>): Promise<T[]> {
-		if (this._reads?.available !== true || this.manager.queryRunner?.isTransactionActive === true) {
-			return builder.getRawMany<T>();
-		}
-
-		const [sql, params] = builder.getQueryAndParameters();
-
-		if (!this._reads.bindable(params)) {
-			return builder.getRawMany<T>();
-		}
-
-		try {
-			return await this._reads.all<T>(sql, params);
-		} catch (error) {
-			this._logger.warn(
-				`A reader could not answer, falling back to the gateway thread: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			);
-
-			return builder.getRawMany<T>();
-		}
 	}
 
 	public findChildren(parentId: string): Promise<MediaItem[]> {
@@ -761,7 +697,7 @@ export class MediaItemRepository extends Repository<MediaItem> {
 			builder.orderBy('item.id', 'ASC').offset(query.skip ?? 0).limit(query.take);
 		}
 
-		const rows = await this._rawMany<MediaItemDigest>(builder);
+		const rows = await builder.getRawMany<MediaItemDigest>();
 
 		return MediaItemRepository._digests(rows);
 	}
@@ -770,9 +706,9 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	public async findDigests(ids: string[]): Promise<MediaItemDigest[]> {
 		return MediaItemRepository._digests(
 			await this._chunked(ids, (chunk) =>
-				this._rawMany<MediaItemDigest>(
-					this._digestQuery().andWhere('item.id IN (:...ids)', { ids: chunk }),
-				),
+				this._digestQuery()
+					.andWhere('item.id IN (:...ids)', { ids: chunk })
+					.getRawMany<MediaItemDigest>(),
 			),
 		);
 	}
@@ -781,9 +717,9 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	public async findChildDigests(parentIds: string[]): Promise<MediaItemDigest[]> {
 		return MediaItemRepository._digests(
 			await this._chunked(parentIds, (chunk) =>
-				this._rawMany<MediaItemDigest>(
-					this._digestQuery().andWhere('item.parentId IN (:...parentIds)', { parentIds: chunk }),
-				),
+				this._digestQuery()
+					.andWhere('item.parentId IN (:...parentIds)', { parentIds: chunk })
+					.getRawMany<MediaItemDigest>(),
 			),
 		);
 	}

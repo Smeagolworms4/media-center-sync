@@ -2,9 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+// The file rather than the barrel: `database/index` reaches the entities, and the
+// entities are what the data source this service is handed was built from.
+import { useReadPool } from '@/database/async-reads';
 import { isWorkerThread } from './runtime-role';
 
 /**
@@ -68,19 +71,23 @@ interface Reader {
  * Awaiting a thread costs this event loop nothing, which is the whole point: the gateway
  * goes on answering while the listing runs.
  *
- * It is deliberately **not** a general query path. Callers hand it finished SQL from a
- * query builder and get raw rows back; it hydrates no entity and knows no mapping. Two
- * consequences worth stating, because both are correctness and not taste:
+ * Nothing calls this directly. It hands itself to `applyAsynchronousReads()` as the
+ * module starts, and from there TypeORM's query runner routes **every** read-only
+ * statement through it — `find`, `count`, a query builder, a raw string alike. That is
+ * the point: an earlier version of this had three hand-picked queries calling in, which
+ * fixed the one listing it covered and left a hundred and thirty others blocking.
+ *
+ * Two consequences worth stating, because both are correctness and not taste:
  *
  * - A reader is a separate connection, so it cannot see another connection's
  *   uncommitted work. A read issued inside a transaction must stay on the caller's
- *   thread, and `MediaItemRepository` checks for exactly that before reaching here.
- * - Every caller must work unchanged when `available` is false — no pool in tests, on
+ *   thread, and the query runner checks for exactly that before reaching here.
+ * - Everything must work unchanged when `available` is false — no pool in tests, on
  *   PostgreSQL, in a worker, against `:memory:`. The pool is an optimisation, never a
  *   dependency, and a gateway that loses it gets slower rather than wrong.
  */
 @Injectable()
-export class ReadPoolService implements OnModuleDestroy {
+export class ReadPoolService implements OnModuleInit, OnModuleDestroy {
 	private readonly _logger = new Logger(ReadPoolService.name);
 
 	private _readers: Reader[] | null = null;
@@ -163,7 +170,22 @@ export class ReadPoolService implements OnModuleDestroy {
 		});
 	}
 
+	/**
+	 * Offers itself to the query runner.
+	 *
+	 * Here rather than in the constructor so that nothing before the module is ready —
+	 * the boot migrations above all — is routed to a read-only connection on a file whose
+	 * schema may not be written yet.
+	 */
+	public onModuleInit(): void {
+		useReadPool(this);
+	}
+
 	public onModuleDestroy(): void {
+		// First, so that a read arriving during shutdown goes to a connection that is
+		// still open rather than to a thread that is being terminated.
+		useReadPool(null);
+
 		for (const { reject, timer } of this._waiting.values()) {
 			clearTimeout(timer);
 			reject(new Error('The gateway is shutting down'));

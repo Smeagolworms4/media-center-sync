@@ -26,6 +26,7 @@ import {
 	TransferChunk,
 	User,
 } from '@/entities';
+import { applyAsynchronousReads } from './async-reads';
 import { applyPostgresCompatibility } from './postgres-compat';
 
 /**
@@ -136,6 +137,10 @@ export const dataSourceOptions = (): DataSourceOptions => {
 			: resolve(process.cwd(), config.database.file);
 
 	ensureParentDirectory(file);
+
+	// Only on this engine, and before the first statement: PostgreSQL's driver is
+	// already asynchronous, and this one is not asynchronous at all until it is told.
+	applyAsynchronousReads();
 
 	return {
 		type: 'better-sqlite3',
