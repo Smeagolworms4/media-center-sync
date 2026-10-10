@@ -237,6 +237,39 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	}
 
 	/**
+	 * The row and every parent above it, nearest first.
+	 *
+	 * The order is what it is for: a decision somebody took about a season is more
+	 * specific than the same decision taken about its series, so a caller looking for the
+	 * nearest answer walks this list and stops at the first row that has one. See
+	 * `pinnedFolderOf`, whose two callers both need exactly that.
+	 *
+	 * Bounded like `topAncestor` and for the same reason: a parent chain a scan wrote in
+	 * a circle costs three queries rather than the process.
+	 */
+	public async ancestry(item: MediaItem): Promise<MediaItem[]> {
+		const chain = [item];
+
+		for (let step = 0; step < ANCESTOR_DEPTH; step += 1) {
+			const parentId = chain[chain.length - 1].parentId;
+
+			if (parentId === null) {
+				return chain;
+			}
+
+			const parent = await this.findOne({ where: { id: parentId } });
+
+			if (parent === null) {
+				return chain;
+			}
+
+			chain.push(parent);
+		}
+
+		return chain;
+	}
+
+	/**
 	 * The series a row belongs to, or the row itself when it is already the top.
 	 *
 	 * Walks `parentId` up rather than reading one level, because the tree is three deep

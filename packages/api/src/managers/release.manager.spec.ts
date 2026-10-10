@@ -64,6 +64,7 @@ interface Fakes {
 		findOne: jest.Mock;
 		find: jest.Mock;
 		findChildren: jest.Mock;
+		ancestry: jest.Mock;
 		topAncestor: jest.Mock;
 	};
 	/** What the registry hands back, so a test can make the tracker fail on its own. */
@@ -424,8 +425,27 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 			),
 			// Asked when the tree says nothing, which is what a hierarchy a media server
 			// misreads looks like from here. Empty by default.
+			// The row and its parents, nearest first — the order a pinned folder is looked
+			// for in, since a decision taken about a season beats the same one taken about
+			// its series.
+			ancestry: jest.fn((item: { id: string; parentId: string | null }) => {
+				const chain = [item];
+
+				for (;;) {
+					const parentId = chain[chain.length - 1].parentId;
+					const parent = parentId === null
+						? undefined
+						: WORLD.find((one) => one.id === parentId);
+
+					if (parent === undefined) {
+						return Promise.resolve(chain);
+					}
+
+					chain.push(parent as typeof item);
+				}
+			}),
 			// The walk the real repository does, over the same little world: up to the row
-			// with no parent, which is where a pinned folder is written.
+			// with no parent.
 			topAncestor: jest.fn((item: { id: string; parentId: string | null }) => {
 				let current = item;
 
@@ -703,6 +723,101 @@ describe('ReleaseManager', () => {
 				expect(order).toEqual([{ id: 'wrong-season', offTarget: true }]);
 			});
 
+			it('marks a pack of another show, however exactly it names the season asked for',
+				async () => {
+					/*
+					 * The owner's own search, and the defect that cost the most. Season four
+					 * of **From** — one of the commonest words in English — answered, under a
+					 * heading promising "what fills the gaps you have":
+					 *
+					 * ```
+					 * Bridgerton.2020.S04.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-TFA   384 sources
+					 * Snowpiercer.S04.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-CHiLL     227 sources
+					 * Dexter.S04.MULTI.VFF.1080p.WEB.DDP.5.1.H265-TyHD            142 sources
+					 * ```
+					 *
+					 * Every one a season-four pack, so every one agreeing with the coordinate
+					 * — and nothing anywhere compared the title. Taking the first would have
+					 * downloaded fifteen gigabytes of Bridgerton, filed it as From, and left
+					 * the gap reading as filled.
+					 */
+					const { order } = await found([
+						release({ id: 'ours', title: 'Spartacus.S01E02.1080p-GRP' }),
+						release({
+							id: 'bridgerton',
+							title: 'Bridgerton.2020.S01.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-TFA',
+							episodeNumber: null,
+							coverage: {
+								seasonNumber: 1,
+								episodeNumbers: [],
+								wholeSeason: true,
+								wholeSeries: false,
+							},
+						}),
+						release({
+							id: 'dexter',
+							title: 'Dexter.COMPLETE.SERIES.MULTI.VFF.1080p-GRP',
+							seasonNumber: null,
+							episodeNumber: null,
+							coverage: {
+								seasonNumber: null,
+								episodeNumbers: [],
+								wholeSeason: false,
+								wholeSeries: true,
+							},
+						}),
+					]);
+
+					// The complete-series pack too: "everything" is only everything of the
+					// show that was asked for, and reading the coordinate first said otherwise.
+					expect(order).toEqual([
+						{ id: 'ours', offTarget: false },
+						{ id: 'bridgerton', offTarget: true },
+						{ id: 'dexter', offTarget: true },
+					]);
+				});
+
+			it('tells a show from one whose name merely begins with it', async () => {
+				// A prefix is not enough — and this is the whole reason the test is a reading
+				// of what sits between the title and the coordinate. See `namesMedia`.
+				const { order } = await found([
+					release({ id: 'ours', title: 'Spartacus.S01E02.1080p-GRP' }),
+					release({ id: 'other', title: 'Spartacus.Gods.of.the.Arena.S01E02.1080p-GRP' }),
+				]);
+
+				expect(order).toEqual([
+					{ id: 'ours', offTarget: false },
+					{ id: 'other', offTarget: true },
+				]);
+			});
+
+			it('judges no title at all on words somebody typed by hand', async () => {
+				/*
+				 * Free text is the search that exists for when the rules fail — half a title,
+				 * a release group, a word somebody is hunting with — and refusing every name
+				 * that does not begin with it would make it the search that fails hardest.
+				 */
+				const { manager, fakes } = build();
+
+				fakes.indexer.search.mockResolvedValue([
+					release({
+						id: 'anything',
+						title: 'Bridgerton.2020.S01.MULTI.1080p-GRP',
+						episodeNumber: null,
+						coverage: {
+							seasonNumber: 1,
+							episodeNumbers: [],
+							wholeSeason: true,
+							wholeSeries: false,
+						},
+					}),
+				]);
+
+				const answer = await manager.search({ term: 'bridgerton', seasonNumber: 1 });
+
+				expect(trackerGroups(answer)[0].offTarget).toBe(false);
+			});
+
 			it('leaves a season pack alone, which contains the episode asked for', async () => {
 				// And the grab machinery takes one file out of a pack — see `wanted`.
 				const { order } = await found([
@@ -928,6 +1043,29 @@ describe('ReleaseManager', () => {
 				expect(trackerGroups(found)[0].fills.map((one) => one.episodeNumber)).toEqual([1, 2, 3, 4]);
 			});
 
+			it('claims nothing for a pack of another show', async () => {
+				/*
+				 * The line that keeps fifteen gigabytes of Bridgerton out of the list headed
+				 * "what fills the gaps you have". The coverage agreed — it really is a
+				 * season-one pack — and agreeing with the coordinate was all anything checked.
+				 */
+				const { manager, fakes } = build();
+
+				fakes.indexer.search.mockResolvedValue([
+					release({
+						title: 'Bridgerton.2020.S01.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-TFA',
+						kind: ReleaseKind.SEASON_PACK,
+						episodeNumber: null,
+						coverage: { seasonNumber: 1, episodeNumbers: [], wholeSeason: true, wholeSeries: false },
+					}),
+				]);
+
+				const found = await manager.search({ itemId: 'series-1' });
+
+				expect(trackerGroups(found)[0].fills).toEqual([]);
+				expect(trackerGroups(found)[0].brings).toEqual([]);
+			});
+
 			it('gives a complete-series pack everything that is missing', async () => {
 				const { manager, fakes } = build();
 
@@ -1008,6 +1146,52 @@ describe('ReleaseManager', () => {
 
 				expect(found.missing).toEqual([]);
 				expect(trackerGroups(found)[0].fills).toEqual([]);
+			});
+		});
+
+		describe('the order the screen draws them in', () => {
+			it('puts what closes most of the gap first, not what is best seeded', async () => {
+				/*
+				 * The owner's season four search, in order: eight single episodes by seeders,
+				 * and the season pack — the one row that answers the question he asked — in
+				 * twelfth place. Seeders decided, and seeders say how popular a release is,
+				 * not how much of a season it brings.
+				 */
+				const { manager, fakes } = build();
+
+				fakes.indexer.search.mockResolvedValue([
+					release({ id: 'one-episode', title: 'Spartacus.S01E02.1080p-GRP', seeders: 546 }),
+					release({
+						id: 'pack',
+						title: 'Spartacus.S01.MULTi.1080p.WEB-GRP',
+						seeders: 189,
+						kind: ReleaseKind.SEASON_PACK,
+						episodeNumber: null,
+						coverage: { seasonNumber: 1, episodeNumbers: [], wholeSeason: true, wholeSeries: false },
+					}),
+				]);
+
+				const found = await manager.search({ itemId: 'series-1' });
+
+				expect(trackerGroups(found).map((one) => one.releases[0].id))
+					.toEqual(['pack', 'one-episode']);
+			});
+
+			it('leaves the seeded order alone where nothing fills a gap', async () => {
+				// Ties at zero for everything that fills nothing, so a search where somebody
+				// is replacing a copy rather than filling one is ordered as it always was.
+				const { manager, fakes } = build();
+
+				fakes.indexer.search.mockResolvedValue([
+					release({ id: 'quiet', title: 'Spartacus.S01E09.1080p-GRP', seeders: 10, episodeNumber: 9,
+						coverage: { seasonNumber: 1, episodeNumbers: [9], wholeSeason: false, wholeSeries: false } }),
+					release({ id: 'loud', title: 'Spartacus.S01E08.1080p-GRP', seeders: 500, episodeNumber: 8,
+						coverage: { seasonNumber: 1, episodeNumbers: [8], wholeSeason: false, wholeSeries: false } }),
+				]);
+
+				const found = await manager.search({ itemId: 'series-1' });
+
+				expect(trackerGroups(found).map((one) => one.releases[0].id)).toEqual(['loud', 'quiet']);
 			});
 		});
 
@@ -2275,6 +2459,77 @@ describe('ReleaseManager', () => {
 				expect(fakes.mover.move).toHaveBeenCalledWith(
 					expect.objectContaining({ linkSource: false }),
 				);
+			});
+
+			it('takes the folder pinned on the season over the one pinned on the series',
+				async () => {
+					/*
+					 * The owner's report, in his words: *pas de prise en compte de la
+					 * correction*. He corrected the destination on the season four page,
+					 * pressed download, and the file went where it was going before.
+					 *
+					 * The correction dialog writes the field on the row it was opened for — a
+					 * season as readily as a series — and this read the top of the tree and
+					 * nowhere else. So the one control that exists to answer "where does this
+					 * go" wrote an answer nothing ever read.
+					 */
+					const { manager, fakes } = build();
+					const row = fetched();
+
+					fakes.grabs.findLive.mockResolvedValue([row]);
+					fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+					fakes.items.ancestry.mockResolvedValue([
+						item({ id: 'ep-2', kind: MediaKind.EPISODE, parentId: 'season-1', seasonNumber: 1 }),
+						item({
+							id: 'season-1',
+							kind: MediaKind.SEASON,
+							parentId: 'series-1',
+							seasonNumber: 1,
+							overrides: { targetFolder: '/share/SeriesTV/Spartacus/Saison 01' },
+						}),
+						item({ id: 'series-1', overrides: { targetFolder: '/elsewhere/Spartacus' } }),
+					]);
+
+					await manager.poll();
+
+					expect(fakes.placement.resolve).toHaveBeenCalledWith(expect.objectContaining({
+						pinnedPath: '/share/SeriesTV/Spartacus/Saison 01',
+					}));
+				});
+
+			it('puts the season being filed into a pin that names a season', async () => {
+				/*
+				 * The other half of the same report: *il allait la poser dans
+				 * `/share/SeriesTV/From/Saison 01`* for a season four release. A pin naming a
+				 * season — which is exactly what the dialog pre-fills while somebody corrects
+				 * a season one placement — was used verbatim for every later season, silently
+				 * and for ever, because nothing about that is an error.
+				 */
+				const { manager, fakes } = build();
+				const row = grab({
+					state: GrabState.DOWNLOADING,
+					placements: [
+						placement({
+							fileName: 'Spartacus.S01E02.1080p.WEB-DL-GRP/Spartacus.S02E01.1080p-GRP.mkv',
+						}),
+					],
+				});
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.items.ancestry.mockResolvedValue([
+					item({ id: 'ep-2', kind: MediaKind.EPISODE, parentId: 'season-1', seasonNumber: 1 }),
+					item({ id: 'season-1', kind: MediaKind.SEASON, parentId: 'series-1', seasonNumber: 1 }),
+					item({ id: 'series-1', overrides: { targetFolder: '/share/SeriesTV/Spartacus/Saison 01' } }),
+				]);
+
+				await manager.poll();
+
+				// The season comes off the *file*, which is the only thing that knows which
+				// one arrived — see `_nameableOf`.
+				expect(fakes.placement.resolve).toHaveBeenCalledWith(expect.objectContaining({
+					pinnedPath: '/share/SeriesTV/Spartacus/Saison 02',
+				}));
 			});
 
 			it('asks for a link in the torrent’s place when the client is set to', async () => {

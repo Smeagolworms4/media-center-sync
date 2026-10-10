@@ -309,9 +309,32 @@ export const orderSuggestions = (
 			Number(!bringsNothing(left) && coversNoGap(left)) -
 				Number(!bringsNothing(right) && coversNoGap(right)) ||
 			Number(left.source === SuggestionSource.INDEXER) -
-				Number(right.source === SuggestionSource.INDEXER),
+				Number(right.source === SuggestionSource.INDEXER) ||
+			gapsOf(right) - gapsOf(left),
 	);
 };
+
+/**
+ * How much of what is missing one offer closes, which decides between two that both do.
+ *
+ * The line that was missing, and the owner's search is the clearest statement of why.
+ * Season four of a show he holds none of answered, in order: eight single episodes by
+ * seeders, and the season pack — the one row that answers the question he asked — in
+ * twelfth place. Seeders decided, and seeders say how popular a release is, not how much
+ * of a season it brings.
+ *
+ * Below the order that prefers a copy somebody already has, deliberately: a peer's file
+ * exists and a tracker's is a claim, and that trade is not undone by the claim being
+ * larger. So this separates tracker rows from tracker rows and peer rows from peer rows,
+ * which is where the question is actually asked — and among peers it agrees with
+ * `comparePeerCopies`, which has ordered them this way from the start.
+ *
+ * Ties at zero for everything that fills nothing, so the orders above it survive
+ * untouched on a search where the household is replacing a copy rather than filling a
+ * gap.
+ */
+const gapsOf = (one: ReleaseSuggestion): number =>
+	one.source === SuggestionSource.PEER ? one.copy.fills.length : one.release.fills.length;
 
 /**
  * An offer that answers nothing anybody is short of.

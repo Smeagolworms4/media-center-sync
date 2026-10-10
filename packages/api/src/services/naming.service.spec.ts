@@ -117,6 +117,30 @@ describe('NamingService', () => {
 			expect(rendered).toContain('The Expanse (2015)/Season 02/');
 		});
 
+		it('renumbers for a season row too, not only for an episode', () => {
+			/*
+			 * The owner's second report. This renumbered only for an episode, so a *season*
+			 * row fell through and took the sibling's folder verbatim — and the destination
+			 * offered for season four of a show already held was therefore
+			 * `…/From/Saison 01`, which he had to correct by hand before every download.
+			 *
+			 * A season row is what a prediction is made from: the page somebody presses
+			 * download on is the season's, and nothing about being a season rather than an
+			 * episode makes its number less known.
+			 */
+			const rendered = service.render(KEEP_SOURCE, {
+				kind: MediaKind.SEASON,
+				title: 'Season 4',
+				seasonNumber: 4,
+				seriesTitle: 'From',
+			}, {
+				libraryRoot: '/share/SeriesTV',
+				siblingPath: '/share/SeriesTV/From/Saison 01/From.S01E01.mkv',
+			});
+
+			expect(rendered).toContain('From/Saison 04/');
+		});
+
 		it('leaves a library that files a whole show in one folder alone', () => {
 			const rendered = service.render(KEEP_SOURCE, episode({ seasonNumber: 3 }), {
 				libraryRoot: '/media/shows',

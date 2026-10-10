@@ -1,4 +1,4 @@
-import { applyOverride, snapshotReported, type OverridableItem } from './media-override';
+import { applyOverride, pinnedFolderOf, snapshotReported, type OverridableItem } from './media-override';
 
 const normalize = (title: string): string => title.trim().toLowerCase();
 
@@ -229,5 +229,66 @@ describe('snapshotReported', () => {
 		item.externalIds.tvdb = 'changed';
 
 		expect(reported.externalIds.tvdb).toBe('5312341');
+	});
+});
+
+/**
+ * Where a pinned folder is read from, which was two defects in one line.
+ *
+ * The correction dialog is offered on a season's page and on an episode's, and it writes
+ * the field on the row it was opened for — while this read the top of the tree and
+ * nowhere else. The owner, having corrected the destination on the season four page and
+ * pressed download: *pas de prise en compte de la correction*.
+ */
+describe('pinnedFolderOf', () => {
+	const pinned = (id: string, folder: string | null) => ({
+		id,
+		overrides: folder === null ? null : { targetFolder: folder },
+	});
+
+	it('takes the nearest decision, not the highest', () => {
+		const chain = [
+			pinned('season-4', '/share/SeriesTV/From/Saison 04'),
+			pinned('series', '/share/SeriesTV/From/Saison 01'),
+		];
+
+		expect(pinnedFolderOf(chain)).toBe('/share/SeriesTV/From/Saison 04');
+	});
+
+	it('still finds a decision taken about the show', () => {
+		const chain = [pinned('episode', null), pinned('season', null), pinned('series', '/elsewhere/From')];
+
+		expect(pinnedFolderOf(chain)).toBe('/elsewhere/From');
+	});
+
+	it('puts the season being filed into a pin that names a season', () => {
+		/*
+		 * The second defect. A pin reading `…/Saison 01` — which is exactly what the
+		 * dialog pre-fills while somebody corrects a season one placement — filed season
+		 * four into season one. A pinned path whose last segment names a season says "this
+		 * show lives there, in per-season folders", so the season that belongs in it is
+		 * the one being filed.
+		 */
+		expect(pinnedFolderOf([pinned('series', '/share/SeriesTV/From/Saison 01')], 4))
+			.toBe('/share/SeriesTV/From/Saison 04');
+	});
+
+	it('leaves a pin that names no season exactly as it was typed', () => {
+		expect(pinnedFolderOf([pinned('series', '/share/SeriesTV/From')], 4))
+			.toBe('/share/SeriesTV/From');
+	});
+
+	it('leaves it alone when there is no season to put in it', () => {
+		// A film, or a prediction made from a series page: there is no number, and
+		// inventing one is worse than imitating.
+		expect(pinnedFolderOf([pinned('series', '/share/SeriesTV/From/Saison 01')], null))
+			.toBe('/share/SeriesTV/From/Saison 01');
+	});
+
+	it('reads an emptied field as a pin somebody removed', () => {
+		expect(pinnedFolderOf([pinned('season', '   '), pinned('series', '/elsewhere/From')]))
+			.toBe('/elsewhere/From');
+		expect(pinnedFolderOf([pinned('series', null)])).toBeNull();
+		expect(pinnedFolderOf([])).toBeNull();
 	});
 });

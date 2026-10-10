@@ -1502,11 +1502,18 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			 *
 			 * Only for the item that decides the lot: every other file of the run is handed
 			 * that decision through `pinned`, and asking again halfway down a season is how
-			 * a show ends up in two folders. Read off the top of the tree, because the pin
-			 * is written on the series and the file being placed is an episode of it.
+			 * a show ends up in two folders.
+			 *
+			 * Nearest first, and carrying this file's season. The dialog writes the field
+			 * on whichever row it was opened for — a season as readily as a series — and
+			 * reading only the top of the tree ignored every correction made anywhere else.
+			 * See `pinnedFolderOf`, which the grab path asks in exactly the same way.
 			 */
 			const folder = pin === null
-				? pinnedFolderOf(await this._items.topAncestor(entry.item))
+				? pinnedFolderOf(
+					await this._items.ancestry(entry.item),
+					entry.item.seasonNumber ?? null,
+				)
 				: null;
 			const target = await this._placement.resolve({
 				pinned: pin,

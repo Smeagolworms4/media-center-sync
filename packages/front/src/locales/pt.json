@@ -1699,7 +1699,7 @@
 			"failed": "{count} falhou | {count} falharam"
 		},
 		"off_target": {
-			"hint": "Estes nomes anunciam outra temporada ou outro episódio que não o pedido. Continuam a ser propostos: um nome mal formado pode ser mal lido.",
+			"hint": "Estes nomes anunciam outro título, outra temporada ou outro episódio que não o pedido. Continuam a ser propostos: um nome mal formado pode ser mal lido.",
 			"title": "Postos de lado"
 		},
 		"claimed_quality": "Anunciada pelo nome da release, não medida no ficheiro.",

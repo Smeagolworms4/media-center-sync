@@ -8,6 +8,7 @@ export * from './peer-suggestions';
 export * from './prowlarr.indexer';
 export * from './qbittorrent.client';
 export * from './release-grouping';
+export * from './release-match';
 export * from './release-http';
 export * from './release-name';
 export * from './release-preferences';

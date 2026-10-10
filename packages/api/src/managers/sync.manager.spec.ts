@@ -259,8 +259,25 @@ const build = (
 		findOne: jest.fn((options: { where: { id: string } }) =>
 			Promise.resolve(items.find((candidate) => candidate.id === options.where.id) ?? null),
 		),
-		// The walk the real repository does: up to the row with no parent, which is where a
-		// folder somebody pinned in the correction dialog is written.
+		// The row and its parents, nearest first: a folder pinned on a season beats the
+		// same decision taken about its series.
+		ancestry: jest.fn((item: MediaItem) => {
+			const chain = [item];
+
+			for (;;) {
+				const parentId = chain[chain.length - 1].parentId;
+				const parent = parentId === null
+					? undefined
+					: items.find((candidate) => candidate.id === parentId);
+
+				if (parent === undefined) {
+					return Promise.resolve(chain);
+				}
+
+				chain.push(parent);
+			}
+		}),
+		// The walk the real repository does: up to the row with no parent.
 		topAncestor: jest.fn((item: MediaItem) => {
 			let current = item;
 

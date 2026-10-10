@@ -25,6 +25,7 @@ interface Sketch {
 	size?: number | null;
 	seeders?: number | null;
 	heldAlready?: boolean;
+	offTarget?: boolean;
 	flags?: string[];
 }
 
@@ -64,7 +65,7 @@ function release(sketch: Sketch = {}): Release {
 			wholeSeries: sketch.wholeSeries ?? false,
 		},
 		heldAlready: sketch.heldAlready ?? false,
-		offTarget: false,
+		offTarget: sketch.offTarget ?? false,
 		flags: sketch.flags ?? [],
 	};
 }
@@ -365,5 +366,32 @@ describe('groupReleases', () => {
 
 			expect(groups.map((group) => group.quality)).toEqual(['1080p', '720p']);
 		});
+	});
+});
+
+describe('what must never share a line', () => {
+	it('keeps a release that is not what was asked for out of one that is', () => {
+		/*
+		 * The fold is built from the coordinate, and `offTarget` used to read nothing
+		 * else — so two copies of a line could not disagree about it. Now the title is
+		 * read too, and two different shows can carry the same coordinate, the same
+		 * quality and the same size: `Spartacus.S01E02.1080p-GRP` and
+		 * `Bridgerton.S01E02.1080p-GRP` folded into one line, which then took the
+		 * better-seeded copy's answer and showed it for both. A line that is half one
+		 * show is not a thing anybody can choose.
+		 */
+		const groups = groupReleases([
+			release({ title: 'Spartacus.S01E02.1080p.WEB-DL-GRP', seeders: 20 }),
+			release({ title: 'Bridgerton.S01E02.1080p.WEB-DL-GRP', seeders: 50, offTarget: true }),
+		]);
+
+		expect(groups).toHaveLength(2);
+		// Each keeps its own answer. Which of the two the screen draws first is
+		// `orderSuggestions`' question and not this one's — here they are still in
+		// seeded order, with the off-target row ahead because it is better seeded.
+		expect(groups.map((one) => [one.title, one.offTarget])).toEqual([
+			['Bridgerton.S01E02.1080p.WEB-DL-GRP', true],
+			['Spartacus.S01E02.1080p.WEB-DL-GRP', false],
+		]);
 	});
 });

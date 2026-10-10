@@ -25,6 +25,18 @@ import { releaseCodecOf, releaseTeamOf } from './release-preferences';
  */
 const keyOf = (release: Release): string =>
 	[
+		/*
+		 * Whether it is what was asked for, and it has to be in the key.
+		 *
+		 * The fold is built from the coordinate, which used to be the whole of what
+		 * `offTarget` read — so the note below could say that two copies of a line cannot
+		 * disagree about naming the wrong episode. Now the title is read too, and two
+		 * releases of two different shows can carry the same coordinate, the same quality
+		 * and the same size: `Spartacus.S01E02.1080p-GRP` and `Bridgerton.S01E02.1080p-GRP`
+		 * folded into one line, which then took the better-seeded copy's answer and showed
+		 * it for both. A line that is half one show is not a thing anybody can choose.
+		 */
+		release.offTarget ? 'off' : '',
 		release.kind,
 		release.coverage.seasonNumber ?? '',
 		// The whole run, not just the first: `S01E01-E03` and `S01E01` are two different
@@ -120,8 +132,8 @@ export const groupReleases = (releases: Release[]): ReleaseGroup[] => {
 			fills: [],
 			brings: [],
 			heldAlready: sorted.some((one) => one.heldAlready),
-			// Every copy in a group shares its coverage — the key is built from it — so
-			// they cannot disagree about naming the wrong episode.
+			// Every copy in a group shares this — the key is built from it — so they
+			// cannot disagree about whether the line answers what was asked.
 			offTarget: first.offTarget,
 		});
 	}

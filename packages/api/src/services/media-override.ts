@@ -1,4 +1,5 @@
 import type { ExternalIds, MediaOverride, MediaReported } from '@mcs/shared';
+import { withSeasonNumber } from './season-folder';
 
 /** The parts of an item an override can touch, as either half of it sees them. */
 export interface OverridableItem {
@@ -255,19 +256,48 @@ const seriesOrOwn = (item: OverridableItem): string => {
 };
 
 /**
- * The folder somebody pinned for this media, if anybody did.
+ * The folder somebody pinned for this media, and the season being filed into it.
  *
- * Read off the **top of the tree** and not off the row being placed, because that is
- * where the decision is taken: a season and an episode both live inside their show's
- * folder, and a pin written on one episode would put that episode somewhere no media
- * server shows as part of the series. The caller hands in the ancestor it already
- * resolved — this is a reader, not a walk.
+ * Two defects were reported together and they have one cause between them.
+ *
+ * It used to read the pin off the **top of the tree** and nowhere else. The correction
+ * dialog is offered on a season's page and on an episode's, and it writes the field on
+ * the row it was opened for — so a destination corrected anywhere but on the series was
+ * written and then never read. In the owner's words, having fixed it on the season four
+ * page and pressed download: *pas de prise en compte de la correction*. The chain is
+ * walked nearest first now, which is what the dialog has always appeared to promise.
+ *
+ * And the pin it did find was used verbatim. A pin reading
+ * `/share/SeriesTV/From/Saison 01` — written once while correcting a season one
+ * placement, which is exactly what that dialog pre-fills — therefore filed season four
+ * into season one. Silently, and for ever, because nothing about it is an error. A
+ * pinned path whose last segment names a season says *this show lives there, in
+ * per-season folders*, so the season that belongs in it is the one being filed. See
+ * `withSeasonNumber`, the same rule the naming service applies to the folders it
+ * imitates.
+ *
+ * `rows` is nearest first — `MediaItemRepository.ancestry` answers in that order — and
+ * `seasonNumber` is the season of the thing being placed, or null when there is none to
+ * put in the path.
  *
  * Null for an empty string as well as for nothing, since a field somebody emptied is a
  * pin somebody removed.
  */
-export const pinnedFolderOf = (top: { overrides?: MediaOverride | null } | null): string | null => {
-	const folder = top?.overrides?.targetFolder ?? null;
+export const pinnedFolderOf = (
+	rows: readonly ({ overrides?: MediaOverride | null } | null)[],
+	seasonNumber: number | null = null,
+): string | null => {
+	for (const row of rows) {
+		const folder = row?.overrides?.targetFolder ?? null;
 
-	return folder === null || folder.trim() === '' ? null : folder;
+		if (folder === null || folder.trim() === '') {
+			continue;
+		}
+
+		return seasonNumber === null
+			? folder
+			: (withSeasonNumber(folder, seasonNumber) ?? folder);
+	}
+
+	return null;
 };

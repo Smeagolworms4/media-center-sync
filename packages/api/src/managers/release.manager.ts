@@ -50,6 +50,7 @@ import {
 	isInside,
 	isWorkerThread,
 	mappedLocalPath,
+	namesMedia,
 	NamingService,
 	orderGroupsByPreference,
 	orderSuggestions,
@@ -181,8 +182,27 @@ const resolveMagnet = async (
  */
 const ANCESTRY_DEPTH = 3;
 
-const offTarget = (release: Release, season: number | null, episode: number | null): boolean => {
+const offTarget = (
+	release: Release,
+	/** The media's own title, or null when the search was free text. See `_markOffTarget`. */
+	title: string | null,
+	season: number | null,
+	episode: number | null,
+): boolean => {
 	const { coverage } = release;
+
+	/*
+	 * Before the coordinate, and before `wholeSeries` answers "everything".
+	 *
+	 * A pack of somebody else's complete series is not everything that was asked for, and
+	 * reading the coordinate first said it was. The report that produced this: a search
+	 * for season four of **From** answered season-four packs of Bridgerton, Snowpiercer,
+	 * Dexter, Yellowstone and Gomorra, each of them agreeing with the coordinate, each of
+	 * them offered as filling From's missing episodes. See `namesMedia`.
+	 */
+	if (title !== null && !namesMedia(release.title, title)) {
+		return true;
+	}
 
 	// Everything, by definition. Whatever it is named, it holds what was asked.
 	if (coverage.wholeSeries) {
@@ -392,7 +412,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		}
 
 		const sizes = await this._sizesHeld(item);
-		const marked = this._markOffTarget(releases, asked).map((release) => ({
+		const marked = this._markOffTarget(releases, asked, item).map((release) => ({
 			...release,
 			// A release whose size matches a file we hold to the byte is the file we
 			// hold. It is a guess and it is labelled as one — the row is still grabbable,
@@ -482,18 +502,33 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * A season pack is not off target for an episode search, and that is not an oversight:
 	 * a pack of season two contains episode thirty-six, and the grab machinery already
 	 * takes one file out of a pack — see `wanted` in `GrabRequest`.
+	 *
+	 * **The title is only a test when we know what the media is called.** On a search of a
+	 * media it is that media's title and the strongest signal there is — `namesMedia` has
+	 * the report that proves it. On free text the term is whatever somebody typed, which
+	 * may be half a title, a release group or a word they are hunting with, and refusing
+	 * every name that does not begin with it would turn the one search that exists for
+	 * when the rules fail into the one search that fails hardest.
 	 */
-	private _markOffTarget(releases: Release[], asked: IndexerQuery): Release[] {
+	private _markOffTarget(
+		releases: Release[],
+		asked: IndexerQuery,
+		item: MediaItemEntity | null,
+	): Release[] {
 		const season = asked.seasonNumber ?? null;
 		const episode = asked.episodeNumber ?? null;
+		const title = item === null ? null : asked.term;
 
-		// Nothing specific was asked, so nothing can contradict it — a film, or a search
-		// somebody typed by hand.
-		if (season === null && episode === null) {
+		// Nothing specific was asked, so nothing can contradict it — free text about a
+		// film, with no coordinate in it either.
+		if (season === null && episode === null && title === null) {
 			return releases;
 		}
 
-		return releases.map((release) => ({ ...release, offTarget: offTarget(release, season, episode) }));
+		return releases.map((release) => ({
+			...release,
+			offTarget: offTarget(release, title, season, episode),
+		}));
 	}
 
 	/**
@@ -1397,11 +1432,14 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			 * correction dialog is about the media for ever — so a one-off choice wins over
 			 * a standing one, and both win over the rule.
 			 */
-			const folder = grab.targetFolder ?? await this._pinnedFolder(item);
 			// What this file actually is, which the row it was grabbed against often
 			// cannot say: a grab made from a series page carries the series, and a series
 			// is not something that can be filed. See `_nameableOf`.
 			const { nameable, siblingPath } = await this._nameableOf(item, basename(source));
+			// Read after it, and that order is the fix: a pinned folder has to carry the
+			// season of the file being filed, and only the file knows which that is.
+			const folder = grab.targetFolder
+				?? await this._pinnedFolder(item, nameable.seasonNumber ?? null);
 			const target = await this._placement.resolve({
 				kind: nameable.kind,
 				categoryKey: categoryKeys.get(item.libraryId) ?? null,
@@ -1598,7 +1636,8 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			// What this file is, and where a copy of its show already sits. See
 			// `_nameableOf` and `_existingCopy`.
 			const { nameable, siblingPath } = await this._nameableOf(episode, basename(source));
-			const folder = grab.targetFolder ?? await this._pinnedFolder(episode);
+			const folder = grab.targetFolder
+				?? await this._pinnedFolder(episode, nameable.seasonNumber ?? null);
 			const target = await this._placement.resolve({
 				kind: episode.kind as MediaKind,
 				categoryKey: categoryKeys.get(episode.libraryId) ?? null,
@@ -2149,7 +2188,9 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			const libraries = await this._libraries.placementLibraries();
 			const categoryKeys = await this._libraries.categoryKeysByLibrary();
 			const show = await this._showFacts(item);
-			const pinned = folder ?? await this._pinnedFolder(item);
+			// The row's own season, which is the only one a prediction has: the file that
+			// will carry the real one does not exist yet. See `_pinnedFolder`.
+			const pinned = folder ?? await this._pinnedFolder(item, item.seasonNumber ?? null);
 			/*
 			 * The copy we already hold, asked for here too.
 			 *
@@ -2215,8 +2256,12 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	 * inside the one folder. Reading it off the episode would find nothing and place the
 	 * file by the rule, which is the bug this exists to prevent.
 	 */
-	private async _pinnedFolder(item: MediaItemEntity): Promise<string | null> {
-		return pinnedFolderOf(await this._items.topAncestor(item));
+	/** The nearest pin above this row, carrying the season being filed. See `pinnedFolderOf`. */
+	private async _pinnedFolder(
+		item: MediaItemEntity,
+		seasonNumber: number | null,
+	): Promise<string | null> {
+		return pinnedFolderOf(await this._items.ancestry(item), seasonNumber);
 	}
 
 	private async _showFacts(
@@ -2493,6 +2538,18 @@ export class ReleaseManager implements OnApplicationBootstrap {
 const fillsOf = (group: ReleaseGroup, missing: EpisodeRef[]): EpisodeRef[] => {
 	const { coverage } = group;
 
+	/*
+	 * A row that names something other than what was asked for fills nothing.
+	 *
+	 * This is the line that kept a fifteen-gigabyte pack of Bridgerton out of the list
+	 * headed "what fills the gaps you have". The coverage agreed — it really is a
+	 * season-four pack — and agreeing with the coordinate was all anything checked. See
+	 * `offTarget`, which now reads the title too.
+	 */
+	if (group.offTarget) {
+		return [];
+	}
+
 	if (coverage.wholeSeries) {
 		return missing;
 	}
@@ -2560,6 +2617,12 @@ const savePathOf = (client: DownloadClientSettings): string =>
  */
 const newIn = (group: ReleaseGroup, known: Set<string>): { seasonNumber: number | null; episodeNumber: number | null }[] => {
 	const { coverage } = group;
+
+	// Same rule as `fillsOf`: a row that is not about this media brings nothing to it,
+	// whatever its own name says it holds.
+	if (group.offTarget) {
+		return [];
+	}
 
 	if (coverage.episodeNumbers.length > 0) {
 		return coverage.episodeNumbers

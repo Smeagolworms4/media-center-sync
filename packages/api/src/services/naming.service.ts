@@ -4,6 +4,7 @@
  * Stripping them is exactly what this rule assumes is a mistake. */
 import { MediaKind, NamingScheme } from '@mcs/shared';
 import { Injectable } from '@nestjs/common';
+import { withSeasonNumber } from './season-folder';
 import { basename, stripExtension } from './title-normalizer';
 
 /** What a name can be built from. All of it optional, because all of it goes missing. */
@@ -349,27 +350,30 @@ export class NamingService {
 			return null;
 		}
 
-		if (item.kind !== MediaKind.EPISODE || item.seasonNumber === null) {
+		const season = item.seasonNumber ?? null;
+
+		/*
+		 * Whatever kind the row is, as long as it has a season — and that is a fix rather
+		 * than a widening.
+		 *
+		 * This used to renumber only for an episode, so a *season* row fell through and
+		 * took the sibling's folder verbatim. The destination offered for season four of a
+		 * show already held was therefore `…/From/Saison 01`, which is what the owner was
+		 * shown and what he had to correct by hand. A row carrying a season number knows
+		 * which season it is; nothing about being a season rather than an episode makes
+		 * that less true.
+		 *
+		 * A row with no season — a series, a film — still takes the folder as it is. There
+		 * is no number to put in it, and inventing one is worse than imitating.
+		 */
+		if (season === null) {
 			return relative;
 		}
 
-		const segments = relative.split('/');
-		const last = segments[segments.length - 1] ?? '';
-		const season = /^(season|saison|series|s)\s*\.?\s*(\d{1,3})$/i.exec(last);
-
-		if (!season) {
-			return relative;
-		}
-
-		// Keep the sibling's own padding: a library writing `Season 1` gets `Season 2`,
-		// one writing `Season 01` gets `Season 02`.
-		const padded = season[2].length > 1
-			? String(item.seasonNumber ?? 0).padStart(season[2].length, '0')
-			: String(item.seasonNumber ?? 0);
-
-		segments[segments.length - 1] = last.replace(/\d{1,3}$/, padded);
-
-		return segments.join('/');
+		// The sibling's own spelling and padding, with this file's season in it. The rule
+		// is shared with the pinned folder, which needs exactly the same answer — see
+		// `withSeasonNumber`.
+		return withSeasonNumber(relative, season) ?? relative;
 	}
 
 	/**

@@ -1699,7 +1699,7 @@
 			"failed": "{count} non riuscito | {count} non riusciti"
 		},
 		"off_target": {
-			"hint": "Questi nomi annunciano un'altra stagione o un altro episodio rispetto a quello chiesto. Restano proposti: un nome mal formato può essere letto male.",
+			"hint": "Questi nomi annunciano un altro titolo, un'altra stagione o un altro episodio rispetto a quello chiesto. Restano proposti: un nome mal formato può essere letto male.",
 			"title": "Messi da parte"
 		},
 		"claimed_quality": "Dichiarata dal nome della release, non misurata sul file.",

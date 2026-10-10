@@ -58,6 +58,7 @@ export * from './runtime-role';
 export * from './revalidation.service';
 export * from './run-ceiling';
 export * from './scheduler.service';
+export * from './season-folder';
 export * from './service-mode';
 export * from './settings.service';
 export * from './share-visibility';
