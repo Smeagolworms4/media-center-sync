@@ -422,6 +422,7 @@
 		"reset_done": "Die Felder enthalten jetzt, was der Dienst meldet. Speichern entfernt die Korrektur.",
 		"saved": "Korrektur gespeichert.",
 		"restored": "Die Antwort des Dienstes gilt wieder.",
+		"episode_end_floor": "Muss über der Folgennummer liegen.",
 		"failed": "Diese Korrektur wurde abgelehnt.",
 		"changed_count": "nichts geändert | {count} Feld geändert | {count} Felder geändert",
 		"field": {
@@ -430,6 +431,8 @@
 			"series_title_hint": "Bei einer Episode: der Name, nach dem ihr Ordner benannt ist.",
 			"year": "Jahr",
 			"season": "Staffel",
+			"episode_end": "Bis Folge",
+			"episode_end_hint": "Wenn diese eine Datei zwei Folgen enthält. Leer lassen für eine.",
 			"episode": "Episode",
 			"overview": "Beschreibung"
 		},

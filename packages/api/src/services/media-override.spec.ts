@@ -10,6 +10,7 @@ const anItem = (overrides: Partial<OverridableItem> = {}): OverridableItem => ({
 	year: 2015,
 	seasonNumber: 1,
 	episodeNumber: 1,
+	episodeNumberEnd: null,
 	overview: 'The crew looks for answers.',
 	externalIds: { tvdb: '5312341', imdb: 'tt4192812' },
 	overrides: null,
@@ -216,6 +217,70 @@ describe('applyOverride', () => {
 			expect(item.reported).toBeNull();
 			expect(item.title).toBe('Dulcinea');
 		});
+	});
+});
+
+/**
+ * Saying by hand that one file holds two episodes.
+ *
+ * Everything that counts gaps already expands this range — `spanOf` is the one rule —
+ * and both media servers report it when they work it out. What was missing was the hand:
+ * a file holding twenty and twenty-one that neither the server nor the file name said so
+ * about left twenty-one reading as a hole for ever, and the household was invited to
+ * download an episode playing off its own disk.
+ */
+describe('correcting a double episode', () => {
+	it('writes the end into the column everything reads', () => {
+		const item = anItem({ episodeNumber: 20, episodeNumberEnd: null });
+
+		applyOverride(item, { episodeNumberEnd: 21 }, normalize);
+
+		expect(item.episodeNumberEnd).toBe(21);
+		expect(item.reported?.episodeNumberEnd).toBeNull();
+	});
+
+	it('clears a double the scraper invented', () => {
+		// `null` is a different instruction from leaving the field out, exactly as it is
+		// for the year: it is how somebody says "this file is one episode".
+		const item = anItem({ episodeNumber: 20, episodeNumberEnd: 21 });
+
+		applyOverride(item, { episodeNumberEnd: null }, normalize);
+
+		expect(item.episodeNumberEnd).toBeNull();
+		expect(item.reported?.episodeNumberEnd).toBe(21);
+	});
+
+	it('is not a correction when it says what the service already says', () => {
+		// Otherwise the item is frozen on today's values and no scan will ever change it
+		// again — invisible the day it is made, unexplainable six months later.
+		const item = anItem({ episodeNumber: 20, episodeNumberEnd: 21 });
+
+		applyOverride(item, { episodeNumberEnd: 21 }, normalize);
+
+		expect(item.overrides).toBeNull();
+		expect(item.reported).toBeNull();
+		expect(item.episodeNumberEnd).toBe(21);
+	});
+
+	it('gives the service its answer back when the correction is removed', () => {
+		const item = anItem({ episodeNumber: 20, episodeNumberEnd: 21 });
+
+		applyOverride(item, { episodeNumberEnd: null }, normalize);
+		applyOverride(item, null, normalize);
+
+		expect(item.episodeNumberEnd).toBe(21);
+		expect(item.overrides).toBeNull();
+	});
+
+	it('leaves a shape that carries no such column alone', () => {
+		// Not every caller knows about doubles, and one that does not must not have one
+		// invented for it. Same rule as `seriesTitle` beside it.
+		const item = anItem({ episodeNumber: 20 });
+
+		delete (item as { episodeNumberEnd?: number | null }).episodeNumberEnd;
+		applyOverride(item, { episodeNumberEnd: 21 }, normalize);
+
+		expect('episodeNumberEnd' in item).toBe(false);
 	});
 });
 

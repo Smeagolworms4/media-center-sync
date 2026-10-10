@@ -348,7 +348,25 @@ export function parseEpisodeNumbers(raw: string): EpisodeNumbers | null {
  * costs the one false gap this function exists to remove.
  */
 function runEndOf(tail: string, first: number): number | null {
-	const run = /^\s*(?:-\s*e?|e)(\d{1,4})(?!\d)/i.exec(tail);
+	/*
+	 * Two readings, and the order between them is the safe one.
+	 *
+	 * The first wants the tail to *name* an episode — `E21`, `S03E21`, `3x21` — with or
+	 * without something introducing it. A separator is optional there precisely because
+	 * `S03E20.S03E21` and `3x20.3x21` are how two trackers and one scanner spell a
+	 * double, and nothing but a space sits between the halves.
+	 *
+	 * The second is the bare number, and it demands the dash. That demand is the whole
+	 * reason this is two expressions rather than one permissive alternation: a tail of
+	 * `10bit` or `1080p` begins with digits, and a pattern willing to read a bare number
+	 * with no dash in front of it turns `S01E09.10bit.x265` into episodes nine and ten —
+	 * which silences a real gap on the strength of a codec.
+	 *
+	 * `to\b` rather than `to`, so `S01E01.together` is a word and not a range.
+	 */
+	const run = /^\s*(?:(?:[-&+]|to\b)\s*)?(?:s\d{1,3}\s*)?(?:e|\d{1,2}x)(\d{1,4})(?!\d)/i
+		.exec(tail)
+		?? /^\s*-\s*(\d{1,4})(?!\d)/i.exec(tail);
 
 	if (!run) {
 		return null;

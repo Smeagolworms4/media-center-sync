@@ -178,6 +178,7 @@ describe('useCatalogue', () => {
 		year: 2019,
 		seasonNumber: 1,
 		episodeNumber: 2,
+		episodeNumberEnd: null,
 		externalIds: { tvdb: '1234', provider: 'jf-9' },
 		overview: null,
 		overrides: null,

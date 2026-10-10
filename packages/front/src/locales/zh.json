@@ -422,6 +422,7 @@
 		"reset_done": "各字段现在是服务报告的内容。保存即可移除该修正。",
 		"saved": "修正已保存。",
 		"restored": "已恢复服务自己的答案。",
+		"episode_end_floor": "必须大于集号。",
 		"failed": "此修正被拒绝。",
 		"changed_count": "已修改 {count} 个字段",
 		"field": {
@@ -430,6 +431,8 @@
 			"series_title_hint": "对于单集：它所在文件夹以此命名。",
 			"year": "年份",
 			"season": "季",
+			"episode_end": "至第几集",
+			"episode_end_hint": "当这一个文件包含两集时填写。只有一集请留空。",
 			"episode": "集",
 			"overview": "简介"
 		},

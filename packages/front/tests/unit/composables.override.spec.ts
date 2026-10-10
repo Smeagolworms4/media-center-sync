@@ -25,6 +25,7 @@ function item (overrides: Partial<MediaItem> = {}): MediaItem {
 		year: 2001,
 		seasonNumber: 1,
 		episodeNumber: 2,
+		episodeNumberEnd: null,
 		externalIds: { tvdb: '1234' },
 		overview: 'An overview.',
 		artworkUrl: null,
@@ -138,6 +139,65 @@ describe('composables/useMediaOverride', () => {
 		expect(draft.cleared.year).toBe(true);
 		expect(draft.values.year).toBe('');
 		expect(payload().year).toBeNull();
+	});
+
+	/**
+	 * Saying by hand that one file holds two episodes.
+	 *
+	 * Everything downstream already expands the range — the gap count on a season and
+	 * the wall both read it — and both media servers report it when they work it out.
+	 * What was missing was the box: a file holding twenty and twenty-one that neither the
+	 * server nor the file name said so about left twenty-one reading as a hole for ever,
+	 * and the household was then invited to download an episode playing off its own disk.
+	 */
+	describe('a double episode', () => {
+		it('sends the end as a number of its own', () => {
+			const { draft, payload } = useMediaOverride(ref(item({ episodeNumber: 20 })));
+
+			draft.values.episodeNumberEnd = '21';
+
+			expect(payload()).toEqual({ episodeNumberEnd: 21 });
+		});
+
+		it('sends an explicit null for a double somebody erased', () => {
+			// How a double a scraper invented is undone: cleared is not the same sentence
+			// as an empty box, which is a field nobody corrected.
+			const { draft, payload } = useMediaOverride(
+				ref(item({ episodeNumber: 20, episodeNumberEnd: 21 })),
+			);
+
+			draft.cleared.episodeNumberEnd = true;
+
+			expect(payload()).toEqual({ episodeNumberEnd: null });
+		});
+
+		it('leaves out an end that is what the service already said', () => {
+			const { draft, payload } = useMediaOverride(
+				ref(item({ episodeNumber: 20, episodeNumberEnd: 21 })),
+			);
+
+			draft.values.episodeNumberEnd = '21';
+
+			expect(payload()).toEqual({});
+		});
+
+		it('opens on what the service reported, so the box is not blank', () => {
+			const { draft } = useMediaOverride(
+				ref(item({ episodeNumber: 20, episodeNumberEnd: 21 })),
+			);
+
+			expect(draft.values.episodeNumberEnd).toBe('21');
+		});
+
+		it('counts as one of the fields corrected', () => {
+			// What the dialog puts next to its button, and what tells somebody the
+			// correction is about to carry something.
+			const { draft, correctedFields } = useMediaOverride(ref(item({ episodeNumber: 20 })));
+
+			draft.values.episodeNumberEnd = '21';
+
+			expect(correctedFields.value).toContain('episodeNumberEnd');
+		});
 	});
 
 	it('sends an identifier only when it differs from the one reported', () => {

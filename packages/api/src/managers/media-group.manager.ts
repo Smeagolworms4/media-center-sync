@@ -145,7 +145,13 @@ const scopeSignature = (seedQuery: GroupSeedQuery): string => {
  * is a fact about the copy and not about the media, and the listing already filters on
  * each row's effective value.
  */
-type OverriddenField = 'title' | 'year' | 'seasonNumber' | 'episodeNumber' | 'overview';
+type OverriddenField =
+	| 'title'
+	| 'year'
+	| 'seasonNumber'
+	| 'episodeNumber'
+	| 'episodeNumberEnd'
+	| 'overview';
 
 /**
  * The states that mean a copy worth having exists somewhere else.
@@ -1824,8 +1830,20 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			 * the same test written in SQL so the projection can skip the column.
 			 */
 			episodeNumberEnd: this._first(
-				ranked.filter((item) =>
-					this._holds({ ...item, hasFile: item.file !== null }, context)),
+				/*
+				 * A hand correction first, among the copies we hold.
+				 *
+				 * The filter is the rule above and stays unconditional; the ordering
+				 * inside it is new. Somebody who has just said "this file is twenty *and*
+				 * twenty-one" said it about one of these rows, and without this the group
+				 * answered whichever of them ranked highest — so the correction applied on
+				 * the copy it was made on and nowhere the household looks.
+				 */
+				this._preferring(
+					ranked.filter((item) =>
+						this._holds({ ...item, hasFile: item.file !== null }, context)),
+					'episodeNumberEnd',
+				),
 				(item) => item.episodeNumberEnd,
 			),
 			externalIds: this._externalIds(ranked),

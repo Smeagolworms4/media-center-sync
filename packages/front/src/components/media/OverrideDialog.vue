@@ -501,6 +501,31 @@
 		));
 	}
 
+	/**
+	 * A double has to climb, and this is the only place that can say so.
+	 *
+	 * The API does not compare the two — `class-validator` has no honest way to relate
+	 * two fields of one body — and the rule that decides is applied where the range is
+	 * read: `spanOf` ignores an end that does not climb, because `E05-E02` is a typo and
+	 * running it backwards would claim four episodes are held on the strength of one. So
+	 * a number entered the wrong way round would be stored, do nothing, and explain
+	 * nothing. Refused here instead, beside the box, which is where somebody can fix it.
+	 *
+	 * Empty passes: an empty box is a field nobody corrected, not a claim about one
+	 * episode. Clearing the field on purpose is the cross beside it.
+	 */
+	function climbsAboveEpisode (value: unknown): true | string {
+		const typed = String(value ?? '').trim();
+		const first = Number(draft.values.episodeNumber.trim());
+		const last = Number(typed);
+
+		if (typed === '' || !Number.isFinite(first) || !Number.isFinite(last)) {
+			return true;
+		}
+
+		return last > first || t('override.episode_end_floor');
+	}
+
 	const form = useForm({
 		fallbackError: 'override.failed',
 		fields: {
@@ -509,6 +534,9 @@
 			year: { rules: [validators.range({ min: 1800, max: 2999 })] },
 			seasonNumber: { rules: [validators.range({ min: 0, max: 999 })] },
 			episodeNumber: { rules: [validators.range({ min: 0, max: 9999 })] },
+			episodeNumberEnd: {
+				rules: [validators.range({ min: 0, max: 9999 }), climbsAboveEpisode],
+			},
 			overview: { rules: [validators.maxlength({ max: 5000 })] },
 		},
 		handle: async () => {
@@ -757,7 +785,7 @@
 			/>
 
 			<v-row density="compact">
-				<v-col cols="12" sm="4">
+				<v-col cols="12" sm="3">
 					<OverrideField
 						v-model="draft.values.year"
 						v-model:cleared="draft.cleared.year"
@@ -769,7 +797,7 @@
 					/>
 				</v-col>
 
-				<v-col cols="6" sm="4">
+				<v-col cols="6" sm="3">
 					<OverrideField
 						v-model="draft.values.seasonNumber"
 						v-model:cleared="draft.cleared.seasonNumber"
@@ -781,7 +809,7 @@
 					/>
 				</v-col>
 
-				<v-col cols="6" sm="4">
+				<v-col cols="6" sm="3">
 					<OverrideField
 						v-model="draft.values.episodeNumber"
 						v-model:cleared="draft.cleared.episodeNumber"
@@ -789,6 +817,24 @@
 						:label="$t('override.field.episode')"
 						name="episode"
 						:reported="reportedValue('episodeNumber')"
+						type="number"
+					/>
+				</v-col>
+
+				<!--
+					The other half of a double, and it is a correction like any other
+					rather than a checkbox saying "this is a double": the numbers are what
+					every reader expands, and a flag would need one anyway.
+				-->
+				<v-col cols="6" sm="3">
+					<OverrideField
+						v-model="draft.values.episodeNumberEnd"
+						v-model:cleared="draft.cleared.episodeNumberEnd"
+						:field="form.field('episodeNumberEnd')"
+						:hint="$t('override.field.episode_end_hint')"
+						:label="$t('override.field.episode_end')"
+						name="episode-end"
+						:reported="reportedValue('episodeNumberEnd')"
 						type="number"
 					/>
 				</v-col>

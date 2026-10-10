@@ -217,6 +217,21 @@ export interface MediaOverride {
 	year?: number | null;
 	seasonNumber?: number | null;
 	episodeNumber?: number | null;
+	/**
+	 * The last episode a file holds, for the double nothing detected.
+	 *
+	 * Everything that counts gaps already expands this range — `spanOf` is the one rule
+	 * and both the gap detection and the group view read it — and both media servers
+	 * report it when they work it out: Jellyfin as `IndexNumberEnd`, Plex as `index2`.
+	 * What was missing was the hand. A file holding episodes twenty and twenty-one that
+	 * neither the server nor the file name said so about left episode twenty-one reading
+	 * as a hole for ever, with no field anywhere to say otherwise — and the household
+	 * was then invited to download an episode playing off its own disk.
+	 *
+	 * Cleared with `null`, like every other correction here, which is how somebody undoes
+	 * a double a scraper invented.
+	 */
+	episodeNumberEnd?: number | null;
 	overview?: string | null;
 	externalIds?: ExternalIds;
 	/**
@@ -254,6 +269,12 @@ export interface MediaReported {
 	year: number | null;
 	seasonNumber: number | null;
 	episodeNumber: number | null;
+	/**
+	 * Optional because a snapshot written before the field existed has no key for it,
+	 * and a gateway reading one of those must not take `undefined` for "the service said
+	 * one episode" — it said nothing, which is what null means everywhere else here.
+	 */
+	episodeNumberEnd?: number | null;
 	overview: string | null;
 	externalIds: ExternalIds;
 }
@@ -270,6 +291,14 @@ export interface MediaItem {
 	year: number | null;
 	seasonNumber: number | null;
 	episodeNumber: number | null;
+	/**
+	 * The last episode this one file holds, and null when it holds one.
+	 *
+	 * On the row as well as on the group — see `MediaGroup.episodeNumberEnd` — because
+	 * the correction dialog edits a row: the double has to be readable where somebody
+	 * can change it, and not only where the gap count reads it.
+	 */
+	episodeNumberEnd: number | null;
 	externalIds: ExternalIds;
 	overview: string | null;
 	artworkUrl: string | null;

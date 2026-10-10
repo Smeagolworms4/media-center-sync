@@ -422,6 +422,7 @@
 		"reset_done": "Les champs contiennent ce que le service annonce. Enregistrez pour supprimer la correction.",
 		"saved": "Correction enregistrée.",
 		"restored": "La réponse du service est rétablie.",
+		"episode_end_floor": "Doit être supérieur au numéro d'épisode.",
 		"failed": "Cette correction a été refusée.",
 		"changed_count": "rien de changé | {count} champ modifié | {count} champs modifiés",
 		"field": {
@@ -430,6 +431,8 @@
 			"series_title_hint": "Pour un épisode : le nom dont son dossier porte le nom.",
 			"year": "Année",
 			"season": "Saison",
+			"episode_end": "Jusqu'à l'épisode",
+			"episode_end_hint": "Quand ce fichier contient deux épisodes. Laissez vide pour un seul.",
 			"episode": "Épisode",
 			"overview": "Résumé"
 		},

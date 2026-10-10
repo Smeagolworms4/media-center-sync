@@ -181,6 +181,7 @@ export const toMediaItem = (item: MediaItem): MediaItemModel => ({
 	year: item.year,
 	seasonNumber: item.seasonNumber,
 	episodeNumber: item.episodeNumber,
+	episodeNumberEnd: item.episodeNumberEnd,
 	externalIds: item.externalIds,
 	overview: item.overview,
 	artworkUrl: item.artworkUrl,

@@ -5,7 +5,21 @@ import { computed, type InjectionKey, reactive, ref, type Ref, watch } from 'vue
 export const OVERRIDE_TEXT_FIELDS = ['title', 'seriesTitle', 'overview'] as const;
 
 /** The numeric ones, kept apart because an empty box has to parse rather than pass. */
-export const OVERRIDE_NUMBER_FIELDS = ['year', 'seasonNumber', 'episodeNumber'] as const;
+export const OVERRIDE_NUMBER_FIELDS = [
+	'year',
+	'seasonNumber',
+	'episodeNumber',
+	/**
+	 * The last episode one file holds, for the double nothing detected.
+	 *
+	 * Everything downstream already expands the range — the gap count on a season and
+	 * the wall both read it — and both media servers report it when they work it out.
+	 * What was missing was the hand: a file holding twenty and twenty-one that neither
+	 * the server nor the file name said so about left twenty-one reading as a hole for
+	 * ever, with no box anywhere to say otherwise.
+	 */
+	'episodeNumberEnd',
+] as const;
 
 /** The identifiers worth correcting by hand; the rest are the services' own. */
 export const OVERRIDE_ID_FIELDS = ['tvdb', 'tmdb', 'imdb'] as const;
@@ -89,7 +103,15 @@ export interface OverrideDraft {
 }
 
 function emptyValues (): Record<OverrideField, string> {
-	return { title: '', seriesTitle: '', overview: '', year: '', seasonNumber: '', episodeNumber: '' };
+	return {
+		title: '',
+		seriesTitle: '',
+		overview: '',
+		year: '',
+		seasonNumber: '',
+		episodeNumber: '',
+		episodeNumberEnd: '',
+	};
 }
 
 function emptyCleared (): Record<OverrideField, boolean> {
@@ -100,6 +122,7 @@ function emptyCleared (): Record<OverrideField, boolean> {
 		year: false,
 		seasonNumber: false,
 		episodeNumber: false,
+		episodeNumberEnd: false,
 	};
 }
 
@@ -120,6 +143,7 @@ export function reportedOf (item: MediaItem | null): MediaReported | null {
 		year: item.year,
 		seasonNumber: item.seasonNumber,
 		episodeNumber: item.episodeNumber,
+		episodeNumberEnd: item.episodeNumberEnd ?? null,
 		overview: item.overview,
 		// `?? {}` because a row can legitimately arrive without any identifiers at all —
 		// a media nothing ever matched, a peer's row read from a listing that omits them —

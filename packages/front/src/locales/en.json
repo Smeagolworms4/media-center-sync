@@ -422,6 +422,7 @@
 		"reset_done": "The boxes now hold what the service reports. Save to drop the correction.",
 		"saved": "Correction saved.",
 		"restored": "The service's own answer is back.",
+		"episode_end_floor": "Must be above the episode number.",
 		"failed": "This correction was refused.",
 		"changed_count": "nothing changed | {count} field changed | {count} fields changed",
 		"field": {
@@ -430,6 +431,8 @@
 			"series_title_hint": "For an episode: the name its folder is named after.",
 			"year": "Year",
 			"season": "Season",
+			"episode_end": "Up to episode",
+			"episode_end_hint": "When this one file holds two episodes. Leave empty for one.",
 			"episode": "Episode",
 			"overview": "Overview"
 		},

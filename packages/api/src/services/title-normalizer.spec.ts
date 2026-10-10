@@ -108,6 +108,20 @@ describe('title-normalizer', () => {
 			['Eureka S01E01-02 1080p', 1, 1, 2],
 			['Beetlejuice.S01E04-E05.avi', 1, 4, 5],
 			['Show - 1x01-02 - Title', 1, 1, 2],
+			/*
+			 * The spellings that were read as one episode, reported from a household's own
+			 * library: season three, episodes twenty and twenty-one in one file, with
+			 * twenty-one reading as a hole and nothing anywhere able to say otherwise.
+			 *
+			 * Each of these is how some tracker or some scanner writes a double, and in
+			 * three of them nothing but a space separates the halves — which is why a
+			 * separator is optional once the tail plainly *names* an episode.
+			 */
+			['Show.S03E20.S03E21.1080p.mkv', 3, 20, 21],
+			['Show.3x20.3x21.mkv', 3, 20, 21],
+			['Show.S03E20 & E21.mkv', 3, 20, 21],
+			['Show.S03E20+E21.mkv', 3, 20, 21],
+			['Show.S03E20.to.E21.mkv', 3, 20, 21],
 		];
 
 		it.each(ranges)('reads %s as covering %i.%i to %i', (raw, season, first, last) => {
@@ -123,6 +137,23 @@ describe('title-normalizer', () => {
 			// Only a run written immediately after the tag is believed.
 			expect(parseEpisodeNumbers('Show.S01E01.1080p.x264.02.mkv')?.episodeNumberEnd)
 				.toBeNull();
+		});
+
+		it('does not read a codec or a resolution as the other half of a double', () => {
+			/*
+			 * The cost of letting the bare number go without a dash in front of it, and
+			 * the reason the reading is two expressions rather than one alternation. A
+			 * tail of `10bit` begins with digits one apart from episode nine, so a pattern
+			 * willing to read it would silence a real gap on the strength of a codec.
+			 */
+			for (const name of [
+				'Show.S01E09.10bit.x265.mkv',
+				'Show.S01E01.2160p.HDR.mkv',
+				'Show.S02E05.720p.WEB.mkv',
+				'Show.S01E01.together.again.mkv',
+			]) {
+				expect(parseEpisodeNumbers(name)?.episodeNumberEnd).toBeNull();
+			}
 		});
 
 		it('refuses a range that runs backwards', () => {

@@ -10,6 +10,12 @@ export interface OverridableItem {
 	year: number | null;
 	seasonNumber: number | null;
 	episodeNumber: number | null;
+	/**
+	 * Optional like `seriesTitle`, and for the same reason: not every shape handed to
+	 * this function carries the column, and a caller that does not know about doubles
+	 * must not have one invented for it.
+	 */
+	episodeNumberEnd?: number | null;
 	overview: string | null;
 	externalIds: ExternalIds;
 	overrides: MediaOverride | null;
@@ -37,6 +43,7 @@ const COMPARABLE = [
 	'year',
 	'seasonNumber',
 	'episodeNumber',
+	'episodeNumberEnd',
 	'overview',
 ] as const;
 
@@ -118,6 +125,7 @@ export const snapshotReported = (item: OverridableItem): MediaReported => ({
 	year: item.year,
 	seasonNumber: item.seasonNumber,
 	episodeNumber: item.episodeNumber,
+	episodeNumberEnd: item.episodeNumberEnd ?? null,
 	overview: item.overview,
 	externalIds: { ...item.externalIds },
 });
@@ -171,6 +179,10 @@ export const applyOverride = (
 		item.seriesTitle = reported.seriesTitle;
 	}
 
+	if ('episodeNumberEnd' in item) {
+		item.episodeNumberEnd = reported.episodeNumberEnd ?? null;
+	}
+
 	/*
 	 * Nothing left to apply, which absent, cleared and "identical to the service's
 	 * answer" all reduce to.
@@ -215,6 +227,10 @@ export const applyOverride = (
 
 	if (override.episodeNumber !== undefined) {
 		item.episodeNumber = override.episodeNumber;
+	}
+
+	if (override.episodeNumberEnd !== undefined && 'episodeNumberEnd' in item) {
+		item.episodeNumberEnd = override.episodeNumberEnd;
 	}
 
 	if (override.overview !== undefined) {

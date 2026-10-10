@@ -483,6 +483,25 @@ export class MediaOverrideDto {
 	@Max(9999)
 	public episodeNumber?: number | null;
 
+	/**
+	 * The last episode this one file holds — `S03E20-E21` is twenty here and
+	 * twenty-one there.
+	 *
+	 * Not compared with `episodeNumber` on the way in, deliberately. `class-validator`
+	 * has no honest way to relate two fields of one body, and the rule that matters is
+	 * already applied where the range is read: `spanOf` ignores an end that does not
+	 * climb, because `E05-E02` is somebody's typo and running it backwards would claim
+	 * four episodes are held on the strength of a mistake. The form refuses it before it
+	 * is sent, which is where somebody can see and fix it.
+	 */
+	@ApiPropertyOptional({ description: 'The last episode a single file holds.' })
+	@IsOptional()
+	@Type(() => Number)
+	@IsInt()
+	@Min(0)
+	@Max(9999)
+	public episodeNumberEnd?: number | null;
+
 	@ApiPropertyOptional()
 	@IsOptional()
 	@IsString()

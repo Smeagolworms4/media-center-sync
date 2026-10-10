@@ -422,6 +422,7 @@
 		"reset_done": "Los campos contienen lo que anuncia el servicio. Guarda para eliminar la corrección.",
 		"saved": "Corrección guardada.",
 		"restored": "La respuesta del propio servicio está de vuelta.",
+		"episode_end_floor": "Debe ser superior al número de episodio.",
 		"failed": "Esta corrección ha sido rechazada.",
 		"changed_count": "nada cambiado | {count} campo cambiado | {count} campos cambiados",
 		"field": {
@@ -430,6 +431,8 @@
 			"series_title_hint": "Para un episodio: el nombre del que toma nombre su carpeta.",
 			"year": "Año",
 			"season": "Temporada",
+			"episode_end": "Hasta el episodio",
+			"episode_end_hint": "Cuando este archivo contiene dos episodios. Déjelo vacío para uno.",
 			"episode": "Episodio",
 			"overview": "Sinopsis"
 		},

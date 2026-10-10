@@ -126,6 +126,7 @@ function item (overrides: Partial<MediaItem> = {}): MediaItem {
 		year: 1980,
 		seasonNumber: null,
 		episodeNumber: null,
+		episodeNumberEnd: null,
 		externalIds: {},
 		overview: null,
 		artworkUrl: null,
@@ -226,6 +227,58 @@ describe('components/media/OverrideDialog', () => {
 		expect(body.year).toBeNull();
 		// Nothing else travels: the service keeps deciding the rest.
 		expect(Object.keys(body)).toEqual(['title', 'year']);
+	});
+
+	/**
+	 * Saying by hand that one file holds two episodes.
+	 *
+	 * The household's report: season three, episodes twenty and twenty-one in one file,
+	 * twenty-one reading as a hole, and *jai rien pour corriger ca* — no box anywhere to
+	 * say otherwise. Everything downstream already expands the range; this is the hand.
+	 */
+	describe('a double episode', () => {
+		const episode = () => item({
+			kind: MediaKind.EPISODE,
+			title: 'The Other Side',
+			seasonNumber: 3,
+			episodeNumber: 20,
+		});
+
+		it('sends the end a double needs', async () => {
+			const { wrapper, stub } = mountDialog(episode());
+			await settle();
+
+			await wrapper.find('[data-test="override-episode-end"] input').setValue('21');
+			await settle();
+			await wrapper.find('[data-test="override-save"]').trigger('click');
+			await settle();
+
+			const put = stub.mock.calls.find(call => String(call[1]?.method).toUpperCase() === 'PUT');
+			const body = JSON.parse(put?.[1].body as string);
+
+			expect(body).toEqual({ episodeNumberEnd: 21 });
+		});
+
+		it('refuses an end that does not climb, beside the box rather than at the API', async () => {
+			/*
+			 * The API does not compare the two and the reader ignores a range that runs
+			 * backwards — `E05-E02` is a typo, and running it backwards would claim four
+			 * episodes are held on the strength of one. So a number entered the wrong way
+			 * round would be stored, do nothing, and explain nothing.
+			 */
+			const { wrapper, stub } = mountDialog(episode());
+			await settle();
+
+			await wrapper.find('[data-test="override-episode-end"] input').setValue('19');
+			await settle();
+			await wrapper.find('[data-test="override-save"]').trigger('click');
+			await settle();
+
+			expect(stub.mock.calls.some(
+				call => String(call[1]?.method).toUpperCase() === 'PUT')).toBe(false);
+			expect(wrapper.find('[data-test="override-episode-end"]').text())
+				.toContain('Must be above the episode number');
+		});
 	});
 
 	it('puts everything back with one button', async () => {
