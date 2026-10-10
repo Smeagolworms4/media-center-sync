@@ -1335,11 +1335,25 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	}
 
 	/**
-	 * The graph for this version of the table, built in one statement if it is missing.
+	 * The graph for this version of the table, waited for rather than raced.
 	 *
-	 * One statement and not paged, because somebody is waiting on this answer and the
-	 * round trips would be theirs to pay. When `refresh` has done its job this never
-	 * builds anything — which is the entire point of `refresh`.
+	 * A request that finds the graph stale used to build its own, in **one** statement
+	 * over the whole match table. `better-sqlite3` is synchronous, so that statement was
+	 * not latency this request paid — it was the gateway's event loop, gone for its
+	 * duration, with every other connection unread. The same defect as the catalogue
+	 * walk, in a tenth of the time and in a place nobody was looking, and it fired
+	 * exactly when a scan had just moved the version and somebody opened a page.
+	 *
+	 * So there is one builder now, `refresh`, and it reads in slices and hands the loop
+	 * back between them. Asking for it rather than duplicating it makes *this* request
+	 * slower than its own statement would have been. It makes every other request
+	 * possible while it waits, and that is the trade the whole cache was built for.
+	 *
+	 * The statement below is what is left for the case where there is nothing to ask: a
+	 * gateway whose refresher has not registered yet — `schedule` can be called from a
+	 * hook that runs before the one that registers — or a threshold that moved between
+	 * the two reads. Both are a rebuild that has to happen somewhere, and nowhere else
+	 * is left.
 	 */
 	private async _cachedGraph(version: string, threshold: number): Promise<MatchGraph> {
 		const cached = this._graph;
@@ -1349,26 +1363,27 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		}
 
 		/*
-		 * A rebuild already running is the one we wait for, never one we race.
+		 * Compared by identity, not by version, and that is the whole of the check.
 		 *
-		 * Without this the two paths do the same work twice over and the wrong one wins:
-		 * the background pass reads in slices and hands the loop back between them, while
-		 * this one reads the whole table in a single synchronous statement — so the page
-		 * that arrives during a warm blocks the entire process for its duration, which is
-		 * exactly the minute after a restart when somebody is most likely to be looking.
+		 * A rebuild that ran produced a *new* graph, and it is the freshest there is —
+		 * fresher, possibly, than the version this request read a moment ago, which is
+		 * fine: the projection is keyed on the graph's own version, so the page and its
+		 * filter describe the same catalogue either way.
 		 *
-		 * Waiting makes this one request slower than it would be on its own. It makes
-		 * every *other* request possible while it waits, and that is the trade the whole
-		 * cache was built for.
+		 * What this must not do is accept the graph that was already there. Nothing
+		 * registered a refresher, or nothing was due, and the graph that is still in
+		 * place is the stale one this method was called to replace. Returning it would
+		 * draw a library from a catalogue that has moved, and file the filter's answer
+		 * under it — a wrong answer that looks exactly like a right one.
 		 */
-		if (this._cache.refreshing) {
-			await this._cache.refreshNow();
+		const before = this._graph;
 
-			const warmed = this._graph;
+		await this._cache.refreshNow();
 
-			if (warmed !== null && warmed.threshold === threshold) {
-				return warmed.graph;
-			}
+		const warmed = this._graph;
+
+		if (warmed !== null && warmed !== before && warmed.threshold === threshold) {
+			return warmed.graph;
 		}
 
 		const graph = new MatchGraph(await this._matches.findAppliedPairs(threshold));

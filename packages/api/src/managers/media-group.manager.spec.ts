@@ -1807,6 +1807,32 @@ describe('MediaGroupManager', () => {
 			expect(reads.cache.schedule).toHaveBeenCalledWith(CacheRefreshReason.BOOT);
 		});
 
+		it('asks the paged rebuild for a cold graph rather than reading the table at once', async () => {
+			/*
+			 * The same defect as the catalogue walk, in a tenth of the time and where
+			 * nobody was looking. A request that found the graph stale built its own, in
+			 * one statement over the whole match table — and `better-sqlite3` is
+			 * synchronous, so that was the gateway's event loop gone for its duration,
+			 * every other connection unread. It fired exactly when a scan had just moved
+			 * the version and somebody opened a page.
+			 */
+			const { manager, reads } = build({
+				items: [item({ id: 'a' }), item({ id: 'b', serviceId: 'remote' })],
+				matches: [correlation()],
+			});
+
+			// What a running gateway has: a refresher registered at module init, which
+			// reads in slices and hands the loop back between them.
+			reads.cache.refreshNow.mockImplementation(() => manager.refresh().then(() => undefined));
+
+			await manager.groups(query());
+
+			expect(reads.cache.refreshNow).toHaveBeenCalled();
+			expect(
+				reads.matches.findAppliedPairs.mock.calls.every(([, , take]) => take > 0),
+			).toBe(true);
+		});
+
 		it('waits for a rebuild already running rather than racing it', async () => {
 			/*
 			 * The two paths do the same work and the wrong one wins: the background pass
