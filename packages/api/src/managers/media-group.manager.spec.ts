@@ -2477,6 +2477,139 @@ describe('MediaGroupManager', () => {
 		});
 	});
 
+	/*
+	 * The catalogue walk behind the filter, which is where the news wall's five seconds
+	 * went.
+	 *
+	 * Answering "is anything beneath this root missing" means reading every row in scope
+	 * and building a skeleton for each. Measured against the owner's live gateway, 31 631
+	 * rows: 5.21 s with the filter, 0.62 s without it — and `limit=1` cost the same
+	 * 5.38 s, for one item of 1 101 bytes, because none of that work depends on how many
+	 * rows the caller asked for. Per page load, it starved the thirty artwork transfers
+	 * behind it and the browser dropped them.
+	 *
+	 * These pin the four things that keep the walk from happening per request. The last
+	 * two matter most: a projection served under the wrong key is a wall that says there
+	 * is nothing to fetch when there is, which is indistinguishable from a right answer.
+	 */
+	describe('the catalogue walk behind it', () => {
+		const show = (id: string, title: string): MediaItem =>
+			item({ id, title, kind: MediaKind.SERIES, file: null, quality: null });
+
+		/** How many times the whole scope was read, which is the expensive half. */
+		const walks = (reads: { items: Record<string, jest.Mock> }): number =>
+			reads.items.findGroupSeeds.mock.calls.filter(
+				([asked]: [GroupSeedQuery]) => asked.rootsOnly === false,
+			).length;
+
+		const catalogue = {
+			items: [
+				show('short', 'Alpha'),
+				item({ id: 'short-1', title: 'One', parentId: 'short' }),
+				item({
+					id: 'short-2',
+					title: 'Two',
+					parentId: 'short',
+					serviceId: 'remote',
+					libraryId: 'library-remote',
+					syncState: SyncState.MISSING,
+				}),
+				show('dated', 'Bravo'),
+				item({ id: 'dated-1', title: 'One', parentId: 'dated', syncState: SyncState.OUTDATED }),
+			],
+		};
+
+		it('walks once for both halves rather than once for each', async () => {
+			const { manager, reads } = build(catalogue);
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(walks(reads)).toBe(1);
+		});
+
+		it('does not walk again for the same read', async () => {
+			const { manager, reads } = build(catalogue);
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(walks(reads)).toBe(1);
+		});
+
+		/*
+		 * A search narrows which roots come back and not which rows are in scope, which
+		 * is why it is one of the fields the signature leaves out. Walking again for it
+		 * would put the five seconds back on every keystroke.
+		 */
+		it('does not walk again for a filter that does not change the scope', async () => {
+			const { manager, reads } = build(catalogue);
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+			await manager.groups(query({ rootsOnly: true, actionable: true, search: 'alp' }));
+
+			expect(walks(reads)).toBe(1);
+		});
+
+		it('walks again for a scope that is genuinely different', async () => {
+			const { manager, reads } = build(catalogue);
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+			await manager.groups(
+				query({ rootsOnly: true, actionable: true, libraryId: 'library-remote' }),
+			);
+
+			expect(walks(reads)).toBe(2);
+		});
+
+		/*
+		 * Three tabs opening at once is the ordinary case after a restart, and the first
+		 * read is the one that pays. Without this they would each start their own walk —
+		 * on a Raspberry Pi, three times the work for one answer.
+		 */
+		it('shares one walk between reads that arrive together', async () => {
+			const { manager, reads } = build(catalogue);
+
+			await Promise.all([
+				manager.groups(query({ rootsOnly: true, actionable: true })),
+				manager.groups(query({ rootsOnly: true, actionable: true })),
+				manager.groups(query({ rootsOnly: true, actionable: true })),
+			]);
+
+			expect(walks(reads)).toBe(1);
+		});
+
+		/*
+		 * The one that keeps the answer honest. The key carries the version of the match
+		 * table it was built from, so a catalogue that moved cannot be answered from a
+		 * projection built before it did — and nobody has to remember to invalidate
+		 * anything on the paths that write rows.
+		 */
+		it('walks again once the catalogue has moved', async () => {
+			const { manager, reads, world } = build(catalogue);
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			// A row the applied-pair read filters out, so the version moves and the graph
+			// does not: what is under test is the key, not the grouping.
+			world.matches.push(correlation({ localItemId: null }));
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(walks(reads)).toBe(2);
+		});
+
+		it('still answers the same groups from the stored projection', async () => {
+			const { manager } = build(catalogue);
+
+			const first = await manager.groups(query({ rootsOnly: true, actionable: true }));
+			const second = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(first.items.map((one) => one.id)).toEqual(['short', 'dated']);
+			expect(second.items.map((one) => one.id)).toEqual(first.items.map((one) => one.id));
+		});
+	});
+
+
 	/**
 	 * What can actually be had, which is the complaint `actionable` does not answer.
 	 *

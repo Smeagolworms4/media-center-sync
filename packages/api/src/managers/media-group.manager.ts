@@ -37,6 +37,7 @@ import {
 	type MatchPair,
 	type MediaItemDigest,
 } from '@/repositories';
+import { createHash } from 'node:crypto';
 import {
 	breathe,
 	CatalogueCacheService,
@@ -97,6 +98,42 @@ const CARRIES_A_FILE = new Set<MediaKind>([MediaKind.EPISODE, MediaKind.MOVIE]);
  * same number, as the match graph's own page a few methods down.
  */
 const SCOPE_PAGE = 4_000;
+
+/**
+ * How many scopes' projections to keep.
+ *
+ * One per shape of filter somebody is browsing with — the news wall, a library, a
+ * friend's copies. Eight covers a household several tabs deep and bounds a map whose
+ * keys are built from query objects, which is the kind that grows for ever if nobody
+ * says otherwise.
+ */
+const SCOPES_KEPT = 8;
+
+/**
+ * The fields `_wholeScope` neutralises, and therefore the ones a projection does **not**
+ * depend on.
+ *
+ * Listed as what to *remove* rather than what to keep, on purpose: a filter added to
+ * `GroupSeedQuery` tomorrow lands in the signature by default and gets its own
+ * projection. The opposite spelling — naming the fields that matter — would silently
+ * serve one filter's answer to another the day somebody adds a field and forgets this
+ * line, and a wrong answer here looks exactly like a right one.
+ */
+const OUTSIDE_SCOPE = new Set(['rootsOnly', 'search', 'kind', 'skip', 'take']);
+
+/** A query's scope, as a string two equal scopes always spell the same way. */
+const scopeSignature = (seedQuery: GroupSeedQuery): string => {
+	const scoped = Object.entries(seedQuery as unknown as Record<string, unknown>)
+		.filter(([field, value]) => !OUTSIDE_SCOPE.has(field) && value !== undefined)
+		// Sorted because `JSON.stringify` keeps insertion order, and two queries built by
+		// different routes hold the same filters in different orders.
+		.sort(([left], [right]) => left.localeCompare(right));
+
+	return createHash('sha1').update(JSON.stringify(scoped)).digest('hex');
+};
+
+/** The states a projection answers for, spelled the same way whatever their order. */
+const stateSignature = (states: SyncState[]): string => [...states].sort().join(',');
 
 /**
  * The fields a group fills per copy and a person can correct by hand.
@@ -380,6 +417,31 @@ interface Scope {
 export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	/** The grouping graph last built, and what the match table looked like then. */
 	private _graph: { version: string; threshold: number; graph: MatchGraph } | null = null;
+
+	/**
+	 * Which roots have something beneath them in a given set of states, per scope.
+	 *
+	 * The answer a request needs from the catalogue walk, reduced to what it actually
+	 * uses: a set of member identifiers. Keeping the skeletons instead would be thirty
+	 * thousand objects held for a NAS that is already short of memory; keeping the ids is
+	 * a few hundred kilobytes.
+	 *
+	 * Keyed by the scope **and the version of the match table it was built from**, so a
+	 * catalogue that moved simply misses the key. That is deliberate: an explicit
+	 * invalidation is a line somebody has to remember to write on every path that
+	 * changes a row, and the day one is missed the gateway serves a confident wrong
+	 * answer — a wall that says there is nothing to fetch when there is.
+	 */
+	private readonly _roots = new Map<string, Map<string, Set<string>>>();
+
+	/**
+	 * A pass already running, so three tabs opening at once share one walk.
+	 *
+	 * This is what makes "wait for the first computation" affordable: the first caller
+	 * after a boot pays for it, the others wait on the same promise, and none of them
+	 * blocks the event loop while waiting.
+	 */
+	private readonly _building = new Map<string, Promise<Map<string, Set<string>>>>();
 
 	public constructor(
 		private readonly _items: MediaItemRepository,
@@ -779,15 +841,117 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			return groups.map((states) => skeletons.filter(own(states)));
 		}
 
+		const roots = await this._rootsBeneath(groups, seedQuery, context);
+
+		return groups.map((states, at) => {
+			const ownState = own(states);
+			const beneath = roots[at];
+
+			return skeletons.filter(
+				(skeleton) =>
+					ownState(skeleton) || skeleton.memberIds.some((memberId) => beneath.has(memberId)),
+			);
+		});
+	}
+
+	/**
+	 * The projection, from the store when it is there and from one walk when it is not.
+	 *
+	 * Asking is cheap and the walk is not: reading every row in scope and building a
+	 * skeleton for each is what cost the news wall 5.2 s per request, on every page load,
+	 * for an answer that only changes when the catalogue does.
+	 *
+	 * No graph version means no key worth storing under, so nothing is kept — a read
+	 * that happens before the graph is warm is rare, and a projection filed under a
+	 * version nobody can compare is worse than one computed twice.
+	 */
+	private async _rootsBeneath(
+		groups: SyncState[][],
+		seedQuery: GroupSeedQuery,
+		context: GroupContext,
+	): Promise<Set<string>[]> {
+		const wanted = groups.map(stateSignature);
+		const graph = this._graph;
+
+		if (graph === null) {
+			const fresh = await this._walk(null, groups, seedQuery, context);
+
+			return wanted.map((signature) => fresh.get(signature) as Set<string>);
+		}
+
+		const key = `${scopeSignature(seedQuery)}:${graph.version}:${graph.threshold}`;
+		const held = this._roots.get(key);
+
+		if (held !== undefined && wanted.every((signature) => held.has(signature))) {
+			return wanted.map((signature) => held.get(signature) as Set<string>);
+		}
+
+		/*
+		 * A pass already in flight is joined, then **checked again** rather than trusted.
+		 *
+		 * It was started for whichever states its own caller asked about, which are not
+		 * necessarily these. Reading a missing set as an empty one would answer "nothing
+		 * beneath this is missing" — a wall that looks complete while it is not, which is
+		 * the one wrong answer this screen must never give.
+		 */
+		const running = this._building.get(key);
+
+		if (running !== undefined) {
+			const shared = await running;
+
+			if (wanted.every((signature) => shared.has(signature))) {
+				return wanted.map((signature) => shared.get(signature) as Set<string>);
+			}
+		}
+
+		const built = await this._build(key, groups, seedQuery, context);
+
+		return wanted.map((signature) => built.get(signature) as Set<string>);
+	}
+
+	/** Registers the pass before awaiting it, which is what lets the next caller join. */
+	private _build(
+		key: string,
+		groups: SyncState[][],
+		seedQuery: GroupSeedQuery,
+		context: GroupContext,
+	): Promise<Map<string, Set<string>>> {
+		const pass = this._walk(key, groups, seedQuery, context).finally(() => {
+			this._building.delete(key);
+		});
+
+		this._building.set(key, pass);
+
+		return pass;
+	}
+
+	/**
+	 * One walk of the catalogue, filling every group that was asked for.
+	 *
+	 * The expensive half — `_wholeScope` and a skeleton per row — happens once however
+	 * many state groups there are, which is why `_actionable` asks for its gaps and its
+	 * upgrades together rather than one after the other.
+	 */
+	private async _walk(
+		key: string | null,
+		groups: SyncState[][],
+		seedQuery: GroupSeedQuery,
+		context: GroupContext,
+	): Promise<Map<string, Set<string>>> {
 		const scope = await this._wholeScope(seedQuery);
 		const parentOf = new Map(scope.map((seed) => [seed.id, seed.parentId]));
 		const below = scope.filter((seed) => seed.parentId !== null);
-		// Once, however many groups are asked for: this is the expensive half.
 		const beneath = await this._skeletons(below, context);
-		const answers: GroupSkeleton[][] = [];
+		const filled = (key === null ? undefined : this._roots.get(key)) ?? new Map<string, Set<string>>();
 
 		for (const states of groups) {
-			const ownState = own(states);
+			const signature = stateSignature(states);
+
+			if (filled.has(signature)) {
+				continue;
+			}
+
+			const ownState = (skeleton: GroupSkeleton): boolean => states.includes(skeleton.sync);
 			const roots = new Set<string>();
 
 			for (const [index, skeleton] of beneath.filter(ownState).entries()) {
@@ -813,15 +977,26 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 				}
 			}
 
-			answers.push(
-				skeletons.filter(
-					(skeleton) =>
-						ownState(skeleton) || skeleton.memberIds.some((memberId) => roots.has(memberId)),
-				),
-			);
+			filled.set(signature, roots);
 		}
 
-		return answers;
+		if (key !== null) {
+			this._roots.set(key, filled);
+
+			// Oldest first: a `Map` keeps insertion order, and the scope nobody has asked
+			// about for longest is the one least worth the memory.
+			while (this._roots.size > SCOPES_KEPT) {
+				const oldest = this._roots.keys().next();
+
+				if (oldest.done) {
+					break;
+				}
+
+				this._roots.delete(oldest.value);
+			}
+		}
+
+		return filled;
 	}
 
 	/**
