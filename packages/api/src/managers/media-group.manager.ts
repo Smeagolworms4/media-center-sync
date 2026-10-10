@@ -742,44 +742,86 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		seedQuery: GroupSeedQuery,
 		context: GroupContext,
 	): Promise<GroupSkeleton[]> {
-		const ownState = (skeleton: GroupSkeleton): boolean => states.includes(skeleton.sync);
+		return (await this._inStates(skeletons, [states], seedQuery, context))[0];
+	}
+
+	/**
+	 * The same answer for several groups of states, over **one** pass of the catalogue.
+	 *
+	 * This exists because of what the one-group version costs when it is asked twice.
+	 * Answering "is anything beneath this root in one of these states" means reading
+	 * every row in scope — `_wholeScope`, the whole catalogue a page at a time — and
+	 * building a skeleton for each, which is the expensive half. The states themselves
+	 * are a predicate applied at the end, and they are the *only* thing that differed
+	 * between the two calls `_actionable` used to make: gaps, then upgrades.
+	 *
+	 * So the catalogue was walked twice and every skeleton built twice, per request, to
+	 * evaluate two predicates over identical data. Measured on the owner's catalogue of
+	 * 31 631 rows: 5.2 s for the news wall, and `limit=1` cost the same 5.4 s because
+	 * none of this work depends on how many rows the caller asked for.
+	 *
+	 * Reading it once and filtering twice changes no rule — the predicate, the parent
+	 * walk and the final filter are exactly what they were — and halves the work. It is
+	 * not the cure: the pass still runs on this thread, and `breathe()` still hands the
+	 * loop back only every fiftieth skeleton, so a request still blocks in slices. What
+	 * cures that is computing this away from the request entirely.
+	 */
+	private async _inStates(
+		skeletons: GroupSkeleton[],
+		groups: SyncState[][],
+		seedQuery: GroupSeedQuery,
+		context: GroupContext,
+	): Promise<GroupSkeleton[][]> {
+		const own = (states: SyncState[]) =>
+			(skeleton: GroupSkeleton): boolean => states.includes(skeleton.sync);
 
 		if (seedQuery.rootsOnly !== true) {
-			return skeletons.filter(ownState);
+			return groups.map((states) => skeletons.filter(own(states)));
 		}
 
 		const scope = await this._wholeScope(seedQuery);
 		const parentOf = new Map(scope.map((seed) => [seed.id, seed.parentId]));
 		const below = scope.filter((seed) => seed.parentId !== null);
-		const matching = (await this._skeletons(below, context)).filter(ownState);
+		// Once, however many groups are asked for: this is the expensive half.
+		const beneath = await this._skeletons(below, context);
+		const answers: GroupSkeleton[][] = [];
 
-		const roots = new Set<string>();
+		for (const states of groups) {
+			const ownState = own(states);
+			const roots = new Set<string>();
 
-		for (const [index, skeleton] of matching.entries()) {
-			await breathe(index);
+			for (const [index, skeleton] of beneath.filter(ownState).entries()) {
+				await breathe(index);
 
-			for (const memberId of skeleton.memberIds) {
-				let current: string | null | undefined = memberId;
+				for (const memberId of skeleton.memberIds) {
+					let current: string | null | undefined = memberId;
 
-				// Bounded, because a parent chain is data a media server wrote: a
-				// series, a season, an episode is three steps, and a loop in somebody's
-				// index must cost a few iterations rather than the request.
-				for (let depth = 0; depth < 8 && current; depth += 1) {
-					const parent = parentOf.get(current);
+					// Bounded, because a parent chain is data a media server wrote: a
+					// series, a season, an episode is three steps, and a loop in
+					// somebody's index must cost a few iterations rather than the
+					// request.
+					for (let depth = 0; depth < 8 && current; depth += 1) {
+						const parent = parentOf.get(current);
 
-					if (parent === null) {
-						roots.add(current);
-						break;
+						if (parent === null) {
+							roots.add(current);
+							break;
+						}
+
+						current = parent;
 					}
-
-					current = parent;
 				}
 			}
+
+			answers.push(
+				skeletons.filter(
+					(skeleton) =>
+						ownState(skeleton) || skeleton.memberIds.some((memberId) => roots.has(memberId)),
+				),
+			);
 		}
 
-		return skeletons.filter(
-			(skeleton) => ownState(skeleton) || skeleton.memberIds.some((memberId) => roots.has(memberId)),
-		);
+		return answers;
 	}
 
 	/**
@@ -860,19 +902,32 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		 * we do not hold is not held by anything, which is an absence and not an
 		 * upgrade.
 		 */
-		const absent = gaps
-			? new Set(
-				await this._inState(
-					skeletons,
-					[SyncState.MISSING, SyncState.CONFLICT],
-					seedQuery,
-					context,
-				),
-			)
-			: new Set<GroupSkeleton>();
-		const better = upgrades
-			? new Set(await this._inState(skeletons, [SyncState.OUTDATED], seedQuery, context))
-			: new Set<GroupSkeleton>();
+		/*
+		 * Both halves in one pass, and only the halves that were asked for.
+		 *
+		 * These were two calls, and the walk they share — every row in scope, a skeleton
+		 * for each — is the whole cost. See `_inStates`: the states are a predicate at
+		 * the end, so reading twice to apply two predicates was the catalogue traversed
+		 * twice per request for nothing.
+		 */
+		const stateGroups: SyncState[][] = [];
+
+		if (gaps) {
+			stateGroups.push([SyncState.MISSING, SyncState.CONFLICT]);
+		}
+
+		if (upgrades) {
+			stateGroups.push([SyncState.OUTDATED]);
+		}
+
+		const answered =
+			stateGroups.length === 0
+				? []
+				: await this._inStates(skeletons, stateGroups, seedQuery, context);
+
+		const absent = gaps ? new Set(answered[0]) : new Set<GroupSkeleton>();
+		// Second when both were asked for, first when the gaps were not.
+		const better = upgrades ? new Set(answered[gaps ? 1 : 0]) : new Set<GroupSkeleton>();
 
 		return skeletons.filter(
 			(skeleton) =>
