@@ -14,6 +14,7 @@ import {
 	type CoveragePlan,
 	type CoverageStep,
 	type EpisodeRef,
+	type GrabPlacement,
 	type GrabRequest,
 	type MediaGroup,
 	type PeerCopy,
@@ -1405,12 +1406,36 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			 * incomplete with a finished download next to it.
 			 *
 			 * `_choose` has already worked out which file answers which episode, so the
-			 * names are on the row. When they are not — a whole-release grab, where nobody
-			 * named anything — the largest file is still the answer.
+			 * names are on the row — for a *partial* grab. A whole-release grab names
+			 * nothing, and the largest file was then taken to be the answer: right for one
+			 * episode, and the whole of the owner's next report for a season. He pressed
+			 * download on a twelve-gigabyte pack of ten episodes and one episode was
+			 * filed, in his words *il a déplacé qu'un fichier alors que j'ai toute une
+			 * saison*, with the row saying `placed` and nothing anywhere disagreeing.
+			 *
+			 * So the files are read when nobody named them: several episodes means several
+			 * placements, worked out from the names on the disk. One file, or a pack
+			 * nothing can be read off, still falls through to the largest — see `_spreadOf`.
 			 */
 			const named = (grab.placements ?? []).filter((one) => one.fileName !== null);
 
 			if (named.length > 0) {
+				await this._placeEach(grab, settings);
+
+				return;
+			}
+
+			const spread = await this._spreadOf(grab, item);
+
+			if (spread.length > 1) {
+				/*
+				 * Written onto the row, not just used. The queue draws one line per
+				 * placement with its own path, which is how somebody sees that ten episodes
+				 * arrived rather than one — and a failure halfway leaves a row saying which
+				 * files are already in the library.
+				 */
+				grab.placements = spread;
+				await this._grabs.save(grab);
 				await this._placeEach(grab, settings);
 
 				return;
@@ -1476,7 +1501,9 @@ export class ReleaseManager implements OnApplicationBootstrap {
 						// A file of this show we already hold, so the folders this library
 						// really uses are imitated rather than invented: `Saison 1` where
 						// that is what it says, instead of a second `Season 01` beside it.
-						{ libraryRoot: root, siblingPath },
+						// And the pin, so naming inside it builds only what it does not
+						// already name — see `NamingContext.pinnedFolder`.
+						{ libraryRoot: root, siblingPath, pinnedFolder: folder },
 					),
 				requiredBytes: 0,
 			});
@@ -1655,8 +1682,10 @@ export class ReleaseManager implements OnApplicationBootstrap {
 						settings.namingOrder,
 						{ ...nameable, sourcePath: source },
 						// The folders this library really uses, imitated rather than
-						// invented — the other half of keeping a show in one place.
-						{ libraryRoot, siblingPath },
+						// invented — the other half of keeping a show in one place. And the
+						// pin, so naming inside it builds only what it does not already
+						// name: nothing under a season's folder, a season under a show's.
+						{ libraryRoot, siblingPath, pinnedFolder: folder },
 					),
 				requiredBytes: 0,
 			});
@@ -2235,7 +2264,11 @@ export class ReleaseManager implements OnApplicationBootstrap {
 						// The folders that library really uses, imitated rather than invented
 						// — `Saison 1` where that is what it says. The placement has done this
 						// since it existed and the prediction never did.
-						{ libraryRoot: root, siblingPath },
+						//
+						// The pin too, or the prediction promises a path the placement will
+						// not use: it is the same chain, and this is the line somebody reads
+						// for hours while a download runs.
+						{ libraryRoot: root, siblingPath, pinnedFolder: pinned },
 					),
 				requiredBytes: 0,
 			});
@@ -2310,6 +2343,118 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		}
 
 		return null;
+	}
+
+	/**
+	 * One placement per episode a pack really holds, when nobody named them.
+	 *
+	 * The owner's report: a twelve-gigabyte pack of ten episodes, pressed download on as
+	 * a whole release, and one episode filed — *il a déplacé qu'un fichier alors que j'ai
+	 * toute une saison*. A partial grab has its files named by `_choose` before it is
+	 * started; a whole-release grab names nothing, so the largest file was taken to be
+	 * the answer. For one episode it is. For a season it files one tenth of it and says
+	 * `placed`.
+	 *
+	 * Read off the names on the disk, and only a **coordinate** is believed. That is the
+	 * one rule narrow enough to be safe here: a sample is `sample.mkv`, a screenshot is
+	 * `proof.jpg`, an `.nfo` is an `.nfo`, and none of them says `S04E05`. An extension
+	 * list would be wrong on somebody's library — the reason `largestFileUnder` refuses
+	 * to keep one — and a size threshold would drop a twenty-minute episode.
+	 *
+	 * The largest file wins a coordinate claimed twice, which is how a `sample` that does
+	 * carry the episode tag loses to the episode.
+	 *
+	 * Empty for one file, and empty for a pack whose names say nothing: the caller then
+	 * falls back to the largest file, which is the behaviour this had and the right answer
+	 * for "this release for this episode".
+	 *
+	 * The episode's own row when the catalogue has one, so the landing is announced
+	 * against the media it fills and the gap closes. The grabbed row otherwise — a season
+	 * nothing reports the episodes of yet — because filing the bytes and naming them from
+	 * their own name is still right, and losing them is not.
+	 */
+	private async _spreadOf(
+		grab: GrabEntity,
+		item: MediaItemEntity,
+	): Promise<GrabPlacement[]> {
+		if (grab.sourcePath === null) {
+			return [];
+		}
+
+		const files = await this._filesystem.filesUnder(grab.sourcePath);
+
+		if (files.length < 2) {
+			return [];
+		}
+
+		const episodes = await this._episodesUnder(item);
+		const best = new Map<
+			string,
+			{ file: { path: string; size: number }; ref: { seasonNumber: number; episodeNumber: number } }
+		>();
+
+		for (const file of files) {
+			const parsed = parseReleaseName(basename(file.path), true);
+			const seasonNumber = parsed.coverage.seasonNumber;
+			const episodeNumber = parsed.coverage.episodeNumbers[0] ?? null;
+
+			if (seasonNumber === null || episodeNumber === null) {
+				continue;
+			}
+
+			const ref = { seasonNumber, episodeNumber };
+			const key = keyOf(ref);
+			const held = best.get(key);
+
+			if (held === undefined || file.size > held.file.size) {
+				best.set(key, { file, ref });
+			}
+		}
+
+		return [...best].map(([key, found]) => {
+			const row = episodes.get(key) ?? null;
+
+			return {
+				itemId: row?.id ?? item.id,
+				seasonNumber: found.ref.seasonNumber,
+				episodeNumber: found.ref.episodeNumber,
+				title: row?.title ?? basename(found.file.path),
+				// Absolute, which `_fileNamed` resolves unchanged: it is already inside the
+				// download directory, which is the one thing that method checks.
+				fileName: found.file.path,
+				targetPath: null,
+			};
+		});
+	}
+
+	/**
+	 * The episode rows beneath a grabbed media, by coordinate.
+	 *
+	 * Two levels at most, which is the whole tree: a series holds seasons and a season
+	 * holds episodes. An episode grabbed directly is its own answer.
+	 */
+	private async _episodesUnder(item: MediaItemEntity): Promise<Map<string, MediaItemEntity>> {
+		if (item.kind === MediaKind.EPISODE) {
+			return new Map([[keyOf(item), item]]);
+		}
+
+		const found = new Map<string, MediaItemEntity>();
+
+		for (const child of await this._items.findChildren(item.id)) {
+			const rows = child.kind === MediaKind.EPISODE
+				? [child]
+				: await this._items.findChildren(child.id);
+
+			for (const row of rows) {
+				const key = keyOf(row);
+
+				if (row.kind === MediaKind.EPISODE && !found.has(key)) {
+					found.set(key, row);
+				}
+			}
+		}
+
+		return found;
 	}
 
 	/**
@@ -2639,8 +2784,15 @@ const newIn = (group: ReleaseGroup, known: Set<string>): { seasonNumber: number 
 	return [];
 };
 
-/** A media's coordinate, which is what a plan and a partial grab are keyed on. */
-const keyOf = (one: EpisodeRef): string => `${one.seasonNumber ?? ''}:${one.episodeNumber ?? ''}`;
+/**
+ * A media's coordinate, which is what a plan and a partial grab are keyed on.
+ *
+ * Typed by the two fields it reads rather than by `EpisodeRef`, so the rows and the file
+ * names that carry nothing else can be keyed the same way. One spelling of a coordinate
+ * is the point: two would be two maps that look alike and never match.
+ */
+const keyOf = (one: { seasonNumber: number | null; episodeNumber: number | null }): string =>
+	`${one.seasonNumber ?? ''}:${one.episodeNumber ?? ''}`;
 
 /**
  * Write down every coordinate one row accounts for, range and all.
@@ -2662,7 +2814,8 @@ const keyOf = (one: EpisodeRef): string => `${one.seasonNumber ?? ''}:${one.epis
  */
 const remember = (known: Set<string>, group: MediaGroup): void => {
 	for (const episodeNumber of spanOf(group)) {
-		known.add(keyOf({ itemId: group.id, seasonNumber: group.seasonNumber, episodeNumber, title: group.title }));
+		// The coordinate and nothing else, which is all `keyOf` ever read.
+		known.add(keyOf({ seasonNumber: group.seasonNumber, episodeNumber }));
 	}
 
 	// A film and a season carry no episode number, so the span is empty and the

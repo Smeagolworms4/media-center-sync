@@ -86,7 +86,7 @@ interface Fakes {
 	placement: { resolve: jest.Mock; prepare: jest.Mock };
 	libraries: { placementLibraries: jest.Mock; categoryKeysByLibrary: jest.Mock; read: jest.Mock };
 	groups: { group: jest.Mock; groupChildren: jest.Mock };
-	filesystem: { rights: jest.Mock; largestFileUnder: jest.Mock };
+	filesystem: { rights: jest.Mock; filesUnder: jest.Mock; largestFileUnder: jest.Mock };
 	mover: { move: jest.Mock };
 	events: { emit: jest.Mock };
 	landings: { recordFile: jest.Mock };
@@ -509,6 +509,14 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 		filesystem: {
 			// Readable, which is the ordinary case; the tests about the opposite say so.
 			rights: jest.fn().mockResolvedValue({ readable: true, writable: true }),
+			/*
+			 * One file, which is what a torrent of one episode is — and what every test
+			 * here was written against. A pack holding several says so for itself: see
+			 * `_spreadOf`, which files one episode per coordinate it can read.
+			 */
+			filesUnder: jest.fn().mockResolvedValue([
+				{ path: '/share/torrents/Spartacus.S01E02.1080p.WEB-DL-GRP/episode.mkv', size: 1_000 },
+			]),
 			largestFileUnder: jest
 				.fn()
 				.mockResolvedValue('/share/torrents/Spartacus.S01E02.1080p.WEB-DL-GRP/episode.mkv'),
@@ -2530,6 +2538,117 @@ describe('ReleaseManager', () => {
 				expect(fakes.placement.resolve).toHaveBeenCalledWith(expect.objectContaining({
 					pinnedPath: '/share/SeriesTV/Spartacus/Saison 02',
 				}));
+			});
+
+			/**
+			 * A pack taken as a whole release, which is ten episodes and was one file.
+			 *
+			 * The owner pressed download on a twelve-gigabyte pack of a season and one
+			 * episode was filed — *il a déplacé qu'un fichier alors que j'ai toute une
+			 * saison* — with the row saying `placed` and nothing anywhere disagreeing. A
+			 * partial grab has its files named by `_choose` before it starts; a whole
+			 * release names nothing, and the largest file was taken to be the answer.
+			 */
+			describe('a pack nobody named the files of', () => {
+				const pack = (): GrabEntity => grab({
+					itemId: 'season-1',
+					title: 'Spartacus.S01.MULTi.1080p.WEB-GRP',
+					state: GrabState.DOWNLOADING,
+					placements: [],
+				});
+
+				const under = (...names: { name: string; size: number }[]) =>
+					names.map((one) => ({
+						path: `/share/torrents/Spartacus.S01.MULTi.1080p.WEB-GRP/${one.name}`,
+						size: one.size,
+					}));
+
+				it('files every episode it holds, each as its own', async () => {
+					const { manager, fakes } = build();
+					const row = pack();
+
+					fakes.grabs.findLive.mockResolvedValue([row]);
+					fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+					fakes.filesystem.filesUnder.mockResolvedValue(under(
+						{ name: 'Spartacus.S01E02.1080p-GRP.mkv', size: 1_000 },
+						{ name: 'Spartacus.S01E03.1080p-GRP.mkv', size: 1_100 },
+					));
+
+					await manager.poll();
+
+					expect(fakes.mover.move).toHaveBeenCalledTimes(2);
+					// Each against its own episode row, so the landing is announced about the
+					// media it fills and the gap closes.
+					expect((row.placements ?? []).map((one) => [one.itemId, one.episodeNumber]))
+						.toEqual([['ep-2', 2], ['ep-3', 3]]);
+					expect(row.state).toBe(GrabState.PLACED);
+				});
+
+				it('keeps the largest of two files claiming one episode', async () => {
+					/*
+					 * Which is how a sample loses. Only a coordinate is believed here — a
+					 * sample is `sample.mkv` and a screenshot is `proof.jpg`, and neither says
+					 * `S01E02` — but a sample that does carry the tag is answered by its size.
+					 */
+					const { manager, fakes } = build();
+					const row = pack();
+
+					fakes.grabs.findLive.mockResolvedValue([row]);
+					fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+					fakes.filesystem.filesUnder.mockResolvedValue(under(
+						{ name: 'Spartacus.S01E02.1080p-GRP.sample.mkv', size: 10 },
+						{ name: 'Spartacus.S01E02.1080p-GRP.mkv', size: 1_000 },
+						{ name: 'Spartacus.S01E03.1080p-GRP.mkv', size: 1_100 },
+					));
+
+					await manager.poll();
+
+					expect(fakes.mover.move).toHaveBeenCalledTimes(2);
+					expect(fakes.mover.move).toHaveBeenCalledWith(expect.objectContaining({
+						source: '/share/torrents/Spartacus.S01.MULTi.1080p.WEB-GRP/Spartacus.S01E02.1080p-GRP.mkv',
+					}));
+				});
+
+				it('leaves the proof and the nfo where they are', async () => {
+					// Nothing without a coordinate is filed. An extension list would be wrong
+					// on somebody's library, which is why none is kept anywhere here.
+					const { manager, fakes } = build();
+					const row = pack();
+
+					fakes.grabs.findLive.mockResolvedValue([row]);
+					fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+					fakes.filesystem.filesUnder.mockResolvedValue(under(
+						{ name: 'Spartacus.S01E02.1080p-GRP.mkv', size: 1_000 },
+						{ name: 'Spartacus.S01E03.1080p-GRP.mkv', size: 1_100 },
+						{ name: 'proof.jpg', size: 5 },
+						{ name: 'release.nfo', size: 1 },
+					));
+
+					await manager.poll();
+
+					expect(fakes.mover.move).toHaveBeenCalledTimes(2);
+				});
+
+				it('still takes the largest file when the names say nothing', async () => {
+					/*
+					 * The behaviour this had, and the right answer for "this release for this
+					 * episode": a torrent of one film in a folder with a sample beside it.
+					 */
+					const { manager, fakes } = build();
+					const row = grab({ state: GrabState.DOWNLOADING, placements: [] });
+
+					fakes.grabs.findLive.mockResolvedValue([row]);
+					fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+					fakes.filesystem.filesUnder.mockResolvedValue(under(
+						{ name: 'episode.mkv', size: 1_000 },
+						{ name: 'sample.mkv', size: 10 },
+					));
+
+					await manager.poll();
+
+					expect(fakes.mover.move).toHaveBeenCalledTimes(1);
+					expect(fakes.filesystem.largestFileUnder).toHaveBeenCalled();
+				});
 			});
 
 			it('asks for a link in the torrent’s place when the client is set to', async () => {

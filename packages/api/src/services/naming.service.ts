@@ -4,7 +4,7 @@
  * Stripping them is exactly what this rule assumes is a mistake. */
 import { MediaKind, NamingScheme } from '@mcs/shared';
 import { Injectable } from '@nestjs/common';
-import { withSeasonNumber } from './season-folder';
+import { seasonFolderNumber, withSeasonNumber } from './season-folder';
 import { basename, stripExtension } from './title-normalizer';
 
 /** What a name can be built from. All of it optional, because all of it goes missing. */
@@ -110,6 +110,29 @@ export interface NamingContext {
 
 	/** Root of the destination library, so a sibling path can be made relative to it. */
 	libraryRoot?: string | null;
+
+	/**
+	 * A folder somebody named for this one media, which is **the** folder.
+	 *
+	 * The difference between this and `libraryRoot` is the whole reason it exists. A
+	 * library root is a shelf to build a hierarchy under: a film gets its own folder, an
+	 * episode gets its show's and its season's. A pinned folder is the answer to "where
+	 * does this go", already given — so building anything under it is overruling the one
+	 * control that exists to decide it.
+	 *
+	 * Reported, with the path: a correction naming `/share/SeriesTV/From/Saison 04`
+	 * produced
+	 * `/share/SeriesTV/From/Saison 04/FROM (2022)/Season 04/From.S04E05…mkv`, because the
+	 * pin arrived here as the root and the directory was dutifully rebuilt inside it. In
+	 * the owner's words: *c'est pas ce que j'ai demandé*.
+	 *
+	 * Compared with `libraryRoot` rather than trusted on its own, because the placement
+	 * walks a chain: the pin is only the first attempt, and a later one — the library the
+	 * show already lives in, the category's shelf — is a root again and must get its
+	 * hierarchy. So this says "if you are naming inside *this*, name nothing but the
+	 * file".
+	 */
+	pinnedFolder?: string | null;
 }
 
 /**
@@ -120,6 +143,34 @@ export interface NamingContext {
  * and a file that cannot be copied off the machine later is a file somebody loses.
  */
 const ILLEGAL_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f]/g;
+
+/** A path with no trailing slash, so two spellings of one folder compare equal. */
+const withoutTrailingSlash = (path: string | null | undefined): string =>
+	(path ?? '').trim().replace(/\/+$/, '');
+
+/**
+ * Whether the root being named inside is the folder somebody pinned for this media.
+ *
+ * See `NamingContext.pinnedFolder`. An empty pin is no pin, and never equal to a root.
+ */
+const isPinnedRoot = (context: NamingContext): boolean => {
+	const pinned = withoutTrailingSlash(context.pinnedFolder);
+
+	return pinned !== '' && pinned === withoutTrailingSlash(context.libraryRoot);
+};
+
+/** The season folder a sibling file sits in, when it sits in one. */
+const seasonSegmentOf = (siblingPath: string | null | undefined): string | null => {
+	const directory = withoutTrailingSlash(siblingPath);
+
+	if (directory === '') {
+		return null;
+	}
+
+	const segment = basename(directory.slice(0, Math.max(0, directory.lastIndexOf('/'))));
+
+	return seasonFolderNumber(segment) === null ? null : segment;
+};
 
 /** Windows keeps these reserved whatever the extension. */
 const RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -290,6 +341,10 @@ export class NamingService {
 	 * by definition, whatever a standard would have produced.
 	 */
 	private _directory(item: NameableItem, context: NamingContext): string {
+		if (isPinnedRoot(context)) {
+			return this._insideAPin(item, context);
+		}
+
 		const imitated = this._imitatedDirectory(item, context);
 
 		if (imitated !== null) {
@@ -317,6 +372,51 @@ export class NamingService {
 		}
 
 		return '';
+	}
+
+	/**
+	 * What still has to be built under a folder somebody named for this media.
+	 *
+	 * Two answers, and the owner gave both in one breath: *le dossier final doit être
+	 * celui que j'ai réécrit* for a season, and *sur la série complète il doit faire les
+	 * sous-dossiers*. They are the same rule read at two heights — the pin says where the
+	 * media lives, and only the levels it does **not** already name are built inside it:
+	 *
+	 * - a pin whose last segment names a season is the season's own folder, so the file
+	 *   is written straight into it. This is what produced
+	 *   `…/From/Saison 04/FROM (2022)/Season 04/From.S04E05…mkv`: the pin arrived as a
+	 *   library root and the whole hierarchy was dutifully rebuilt inside it;
+	 *   
+	 * - a pin above them is the show's folder — which is what a complete-series pack is
+	 *   filed under, one file per episode across ten seasons — so each file still needs
+	 *   its season folder. Flattening a series into one directory is not what anybody
+	 *   means by pinning the show, and no media server reads it as ten seasons.
+	 *
+	 * The show folder is never built here, at either height: the pin names it already,
+	 * and that is the duplication reported.
+	 */
+	private _insideAPin(item: NameableItem, context: NamingContext): string {
+		const season = item.seasonNumber ?? null;
+		const pin = withoutTrailingSlash(context.pinnedFolder);
+
+		// Already the season's folder, or a media with no season to file under one: a
+		// film, a collection, an episode whose number nobody could work out.
+		if (season === null || seasonFolderNumber(basename(pin)) !== null) {
+			return '';
+		}
+
+		/*
+		 * The library's own spelling when one of its files is in reach, `Season NN`
+		 * otherwise — the same preference, and the same reason, as `_imitatedDirectory`:
+		 * a second `Season 04` beside an existing `Saison 04` is two folders no media
+		 * server shows as one season. The sibling cannot be used by that method here,
+		 * since a pin is not the library root it makes its path relative to.
+		 */
+		const spelled = seasonSegmentOf(context.siblingPath);
+
+		return spelled === null
+			? this.sanitise(`Season ${this._pad(season)}`)
+			: this.sanitise(withSeasonNumber(spelled, season) ?? spelled);
 	}
 
 	/**

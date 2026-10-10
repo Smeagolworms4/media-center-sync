@@ -215,29 +215,29 @@ export class FilesystemService {
 	}
 
 	/**
-	 * The biggest file at or under a path, which is the one a download actually meant.
+	 * Every file at or under a path, with its size.
 	 *
-	 * A torrent is a folder as often as it is a file, and that folder holds the video
-	 * beside a sample, a screenshot, an `.nfo` and sometimes the whole thing again in
-	 * another container. The largest is what people mean, every time. Any rule cleverer
-	 * than that — a list of extensions, a name pattern — is a rule that is wrong on
-	 * somebody's library, and being wrong here means filing the sample.
+	 * One walk, two questions. A torrent holding one film is answered by the largest
+	 * file; a torrent holding a season is answered by all of them, matched to episodes by
+	 * their own names — and before this existed only the first question could be asked,
+	 * so a season pack filed one episode and left the rest in the download folder. See
+	 * `ReleaseManager._spreadOf`.
 	 *
-	 * Bounded at three levels, which covers `Show/Season 1/episode.mkv` and stops a
-	 * walk from following a symlink loop for as long as the request lasts.
+	 * Bounded at three levels, which covers `Show/Season 1/episode.mkv` and stops a walk
+	 * from following a symlink loop for as long as the request lasts.
 	 */
-	public async largestFileUnder(path: string): Promise<string | null> {
+	public async filesUnder(path: string): Promise<{ path: string; size: number }[]> {
 		const root = await stat(path).catch(() => null);
 
 		if (root === null) {
-			return null;
+			return [];
 		}
 
 		if (root.isFile()) {
-			return path;
+			return [{ path, size: root.size }];
 		}
 
-		let best: { path: string; size: number } | null = null;
+		const found: { path: string; size: number }[] = [];
 		let frontier = [path];
 
 		for (let depth = 0; depth < 3 && frontier.length > 0; depth += 1) {
@@ -259,13 +259,34 @@ export class FilesystemService {
 
 					if (stats.isDirectory()) {
 						next.push(child);
-					} else if (stats.isFile() && (best === null || stats.size > best.size)) {
-						best = { path: child, size: stats.size };
+					} else if (stats.isFile()) {
+						found.push({ path: child, size: stats.size });
 					}
 				}
 			}
 
 			frontier = next;
+		}
+
+		return found;
+	}
+
+	/**
+	 * The biggest file at or under a path, which is the one a download actually meant.
+	 *
+	 * A torrent is a folder as often as it is a file, and that folder holds the video
+	 * beside a sample, a screenshot, an `.nfo` and sometimes the whole thing again in
+	 * another container. The largest is what people mean, every time. Any rule cleverer
+	 * than that — a list of extensions, a name pattern — is a rule that is wrong on
+	 * somebody's library, and being wrong here means filing the sample.
+	 */
+	public async largestFileUnder(path: string): Promise<string | null> {
+		let best: { path: string; size: number } | null = null;
+
+		for (const file of await this.filesUnder(path)) {
+			if (best === null || file.size > best.size) {
+				best = file;
+			}
 		}
 
 		return best?.path ?? null;

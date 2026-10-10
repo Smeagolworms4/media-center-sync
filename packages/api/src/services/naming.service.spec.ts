@@ -150,6 +150,111 @@ describe('NamingService', () => {
 			expect(rendered).toBe('The Expanse/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
 		});
 
+		/**
+		 * A folder somebody named for this media, which is **the** folder.
+		 *
+		 * Reported with the path: a correction naming `/share/SeriesTV/From/Saison 04`
+		 * produced
+		 * `/share/SeriesTV/From/Saison 04/FROM (2022)/Season 04/From.S04E05…mkv`, because
+		 * the pin arrived here as a library root and the hierarchy was dutifully rebuilt
+		 * inside it. In the owner's words: *c'est pas ce que j'ai demandé*.
+		 *
+		 * And the other half, in the same breath — *sur la série complète il doit faire
+		 * les sous-dossiers*. One rule read at two heights: the pin says where the media
+		 * lives, and only the levels it does not already name are built inside it.
+		 */
+		describe('a folder somebody pinned for this media', () => {
+			it('writes straight into it when it is already the season’s folder', () => {
+				const rendered = service.render(KEEP_SOURCE, episode({ seasonNumber: 4 }), {
+					libraryRoot: '/share/SeriesTV/From/Saison 04',
+					pinnedFolder: '/share/SeriesTV/From/Saison 04',
+					siblingPath: '/share/SeriesTV/From/Saison 01/From.S01E01.mkv',
+				});
+
+				expect(rendered).toBe('The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
+			});
+
+			it('builds the season folder when the pin is the show’s', () => {
+				// What a complete-series pack is filed under, one file per episode across
+				// ten seasons. Flattening that into one directory is not what anybody means
+				// by pinning the show, and no media server reads it as ten seasons.
+				const rendered = service.render(KEEP_SOURCE, episode({ seasonNumber: 4 }), {
+					libraryRoot: '/share/SeriesTV/From',
+					pinnedFolder: '/share/SeriesTV/From',
+				});
+
+				expect(rendered).toBe('Season 04/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
+			});
+
+			it('spells that season folder the way the library already does', () => {
+				// A second `Season 04` beside an existing `Saison 04` is two folders no
+				// media server shows as one season.
+				const rendered = service.render(KEEP_SOURCE, episode({ seasonNumber: 4 }), {
+					libraryRoot: '/share/SeriesTV/From',
+					pinnedFolder: '/share/SeriesTV/From',
+					siblingPath: '/share/SeriesTV/From/Saison 01/From.S01E01.mkv',
+				});
+
+				expect(rendered).toBe('Saison 04/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
+			});
+
+			it('never builds the show folder, which the pin already names', () => {
+				const rendered = service.render(KEEP_SOURCE, episode({ seasonNumber: 4 }), {
+					libraryRoot: '/share/SeriesTV/From',
+					pinnedFolder: '/share/SeriesTV/From',
+				});
+
+				expect(rendered).not.toContain('The Expanse');
+			});
+
+			it('writes a film straight into it, under the name the release had', () => {
+				/*
+				 * A film's folder is what the pin is: there is no season to put under it.
+				 *
+				 * And the name is the release's, whole. `SOURCE` leads this order precisely
+				 * so that `.BluRay.x265-GRP` survives — a library full of scene names wants
+				 * every token of them, and a name this step shortened would be a name
+				 * nobody could match back to what they grabbed. Asserted with the tail in
+				 * the *input* rather than trimmed out of the expectation.
+				 */
+				const rendered = service.render(
+					KEEP_SOURCE,
+					movie({ sourcePath: '/media/Blade.Runner.1982.2160p.BluRay.x265-GRP.mkv' }),
+					{
+						libraryRoot: '/share/Films/Blade Runner (1982)',
+						pinnedFolder: '/share/Films/Blade Runner (1982)',
+					},
+				);
+
+				expect(rendered).toBe('Blade.Runner.1982.2160p.BluRay.x265-GRP.mkv');
+			});
+
+			it('builds the hierarchy again under a root that is not the pin', () => {
+				/*
+				 * The placement walks a chain and the pin is only its first attempt. A later
+				 * one — the library the show already lives in, the category's shelf — is a
+				 * root again and must get its folders, or a file falls into a library root
+				 * the moment the pinned disk is full.
+				 */
+				const rendered = service.render(KEEP_SOURCE, episode({ seasonNumber: 4 }), {
+					libraryRoot: '/media/shows',
+					pinnedFolder: '/share/SeriesTV/From/Saison 04',
+				});
+
+				expect(rendered)
+					.toBe('The Expanse (2015)/Season 04/The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
+			});
+
+			it('reads a trailing slash as the same folder', () => {
+				const rendered = service.render(KEEP_SOURCE, episode({ seasonNumber: 4 }), {
+					libraryRoot: '/share/SeriesTV/From/Saison 04',
+					pinnedFolder: '/share/SeriesTV/From/Saison 04/',
+				});
+
+				expect(rendered).toBe('The.Expanse.S01E02.1080p.WEB-DL.x265-GRP.mkv');
+			});
+		});
+
 		it('ignores a sibling that is not inside the destination library', () => {
 			// Following it would write outside the root, and it says nothing about how
 			// this library is organised.
