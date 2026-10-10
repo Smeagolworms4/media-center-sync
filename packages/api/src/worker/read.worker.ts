@@ -10,6 +10,9 @@
  */
 import { createRequire } from 'node:module';
 import { parentPort, workerData } from 'node:worker_threads';
+// By path rather than through the barrel: this file deliberately loads no TypeORM, and
+// the barrel would bring the entities and the migrations with it.
+import { CONNECTION_PRAGMAS } from '@/database/pragmas';
 
 /**
  * The slice of `better-sqlite3` this file uses, declared rather than installed.
@@ -75,12 +78,14 @@ const db = new Database(file, { fileMustExist: true, readonly: true });
 
 /*
  * WAL is set by the gateway's own connection and is a property of the file, so there is
- * nothing to set here — but the timeout is per connection. Without it a reader that
- * happens to arrive during a checkpoint fails instantly with `SQLITE_BUSY` rather than
- * waiting the few milliseconds it takes, and the person browsing sees an error where
- * there was only contention.
+ * nothing to set here — but every one of these is per connection, and this thread now
+ * serves most of the gateway's reads. A reader with SQLite's default two-megabyte page
+ * cache, sorting its scope into a temporary file on the card, is the deployment the
+ * owner measured at 2.5 GB read and 1.4 GB written in under an hour. See `pragmas.ts`.
  */
-db.pragma('busy_timeout = 5000');
+for (const pragma of CONNECTION_PRAGMAS) {
+	db.pragma(pragma);
+}
 
 const statements = new Map<string, Statement>();
 

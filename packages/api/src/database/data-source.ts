@@ -27,6 +27,7 @@ import {
 	User,
 } from '@/entities';
 import { applyAsynchronousReads } from './async-reads';
+import { CONNECTION_PRAGMAS, WRITER_PRAGMAS } from './pragmas';
 import { applyPostgresCompatibility } from './postgres-compat';
 
 /**
@@ -159,10 +160,9 @@ export const dataSourceOptions = (): DataSourceOptions => {
 		 * this product actually has: one scan writing, a person browsing. It is the thing
 		 * that has to be true before any of the scan moves off this thread.
 		 *
-		 * `busy_timeout` is the other half and is worth as much. Without it a contended
-		 * write fails instantly rather than waiting, so the rare overlap — a checkpoint, a
-		 * migration — surfaces as an error to somebody clicking rather than as five
-		 * milliseconds nobody perceives.
+		 * Everything else this connection sets is in `pragmas.ts`, beside the two other
+		 * connections that set the same things — including the ones that exist to stop a
+		 * Raspberry Pi writing its SD card to death.
 		 *
 		 * The mode is read back rather than assumed. WAL needs shared memory beside the
 		 * file and silently stays `delete` on filesystems that cannot provide it, NFS and
@@ -178,7 +178,10 @@ export const dataSourceOptions = (): DataSourceOptions => {
 			}
 
 			db.pragma('journal_mode = WAL');
-			db.pragma('busy_timeout = 5000');
+
+			for (const pragma of [...CONNECTION_PRAGMAS, ...WRITER_PRAGMAS]) {
+				db.pragma(pragma);
+			}
 		},
 		...common,
 		logging: [...common.logging],
