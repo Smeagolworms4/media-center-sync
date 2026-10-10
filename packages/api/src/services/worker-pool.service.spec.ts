@@ -18,6 +18,8 @@ class FakeWorker extends EventEmitter {
 
 	public unreferenced = 0;
 
+	public referenced = 0;
+
 	public constructor(
 		public readonly entry: string,
 		public readonly options: { workerData?: unknown; execArgv?: string[]; env?: NodeJS.ProcessEnv },
@@ -38,6 +40,10 @@ class FakeWorker extends EventEmitter {
 
 	public unref(): void {
 		this.unreferenced += 1;
+	}
+
+	public ref(): void {
+		this.referenced += 1;
 	}
 }
 
@@ -385,6 +391,84 @@ describe('WorkerPoolService', () => {
 
 			await expect(first).rejects.toThrow('out of memory');
 			await expect(second).rejects.toThrow('out of memory');
+		});
+
+		it('gives a projection a thread of its own rather than the scan\u2019s queue', () => {
+			/*
+			 * The whole point of the lanes. A worker runs one job at a time, and a
+			 * correlation is minutes of work — so a projection sharing its thread would
+			 * wait for the scan, which is exactly the moment somebody is reloading the
+			 * page to see what the scan found.
+			 */
+			const { pool } = build();
+
+			void pool.run(JobKind.CORRELATE, {});
+			void pool.run(JobKind.PROJECT, {});
+
+			expect(FakeWorker.spawned).toHaveLength(2);
+			expect(FakeWorker.spawned[0]?.posted).toHaveLength(1);
+			expect(FakeWorker.spawned[1]?.posted).toHaveLength(1);
+		});
+
+		it('keeps one thread per lane rather than one per job', () => {
+			const { pool } = build();
+
+			void pool.run(JobKind.PROJECT, {});
+			void pool.run(JobKind.PROJECT, {});
+
+			expect(FakeWorker.spawned).toHaveLength(1);
+			expect(spawned().posted).toHaveLength(2);
+		});
+
+		it('fails only the lane that died, because the other one is still running', async () => {
+			const { pool } = build();
+			const scan = pool.run(JobKind.CORRELATE, {});
+			const projection = pool.run(JobKind.PROJECT, {});
+			const projecting = spawned();
+
+			FakeWorker.spawned[0]?.emit('error', new Error('out of memory'));
+
+			await expect(scan).rejects.toThrow('out of memory');
+
+			// Still waiting, and answered when its own thread answers: rejecting it too
+			// would fail a library page because a scan ran out of memory.
+			projecting.emit('message', {
+				type: 'done',
+				id: sent(projecting).id,
+				kind: JobKind.PROJECT,
+				output: { version: '3', roots: {} },
+				error: null,
+			});
+
+			await expect(projection).resolves.toEqual({ version: '3', roots: {} });
+		});
+
+		it('holds the thread referenced only while that lane has work', async () => {
+			/*
+			 * An unreferenced thread does not hold the event loop — and during boot the
+			 * HTTP server is not listening yet, so nothing else does either. A release
+			 * shipped with a thread awaited at boot and Node exited code 0, silently,
+			 * eight seconds in, with nothing anywhere saying why.
+			 */
+			const { pool } = build();
+			const answer = pool.run(JobKind.CORRELATE, {});
+			const worker = spawned();
+
+			expect(worker.referenced).toBe(1);
+			expect(worker.unreferenced).toBe(1);
+
+			worker.emit('message', {
+				type: 'done',
+				id: sent(worker).id,
+				kind: JobKind.CORRELATE,
+				output: 1,
+				error: null,
+			});
+
+			await answer;
+
+			// Let go again, so a gateway with nothing else to do can still exit.
+			expect(worker.unreferenced).toBe(2);
 		});
 
 		it('starts a fresh thread after one has exited', async () => {

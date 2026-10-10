@@ -25,10 +25,13 @@ import type {
 } from '@/repositories';
 import {
 	type CatalogueCacheService,
+	CatalogueProjectionService,
 	QualityService,
 	type SettingsService,
 	SIGHTED_FRESH_FOR,
+	type WorkerPoolService,
 } from '@/services';
+import { JobKind } from '@/worker/protocol';
 import type { LibraryManager } from './library.manager';
 import { MediaGroupManager } from './media-group.manager';
 
@@ -186,6 +189,14 @@ const digest = (row: MediaItem): MediaItemDigest => ({
  */
 const build = (
 	world: Partial<World> = {},
+	/**
+	 * Whether this gateway has a thread to send the catalogue pass to.
+	 *
+	 * False by default, because that is what a unit run really is: an in-memory database
+	 * belongs to the connection that opened it, so there is nothing a second thread could
+	 * read. The tests that pass a thread are about the delegation itself.
+	 */
+	workers: { available: boolean; run?: jest.Mock } = { available: false },
 ): {
 	manager: MediaGroupManager;
 	world: World;
@@ -193,6 +204,7 @@ const build = (
 		items: Record<string, jest.Mock>;
 		matches: Record<string, jest.Mock>;
 		cache: { onRefresh: jest.Mock; schedule: jest.Mock; refreshNow: jest.Mock; refreshing: boolean };
+		workers: { available: boolean; run: jest.Mock };
 	};
 } => {
 	const full: World = {
@@ -328,12 +340,32 @@ const build = (
 	};
 
 	const cache = { onRefresh: jest.fn(), schedule: jest.fn(), refreshNow: jest.fn(), refreshing: false };
+	const services = {
+		find: jest.fn(() => Promise.resolve(full.services)),
+	} as unknown as MediaServiceRepository;
+
+	/*
+	 * The real pass, over the fake repositories, and that is the point of it here.
+	 *
+	 * In a gateway this runs on a worker thread; an in-memory database cannot be opened
+	 * twice, so there is nothing to send it to in a unit run and `available` is false.
+	 * Handing the manager a stub instead would leave the catalogue walk — the expensive
+	 * half of every `actionable` read — untested, so these tests run it in process and
+	 * count the reads it makes.
+	 */
+	const projection = new CatalogueProjectionService(
+		items as unknown as MediaItemRepository,
+		matches as unknown as MediaMatchRepository,
+		services,
+	);
+
+	const pool = { available: workers.available, run: workers.run ?? jest.fn() };
 
 	return {
 		manager: new MediaGroupManager(
 			items as unknown as MediaItemRepository,
 			matches as unknown as MediaMatchRepository,
-			{ find: jest.fn(() => Promise.resolve(full.services)) } as unknown as MediaServiceRepository,
+			services,
 			{ find: jest.fn(() => Promise.resolve(full.peers)) } as unknown as PeerRepository,
 			new QualityService(),
 			{ getValue: jest.fn(() => Promise.resolve(full.threshold)) } as unknown as SettingsService,
@@ -355,9 +387,11 @@ const build = (
 			// nothing is scheduled unless a test says so — the lazy rebuild in
 			// `_cachedGraph` is what the rest of them exercise.
 			cache as unknown as CatalogueCacheService,
+			projection,
+			pool as unknown as WorkerPoolService,
 		),
 		world: full,
-		reads: { items, matches, cache },
+		reads: { items, matches, cache, workers: pool },
 	};
 };
 
@@ -2606,6 +2640,120 @@ describe('MediaGroupManager', () => {
 
 			expect(first.items.map((one) => one.id)).toEqual(['short', 'dated']);
 			expect(second.items.map((one) => one.id)).toEqual(first.items.map((one) => one.id));
+		});
+
+		/*
+		 * The pass on a thread of its own, which is the half that makes the rest bearable.
+		 *
+		 * Reading the catalogue here is not slow, it is *blocking*: `better-sqlite3` is
+		 * synchronous, so the five seconds this used to cost were five seconds in which
+		 * the gateway read no socket at all and every artwork transfer and the event
+		 * stream died together. The version in the answer is what ties it to the
+		 * catalogue the key names.
+		 */
+		it('sends the pass to a worker and reads nothing on this thread', async () => {
+			const run = jest.fn(() =>
+				Promise.resolve({
+					version: '0',
+					roots: { 'conflict,missing': ['short'], outdated: ['dated'] },
+				}),
+			);
+			const { manager, reads } = build(catalogue, { available: true, run });
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(run).toHaveBeenCalledWith(
+				JobKind.PROJECT,
+				expect.objectContaining({
+					states: [[SyncState.MISSING, SyncState.CONFLICT], [SyncState.OUTDATED]],
+					threshold: 0.8,
+				}),
+			);
+			expect(walks(reads)).toBe(0);
+			expect(page.items.map((one) => one.id)).toEqual(['short', 'dated']);
+		});
+
+		it('answers the page here when the thread could not, rather than failing it', async () => {
+			// The behaviour this gateway had before the thread existed. A dead worker
+			// turning every library page into a 500 would be strictly worse than a slow one.
+			const run = jest.fn(() => Promise.reject(new Error('the worker did not answer')));
+			const { manager, reads } = build(catalogue, { available: true, run });
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(walks(reads)).toBe(1);
+			expect(page.items.map((one) => one.id)).toEqual(['short', 'dated']);
+		});
+
+		/*
+		 * A projection runs while the gateway goes on serving, so a scan can write matches
+		 * underneath it. Filing that answer under the version the caller believed in would
+		 * leave the wall confidently wrong until something else happened to move the table.
+		 */
+		it('uses an answer from a catalogue that moved, and does not keep it', async () => {
+			const run = jest.fn(() =>
+				Promise.resolve({
+					version: 'moved',
+					roots: { 'conflict,missing': ['short'], outdated: ['dated'] },
+				}),
+			);
+			const { manager } = build(catalogue, { available: true, run });
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(run).toHaveBeenCalledTimes(2);
+		});
+
+		/*
+		 * The whole point of keeping the question as well as the answer. The cache
+		 * announces the change on what `refresh` returns, and every open tab re-reads on
+		 * that announcement — so a warm that happened afterwards would be a race the tab
+		 * wins, which is exactly why the first page after every scan was the slow one.
+		 */
+		it('re-projects what somebody was browsing before it says the catalogue moved', async () => {
+			const { manager, reads, world } = build(catalogue);
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(walks(reads)).toBe(1);
+
+			world.matches.push(correlation({ localItemId: null }));
+
+			await expect(manager.refresh()).resolves.toBe(true);
+
+			// Already walked, off any request, by the time `refresh` answered.
+			expect(walks(reads)).toBe(2);
+
+			await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			// And the request found it waiting: nothing left to walk.
+			expect(walks(reads)).toBe(2);
+		});
+
+		/*
+		 * An answer that came up short is not an empty answer, and the difference is the
+		 * whole point: an empty set reads as "nothing beneath this root is missing", so a
+		 * malformed answer would show a complete wall over an incomplete library.
+		 */
+		it('refuses an answer that is missing a state it asked about', async () => {
+			const run = jest.fn(() =>
+				Promise.resolve({ version: '0', roots: { 'conflict,missing': ['short'] } }),
+			);
+			const { manager, reads } = build(catalogue, { available: true, run });
+
+			const page = await manager.groups(query({ rootsOnly: true, actionable: true }));
+
+			expect(walks(reads)).toBe(1);
+			expect(page.items.map((one) => one.id)).toEqual(['short', 'dated']);
+		});
+
+		it('warms nothing for a scope nobody has looked at', async () => {
+			const { manager, reads } = build(catalogue);
+
+			await expect(manager.refresh()).resolves.toBe(true);
+
+			expect(walks(reads)).toBe(0);
 		});
 	});
 

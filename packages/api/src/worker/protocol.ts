@@ -17,6 +17,14 @@
 export const JobKind = {
 	/** Re-derive which rows across every server are the same media. */
 	CORRELATE: 'correlate',
+	/**
+	 * Work out which roots have something beneath them in a given set of states.
+	 *
+	 * The library screen's `actionable` filter, which is the one read that walks the
+	 * whole catalogue. See `CatalogueProjectionService` for what it costs on the
+	 * gateway's own thread, and why it stopped running there.
+	 */
+	PROJECT: 'project',
 } as const;
 
 export type JobKindValue = (typeof JobKind)[keyof typeof JobKind];

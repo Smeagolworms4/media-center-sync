@@ -17,6 +17,7 @@ port.postMessage = jest.fn();
 
 const initialize = jest.fn().mockResolvedValue(undefined);
 const correlate = jest.fn().mockResolvedValue(0);
+const project = jest.fn().mockResolvedValue({ version: '12', roots: { missing: ['series-a'] } });
 
 jest.mock('node:worker_threads', () => ({
 	parentPort: port,
@@ -46,6 +47,12 @@ jest.mock('@/repositories', () => ({
 jest.mock('@/services/correlation.service', () => ({
 	CorrelationService: class {
 		public correlate = correlate;
+	},
+}));
+
+jest.mock('@/services/catalogue-projection.service', () => ({
+	CatalogueProjectionService: class {
+		public project = project;
 	},
 }));
 
@@ -80,6 +87,7 @@ describe('the jobs worker', () => {
 		port.postMessage.mockClear();
 		initialize.mockClear().mockResolvedValue(undefined);
 		correlate.mockClear().mockResolvedValue(0);
+		project.mockClear().mockResolvedValue({ version: '12', roots: { missing: ['series-a'] } });
 		// Imported per test rather than at the top: the entry attaches to the port and
 		// caches its connection as it is evaluated, so each test needs its own copy.
 		await import('./jobs.worker');
@@ -214,6 +222,49 @@ describe('the jobs worker', () => {
 
 		expect(correlate).not.toHaveBeenCalled();
 		expect(done()).toMatchObject({ error: 'A correlation needs a serviceId and a threshold' });
+	});
+
+	it('projects the catalogue and answers with what it found', async () => {
+		await ask({
+			id: 'run-3',
+			kind: JobKind.PROJECT,
+			input: { seedQuery: { rootsOnly: true }, states: [['missing']], threshold: 0.8 },
+		});
+
+		expect(project).toHaveBeenCalledWith({
+			seedQuery: { rootsOnly: true },
+			states: [['missing']],
+			threshold: 0.8,
+		});
+		expect(done()).toEqual({
+			type: 'done',
+			id: 'run-3',
+			kind: JobKind.PROJECT,
+			output: { version: '12', roots: { missing: ['series-a'] } },
+			error: null,
+		});
+	});
+
+	it('shares one database with the correlation rather than opening a second', async () => {
+		// Both jobs run on the same thread when the pool sends them there, and a worker is
+		// kept alive between them precisely so that the connection is paid once.
+		await ask({ id: 'a' });
+		await ask({ id: 'b', kind: JobKind.PROJECT, input: { seedQuery: {}, states: [], threshold: 0.8 } });
+
+		expect(initialize).toHaveBeenCalledTimes(1);
+	});
+
+	it('refuses a projection whose arguments did not survive the crossing', async () => {
+		await ask({ kind: JobKind.PROJECT, input: { seedQuery: {}, states: [['missing']] } });
+
+		expect(project).not.toHaveBeenCalled();
+		expect(done()).toMatchObject({ error: 'A projection needs its states and a threshold' });
+
+		port.postMessage.mockClear();
+		await ask({ kind: JobKind.PROJECT, input: { states: [], threshold: 0.8 } });
+
+		expect(project).not.toHaveBeenCalled();
+		expect(done()).toMatchObject({ error: 'A projection needs a seed query' });
 	});
 
 	it('answers an unknown job instead of taking the thread down with it', async () => {

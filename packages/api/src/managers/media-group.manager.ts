@@ -2,7 +2,6 @@ import {
 	ActionableReason,
 	CacheRefreshReason,
 	ErrorKey,
-	LANDED_SYNC_STATES,
 	MediaOrigin,
 	MediaServiceMode,
 	PeerTrust,
@@ -21,6 +20,7 @@ import {
 } from '@mcs/shared';
 import {
 	Injectable,
+	Logger,
 	NotFoundException,
 	type OnApplicationBootstrap,
 	type OnModuleInit,
@@ -34,48 +34,44 @@ import {
 	PeerRepository,
 	SyncPlanRepository,
 	type GroupSeedQuery,
-	type MatchPair,
 	type MediaItemDigest,
 } from '@/repositories';
 import { createHash } from 'node:crypto';
 import {
 	breathe,
 	CatalogueCacheService,
+	CatalogueProjectionService,
 	editionOf,
 	episodesCovered,
 	isWorkerThread,
 	mappedLocalPath,
+	OUTSIDE_PROJECTION,
 	QualityService,
 	serviceMode,
 	SettingsService,
 	fetchableOf,
 	spanOf,
 	versionIdOf,
+	WorkerPoolService,
 	type EpisodeSpan,
+	type ProjectionAnswer,
+	type ProjectionRequest,
 } from '@/services';
+/*
+ * By path rather than through the barrel, and the barrel says why: `app.module`
+ * registers every class a barrel exports as a provider, and `MatchGraph` is a data
+ * structure Nest would build once at startup for nobody.
+ */
+import {
+	GRAPH_PAGE,
+	groupStateOf,
+	LANDED_STATES,
+	MatchGraph,
+	stateSignature,
+} from '@/services/grouping';
+import { JobKind } from '@/worker/protocol';
 import { LibraryManager } from './library.manager';
 import { pageBounds, paginate } from './mappers';
-
-/**
- * Which state a group shows when its copies disagree, most urgent first.
- *
- * Read off the local copies only, and in this order because that is the order the
- * states matter to somebody looking at a poster: a running transfer is happening now,
- * a conflict needs a decision, an outdated copy is worth replacing, and `in_sync` is
- * the answer that means there is nothing to do. `unknown` is the fallback rather than
- * a rank, since it says only that correlation has not run.
- */
-/**
- * The states that mean "the bytes are on our disk", whatever any service says.
- *
- * Grouped because every reader here asks the same question of them — is this a gap to
- * fill — and the answer is no for both: one is waiting for an index and the other has
- * given up waiting, and in neither case would downloading it again put anything new on
- * the disk. Anywhere that tests only one of the two is a screen that counts a landed
- * episode as missing once its grace period expires, which would be the original bug
- * returning twelve hours late.
- */
-const LANDED_STATES = new Set<SyncState>(LANDED_SYNC_STATES);
 
 /**
  * The kinds for which holding the media means holding a file.
@@ -90,16 +86,6 @@ const LANDED_STATES = new Set<SyncState>(LANDED_SYNC_STATES);
 const CARRIES_A_FILE = new Set<MediaKind>([MediaKind.EPISODE, MediaKind.MOVIE]);
 
 /**
- * How many rows of the scope one statement reads.
- *
- * Four thousand, which on the owner's catalogue turns one 177 ms block into eight of
- * about twenty — short enough that a request waiting behind it is not noticed, long
- * enough that the per-statement cost stays noise. The same trade-off, and nearly the
- * same number, as the match graph's own page a few methods down.
- */
-const SCOPE_PAGE = 4_000;
-
-/**
  * How many scopes' projections to keep.
  *
  * One per shape of filter somebody is browsing with — the news wall, a library, a
@@ -110,8 +96,23 @@ const SCOPE_PAGE = 4_000;
 const SCOPES_KEPT = 8;
 
 /**
- * The fields `_wholeScope` neutralises, and therefore the ones a projection does **not**
- * depend on.
+ * How many of them are recomputed when the catalogue moves.
+ *
+ * Fewer than are kept, and that asymmetry is deliberate: keeping an answer costs a few
+ * hundred kilobytes, recomputing one costs a pass over the catalogue, and `refresh`
+ * waits for these before it reports that anything changed — which is what makes the
+ * reloading tab find its answer ready. A request that arrives mid-refresh waits for the
+ * same thing, so this number is also the worst case somebody can be made to wait.
+ *
+ * Two covers the real case: the news wall, and the library screen somebody came from.
+ * The scopes beyond that are recomputed by whoever asks for them next, exactly as they
+ * were before any of this was kept.
+ */
+const SCOPES_WARMED = 2;
+
+/**
+ * The fields the projection neutralises, and therefore the ones it does **not** depend
+ * on. Owned by the projection, because it is the thing that ignores them.
  *
  * Listed as what to *remove* rather than what to keep, on purpose: a filter added to
  * `GroupSeedQuery` tomorrow lands in the signature by default and gets its own
@@ -119,7 +120,7 @@ const SCOPES_KEPT = 8;
  * serve one filter's answer to another the day somebody adds a field and forgets this
  * line, and a wrong answer here looks exactly like a right one.
  */
-const OUTSIDE_SCOPE = new Set(['rootsOnly', 'search', 'kind', 'skip', 'take']);
+const OUTSIDE_SCOPE = new Set<string>(OUTSIDE_PROJECTION);
 
 /** A query's scope, as a string two equal scopes always spell the same way. */
 const scopeSignature = (seedQuery: GroupSeedQuery): string => {
@@ -131,9 +132,6 @@ const scopeSignature = (seedQuery: GroupSeedQuery): string => {
 
 	return createHash('sha1').update(JSON.stringify(scoped)).digest('hex');
 };
-
-/** The states a projection answers for, spelled the same way whatever their order. */
-const stateSignature = (states: SyncState[]): string => [...states].sort().join(',');
 
 /**
  * The fields a group fills per copy and a person can correct by hand.
@@ -148,15 +146,6 @@ const stateSignature = (states: SyncState[]): string => [...states].sort().join(
  * each row's effective value.
  */
 type OverriddenField = 'title' | 'year' | 'seasonNumber' | 'episodeNumber' | 'overview';
-
-const GROUP_STATE_ORDER = [
-	SyncState.SYNCING,
-	SyncState.CONFLICT,
-	SyncState.OUTDATED,
-	SyncState.MISSING,
-	SyncState.IN_SYNC,
-	SyncState.LOCAL_ONLY,
-] as const;
 
 /**
  * The states that mean a copy worth having exists somewhere else.
@@ -176,114 +165,6 @@ const GROUP_STATE_ORDER = [
  * to cost a few queries rather than the request.
  */
 const FOLLOWED_HOPS = 4;
-
-/**
- * How many match rows one page of a background rebuild carries.
- *
- * Two thousand is the same figure the catalogue read uses, for the same reason: large
- * enough that the round trips disappear beside the work, small enough that the pause
- * between two of them is a few milliseconds rather than a visible stall.
- */
-const GRAPH_PAGE = 2000;
-
-/**
- * Connected components of the applied-match graph.
- *
- * A union-find held for the length of one request, not a column and not a query. It
- * could not be a column: whether a pair joins depends on the match threshold in force
- * now, so a stored `groupId` would have to be recomputed over the whole index every
- * time somebody moved that slider, and would be silently wrong until they did. It is
- * not a recursive query either — the traversal is the same cost in either place, and
- * doing it here keeps one implementation instead of one per dialect.
- */
-class MatchGraph {
-	private readonly _parent = new Map<string, string>();
-	private readonly _otherCut = new Set<string>();
-	private _components: Map<string, string[]> | null = null;
-
-	public constructor(pairs: MatchPair[] = []) {
-		this.absorb(pairs);
-	}
-
-	/**
-	 * Fold more edges in, so the graph can be built a page at a time.
-	 *
-	 * Union-find does not care in what order it is told things — that is the whole point
-	 * of the structure — so a graph fed thirty pages is the same graph as one fed the
-	 * table at once. What it buys is a place to breathe between them, which a constructor
-	 * looping over sixty thousand rows had nowhere to put.
-	 */
-	public absorb(pairs: readonly MatchPair[]): void {
-		// Any component cached from an earlier page is a partial answer now.
-		this._components = null;
-
-		for (const pair of pairs) {
-			this._union(pair.localItemId, pair.remoteItemId);
-
-			if (pair.state === SyncState.CONFLICT) {
-				this._otherCut.add(pair.localItemId);
-				this._otherCut.add(pair.remoteItemId);
-			}
-		}
-	}
-
-	/** Whether the group holds another version of the work this copy is one version of. */
-	public besideAnotherCut(id: string): boolean {
-		return this._otherCut.has(id);
-	}
-
-	/** The component's representative node. An item nobody matched is its own. */
-	public root(id: string): string {
-		let current = id;
-
-		while (this._parent.has(current) && this._parent.get(current) !== current) {
-			current = this._parent.get(current) as string;
-		}
-
-		return current;
-	}
-
-	/** Every item an applied match put with this one, itself included, sorted. */
-	public members(id: string): string[] {
-		return this._index().get(this.root(id)) ?? [id];
-	}
-
-	private _union(left: string, right: string): void {
-		this._ensure(left);
-		this._ensure(right);
-
-		const leftRoot = this.root(left);
-		const rightRoot = this.root(right);
-
-		if (leftRoot !== rightRoot) {
-			this._parent.set(leftRoot, rightRoot);
-		}
-
-		this._components = null;
-	}
-
-	private _ensure(id: string): void {
-		if (!this._parent.has(id)) {
-			this._parent.set(id, id);
-		}
-	}
-
-	private _index(): Map<string, string[]> {
-		if (this._components === null) {
-			const index = new Map<string, string[]>();
-
-			for (const id of [...this._parent.keys()].sort()) {
-				const root = this.root(id);
-
-				index.set(root, [...(index.get(root) ?? []), id]);
-			}
-
-			this._components = index;
-		}
-
-		return this._components;
-	}
-}
 
 /**
  * The children of a page of groups, and every copy of those children.
@@ -443,6 +324,21 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	 */
 	private readonly _building = new Map<string, Promise<Map<string, Set<string>>>>();
 
+	/**
+	 * The questions worth asking again when the catalogue moves. See `_remember`.
+	 *
+	 * The scope rather than the key, because a key names a version of the match table
+	 * and the whole point is to re-project for the *next* one. Bounded with `_roots`, so
+	 * a household that browsed eight shapes of filter does not accumulate a ninth
+	 * forever.
+	 */
+	private readonly _warmable = new Map<
+		string,
+		{ seedQuery: GroupSeedQuery; states: SyncState[][] }
+	>();
+
+	private readonly _logger = new Logger(MediaGroupManager.name);
+
 	public constructor(
 		private readonly _items: MediaItemRepository,
 		private readonly _matches: MediaMatchRepository,
@@ -453,6 +349,9 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		private readonly _libraries: LibraryManager,
 		private readonly _plans: SyncPlanRepository,
 		private readonly _cache: CatalogueCacheService,
+		/** The catalogue pass itself, which runs on a worker whenever there is one. */
+		private readonly _projection: CatalogueProjectionService,
+		private readonly _workers: WorkerPoolService,
 	) {}
 
 	/**
@@ -554,10 +453,10 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		const byState =
 			states.length === 0
 				? skeletons
-				: await this._inState(skeletons, states, seedQuery, context);
+				: await this._inState(skeletons, states, seedQuery);
 		const actionable =
 			query.actionable === true
-				? await this._actionable(byState, seedQuery, context, query.reasons)
+				? await this._actionable(byState, seedQuery, query.reasons)
 				: byState;
 
 		/*
@@ -802,37 +701,31 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		skeletons: GroupSkeleton[],
 		states: SyncState[],
 		seedQuery: GroupSeedQuery,
-		context: GroupContext,
 	): Promise<GroupSkeleton[]> {
-		return (await this._inStates(skeletons, [states], seedQuery, context))[0];
+		return (await this._inStates(skeletons, [states], seedQuery))[0];
 	}
 
 	/**
-	 * The same answer for several groups of states, over **one** pass of the catalogue.
+	 * The same answer for several groups of states, over **one** projection.
 	 *
-	 * This exists because of what the one-group version costs when it is asked twice.
 	 * Answering "is anything beneath this root in one of these states" means reading
-	 * every row in scope — `_wholeScope`, the whole catalogue a page at a time — and
-	 * building a skeleton for each, which is the expensive half. The states themselves
-	 * are a predicate applied at the end, and they are the *only* thing that differed
-	 * between the two calls `_actionable` used to make: gaps, then upgrades.
+	 * every row in scope and folding each one through the match graph. The states
+	 * themselves are a predicate applied at the end, and they were the *only* thing
+	 * that differed between the two calls `_actionable` used to make: gaps, then
+	 * upgrades. So the catalogue was walked twice per request to evaluate two
+	 * predicates over identical data. Measured on the owner's catalogue of 31 631
+	 * rows: 5.2 s for the news wall, and `limit=1` cost the same 5.4 s because none of
+	 * this work depends on how many rows the caller asked for.
 	 *
-	 * So the catalogue was walked twice and every skeleton built twice, per request, to
-	 * evaluate two predicates over identical data. Measured on the owner's catalogue of
-	 * 31 631 rows: 5.2 s for the news wall, and `limit=1` cost the same 5.4 s because
-	 * none of this work depends on how many rows the caller asked for.
-	 *
-	 * Reading it once and filtering twice changes no rule — the predicate, the parent
-	 * walk and the final filter are exactly what they were — and halves the work. It is
-	 * not the cure: the pass still runs on this thread, and `breathe()` still hands the
-	 * loop back only every fiftieth skeleton, so a request still blocks in slices. What
-	 * cures that is computing this away from the request entirely.
+	 * It no longer happens here at all. See `CatalogueProjectionService`: the pass runs
+	 * on a worker thread, its answer is kept until the catalogue moves, and it is warmed
+	 * again off-request the moment it does — so a request either finds the answer
+	 * already there or waits for a thread that holds no sockets while doing it.
 	 */
 	private async _inStates(
 		skeletons: GroupSkeleton[],
 		groups: SyncState[][],
 		seedQuery: GroupSeedQuery,
-		context: GroupContext,
 	): Promise<GroupSkeleton[][]> {
 		const own = (states: SyncState[]) =>
 			(skeleton: GroupSkeleton): boolean => states.includes(skeleton.sync);
@@ -841,7 +734,7 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			return groups.map((states) => skeletons.filter(own(states)));
 		}
 
-		const roots = await this._rootsBeneath(groups, seedQuery, context);
+		const roots = await this._rootsBeneath(groups, seedQuery);
 
 		return groups.map((states, at) => {
 			const ownState = own(states);
@@ -855,11 +748,12 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	}
 
 	/**
-	 * The projection, from the store when it is there and from one walk when it is not.
+	 * The projection, from the store when it is there and from one pass when it is not.
 	 *
-	 * Asking is cheap and the walk is not: reading every row in scope and building a
-	 * skeleton for each is what cost the news wall 5.2 s per request, on every page load,
-	 * for an answer that only changes when the catalogue does.
+	 * Asking is cheap and the pass is not, which is the whole reason it is stored: the
+	 * answer only changes when the catalogue does, and the catalogue says so — see
+	 * `refresh`, which rebuilds the graph and then warms every scope somebody has been
+	 * looking at before the interface is told anything moved.
 	 *
 	 * No graph version means no key worth storing under, so nothing is kept — a read
 	 * that happens before the graph is warm is rare, and a projection filed under a
@@ -868,18 +762,17 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	private async _rootsBeneath(
 		groups: SyncState[][],
 		seedQuery: GroupSeedQuery,
-		context: GroupContext,
 	): Promise<Set<string>[]> {
 		const wanted = groups.map(stateSignature);
 		const graph = this._graph;
 
 		if (graph === null) {
-			const fresh = await this._walk(null, groups, seedQuery, context);
+			const fresh = await this._project(null, groups, seedQuery, null);
 
 			return wanted.map((signature) => fresh.get(signature) as Set<string>);
 		}
 
-		const key = `${scopeSignature(seedQuery)}:${graph.version}:${graph.threshold}`;
+		const key = this._scopeKey(seedQuery, graph);
 		const held = this._roots.get(key);
 
 		if (held !== undefined && wanted.every((signature) => held.has(signature))) {
@@ -904,9 +797,17 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 			}
 		}
 
-		const built = await this._build(key, groups, seedQuery, context);
+		const built = await this._build(key, groups, seedQuery, graph);
 
 		return wanted.map((signature) => built.get(signature) as Set<string>);
+	}
+
+	/** What a scope's answer is filed under: the filter, and the catalogue it describes. */
+	private _scopeKey(
+		seedQuery: GroupSeedQuery,
+		graph: { version: string; threshold: number },
+	): string {
+		return `${scopeSignature(seedQuery)}:${graph.version}:${graph.threshold}`;
 	}
 
 	/** Registers the pass before awaiting it, which is what lets the next caller join. */
@@ -914,9 +815,9 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		key: string,
 		groups: SyncState[][],
 		seedQuery: GroupSeedQuery,
-		context: GroupContext,
+		graph: { version: string; threshold: number },
 	): Promise<Map<string, Set<string>>> {
-		const pass = this._walk(key, groups, seedQuery, context).finally(() => {
+		const pass = this._project(key, groups, seedQuery, graph).finally(() => {
 			this._building.delete(key);
 		});
 
@@ -926,109 +827,176 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	}
 
 	/**
-	 * One walk of the catalogue, filling every group that was asked for.
+	 * Ask for the state groups that are missing, and keep what comes back.
 	 *
-	 * The expensive half — `_wholeScope` and a skeleton per row — happens once however
-	 * many state groups there are, which is why `_actionable` asks for its gaps and its
-	 * upgrades together rather than one after the other.
+	 * Only the missing ones: a scope asked about gaps an hour ago and about upgrades now
+	 * has half the answer already, and re-projecting for the half it has would be the
+	 * whole catalogue read to recompute something identical.
+	 *
+	 * Kept only when the answer describes the catalogue the key names. A projection runs
+	 * while the gateway goes on serving, so a scan can write matches underneath it — and
+	 * filing that answer under the version the caller believed in would leave a wall
+	 * confidently wrong until something else happened to change the table. The answer is
+	 * still returned: it is a correct answer, just not one worth a key.
 	 */
-	private async _walk(
+	private async _project(
 		key: string | null,
 		groups: SyncState[][],
 		seedQuery: GroupSeedQuery,
-		context: GroupContext,
+		graph: { version: string; threshold: number } | null,
 	): Promise<Map<string, Set<string>>> {
-		const scope = await this._wholeScope(seedQuery);
-		const parentOf = new Map(scope.map((seed) => [seed.id, seed.parentId]));
-		const below = scope.filter((seed) => seed.parentId !== null);
-		const beneath = await this._skeletons(below, context);
-		const filled = (key === null ? undefined : this._roots.get(key)) ?? new Map<string, Set<string>>();
+		/*
+		 * A copy of what is stored, never the stored map itself.
+		 *
+		 * The version check below decides whether this answer is worth keeping — and
+		 * filling the stored map first would have already mixed an answer about one
+		 * version of the catalogue into a projection filed under another, which is the
+		 * exact confusion that check exists to prevent.
+		 */
+		const filled = new Map(key === null ? undefined : this._roots.get(key));
+		const missing = groups.filter((states) => !filled.has(stateSignature(states)));
 
-		for (const states of groups) {
-			const signature = stateSignature(states);
-
-			if (filled.has(signature)) {
-				continue;
-			}
-
-			const ownState = (skeleton: GroupSkeleton): boolean => states.includes(skeleton.sync);
-			const roots = new Set<string>();
-
-			for (const [index, skeleton] of beneath.filter(ownState).entries()) {
-				await breathe(index);
-
-				for (const memberId of skeleton.memberIds) {
-					let current: string | null | undefined = memberId;
-
-					// Bounded, because a parent chain is data a media server wrote: a
-					// series, a season, an episode is three steps, and a loop in
-					// somebody's index must cost a few iterations rather than the
-					// request.
-					for (let depth = 0; depth < 8 && current; depth += 1) {
-						const parent = parentOf.get(current);
-
-						if (parent === null) {
-							roots.add(current);
-							break;
-						}
-
-						current = parent;
-					}
-				}
-			}
-
-			filled.set(signature, roots);
+		if (missing.length === 0) {
+			return filled;
 		}
 
-		if (key !== null) {
+		const threshold = graph?.threshold ?? (await this._settings.getValue('matchThreshold'));
+		const answer = await this._projected({ seedQuery, states: missing, threshold });
+
+		for (const [signature, ids] of Object.entries(answer.roots)) {
+			filled.set(signature, new Set(ids));
+		}
+
+		if (key !== null && graph !== null && answer.version === graph.version) {
+			// Deleted first, so a scope asked about again moves to the back and the one
+			// nobody has opened for longest is the one `_forgetOldest` drops.
+			this._roots.delete(key);
 			this._roots.set(key, filled);
-
-			// Oldest first: a `Map` keeps insertion order, and the scope nobody has asked
-			// about for longest is the one least worth the memory.
-			while (this._roots.size > SCOPES_KEPT) {
-				const oldest = this._roots.keys().next();
-
-				if (oldest.done) {
-					break;
-				}
-
-				this._roots.delete(oldest.value);
-			}
+			this._remember(seedQuery, groups);
+			this._forgetOldest();
 		}
 
 		return filled;
 	}
 
 	/**
-	 * Every row in scope, read a page at a time so the gateway keeps answering.
+	 * On a thread of its own whenever there is one, and here when there is not.
 	 *
-	 * One statement over the whole scope was a single uninterruptible block — 177 ms for
-	 * thirty-one thousand rows on the owner's catalogue, measured — and `better-sqlite3`
-	 * is synchronous, so nothing can breathe through it. The only way to interrupt a
-	 * statement is to make it several, which is the same thing the match graph does a
-	 * few methods up and for the same reason.
+	 * The fallback is not a second implementation — it is the same service, called in
+	 * process. It exists because an in-memory database belongs to the connection that
+	 * opened it, so the unit and functional suites have no worker to send this to and
+	 * run the pass where they can test it.
 	 *
-	 * The order the query applies is total and ends on the identifier, so the pages
-	 * cannot overlap or lose a row between them.
+	 * A worker that fails is logged and answered here rather than raised. That trades a
+	 * blocked loop for an answer, which is the trade this whole change was made to stop
+	 * making — but it is the behaviour this gateway had before the thread existed, and a
+	 * dead thread turning every library page into a 500 would be strictly worse than a
+	 * slow one.
 	 */
-	private async _wholeScope(seedQuery: GroupSeedQuery): Promise<MediaItemDigest[]> {
-		const scope: MediaItemDigest[] = [];
+	private async _projected(request: ProjectionRequest): Promise<ProjectionAnswer> {
+		if (!this._workers.available) {
+			return this._projection.project(request);
+		}
 
-		for (let skip = 0; ; skip += SCOPE_PAGE) {
-			const page = await this._items.findGroupSeeds({
-				...seedQuery,
-				rootsOnly: false,
-				search: undefined,
-				kind: undefined,
-				skip,
-				take: SCOPE_PAGE,
-			});
+		try {
+			const answer = await this._workers.run<ProjectionAnswer>(JobKind.PROJECT, { ...request });
 
-			scope.push(...page);
-			await breathe(0);
+			/*
+			 * Checked, because an answer that came up short must not be read as an empty
+			 * one. A missing set means "nothing beneath this root is missing" — a wall
+			 * that looks complete while it is not, which is the one wrong answer this
+			 * screen must never give. Over a thread boundary the answer is whatever was
+			 * cloned back, so this is the only place that can tell.
+			 */
+			const absent = request.states
+				.map(stateSignature)
+				.filter((signature) => !(signature in answer.roots));
 
-			if (page.length < SCOPE_PAGE) {
-				return scope;
+			if (absent.length > 0) {
+				throw new Error(`the projection answered nothing for ${absent.join(' and ')}`);
+			}
+
+			return answer;
+		} catch (error: unknown) {
+			this._logger.warn(
+				`The projection could not run on a worker and will block this thread: ${String(error)}`,
+			);
+
+			return this._projection.project(request);
+		}
+	}
+
+	/**
+	 * Keep the question, so the answer can be recomputed before anybody asks again.
+	 *
+	 * This is what makes the cost invisible rather than merely rarer: the scopes
+	 * somebody has actually been browsing are re-projected when the catalogue moves, off
+	 * any request, and the interface is told about the change afterwards — see `refresh`.
+	 * Without it the first person to open the page after every scan pays for the pass,
+	 * which is precisely the cost the store was added to remove.
+	 */
+	private _remember(seedQuery: GroupSeedQuery, groups: SyncState[][]): void {
+		const scope = scopeSignature(seedQuery);
+		const known = this._warmable.get(scope) ?? { seedQuery, states: [] };
+		const names = new Set(known.states.map(stateSignature));
+
+		for (const states of groups) {
+			if (!names.has(stateSignature(states))) {
+				known.states.push(states);
+			}
+		}
+
+		// Deleted first, so a scope asked about again moves to the back of the queue and
+		// the one nobody has opened for longest is the one evicted.
+		this._warmable.delete(scope);
+		this._warmable.set(scope, known);
+	}
+
+	/** Oldest first: a `Map` keeps insertion order, which is the order worth losing. */
+	private _forgetOldest(): void {
+		for (const store of [this._roots, this._warmable] as Map<string, unknown>[]) {
+			while (store.size > SCOPES_KEPT) {
+				const oldest = store.keys().next();
+
+				if (oldest.done) {
+					break;
+				}
+
+				store.delete(oldest.value);
+			}
+		}
+	}
+
+	/**
+	 * Re-project every scope somebody has been browsing, now that the graph has moved.
+	 *
+	 * Off any request, on the worker's own thread, and **before** the interface is told
+	 * the catalogue changed — which is the order that matters. The tab that reloads on
+	 * that event finds the answer already filed rather than paying for the pass, and
+	 * that is the difference between "the first page after a scan is slow" and "no page
+	 * is ever slow".
+	 *
+	 * Failures are logged and dropped. A projection that could not run leaves the store
+	 * without that key, which the next reader simply misses and recomputes; refusing to
+	 * announce a catalogue change because a cache could not be warmed would hold back
+	 * the one thing every open tab is waiting for.
+	 */
+	private async _warm(graph: { version: string; threshold: number }): Promise<void> {
+		// The most recently asked for, in that order: `_remember` keeps the map in
+		// recency order, oldest first.
+		const recent = [...this._warmable.values()].slice(-SCOPES_WARMED).reverse();
+
+		for (const { seedQuery, states } of recent) {
+			const key = this._scopeKey(seedQuery, graph);
+
+			if (this._roots.has(key) || states.length === 0) {
+				continue;
+			}
+
+			try {
+				await this._build(key, states, seedQuery, graph);
+			} catch (error: unknown) {
+				this._logger.warn(`Could not warm a catalogue projection: ${String(error)}`);
 			}
 		}
 	}
@@ -1055,7 +1023,6 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 	private async _actionable(
 		skeletons: GroupSkeleton[],
 		seedQuery: GroupSeedQuery,
-		context: GroupContext,
 		reasons?: ActionableReason[],
 	): Promise<GroupSkeleton[]> {
 		/*
@@ -1098,7 +1065,7 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		const answered =
 			stateGroups.length === 0
 				? []
-				: await this._inStates(skeletons, stateGroups, seedQuery, context);
+				: await this._inStates(skeletons, stateGroups, seedQuery);
 
 		const absent = gaps ? new Set(answered[0]) : new Set<GroupSkeleton>();
 		// Second when both were asked for, first when the gaps were not.
@@ -1333,10 +1300,6 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		for (let skip = 0; ; skip += GRAPH_PAGE) {
 			const page = await this._matches.findAppliedPairs(threshold, skip, GRAPH_PAGE);
 
-			if (page.length === 0) {
-				break;
-			}
-
 			graph.absorb(page);
 			await breathe(0);
 
@@ -1355,6 +1318,18 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		 * at worst the next caller rebuilds once for nothing.
 		 */
 		this._graph = { version, threshold, graph };
+
+		/*
+		 * And the projections that depend on it, before this returns.
+		 *
+		 * `true` is what makes the cache announce the change, and every open tab re-reads
+		 * on that announcement. Warming afterwards would mean the announcement arrived
+		 * first and the tabs raced the warm — which is the state this gateway was in, and
+		 * is why the first page after every scan was the slow one. Awaiting it costs
+		 * nothing anybody is waiting for: `refresh` runs off any request, and the pass it
+		 * waits for runs on a worker.
+		 */
+		await this._warm({ version, threshold });
 
 		return true;
 	}
@@ -1988,19 +1963,7 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		return context.local.has(copy.serviceId) && !context.graph.besideAnotherCut(copy.id);
 	}
 
-	/**
-	 * The state a group shows, derived from the copies we hold.
-	 *
-	 * A media with no local copy is `missing` whatever its remote rows say about each
-	 * other: two friends being in sync with one another is not an answer to "do I have
-	 * this", and the poster that asks that question is on our screen.
-	 *
-	 * Unless the gateway has already put the file on the disk. No service holds it —
-	 * none of them has scanned yet — so every test above answers "missing" while the
-	 * bytes are in the library folder, which is exactly how the same episode gets
-	 * pulled twice. The landing is carried on the copy we pulled from, which is one of
-	 * these members, so the group can read it here without a second query.
-	 */
+	/** The shared rule, with this request's view of which services are ours. */
 	private _state(
 		// The two fields it reads, rather than a digest: this is called with full rows
 		// for the page being rendered and with digests everywhere else, and a digest
@@ -2008,20 +1971,7 @@ export class MediaGroupManager implements OnApplicationBootstrap, OnModuleInit {
 		members: { serviceId: string; syncState: SyncState }[],
 		context: GroupContext,
 	): SyncState {
-		const held = members.filter((member) => context.local.has(member.serviceId));
-
-		if (held.length === 0) {
-			return members.find((member) => LANDED_STATES.has(member.syncState))?.syncState
-				?? SyncState.MISSING;
-		}
-
-		for (const state of GROUP_STATE_ORDER) {
-			if (held.some((member) => member.syncState === state)) {
-				return state;
-			}
-		}
-
-		return SyncState.UNKNOWN;
+		return groupStateOf(members, context.local);
 	}
 
 	/**

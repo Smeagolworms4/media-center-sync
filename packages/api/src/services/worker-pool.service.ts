@@ -21,6 +21,32 @@ import { isWorkerThread } from './runtime-role';
  */
 export const JOB_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * Which thread each kind of job runs on.
+ *
+ * One thread per lane, and the lanes are not a tuning knob — they are the difference
+ * between a projection answering in a second and a projection answering in four
+ * minutes. A worker runs one job at a time by construction (see the queue at the foot
+ * of `jobs.worker.ts`: a correlation holds the whole catalogue in memory with six
+ * indexes over it, and two at once is twice that on a NAS and no faster). So a
+ * projection sharing the scan's thread would wait behind the scan — and the moment it
+ * is most needed is exactly the moment a scan has just finished and a person is
+ * refreshing the page to see what arrived.
+ *
+ * They do not contend for the database either: the projection is a read, WAL gives any
+ * number of concurrent readers, and the scan is the single writer it already was.
+ *
+ * Added to rather than opened up: a lane is a thread, a thread is a database connection
+ * and a few megabytes, and a household's gateway cannot afford one per job kind
+ * somebody felt like adding.
+ */
+const LANES = {
+	[JobKind.CORRELATE]: 'catalogue',
+	[JobKind.PROJECT]: 'projection',
+} as const satisfies Record<JobKindValue, string>;
+
+type Lane = (typeof LANES)[keyof typeof LANES];
+
 /** Where the worker is and what it takes to start it. See `_lookUp`. */
 interface WorkerEntry {
 	path: string;
@@ -60,7 +86,8 @@ interface WorkerEntry {
 export class WorkerPoolService implements OnModuleDestroy {
 	private readonly _logger = new Logger(WorkerPoolService.name);
 
-	private _worker: Worker | null = null;
+	/** One per lane, started on first use. See `LANES`. */
+	private readonly _threads = new Map<Lane, Worker>();
 
 	/** Null for "looked and there is none", undefined for "not looked yet". */
 	private _resolved: WorkerEntry | null | undefined;
@@ -68,6 +95,7 @@ export class WorkerPoolService implements OnModuleDestroy {
 	private readonly _waiting = new Map<
 		string,
 		{
+			lane: Lane;
 			resolve: (output: unknown) => void;
 			reject: (error: Error) => void;
 			timer: NodeJS.Timeout;
@@ -212,8 +240,12 @@ export class WorkerPoolService implements OnModuleDestroy {
 		}
 
 		this._waiting.clear();
-		void this._worker?.terminate();
-		this._worker = null;
+
+		for (const worker of this._threads.values()) {
+			void worker.terminate();
+		}
+
+		this._threads.clear();
 	}
 
 	private _send(
@@ -222,17 +254,34 @@ export class WorkerPoolService implements OnModuleDestroy {
 		onProgress?: (payload: Record<string, unknown>) => void,
 	): { id: string; answer: Promise<unknown> } {
 		const id = randomUUID();
-		const worker = this._start();
+		const lane = LANES[kind];
+		const worker = this._start(lane);
 
 		const answer = new Promise<unknown>((resolve, reject) => {
 			const timer = setTimeout(() => {
-				this._waiting.delete(id);
+				this._forget(id);
 				reject(new Error(`The worker did not answer for ${kind}`));
 			}, JOB_TIMEOUT_MS);
 
 			// So a gateway with nothing else to do can still exit.
 			timer.unref?.();
-			this._waiting.set(id, { resolve, reject, timer, onProgress });
+
+			/*
+			 * Referenced while this lane has work, and that is not a nicety.
+			 *
+			 * A worker is unreferenced so that a gateway with nothing to do can exit —
+			 * but during boot the HTTP server is not listening yet, so nothing else
+			 * holds the loop either. A release shipped with an unreferenced thread
+			 * awaited at boot and Node exited **code 0, silently**, eight seconds in,
+			 * with no error anywhere and a container that simply reported `000`. The
+			 * same mistake, in the same shape, was already paid for once in
+			 * `ReadPoolService`.
+			 */
+			if (!this._busy(lane)) {
+				worker.ref();
+			}
+
+			this._waiting.set(id, { lane, resolve, reject, timer, onProgress });
 
 			const request: JobRequest = { id, kind, input };
 
@@ -249,9 +298,11 @@ export class WorkerPoolService implements OnModuleDestroy {
 	 * up, and paying that for every pass would put back the latency this exists to
 	 * remove.
 	 */
-	private _start(): Worker {
-		if (this._worker) {
-			return this._worker;
+	private _start(lane: Lane): Worker {
+		const running = this._threads.get(lane);
+
+		if (running) {
+			return running;
 		}
 
 		const entry = this._entry();
@@ -270,20 +321,53 @@ export class WorkerPoolService implements OnModuleDestroy {
 		});
 
 		worker.on('message', (answer: JobAnswer) => this._receive(answer));
-		worker.on('error', (error: Error) => this._fail(error));
+		worker.on('error', (error: Error) => this._fail(error, lane));
 		worker.on('exit', (code: number) => {
-			this._worker = null;
+			this._threads.delete(lane);
 
 			if (code !== 0) {
-				this._fail(new Error(`The worker exited with ${code}`));
+				this._fail(new Error(`The worker exited with ${code}`), lane);
 			}
 		});
 		// Unreferenced, so a worker waiting for jobs does not keep the process alive.
+		// Referenced again for as long as it has one — see `_send`.
 		worker.unref();
 
-		this._worker = worker;
+		this._threads.set(lane, worker);
 
 		return worker;
+	}
+
+	/** Whether this lane has a job in flight, which is what decides the reference. */
+	private _busy(lane: Lane): boolean {
+		for (const waiting of this._waiting.values()) {
+			if (waiting.lane === lane) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Forget a job and let its thread go if it was the last one.
+	 *
+	 * Every path that stops waiting goes through here — settled, timed out, failed —
+	 * because a lane left referenced with nothing in flight is a gateway that cannot
+	 * exit, which in a container is a stop that takes the full kill timeout.
+	 */
+	private _forget(id: string): void {
+		const waiting = this._waiting.get(id);
+
+		if (waiting === undefined) {
+			return;
+		}
+
+		this._waiting.delete(id);
+
+		if (!this._busy(waiting.lane)) {
+			this._threads.get(waiting.lane)?.unref();
+		}
 	}
 
 	private _receive(answer: JobAnswer): void {
@@ -331,7 +415,7 @@ export class WorkerPoolService implements OnModuleDestroy {
 
 		clearTimeout(waiting.timer);
 		waiting.timer = setTimeout(() => {
-			this._waiting.delete(id);
+			this._forget(id);
 			waiting.reject(new Error(`The worker stopped answering for ${id}`));
 		}, JOB_TIMEOUT_MS);
 		waiting.timer.unref?.();
@@ -345,7 +429,7 @@ export class WorkerPoolService implements OnModuleDestroy {
 		}
 
 		clearTimeout(waiting.timer);
-		this._waiting.delete(answer.id);
+		this._forget(answer.id);
 
 		if (answer.error === null) {
 			waiting.resolve(answer.output);
@@ -358,16 +442,23 @@ export class WorkerPoolService implements OnModuleDestroy {
 		this._events.emit(EventName.JOB_FINISHED, { runId: id, kind, output, error });
 	}
 
-	/** A thread-level failure belongs to every job in flight: none of them will answer. */
-	private _fail(error: Error): void {
-		this._logger.error(`Worker failed: ${error.message}`);
+	/**
+	 * A thread-level failure belongs to every job on *that* thread: none of them will
+	 * answer. Not to the other lanes, which are a different thread and still running —
+	 * rejecting them too would fail a projection because a scan died.
+	 */
+	private _fail(error: Error, lane: Lane): void {
+		this._logger.error(`Worker failed on the ${lane} lane: ${error.message}`);
 
-		for (const { reject, timer } of this._waiting.values()) {
-			clearTimeout(timer);
-			reject(error);
+		for (const [id, waiting] of [...this._waiting]) {
+			if (waiting.lane !== lane) {
+				continue;
+			}
+
+			clearTimeout(waiting.timer);
+			this._forget(id);
+			waiting.reject(error);
 		}
-
-		this._waiting.clear();
 	}
 }
 

@@ -18,6 +18,10 @@ import {
 	MediaMatchRepository,
 	MediaServiceRepository,
 } from '@/repositories';
+import {
+	CatalogueProjectionService,
+	type ProjectionRequest,
+} from '@/services/catalogue-projection.service';
 import { CorrelationService } from '@/services/correlation.service';
 import { MatchingService } from '@/services/matching.service';
 import { QualityService } from '@/services/quality.service';
@@ -42,9 +46,14 @@ const log = (level: 'debug' | 'log' | 'warn' | 'error', message: string): void =
  * Built once and kept. A worker is kept alive between jobs by the pool precisely so that
  * opening the database is paid once rather than per pass.
  */
-let connection: Promise<{ correlation: CorrelationService }> | null = null;
+interface Built {
+	correlation: CorrelationService;
+	projection: CatalogueProjectionService;
+}
 
-const open = async (): Promise<{ correlation: CorrelationService }> => {
+let connection: Promise<Built> | null = null;
+
+const open = async (): Promise<Built> => {
 	/*
 	 * Never the migrations, and this is the one place that difference matters.
 	 *
@@ -59,17 +68,22 @@ const open = async (): Promise<{ correlation: CorrelationService }> => {
 
 	await dataSource.initialize();
 
+	const items = new MediaItemRepository(dataSource);
+	const matches = new MediaMatchRepository(dataSource);
+	const services = new MediaServiceRepository(dataSource);
+
 	const correlation = new CorrelationService(
-		new MediaItemRepository(dataSource),
-		new MediaMatchRepository(dataSource),
-		new MediaServiceRepository(dataSource),
+		items,
+		matches,
+		services,
 		new MediaLandingRepository(dataSource),
 		new MatchingService(new QualityService()),
 	);
+	const projection = new CatalogueProjectionService(items, matches, services);
 
 	log('log', 'Worker ready');
 
-	return { correlation };
+	return { correlation, projection };
 };
 
 const correlate = async (id: string, input: Record<string, unknown>): Promise<unknown> => {
@@ -96,7 +110,38 @@ const correlate = async (id: string, input: Record<string, unknown>): Promise<un
 	});
 };
 
+/**
+ * The catalogue projection, which is a read and nothing else.
+ *
+ * Checked rather than cast, like the correlation above and for the same reason: a
+ * structured clone preserves no types, so this is the only thing standing between a
+ * typo on the calling side and a pass that projects the wrong scope. The seed query is
+ * only checked for being an object — it is the caller's filter, with a dozen optional
+ * fields, and the query builder rejects what it cannot use.
+ */
+const project = async (input: Record<string, unknown>): Promise<unknown> => {
+	const { seedQuery, states, threshold } = input;
+
+	if (typeof seedQuery !== 'object' || seedQuery === null) {
+		throw new Error('A projection needs a seed query');
+	}
+
+	if (!Array.isArray(states) || typeof threshold !== 'number') {
+		throw new Error('A projection needs its states and a threshold');
+	}
+
+	connection ??= open();
+
+	const { projection } = await connection;
+
+	return projection.project({ seedQuery, states, threshold } as ProjectionRequest);
+};
+
 const run = async (request: JobRequest): Promise<unknown> => {
+	if (request.kind === JobKind.PROJECT) {
+		return project(request.input);
+	}
+
 	if (request.kind === JobKind.CORRELATE) {
 		/*
 		 * Said as the job leaves the queue, before it has read a row.
