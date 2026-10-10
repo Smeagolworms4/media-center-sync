@@ -280,6 +280,38 @@ The index is kept current in two ways:
   everything. It has to exist, because a refresh only sees what a service *reports*
   as new: files moved, deleted or re-encoded in place go unnoticed otherwise.
 
+### Running on a Raspberry Pi
+
+The reference deployment for this product is a Pi with the database on an SD card, and
+several choices only make sense read in that light.
+
+- **Nothing heavy runs on the thread that holds the sockets.** `better-sqlite3` is
+  synchronous: a long statement does not slow the gateway down, it *stops* it — and a
+  gateway that is not reading its sockets looks exactly like a gateway with a network
+  problem. So the two passes that walk the whole catalogue, correlation and the
+  `actionable` filter, run on worker threads of their own, one each, so neither waits
+  for the other.
+- **The expensive answers are kept and recomputed off-request.** Which media have
+  something worth fetching beneath them is derived from the whole index; it is computed
+  once per change of the catalogue rather than once per page, and recomputed as soon as
+  the catalogue moves — before the interface is told anything changed, so the page that
+  reloads finds the answer already there.
+- **Posters are revalidated rather than re-sent.** Each carries an entity tag, so a
+  reload of a library wall costs a few hundred bytes per tile instead of the twenty
+  megabytes it costs to send them again.
+- **The in-process cache has a ceiling.** Sixty-four megabytes, least recently read
+  evicted first. Unbounded, an hour of posters is hundreds of megabytes of memory on a
+  machine with a gigabyte — which does not fail, it swaps, and on a Pi swap is written
+  to the same card as the database.
+- **SQLite is told it is on a card.** A sixteen-megabyte page cache instead of two,
+  temporary sorts in memory rather than in a file beside the database, and
+  `synchronous = NORMAL` under WAL — which gives up the last few transactions if the
+  *machine* loses power, and not a single one to an application crash or a
+  `docker stop`.
+
+If the host has anywhere better than an SD card, point the volume behind `/data` at it.
+Nothing above has to change, and it is the single biggest thing an operator can do.
+
 ### Correlation: what is the same media
 
 Two libraries call the same episode `S01E02`, `1x02`, `102` or

@@ -297,6 +297,38 @@ L'index est maintenu à jour de deux façons :
   *signale* comme nouveau : des fichiers déplacés, supprimés ou réencodés sur place
   passeraient sinon inaperçus.
 
+### Tourner sur un Raspberry Pi
+
+Le déploiement de référence de ce produit est un Pi avec la base de données sur une
+carte SD, et plusieurs choix ne se comprennent qu'à cette lumière.
+
+- **Rien de lourd ne tourne sur le thread qui tient les connexions.** `better-sqlite3`
+  est synchrone : une requête longue ne ralentit pas la passerelle, elle l'*arrête* — et
+  une passerelle qui ne lit plus ses sockets ressemble exactement à une passerelle qui a
+  un problème de réseau. Les deux passes qui parcourent tout le catalogue, la
+  corrélation et le filtre « à traiter », tournent donc chacune sur son propre thread,
+  pour qu'aucune n'attende l'autre.
+- **Les réponses coûteuses sont gardées et recalculées hors requête.** Ce qui a quelque
+  chose à récupérer en dessous se déduit de tout l'index ; c'est calculé une fois par
+  changement du catalogue et non une fois par page, et recalculé dès que le catalogue
+  bouge — avant que l'interface soit prévenue, pour que la page qui se recharge trouve
+  la réponse déjà prête.
+- **Les affiches sont revalidées au lieu d'être renvoyées.** Chacune porte une étiquette
+  d'entité, donc recharger un mur de bibliothèque coûte quelques centaines d'octets par
+  vignette au lieu des vingt mégaoctets que coûte leur renvoi.
+- **Le cache en mémoire a un plafond.** Soixante-quatre mégaoctets, le moins lu
+  récemment évincé d'abord. Sans plafond, une heure d'affiches représente des centaines
+  de mégaoctets sur une machine qui en a mille — ce qui n'échoue pas, ce qui *swappe*,
+  et sur un Pi le swap s'écrit sur la même carte que la base.
+- **SQLite est prévenu qu'il est sur une carte.** Seize mégaoctets de cache de pages au
+  lieu de deux, les tris temporaires en mémoire plutôt que dans un fichier à côté de la
+  base, et `synchronous = NORMAL` sous WAL — ce qui abandonne les dernières transactions
+  si la *machine* perd le courant, et aucune en cas de crash applicatif ou de
+  `docker stop`.
+
+Si l'hôte a mieux qu'une carte SD, pointez le volume derrière `/data` dessus. Rien de ce
+qui précède n'a à changer, et c'est la plus grande chose qu'un exploitant puisse faire.
+
 ### Corrélation : qu'est-ce que le même contenu
 
 Deux bibliothèques appellent le même épisode `S01E02`, `1x02`, `102` ou
