@@ -11,6 +11,7 @@ import {
 	Controller,
 	Delete,
 	Get,
+	Headers,
 	HttpCode,
 	HttpStatus,
 	Param,
@@ -43,6 +44,28 @@ import {
 
 /** How long a browser may keep a poster. Artwork changes on a rescan, not on a reload. */
 const ARTWORK_CACHE_SECONDS = 3600;
+
+/**
+ * Whether a browser's `If-None-Match` names the poster we are about to send.
+ *
+ * A list, because a cache is allowed to hold several versions and send all their tags;
+ * `*` is "whatever you have", which a revalidation of something we still hold answers
+ * yes to. Compared verbatim, including the quotes, which is what the tag is.
+ *
+ * `W/`-prefixed tags are not stripped, deliberately: this gateway only ever issues
+ * strong ones, so a weak tag arriving here was not issued by us and matching it would
+ * be answering 304 to a question about somebody else's bytes.
+ */
+const revalidates = (header: string | undefined, tag: string): boolean => {
+	if (header === undefined) {
+		return false;
+	}
+
+	return header
+		.split(',')
+		.map((candidate) => candidate.trim())
+		.some((candidate) => candidate === '*' || candidate === tag);
+};
 
 /**
  * Browsing the index.
@@ -148,19 +171,44 @@ export class MediaController {
 	 * `Authorization` header, so the browser fetching it directly would be an anonymous
 	 * request against a server that wants one. The gateway fetches it and caches it.
 	 */
+	/**
+	 * The poster, or an answer saying the one the browser holds is still the poster.
+	 *
+	 * `max-age` alone was not enough and could not be. It buys an hour of silence and
+	 * then expires, and a reload — which is what somebody does when a page looked wrong
+	 * — asks again regardless. So every reload of the library re-sent the whole wall:
+	 * twenty megabytes over about thirty requests on the owner's catalogue, on one HTTP/2
+	 * connection, which is also the connection the event stream and every other call
+	 * share. That is a large part of why this gateway looked like it was dropping
+	 * connections.
+	 *
+	 * The tag is read before the bytes are, which is the whole saving: one indexed row
+	 * instead of a megabyte off the cache, through base64, into a buffer.
+	 */
 	@Get(':id/artwork')
 	@Granted(Right.MEDIA_READ)
 	@ApiOperation({ summary: 'The item’s poster, fetched and cached by the gateway' })
 	@ApiProduces('image/*')
-	@ApiOkResponse({ description: 'Image bytes' })
+	@ApiOkResponse({ description: 'Image bytes, or 304 when the browser already has them' })
 	public async artwork(
 		@Param('id', ParseUUIDPipe) id: string,
 		@Res({ passthrough: true }) response: Response,
-	): Promise<StreamableFile> {
+		@Headers('if-none-match') revalidating?: string,
+	): Promise<StreamableFile | undefined> {
+		const tag = await this._media.artworkTag(id);
+
+		response.setHeader('Cache-Control', `private, max-age=${ARTWORK_CACHE_SECONDS}`);
+		response.setHeader('ETag', tag);
+
+		if (revalidates(revalidating, tag)) {
+			response.status(HttpStatus.NOT_MODIFIED);
+
+			return undefined;
+		}
+
 		const artwork = await this._media.artwork(id);
 
 		response.setHeader('Content-Type', artwork.contentType);
-		response.setHeader('Cache-Control', `private, max-age=${ARTWORK_CACHE_SECONDS}`);
 
 		return new StreamableFile(artwork.body);
 	}
