@@ -13,6 +13,27 @@ const DEFAULT_TTL_SECONDS = 60;
 const SWEEP_INTERVAL_MS = 30_000;
 
 /**
+ * How much the in-process cache may hold, in characters of stored value.
+ *
+ * A ceiling and not a tuning knob. The expensive thing in here is artwork: a poster is
+ * 613 KB on the owner's catalogue and 1.18 MB at worst, kept for an hour, and a library
+ * screen asks for two hundred of them. At the default lifetime that is hundreds of
+ * megabytes of strings on a Raspberry Pi with a gigabyte of memory — which does not
+ * fail, it *swaps*, and swap on that machine is zram backed by the same SD card. The
+ * owner measured 1.4 GB written in fifty-one minutes with nothing scanning, and a
+ * gateway sitting at 1.1 GB resident is a large part of where that came from.
+ *
+ * Sixty-four megabytes holds about eighty posters, which is more than one screen, and
+ * the rest is a 304 or one fetch from the media server — see the artwork route, which
+ * now gives a browser a validator so a reload costs neither.
+ *
+ * Counted in characters rather than bytes because that is what is cheap to know: every
+ * value here is JSON, and the expensive ones are base64, so the two differ by nothing
+ * worth a traversal.
+ */
+export const MEMORY_CEILING = 64 * 1024 * 1024;
+
+/**
  * What a backend has to do. Values cross it as strings, already serialised.
  *
  * Keeping serialisation above this line means both backends store exactly the same
@@ -42,6 +63,9 @@ class MemoryBackend implements CacheBackend {
 	private readonly _entries = new Map<string, { value: string; expiresAt: number }>();
 	private readonly _sweep: NodeJS.Timeout;
 
+	/** What is held, kept as a running total: summing the map per write is a traversal. */
+	private _held = 0;
+
 	public constructor() {
 		// Expiry is checked on read as well, so the sweep only exists to stop keys
 		// nobody reads again from holding memory forever. `unref` keeps it from
@@ -58,32 +82,45 @@ class MemoryBackend implements CacheBackend {
 		}
 
 		if (entry.expiresAt <= Date.now()) {
-			this._entries.delete(key);
+			this._forget(key);
 
 			return null;
 		}
+
+		/*
+		 * Read, and therefore worth keeping: moved to the back of the map, which is the
+		 * order `_trim` evicts in. Without this the ceiling would throw away the posters
+		 * on the screen in favour of the ones fetched most recently, which on a library
+		 * page being scrolled is precisely backwards.
+		 */
+		this._entries.delete(key);
+		this._entries.set(key, entry);
 
 		return entry.value;
 	}
 
 	public async set(key: string, value: string, ttlSeconds: number): Promise<void> {
+		this._forget(key);
 		this._entries.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 });
+		this._held += value.length;
+		this._trim();
 	}
 
 	public async delete(key: string): Promise<void> {
-		this._entries.delete(key);
+		this._forget(key);
 	}
 
 	public async clear(prefix?: string): Promise<void> {
 		if (prefix === undefined) {
 			this._entries.clear();
+			this._held = 0;
 
 			return;
 		}
 
 		for (const key of this._entries.keys()) {
 			if (key.startsWith(prefix)) {
-				this._entries.delete(key);
+				this._forget(key);
 			}
 		}
 	}
@@ -91,6 +128,7 @@ class MemoryBackend implements CacheBackend {
 	public async dispose(): Promise<void> {
 		clearInterval(this._sweep);
 		this._entries.clear();
+		this._held = 0;
 	}
 
 	private _evict(): void {
@@ -98,8 +136,43 @@ class MemoryBackend implements CacheBackend {
 
 		for (const [key, entry] of this._entries) {
 			if (entry.expiresAt <= now) {
-				this._entries.delete(key);
+				this._forget(key);
 			}
+		}
+	}
+
+	/** Drop a key and the memory it was accounted for, which has to happen together. */
+	private _forget(key: string): void {
+		const entry = this._entries.get(key);
+
+		if (entry === undefined) {
+			return;
+		}
+
+		this._held -= entry.value.length;
+		this._entries.delete(key);
+	}
+
+	/**
+	 * Back under the ceiling, least recently read first.
+	 *
+	 * A loop rather than one eviction per write, because one value can be larger than
+	 * several of the ones it displaces — a 1.18 MB poster arriving into a cache full of
+	 * settings answers is the ordinary case.
+	 */
+	private _trim(): void {
+		while (this._held > MEMORY_CEILING) {
+			const oldest = this._entries.keys().next();
+
+			if (oldest.done) {
+				// Unreachable while the total is honest, and the only safe thing to do if
+				// it ever is not: a loop that cannot empty the map would never end.
+				this._held = 0;
+
+				return;
+			}
+
+			this._forget(oldest.value);
 		}
 	}
 }

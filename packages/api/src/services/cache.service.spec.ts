@@ -217,6 +217,66 @@ describe('CacheService (in-memory)', () => {
 		await pending;
 	});
 
+	/*
+	 * The ceiling, and why it is not a tuning knob.
+	 *
+	 * The expensive thing in this cache is artwork: a poster is 613 KB on the owner's
+	 * catalogue and 1.18 MB at worst, kept for an hour, and a library screen asks for
+	 * two hundred of them. Unbounded, that is hundreds of megabytes of strings on a
+	 * Raspberry Pi with a gigabyte of memory — which does not fail, it swaps, and swap
+	 * there is zram backed by the same SD card the database is on.
+	 */
+	describe('what it refuses to hold', () => {
+		/** A value large enough that a handful of them reaches the ceiling. */
+		const big = (at: number): string => `${at}`.padEnd(10 * 1024 * 1024, 'x');
+
+		it('drops what nobody has read lately once it is full', async () => {
+			const bounded = new CacheService();
+
+			try {
+				for (let at = 0; at < 6; at += 1) {
+					await bounded.set(`poster-${at}`, big(at), 3600);
+				}
+
+				// Read, and therefore worth keeping: the ceiling must not throw away the
+				// posters on the screen in favour of the ones fetched most recently.
+				await expect(bounded.get('poster-0')).resolves.toBe(big(0));
+
+				await bounded.set('poster-6', big(6), 3600);
+
+				expect(await bounded.get('poster-0')).toBe(big(0));
+				expect(await bounded.get('poster-6')).toBe(big(6));
+				// The oldest one nobody came back for.
+				expect(await bounded.get('poster-1')).toBeNull();
+			} finally {
+				await bounded.onModuleDestroy();
+			}
+		});
+
+		it('counts a value that was replaced once rather than twice', async () => {
+			// A running total is kept rather than summed per write, so every path that
+			// removes an entry has to account for it. One that did not would drift until
+			// the cache believed it was full of values it no longer held.
+			const bounded = new CacheService();
+
+			try {
+				const held = (): number =>
+					(bounded as unknown as { _backend: { _held: number } })._backend._held;
+
+				await bounded.set('key', 'first', 3600);
+				await bounded.set('key', 'second', 3600);
+
+				expect(held()).toBe(JSON.stringify('second').length);
+
+				await bounded.delete('key');
+
+				expect(held()).toBe(0);
+			} finally {
+				await bounded.onModuleDestroy();
+			}
+		});
+	});
+
 	it('releases the memory of a key nobody ever reads again', async () => {
 		// Expiry is checked on read as well, so this sweep is the only thing standing
 		// between a gateway left running for a month and a map full of entries that
