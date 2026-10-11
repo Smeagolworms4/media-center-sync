@@ -513,19 +513,36 @@ export class MediaManager {
 	}
 
 	/**
-	 * A human overruling the score.
+	 * A human overruling the score, and re-scoring everything that waited on it.
 	 *
 	 * Recorded rather than applied silently: `confirmedAt` is what lets the review
 	 * screen stop proposing it, and the strategy becomes `MANUAL` because that is what
 	 * it now is — keeping the score that did not convince anybody would leave the row
 	 * looking like the algorithm had made the call.
+	 *
+	 * **And the children are re-correlated, which they were not.** A season and an
+	 * episode only ever match under a series this gateway has already paired — see
+	 * `_underMatchedParents`, and the reason is that `S01E02` and the show's title are
+	 * both borrowed from the series above and distinguish nothing until the series
+	 * themselves are joined. So the whole tree beneath a pair is gated on it, and
+	 * confirming one by hand changed the gate and re-scored nothing: the series became
+	 * one card and its seasons stayed two apiece, for ever, until some unrelated scan
+	 * happened to run a pass.
+	 *
+	 * Reported exactly that way — *la série a matché c'est sûr, pourquoi leurs saisons
+	 * non ?* — and it is the same answer for the opposite act, which is why
+	 * `deleteMatch` does it too.
+	 *
+	 * The item's own service, because that is the side somebody is looking at and a pass
+	 * over it scores its rows against every other service's. Handed over and not awaited:
+	 * `recorrelate` runs on a worker when there is one and says so on the stream.
 	 */
 	public async confirmMatch(
 		itemId: string,
 		matchId: string,
 		localItemId?: string | null,
 	): Promise<MediaMatch> {
-		await this._require(itemId);
+		const item = await this._require(itemId);
 
 		const match = await this._requireMatch(itemId, matchId);
 
@@ -537,16 +554,28 @@ export class MediaManager {
 		match.confidence = 1;
 		match.confirmedAt = new Date();
 
-		return toMediaMatch(await this._matches.save(match));
+		const saved = await this._matches.save(match);
+
+		this.recorrelate(item.serviceId);
+
+		return toMediaMatch(saved);
 	}
 
-	/** Undoing one. A correlation nobody can undo is one nobody will trust. */
+	/**
+	 * Undoing one, and re-scoring what stood on it.
+	 *
+	 * A season and an episode are gated on their parents being paired — see
+	 * `_underMatchedParents` — so the children matched *because* of this pair are
+	 * standing on a decision that no longer exists. Removing it without re-correlating
+	 * leaves them joined by a parent nobody agreed to any more.
+	 */
 	public async deleteMatch(itemId: string, matchId: string): Promise<void> {
-		await this._require(itemId);
+		const item = await this._require(itemId);
 
 		const match = await this._requireMatch(itemId, matchId);
 
 		await this._matches.delete({ id: match.id });
+		this.recorrelate(item.serviceId);
 	}
 
 	/**

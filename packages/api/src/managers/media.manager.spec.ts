@@ -390,6 +390,41 @@ describe('MediaManager', () => {
 				ErrorKey.MEDIA_NOT_FOUND,
 			);
 		});
+
+		it('re-correlates what was waiting on the pair being agreed to', async () => {
+			/*
+			 * The report: *la série a matché c'est sûr, pourquoi leurs saisons non ?*
+			 *
+			 * A season and an episode only match under a series this gateway has already
+			 * paired — `S01E02` and the show's title are both borrowed from the series
+			 * above and distinguish nothing until the series themselves are joined. So the
+			 * whole tree is gated on the pair, and confirming one by hand changed the gate
+			 * and re-scored nothing: the series became one card and its seasons stayed two
+			 * apiece until some unrelated scan happened to run a pass.
+			 */
+			const { manager, fakes } = build({ items: [item()] });
+
+			fakes.matches.findOne.mockResolvedValue(match());
+
+			await manager.confirmMatch('item-a', 'match-1', 'item-a');
+			await settled();
+
+			expect(fakes.correlation.correlate).toHaveBeenCalledWith('service-a', 0.8);
+		});
+
+		it('answers the confirmation without waiting for the pass', async () => {
+			// Handed over, never awaited: a pass over a catalogue is minutes, and the
+			// screen that pressed the button has its answer the moment the row is written.
+			const { manager, fakes } = build({ items: [item()] });
+
+			fakes.matches.findOne.mockResolvedValue(match());
+			fakes.correlation.correlate.mockImplementation(
+				() => new Promise(() => undefined),
+			);
+
+			await expect(manager.confirmMatch('item-a', 'match-1', 'item-a'))
+				.resolves.toMatchObject({ strategy: MatchStrategy.MANUAL });
+		});
 	});
 
 	describe('browsing', () => {
@@ -437,6 +472,20 @@ describe('MediaManager', () => {
 			await manager.deleteMatch('item-a', 'match-1');
 
 			expect(fakes.matches.delete).toHaveBeenCalledWith({ id: 'match-1' });
+		});
+
+		it('re-correlates what stood on the pair it just removed', async () => {
+			// The children matched *because* of this pair are standing on a decision that
+			// no longer exists. Leaving them joined by a parent nobody agreed to any more
+			// is the same defect as never scoring them, arrived at from the other side.
+			const { manager, fakes } = build({ items: [item()] });
+
+			fakes.matches.findOne.mockResolvedValue(match());
+
+			await manager.deleteMatch('item-a', 'match-1');
+			await settled();
+
+			expect(fakes.correlation.correlate).toHaveBeenCalledWith('service-a', 0.8);
 		});
 
 		it('refuses a match that has nothing to do with the item in the path', async () => {
