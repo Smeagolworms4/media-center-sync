@@ -128,4 +128,38 @@ describe('components/transfer/ReleaseGrabRow', () => {
 		expect(wrapper.find('[data-test="release-grab-row-destination"]').text())
 			.toContain('/share/real/Show - S01E10.mkv');
 	});
+
+	/**
+	 * One line per file of a pack, including when they all answer the same row.
+	 *
+	 * A pack filed against a show whose episodes nothing has indexed gives every
+	 * placement the series' own id, and the list used to be keyed on it: seventy-eight
+	 * files shared one key, and Vue reuses nodes by key.
+	 */
+	it('draws every file of a pack even when they share a media', () => {
+		const { wrapper } = mount(grab({
+			placements: [
+				{
+					itemId: 'series-1',
+					seasonNumber: 1,
+					episodeNumber: 1,
+					title: 'Awakening',
+					fileName: '/downloads/Show.S01/Show.S01E01.mkv',
+					bytes: 1000,
+					targetPath: null,
+				},
+				{
+					itemId: 'series-1',
+					seasonNumber: 1,
+					episodeNumber: 2,
+					title: 'Thrill of the Hunt',
+					fileName: '/downloads/Show.S01/Show.S01E02.mkv',
+					bytes: 1100,
+					targetPath: null,
+				},
+			],
+		}));
+
+		expect(wrapper.findAll('[data-test="release-grab-row-file"]')).toHaveLength(2);
+	});
 });

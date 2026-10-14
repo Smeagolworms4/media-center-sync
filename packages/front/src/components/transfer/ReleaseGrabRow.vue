@@ -198,9 +198,16 @@
 				episodes brings two files, and one path could not say where either went.
 			-->
 			<div v-if="grab.placements.length > 1" class="release-grab-row_files mt-2">
+				<!--
+					Keyed on the file and not on the episode. A pack filed against a show
+					whose episodes nothing has indexed yet gives every placement the
+					series' own id — `itemId: row?.id ?? item.id` in `_spreadOf` — so
+					seventy-eight files carried one key between them, and Vue reuses nodes
+					by key: the list drew one line and dropped the rest.
+				-->
 				<p
-					v-for="one of grab.placements"
-					:key="one.itemId"
+					v-for="(one, index) of grab.placements"
+					:key="one.fileName ?? `${one.itemId}:${index}`"
 					class="text-caption text-medium-emphasis mb-0"
 					data-test="release-grab-row-file"
 				>
