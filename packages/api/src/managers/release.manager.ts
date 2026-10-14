@@ -1370,6 +1370,26 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				);
 			}
 
+			/*
+			 * Where the bytes actually are, when the path the client named is not it.
+			 *
+			 * Looked for before anything else fails, because a stale translation is the
+			 * commonest way a finished download goes nowhere and the bytes are never the
+			 * thing that is wrong. See `_reachable`.
+			 */
+			const reachable = await this._reachable(grab, settings);
+
+			if (reachable !== null && reachable !== grab.sourcePath) {
+				this._logger.warn(
+					`${grab.title}: the client reports ${grab.sourcePath}, which this gateway cannot `
+					+ `read; filing ${reachable} instead. The download client's root mappings are `
+					+ 'out of date — this worked, and it will go on needing this until they are fixed',
+				);
+
+				grab.sourcePath = reachable;
+				await this._grabs.save(grab);
+			}
+
 			if (item === null) {
 				/*
 				 * The media this was grabbed for no longer exists — a scan dropped the row
@@ -1444,7 +1464,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			const source = await this._largestFile(grab.sourcePath);
 
 			if (source === null) {
-				throw new Error(`nothing playable under ${grab.sourcePath}`);
+				throw new Error(await this._unreadable(grab.sourcePath));
 			}
 
 			const libraries = await this._libraries.placementLibraries();
@@ -1572,7 +1592,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		const source = await this._largestFile(grab.sourcePath as string);
 
 		if (source === null) {
-			throw new Error(`nothing playable under ${grab.sourcePath}`);
+			throw new Error(await this._unreadable(grab.sourcePath as string));
 		}
 
 		const destination = join(grab.plannedPath as string, basename(source));
@@ -2163,14 +2183,54 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			return client.rootMappings?.[0]?.remoteRoot ?? '';
 		}
 
-		if (mappedLocalPath(own, client.rootMappings ?? []) === null) {
-			this._logger.warn(
-				`${client.baseUrl} writes into ${own}, which none of this client's root mappings `
-				+ 'translate — the downloads will run and the gateway will not be able to file them',
-			);
-		}
+		await this._warnUnlessReadable(own, client);
 
 		return own;
+	}
+
+	/**
+	 * Say now what would otherwise be found out three gigabytes later.
+	 *
+	 * The gateway hands the client a folder to write into and then reads the same string
+	 * back, translated. Everything between those two moments is a download, so a path it
+	 * cannot read is hours of fetching and a filing that fails at the end — which is how
+	 * it was reported: 3,2 Go complete, `Échec`, and a message about a path.
+	 *
+	 * Two things can be wrong and both are said here rather than left to the copy:
+	 *
+	 * - no mapping covers the folder, so there is no translation at all;
+	 * - there is one, and what it points at is not readable from here.
+	 *
+	 * Warned and never refused. A mount that is down for a minute is not a reason to
+	 * refuse a download — the bytes would be fine and the filing would come right on the
+	 * next pass — and a household whose share is briefly away must not be told it cannot
+	 * fetch anything. What this buys is the line in the log being there *before* somebody
+	 * goes looking, which is the whole difference between a diagnosis and a hunt.
+	 *
+	 * It cannot catch everything, and the limit is worth stating: where the client runs on
+	 * another machine, the same path can name a directory on each, both readable, holding
+	 * different files. Nothing visible from this side distinguishes them — see
+	 * `_unreadable`, which says so where it will be read.
+	 */
+	private async _warnUnlessReadable(path: string, client: DownloadClientSettings): Promise<void> {
+		const mapped = mappedLocalPath(path, client.rootMappings ?? []);
+
+		if (mapped === null) {
+			this._logger.warn(
+				`${client.baseUrl} writes into ${path}, which none of this client's root mappings `
+				+ 'translate — the downloads will run and the gateway will not be able to file them',
+			);
+
+			return;
+		}
+
+		if (!(await this._filesystem.rights(mapped)).readable) {
+			this._logger.warn(
+				`${client.baseUrl} writes into ${path}, which this client's root mappings put at `
+				+ `${mapped} — and this gateway cannot read that. The downloads will run and the `
+				+ 'filing will fail at the end of each one',
+			);
+		}
 	}
 
 	/**
@@ -2455,6 +2515,102 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		}
 
 		return found;
+	}
+
+	/**
+	 * The download, wherever this gateway can actually reach it.
+	 *
+	 * A client says where *it* wrote; this gateway reaches the same disk under another
+	 * prefix, and the download client's root mappings are the bridge. When that bridge is
+	 * stale — a folder moved, a volume renamed, a mapping never written — the gateway
+	 * stared at a path that does not exist and failed a download whose bytes were sitting
+	 * complete and safe a directory away. Reported exactly so: three gigabytes fetched,
+	 * `Échec`, and `nothing playable under /share/Spider.Man…mkv`.
+	 *
+	 * So the declared roots are tried before giving up. **By exact name, under a root the
+	 * settings already name, and nothing else**: the torrent's own basename joined to each
+	 * `localRoot`. No search of the disk, no pattern, no recursion — one `rights` call per
+	 * mapping. A guess here would file the wrong film under the right name, which is worse
+	 * than the failure it replaces, so the only thing accepted is the same name in a place
+	 * somebody has already declared holds this client's downloads.
+	 *
+	 * Said out loud when it works, and that is deliberate rather than quiet success: the
+	 * mapping is still wrong, every download will go on needing this, and a recovery
+	 * nobody is told about is a misconfiguration that never gets fixed.
+	 *
+	 * Null when nothing is reachable, which leaves the failure to `_unreadable` — and it
+	 * then says which setting to change, having now also proved the bytes are not under any
+	 * root the settings know.
+	 */
+	private async _reachable(grab: GrabEntity, settings: Settings): Promise<string | null> {
+		const reported = grab.sourcePath as string;
+
+		if ((await this._filesystem.rights(reported)).readable) {
+			return reported;
+		}
+
+		const name = basename(reported);
+		const roots = [
+			...new Set(
+				(settings.downloadClient?.rootMappings ?? [])
+					.map((mapping) => mapping.localRoot.trim())
+					.filter((root) => root.startsWith('/')),
+			),
+		];
+
+		for (const root of roots) {
+			const candidate = join(root, name);
+
+			// `isInside` because the name came from a client's string: a `..` in it would
+			// reach outside the root somebody declared, which is the one thing a recovery
+			// must not do.
+			if (
+				candidate !== reported
+				&& isInside(candidate, root)
+				&& (await this._filesystem.rights(candidate)).readable
+			) {
+				return candidate;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Why nothing could be filed, in words that name what to go and change.
+	 *
+	 * `nothing playable under <path>` was the whole of it, and it is true but it is not
+	 * usable: it names the path, which is right — somebody has to be able to go and look
+	 * — and says nothing about which of two very different things happened. The owner hit
+	 * the second one, asked what it meant, and the answer was a setting on another screen.
+	 *
+	 * - **The path is not reachable at all.** The client is reporting where *it* wrote,
+	 *   and this gateway reaches the same disk under another prefix: that translation is
+	 *   the download client's root mappings. A mapping that is missing or stale — a folder
+	 *   moved since, which is exactly what happened — leaves the gateway staring at a path
+	 *   that does not exist, with the bytes sitting safely somewhere else.
+	 * - **The path is there and holds nothing playable.** A different fault entirely: a
+	 *   torrent of archives, or one whose video the client has not finished moving.
+	 *
+	 * The bytes are never lost either way, and the message says so, because the thing
+	 * somebody reaches for first is the download button they do not need: the client still
+	 * holds the torrent, so correcting the mapping and pressing retry files it without
+	 * fetching a byte. See `retry`, which keeps the client's own identifier.
+	 */
+	private async _unreadable(path: string): Promise<string> {
+		const rights = await this._filesystem.rights(path);
+
+		if (rights.readable) {
+			return `nothing playable under ${path}, which this gateway can read but found no file in`;
+		}
+
+		return `the download client reports this download at ${path}, and this gateway cannot read `
+			+ 'that path. That string is the client\'s own spelling of it, translated by this '
+			+ 'client\'s root mappings — so if the client runs on another machine, an identical '
+			+ 'path can name two different directories, and the files are on the other one. Check '
+			+ 'that the gateway and the client really see the same files there, then the mappings, '
+			+ 'then whether the folder was moved. The bytes are still with the client: correct it '
+			+ 'and retry, nothing is re-fetched';
 	}
 
 	/**

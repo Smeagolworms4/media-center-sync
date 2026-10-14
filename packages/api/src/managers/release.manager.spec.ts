@@ -2884,6 +2884,125 @@ describe('ReleaseManager', () => {
 				expect(fakes.mover.move).not.toHaveBeenCalled();
 			});
 
+			it('files the bytes from a declared root when the reported path is gone', async () => {
+				/*
+				 * The owner's failure, and the fix for "que ça ne se reproduise pas". Three
+				 * gigabytes complete, `Échec`, and `nothing playable under
+				 * /share/Spider.Man…mkv` — because he had moved the folder and the client's
+				 * root mappings still named the old one. The bytes were never the problem.
+				 *
+				 * By exact name under a root the settings already declare, and nothing else:
+				 * a guess would file the wrong film under the right name, which is worse than
+				 * the failure it replaces.
+				 */
+				const { manager, fakes } = build();
+				const row = grab({ state: GrabState.DOWNLOADING });
+				const gone = '/share/torrents/Spartacus.S01E02.1080p.WEB-DL-GRP';
+				const found = '/share/downloads/Spartacus.S01E02.1080p.WEB-DL-GRP';
+
+				fakes.settings.get.mockResolvedValue(settingsWith({
+					downloadClient: {
+						...SETTINGS.downloadClient,
+						rootMappings: [{ remoteRoot: '/downloads', localRoot: '/share/downloads' }],
+					},
+				}));
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				// Only the place somebody declared answers; the client's own spelling does not.
+				fakes.filesystem.rights.mockImplementation((path: string) =>
+					Promise.resolve({ readable: !path.startsWith(gone), writable: true }));
+				fakes.filesystem.largestFileUnder.mockImplementation((path: string) =>
+					Promise.resolve(path.startsWith(gone) ? null : `${path}/episode.mkv`));
+
+				await manager.poll();
+
+				expect(row.state).toBe(GrabState.PLACED);
+				expect(fakes.mover.move).toHaveBeenCalledWith(expect.objectContaining({
+					source: `${found}/episode.mkv`,
+				}));
+			});
+
+			it('refuses a name that would reach outside the declared root', async () => {
+				// The name is a client's string, and a `..` in it would reach outside the
+				// root somebody declared — the one thing a recovery must not do.
+				const { manager, fakes } = build();
+				const row = grab({ state: GrabState.DOWNLOADING });
+
+				fakes.settings.get.mockResolvedValue(settingsWith({
+					downloadClient: {
+						...SETTINGS.downloadClient,
+						rootMappings: [{ remoteRoot: '/downloads', localRoot: '/share/downloads' }],
+					},
+				}));
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([
+					status({ complete: true, contentPath: '/downloads/../../etc/passwd' }),
+				]);
+				fakes.filesystem.rights.mockResolvedValue({ readable: false, writable: false });
+
+				await manager.poll();
+
+				expect(row.state).toBe(GrabState.FAILED);
+				expect(fakes.mover.move).not.toHaveBeenCalled();
+			});
+
+			it('says the same path can be two directories on two machines', async () => {
+				/*
+				 * The report that cost three gigabytes, and the sentence that would have
+				 * ended it in a minute.
+				 *
+				 * His client runs on a seedbox and the gateway on the NAS. Both call the
+				 * folder `/share`, and they are not the same folder: on the seedbox it is
+				 * the local card, on the NAS its own tree, and only some subdirectories of
+				 * each are the shared mounts. So the gateway was handed a path it could read
+				 * the *name* of and told to find files that were on another machine.
+				 *
+				 * No mapping can detect that — both ends are valid strings and each resolves
+				 * on its own host — so the only honest place for it is here, in the sentence
+				 * somebody reads when it has already happened.
+				 */
+				const { manager, fakes } = build();
+				const row = grab({ state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.filesystem.largestFileUnder.mockResolvedValue(null);
+				fakes.filesystem.rights.mockResolvedValue({ readable: false, writable: false });
+
+				await manager.poll();
+
+				expect(row.error).toContain('two different directories');
+				expect(row.error).toContain('the same files there');
+			});
+
+			it('names the mapping when it cannot read the path the client reported', async () => {
+				/*
+				 * The owner's failure, and the message it used to carry was
+				 * `nothing playable under /share/Spider.Man…mkv` — true, and unusable. The
+				 * bytes were complete and safe with the client; what was wrong was the
+				 * translation between where the client writes and where this gateway reaches
+				 * the same disk, after he moved the folder.
+				 *
+				 * Two very different faults wore one sentence: a path this gateway cannot
+				 * reach at all, and a path it reads fine that holds no video. The first is a
+				 * setting on another screen and the second is a bad release.
+				 */
+				const { manager, fakes } = build();
+				const row = grab({ state: GrabState.DOWNLOADING });
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+				fakes.filesystem.largestFileUnder.mockResolvedValue(null);
+				fakes.filesystem.rights.mockResolvedValue({ readable: false, writable: false });
+
+				await manager.poll();
+
+				expect(row.state).toBe(GrabState.FAILED);
+				expect(row.error).toContain('root mappings');
+				// And the one thing somebody reaches for that they do not need.
+				expect(row.error).toContain('nothing is re-fetched');
+			});
+
 			it('fails the grab when the download folder cannot be read', async () => {
 				const { manager, fakes } = build();
 				const row = fetched();
