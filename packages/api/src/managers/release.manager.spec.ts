@@ -356,6 +356,7 @@ const placement = (overrides: Record<string, unknown> = {}) => ({
 	episodeNumber: 2,
 	title: 'The Thing in the Pit',
 	fileName: null,
+	bytes: null,
 	targetPath: null,
 	...overrides,
 });
@@ -2396,6 +2397,27 @@ describe('ReleaseManager', () => {
 				]);
 			});
 
+			it('keeps the size of every file it chose', async () => {
+				/*
+				 * The moment the client lists them is the only one at which anything knows
+				 * how big a file nobody has downloaded yet is, and the queue needs a total
+				 * from the first byte rather than at the end. See `GrabPlacement.bytes`.
+				 */
+				const { manager, fakes } = build();
+				const row = partial();
+
+				fakes.grabs.findLive.mockResolvedValue([row]);
+				fakes.client.statuses.mockResolvedValue([status()]);
+				fakes.client.files.mockResolvedValue([
+					{ index: 3, name: 'Spartacus.S02/Spartacus.S02E02.1080p-GRP.mkv', size: 1_200, priority: 1 },
+					{ index: 7, name: 'Spartacus.S02/Spartacus.S02E04.1080p-GRP.mkv', size: 1_300, priority: 1 },
+				]);
+
+				await manager.poll();
+
+				expect((row.placements ?? []).map((one) => one.bytes)).toEqual([1_200, 1_300]);
+			});
+
 			it('comes back next pass while the client has no file list yet', async () => {
 				const { manager, fakes } = build();
 				const row = partial();
@@ -2582,6 +2604,49 @@ describe('ReleaseManager', () => {
 					expect((row.placements ?? []).map((one) => [one.itemId, one.episodeNumber]))
 						.toEqual([['ep-2', 2], ['ep-3', 3]]);
 					expect(row.state).toBe(GrabState.PLACED);
+				});
+
+				it('counts the whole pack before copying any of it', async () => {
+					/*
+					 * Reported from the queue: `7,6 GB / 7,8 GB` on a thirty-nine gigabyte
+					 * season for the whole of the copy, the total climbing a file at a time
+					 * — *a chaque fichier transferer il refait le total pendant la copie*.
+					 * It was everything already filed plus the file being copied, so the bar
+					 * never advanced and the time remaining was worthless.
+					 */
+					const { manager, fakes } = build();
+					const row = pack();
+					const seen: { done: number; total: number }[] = [];
+
+					fakes.grabs.findLive.mockResolvedValue([row]);
+					fakes.client.statuses.mockResolvedValue([status({ complete: true })]);
+					fakes.filesystem.filesUnder.mockResolvedValue(under(
+						{ name: 'Spartacus.S01E02.1080p-GRP.mkv', size: 1_000 },
+						{ name: 'Spartacus.S01E03.1080p-GRP.mkv', size: 1_100 },
+					));
+					fakes.mover.move.mockImplementation(
+						(order: {
+							onProgress?: (progress: {
+								bytesDone: number;
+								bytesTotal: number;
+								rate: number;
+							}) => void;
+						}) => {
+							order.onProgress?.({ bytesDone: 500, bytesTotal: 1_000, rate: 7 });
+							seen.push({ done: Number(row.bytesDone), total: Number(row.bytesTotal) });
+
+							return Promise.resolve(undefined);
+						},
+					);
+
+					await manager.poll();
+
+					// Both files from the first progress report, and the same number for the
+					// second: what is done climbs, what it is out of does not.
+					expect(seen).toEqual([
+						{ done: 500, total: 2_100 },
+						{ done: 1_000, total: 2_100 },
+					]);
 				});
 
 				it('keeps the largest of two files claiming one episode', async () => {

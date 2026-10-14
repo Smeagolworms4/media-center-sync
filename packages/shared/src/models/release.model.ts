@@ -625,6 +625,21 @@ export interface GrabPlacement {
 	title: string;
 	/** Inside the download, as the client spells it. Null until the file list is known. */
 	fileName: string | null;
+	/**
+	 * How many bytes that file holds, as whoever knew first reported them.
+	 *
+	 * Kept so that a pack has a total before any of it moves. It did not, and the queue
+	 * said so: a thirty-nine gigabyte season read `7,6 GB / 7,8 GB` for the whole of the
+	 * copy, because the total was everything already filed plus the file being copied and
+	 * grew with every episode. A denominator that climbs with its numerator is a bar that
+	 * never advances and an estimate nobody can use.
+	 *
+	 * The sizes are in hand long before the copy: the download client lists them when the
+	 * files are chosen, and the disk reports them when nobody named any. Null for a
+	 * placement nothing has sized yet — including every row written before this was kept,
+	 * which is why the total falls back rather than reading zero.
+	 */
+	bytes: number | null;
 	/** Where it was filed in the library, once it has been. */
 	targetPath: string | null;
 }

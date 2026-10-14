@@ -938,7 +938,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 					seasonNumber: item.seasonNumber,
 					episodeNumber: item.episodeNumber,
 					title: item.title,
-				})]).map((one) => ({ ...one, fileName: null, targetPath: null })),
+				})]).map((one) => ({ ...one, fileName: null, bytes: null, targetPath: null })),
 			}),
 		);
 
@@ -1305,6 +1305,10 @@ export class ReleaseManager implements OnApplicationBootstrap {
 			}
 
 			match.fileName = file.name;
+			// Taken while the list is in hand: it is the only moment anything knows the
+			// size of a file nobody has downloaded yet, and the queue needs a total from
+			// the first byte. See `GrabPlacement.bytes`.
+			match.bytes = file.size;
 			wanted.push(file.index);
 		}
 
@@ -1657,8 +1661,29 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		let placed = 0;
 		let base = 0;
 
+		/*
+		 * What this download comes to, worked out before a byte of it moves.
+		 *
+		 * The total used to be `base + progress.bytesTotal` — everything already filed,
+		 * plus the one file being copied — so a thirty-nine gigabyte season read
+		 * `7,6 GB / 7,8 GB` and built its own total up an episode at a time, in the
+		 * owner's words *a chaque fichier transferer il refait le total pendant la copie*.
+		 * A denominator that climbs with its numerator is a bar that never advances, and
+		 * the remaining time it feeds is the one number somebody watching this line wants.
+		 *
+		 * Only the files that will actually be copied: a placement nobody named is skipped
+		 * below, and counting it would leave the bar short of its end for ever.
+		 *
+		 * Zero for a row written before the sizes were kept, and `Math.max` below leaves
+		 * those on the old creeping figure rather than drawing an empty bar.
+		 */
+		const total = placements.reduce(
+			(sum, one) => sum + (one.fileName === null ? 0 : one.bytes ?? 0),
+			0,
+		);
+
 		grab.bytesDone = 0;
-		grab.bytesTotal = 0;
+		grab.bytesTotal = total;
 
 		for (const placement of placements) {
 			if (placement.fileName === null) {
@@ -1724,7 +1749,7 @@ export class ReleaseManager implements OnApplicationBootstrap {
 					// Across the whole pack rather than per file, because what somebody is
 					// watching is one line for one download.
 					grab.bytesDone = base + progress.bytesDone;
-					grab.bytesTotal = base + progress.bytesTotal;
+					grab.bytesTotal = Math.max(total, base + progress.bytesTotal);
 
 					this._events.emit(EventName.RELEASE_GRAB, toGrabView(grab, progress.rate));
 				},
@@ -2482,6 +2507,9 @@ export class ReleaseManager implements OnApplicationBootstrap {
 				// Absolute, which `_fileNamed` resolves unchanged: it is already inside the
 				// download directory, which is the one thing that method checks.
 				fileName: found.file.path,
+				// Already read by the walk that found the file, and what the pack's total
+				// is summed from. See `GrabPlacement.bytes`.
+				bytes: found.file.size,
 				targetPath: null,
 			};
 		});
