@@ -394,10 +394,11 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 		selectFiles: jest.fn().mockResolvedValue(undefined),
 		start: jest.fn().mockResolvedValue(undefined),
 		pause: jest.fn().mockResolvedValue(undefined),
-		// Null by default: a client that does not say where it writes is the case the
-		// fallback exists for, and it keeps every older test on the path it was written
-		// against.
-		defaultSavePath: jest.fn().mockResolvedValue(null),
+		// A client that says where it writes, which is the ordinary one and the only one
+		// whose answer the gateway passes on. The test that matters for the other case
+		// says null for itself: nothing of ours is sent then, and a client that will not
+		// answer must not have a path invented for it.
+		defaultSavePath: jest.fn().mockResolvedValue('/downloads'),
 	};
 
 	const fakes: Fakes = {
@@ -1920,9 +1921,23 @@ describe('ReleaseManager', () => {
 			);
 		});
 
-		it('falls back to the first root mapping for a client that will not say', async () => {
-			// An older build with no preferences route still has to be able to take a
-			// download, so an absent capability is not a failure.
+		it('sends no path at all for a client that will not say where it writes', async () => {
+			/*
+			 * It used to send the first root mapping's remote root, and that cost six
+			 * gigabytes.
+			 *
+			 * `defaultSavePath` answers null for every failure — a login that hiccupped, a
+			 * timeout, a client busy for a second — so one flaky call decided where files
+			 * were written. On the household that reported it the mapping root is `/share`,
+			 * which is the media root, and the client runs on another machine where
+			 * `/share` is a different disk: the film landed at `/share/<release>.mkv` on an
+			 * SD card and the gateway read nothing there. Two grabs an hour apart on the
+			 * same gateway and the same client, one right and one wrong.
+			 *
+			 * An empty path is "you decide", and an older build with no preferences route
+			 * still takes the download: it writes where it is configured to, which is a
+			 * folder it chose and we cannot get wrong.
+			 */
 			const { manager, fakes } = build();
 
 			fakes.client.defaultSavePath.mockResolvedValue(null);
@@ -1931,7 +1946,7 @@ describe('ReleaseManager', () => {
 
 			expect(fakes.client.grab).toHaveBeenCalledWith(
 				expect.anything(),
-				expect.objectContaining({ savePath: '/downloads' }),
+				expect.objectContaining({ savePath: '' }),
 			);
 		});
 	});

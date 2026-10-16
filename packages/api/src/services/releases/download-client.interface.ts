@@ -23,7 +23,15 @@ export interface GrabOrder {
 	torrentFile?: Uint8Array | null;
 	/** The release name, so the client's own list is readable by a human. */
 	title: string;
-	/** Where the client should write, in the client's own spelling of the path. */
+	/**
+	 * Where the client should write, in the client's own spelling of the path.
+	 *
+	 * Empty means **the client decides**, and the driver then sends no path at all. That
+	 * is the answer whenever the gateway does not know one for certain: a path invented
+	 * here is a path nothing maps back, and the one that used to be invented — the first
+	 * root mapping's remote root — put six gigabytes on the wrong disk. See
+	 * `ReleaseManager._savePathFor`.
+	 */
 	savePath: string;
 	/** A tag the client puts on it, so our downloads are tellable from everybody else's. */
 	category: string;

@@ -2180,16 +2180,28 @@ export class ReleaseManager implements OnApplicationBootstrap {
 	/**
 	 * The folder the client is told to write into, asked of the client itself.
 	 *
-	 * In order: what somebody configured here, then the client's own default, then the
-	 * first root mapping's remote root.
+	 * In order: what somebody configured here, then the client's own default, and
+	 * otherwise **nothing at all** — an empty answer is "you decide", and the client then
+	 * writes where it writes everything else.
 	 *
-	 * The middle one is the fix and it is worth the extra call. A root mapping is a
-	 * translation between two spellings of the same directory, not a claim that either
-	 * end is writable — and handing its remote side over as the folder to write into is
-	 * what told a production client to write into `/home/elewendyl`. It answered
-	 * `Permission denied`, the torrent sat in `error` at zero bytes, and the gateway went
-	 * on reporting a download in progress. The client's own default cannot have that
-	 * problem: it is where it writes everything else.
+	 * The middle one is worth the extra call. A root mapping is a translation between two
+	 * spellings of the same directory, not a claim that either end is writable — and
+	 * handing its remote side over as the folder to write into is what told a production
+	 * client to write into `/home/elewendyl`. It answered `Permission denied`, the torrent
+	 * sat in `error` at zero bytes, and the gateway went on reporting a download in
+	 * progress.
+	 *
+	 * The last one is why nothing is sent rather than a mapping root, and it cost six
+	 * gigabytes to learn. `defaultSavePath` swallows a failure and answers null — a login
+	 * that hiccupped, a timeout, a client busy for a second — and that null used to mean
+	 * "write into the first mapping's remote root". On this household's seedbox that root
+	 * is `/share`, the media root itself, and on the machine the client runs on it is a
+	 * different disk from the gateway's `/share`: a film landed at
+	 * `/share/<release>.mkv` on an SD card, the gateway read nothing there, and the grab
+	 * failed at the end of the download. Two grabs an hour apart, the same gateway and
+	 * the same client, one correct and one not — the only difference being whether one
+	 * HTTP call answered. A transient fault must never move where files are written, and
+	 * the client's own configuration is both the right answer and one we cannot get wrong.
 	 *
 	 * A mapping that covers none of it is said out loud rather than left to be discovered
 	 * when the copy fails: the download will work and the filing will not, and that is a
@@ -2205,7 +2217,12 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		const own = await this._clients.get(client.type).defaultSavePath(client);
 
 		if (own === null) {
-			return client.rootMappings?.[0]?.remoteRoot ?? '';
+			this._logger.warn(
+				`${client.baseUrl} did not say where it writes, so it is being left to write`
+				+ ' where it is configured to; nothing of ours is sent',
+			);
+
+			return '';
 		}
 
 		await this._warnUnlessReadable(own, client);

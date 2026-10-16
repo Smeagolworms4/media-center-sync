@@ -170,6 +170,46 @@ describe('QbittorrentClient', () => {
 			expect(add.form.get('rename')).toBe('');
 		});
 
+		it('leaves the save path out entirely when nobody named one', async () => {
+			/*
+			 * Absent and not empty. An empty `savepath` is not "your default" to every
+			 * version of qBittorrent — some take it literally — and the gateway sends
+			 * nothing precisely so the client's own configuration decides. See
+			 * `ReleaseManager._savePathFor`, and the six gigabytes it put on an SD card.
+			 */
+			serve({
+				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),
+				'/api/v2/torrents/add': {},
+			});
+
+			await client.grab(SETTINGS, { ...ORDER, savePath: '' });
+
+			const add = callsTo('/api/v2/torrents/add')[0];
+
+			expect(add.form.has('savepath')).toBe(false);
+			expect(add.form.get('category')).toBe('mcs');
+		});
+
+		it('leaves it out of an uploaded file too', async () => {
+			serve({
+				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),
+				'/api/v2/torrents/add': {},
+			});
+
+			await client.grab(SETTINGS, {
+				...ORDER,
+				savePath: '',
+				magnetUrl: null,
+				downloadUrl: 'http://indexer/file.torrent',
+				torrentFile: new Uint8Array([0x64, 0x38]),
+			});
+
+			const add = callsTo('/api/v2/torrents/add')[0];
+
+			expect(add.parts?.has('savepath')).toBe(false);
+			expect(add.parts?.get('category')).toBe(ORDER.category);
+		});
+
 		it('takes the download URL when there is no magnet', async () => {
 			serve({
 				'/api/v2/torrents/info': (_call, index) => (index === 0 ? { body: [] } : { body: [torrent({ hash: 'h' })] }),

@@ -335,7 +335,14 @@ export class QbittorrentClient implements DownloadClient {
 				new Blob([order.torrentFile as unknown as BlobPart], { type: 'application/x-bittorrent' }),
 				`${order.title}.torrent`,
 			);
-			parts.set('savepath', order.savePath);
+			// Only when somebody named one. An empty `savepath` is not "the client's
+			// default" to every version of qBittorrent — some take it literally and write
+			// into their working directory — and the field being absent is the documented
+			// way of saying nothing. See `GrabOrder.savePath`.
+			if (order.savePath !== '') {
+				parts.set('savepath', order.savePath);
+			}
+
 			parts.set('category', order.category);
 			parts.set('rename', '');
 
@@ -399,7 +406,9 @@ export class QbittorrentClient implements DownloadClient {
 			...(parts === null ? {} : { multipart: parts }),
 			form: parts !== null ? undefined : {
 				urls: url ?? '',
-				savepath: order.savePath,
+				// Absent rather than empty when nobody named a folder — see the multipart
+				// branch above and `GrabOrder.savePath`.
+				...(order.savePath === '' ? {} : { savepath: order.savePath }),
 				category: order.category,
 				/*
 				 * Stopped **once the metadata is in**, and not stopped outright.

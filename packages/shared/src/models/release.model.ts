@@ -679,9 +679,10 @@ export interface DownloadClientSettings {
 	/**
 	 * Where the client is told to write, in its own spelling.
 	 *
-	 * The first mapping's remote root unless somebody names something else, which is
-	 * the ordinary case: a client already configured to put everything in `/downloads`
-	 * needs no second opinion from us.
+	 * Empty is the ordinary case and the better one: the gateway asks the client where it
+	 * writes and says nothing of its own, because a client already configured to put
+	 * everything in `/downloads` needs no second opinion from us. Fill it in only to
+	 * override that — and then it is the one path nothing here can check.
 	 */
 	savePath?: string | null;
 	/**
