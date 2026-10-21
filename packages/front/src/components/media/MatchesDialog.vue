@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-	import type { MediaMatch } from '@mcs/shared';
+	import type { MediaItem, MediaMatch } from '@mcs/shared';
 	import { ref, watch } from 'vue';
 	import EmptyState from '@/components/common/EmptyState.vue';
 	import ErrorState from '@/components/common/ErrorState.vue';
@@ -31,6 +31,21 @@
 	const failed = ref(false);
 	const busy = ref<string | null>(null);
 
+	/**
+	 * Correlating two media by hand, which is what every rule having said nothing leaves.
+	 *
+	 * The scorer refuses a pair for good reasons that are sometimes wrong about one
+	 * media: one title twenty-five years apart is a remake to a rule and one film to the
+	 * person holding both posters. Until this, a correlation could be confirmed or
+	 * deleted and never created, so that person had nowhere to say so.
+	 */
+	const search = ref('');
+	const candidates = ref<MediaItem[]>([]);
+	const looking = ref(false);
+	/** Whether anything has been looked for yet, which is not the same as finding none. */
+	const asked = ref(false);
+	const pairing = ref<string | null>(null);
+
 	async function load (): Promise<void> {
 		loading.value = true;
 		failed.value = false;
@@ -45,7 +60,34 @@
 
 	watch(open, isOpen => {
 		if (isOpen) {
+			search.value = '';
+			candidates.value = [];
+			asked.value = false;
 			void load();
+		}
+	});
+
+	const find = tryCallback(async () => {
+		looking.value = true;
+		try {
+			candidates.value = await mediaStore.pairCandidates(props.itemId, (search.value ?? '').trim());
+			asked.value = true;
+		} finally {
+			looking.value = false;
+		}
+	});
+
+	const pair = tryCallback(async (candidate: MediaItem) => {
+		pairing.value = candidate.id;
+		try {
+			const made = await mediaStore.pairWith(props.itemId, candidate.id);
+			// Put at the top of the list it now belongs to, and taken out of the one it
+			// was offered from: the same row cannot be both an option and a correlation.
+			matches.value = [made, ...matches.value.filter(one => one.id !== made.id)];
+			candidates.value = candidates.value.filter(one => one.id !== candidate.id);
+			void notify('media.match.paired');
+		} finally {
+			pairing.value = null;
 		}
 	});
 
@@ -82,6 +124,66 @@
 <template>
 	<Window v-model="open" :max-width="720" :title="$t('media.match.title')">
 		<div class="matches-dialog" data-test="matches-dialog">
+			<!--
+				Above the list and outside its loading chain, deliberately: the media that
+				needs this most is the one with no correlation at all, and that is exactly
+				when the rest of this dialog is an empty state.
+			-->
+			<div class="matches-dialog_pair mb-4" data-test="match-pair">
+				<v-text-field
+					v-model="search"
+					clearable
+					data-test="match-pair-search"
+					density="compact"
+					hide-details
+					:label="$t('media.match.pair.label')"
+					prepend-inner-icon="mdi-magnify"
+					variant="outlined"
+					@keyup.enter="find"
+				/>
+
+				<p class="text-caption text-medium-emphasis mt-1 mb-0">
+					{{ $t('media.match.pair.hint') }}
+				</p>
+
+				<v-progress-linear v-if="looking" class="mt-2" color="primary" indeterminate />
+
+				<v-list v-else-if="candidates.length > 0" class="mt-2" density="compact">
+					<v-list-item
+						v-for="one of candidates"
+						:key="one.id"
+						data-test="match-pair-row"
+					>
+						<v-list-item-title>{{ one.title }}</v-list-item-title>
+
+						<v-list-item-subtitle>
+							{{ serviceName(one.serviceId) }}
+							<template v-if="one.year"> · {{ one.year }}</template>
+						</v-list-item-subtitle>
+
+						<template #append>
+							<v-btn
+								data-test="match-pair-apply"
+								:loading="pairing === one.id"
+								size="small"
+								variant="tonal"
+								@click="pair(one)"
+							>
+								{{ $t('media.match.pair.action') }}
+							</v-btn>
+						</template>
+					</v-list-item>
+				</v-list>
+
+				<p
+					v-else-if="asked"
+					class="text-caption text-medium-emphasis mt-2 mb-0"
+					data-test="match-pair-none"
+				>
+					{{ $t('media.match.pair.none') }}
+				</p>
+			</div>
+
 			<div v-if="loading" class="text-center py-6">
 				<v-progress-circular color="primary" indeterminate size="32" />
 			</div>

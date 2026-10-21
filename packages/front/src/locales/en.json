@@ -394,7 +394,14 @@
 			"confirm": "Confirm",
 			"confirmed": "Correlation confirmed.",
 			"confirmed_at": "confirmed",
-			"removed": "Correlation removed."
+			"removed": "Correlation removed.",
+			"paired": "Media correlated.",
+			"pair": {
+				"label": "Look for the media to correlate with",
+				"hint": "Another server's copy of the same kind. For when no rule links the two — one title years apart is a remake to the gateway and one film to you.",
+				"action": "Correlate",
+				"none": "Nothing like that on another server."
+			}
 		},
 		"preference": {
 			"own": "This media has a search order of its own, so a search on it is not ordered like the rest of its shelf.",
@@ -1521,7 +1528,9 @@
 			"not_found": "This media item no longer exists.",
 			"not_on_our_disk": "This copy is not on a disk this gateway can write to, so nothing was erased.",
 			"has_no_file": "There is no file on this entry to erase.",
-			"not_identified": "This media carries no identifier a request source would recognise."
+			"not_identified": "This media carries no identifier a request source would recognise.",
+			"pair_same_service": "Two rows of the same server are two files, not one media.",
+			"pair_other_kind": "A film is never a series, and an episode is never a season."
 		},
 		"peer": {
 			"not_found": "This peer no longer exists.",

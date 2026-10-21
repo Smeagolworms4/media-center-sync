@@ -25,6 +25,7 @@ import {
 import {
 	ApiBearerAuth,
 	ApiConflictResponse,
+	ApiCreatedResponse,
 	ApiNoContentResponse,
 	ApiNotFoundResponse,
 	ApiOkResponse,
@@ -40,6 +41,8 @@ import {
 	MediaGroupQueryDto,
 	MediaOverrideDto,
 	MediaSearchDto,
+	PairCandidatesDto,
+	PairMatchDto,
 } from '@/models';
 
 /** How long a browser may keep a poster. Artwork changes on a rescan, not on a reload. */
@@ -277,6 +280,41 @@ export class MediaController {
 	@ApiOkResponse({ description: 'The path that was erased' })
 	public deleteFile(@Param('id', ParseUUIDPipe) id: string): Promise<{ path: string }> {
 		return this._media.deleteFile(id);
+	}
+
+	@Get(':id/matches/candidates')
+	@Granted(Right.SYNC_MANAGE)
+	@ApiOperation({
+		summary: 'Media this one could be correlated with by hand',
+		description:
+			'Another service\'s rows of the same kind, narrowed by what was typed. What the ' +
+			'scorer refuses is exactly what this is for: one title, twenty-five years apart, ' +
+			'is a remake to a rule and one film to the person holding both posters.',
+	})
+	@ApiOkResponse({ description: 'MediaItem[]' })
+	public pairCandidates(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Query() query: PairCandidatesDto,
+	): Promise<MediaItem[]> {
+		return this._media.pairCandidates(id, query.search ?? '');
+	}
+
+	@Post(':id/matches/pair')
+	@Granted(Right.SYNC_MANAGE)
+	@HttpCode(HttpStatus.CREATED)
+	@ApiOperation({
+		summary: 'Correlate this media with another, by hand',
+		description:
+			'Recorded as a person\'s decision, which no later pass overturns. Refused only ' +
+			'where the pair could not mean anything: two rows of one service, or two kinds.',
+	})
+	@ApiCreatedResponse({ description: 'MediaMatch' })
+	@ApiConflictResponse({ description: 'error.media.pair_same_service, error.media.pair_other_kind' })
+	public pair(
+		@Param('id', ParseUUIDPipe) id: string,
+		@Body() body: PairMatchDto,
+	): Promise<MediaMatch> {
+		return this._media.pairByHand(id, body.otherItemId);
 	}
 
 	@Post(':id/matches/:matchId/confirm')

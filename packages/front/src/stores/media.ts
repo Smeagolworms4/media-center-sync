@@ -305,6 +305,24 @@ export const useMediaStore = defineStore('media', () => {
 	}
 
 	/**
+	 * Media this one could be correlated with, for the box somebody types a title into.
+	 *
+	 * The gateway does the narrowing — another service, the same kind — because those two
+	 * constraints are the ones a pair cannot mean anything without, and a list filtered in
+	 * the browser would be a second opinion about them.
+	 */
+	function pairCandidates (id: string, search: string): Promise<MediaItem[]> {
+		const query = buildMediaQuery({ search } as MediaSearchQuery);
+
+		return caller('api').get<MediaItem[]>(`/media/${id}/matches/candidates${query}`);
+	}
+
+	/** Correlating two media by hand, which is the answer when no rule can link them. */
+	function pairWith (id: string, otherItemId: string): Promise<MediaMatch> {
+		return caller('api').post<MediaMatch>(`/media/${id}/matches/pair`, { otherItemId });
+	}
+
+	/**
 	 * Artwork is proxied by the gateway because the remote service's own URL needs
 	 * that service's token, and an `<img>` tag carries no header. The URL is built
 	 * here rather than in a component, which is the rule everywhere else too.
@@ -404,6 +422,8 @@ export const useMediaStore = defineStore('media', () => {
 		clearOverride,
 		confirmMatch,
 		removeMatch,
+		pairCandidates,
+		pairWith,
 		artworkUrl,
 	};
 });

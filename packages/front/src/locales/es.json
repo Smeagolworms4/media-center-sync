@@ -394,7 +394,14 @@
 			"confirm": "Confirmar",
 			"confirmed": "Correlación confirmada.",
 			"confirmed_at": "confirmada",
-			"removed": "Correlación eliminada."
+			"removed": "Correlación eliminada.",
+			"paired": "Medios correlacionados.",
+			"pair": {
+				"label": "Buscar el medio con el que correlacionar",
+				"hint": "Una copia del mismo tipo en otro servidor. Para cuando ninguna regla une los dos: un mismo título con años de diferencia es un remake para la pasarela y una sola película para usted.",
+				"action": "Correlacionar",
+				"none": "No hay nada así en otro servidor."
+			}
 		},
 		"preference": {
 			"own": "Este medio tiene su propio orden de búsqueda, así que una búsqueda sobre él no se ordena como el resto de su estante.",
@@ -1521,7 +1528,9 @@
 			"not_found": "Este elemento ya no existe.",
 			"not_on_our_disk": "Esta copia no está en un disco en el que esta pasarela pueda escribir, así que no se ha borrado nada.",
 			"has_no_file": "Esta entrada no tiene ningún archivo que borrar.",
-			"not_identified": "Este medio no lleva ningún identificador que una fuente de solicitudes reconozca."
+			"not_identified": "Este medio no lleva ningún identificador que una fuente de solicitudes reconozca.",
+			"pair_same_service": "Dos filas del mismo servidor son dos archivos, no un solo medio.",
+			"pair_other_kind": "Una película nunca es una serie, y un episodio nunca es una temporada."
 		},
 		"peer": {
 			"not_found": "Este par ya no existe.",

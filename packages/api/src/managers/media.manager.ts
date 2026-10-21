@@ -28,7 +28,9 @@ import {
 	CacheService,
 	CorrelationService,
 	type WalkProgress,
+	type MatchCandidate,
 	HandlerRegistry,
+	MatchingService,
 	applyOverride,
 	breathe,
 	episodesCovered,
@@ -61,6 +63,28 @@ import {
  * instruction that says nothing. Dropping the key is also what lets cancelling the last
  * correction remove the correction, since an empty instruction is already spelled "none".
  */
+/**
+ * A row as the scorer reads it: a projection of the entity and nothing more.
+ *
+ * Written here rather than reached for inside `CorrelationService`, which builds the
+ * same shape for a whole pass and needs the peer map to do it. One pair needs none of
+ * that — `deriveState` reads the two files — and borrowing the pass's machinery to
+ * compare two rows would be the larger coupling.
+ */
+const candidateOf = (item: MediaItemEntity): MatchCandidate => ({
+	id: item.id,
+	serviceId: item.serviceId,
+	parentId: item.parentId,
+	kind: item.kind,
+	title: item.title,
+	normalizedTitle: item.normalizedTitle,
+	year: item.year,
+	seasonNumber: item.seasonNumber,
+	episodeNumber: item.episodeNumber,
+	externalIds: item.externalIds,
+	file: item.file,
+});
+
 const withoutCancelledPreference = (override: MediaOverride | null): MediaOverride | null => {
 	if (override === null || override.releasePreference !== null) {
 		return override;
@@ -212,6 +236,14 @@ export class MediaManager {
 		private readonly _services: MediaServiceRepository,
 		/** The correlation pass, which this manager decides where to run. */
 		private readonly _correlation: CorrelationService,
+		/**
+		 * The scorer, for the one thing a hand-made pair still needs measuring: its state.
+		 *
+		 * A pair nothing proposed is never re-proposed, so no later pass will compute what
+		 * the two copies are to each other — and that is the whole use of a pair: theirs is
+		 * better, pull it. See `pairByHand`.
+		 */
+		private readonly _matching: MatchingService,
 		/** The thread it runs on, when this process is allowed to use one. */
 		private readonly _workers: WorkerPoolService,
 		private readonly _settings: SettingsService,
@@ -576,6 +608,95 @@ export class MediaManager {
 
 		await this._matches.delete({ id: match.id });
 		this.recorrelate(item.serviceId);
+	}
+
+	/**
+	 * The rows somebody could correlate this one with, narrowed by what they typed.
+	 *
+	 * Asked when every rule has said nothing, which is a different question from the one
+	 * the scorer answers. Two works with one title and twenty-five years between them are
+	 * a remake to `MatchingService` — the year penalty is deliberate and has saved
+	 * somebody from being handed the 2010 version of a 1978 film — and the same two rows
+	 * are obviously one media to a person looking at both posters. Until this, a
+	 * correlation could be confirmed or deleted and never created, so that person had
+	 * nowhere to say so: the catalogue showed two cards for one film for ever.
+	 */
+	public async pairCandidates(id: string, search = ''): Promise<MediaItem[]> {
+		const item = await this._require(id);
+
+		return (await this._items.pairable(item, search.trim())).map((one) => toMediaItem(one));
+	}
+
+	/**
+	 * Correlate two rows because somebody says they are the same media.
+	 *
+	 * Written as the pass's own rows are written — `MANUAL`, full confidence, confirmed —
+	 * because that is already the vocabulary for "a person decided this": correlation
+	 * never revokes such a row (`decidedByHand`), grouping counts it among the pairs it
+	 * joins on even where the two copies conflict (`VOUCHING_STRATEGIES`), and the sync
+	 * reads it like any other. Nothing new had to be invented for it to be respected
+	 * everywhere, which is the reason it is spelled this way rather than with a flag of
+	 * its own.
+	 *
+	 * Two refusals, and they are the two things that are not a matter of opinion: a row
+	 * of the same service, which includes the row itself, and a row of another kind. The
+	 * rest is left to the person — they are looking at precisely what the rules could not
+	 * read.
+	 *
+	 * The state is derived here and not left at `unknown`, because no later pass will do
+	 * it: a pair the rules refuse is never re-proposed, so `_respectHumanDecision` never
+	 * sees it. Without this the pair would exist and say nothing about which copy is
+	 * better, and a sync would have no reason to offer the better one.
+	 *
+	 * An existing row between the two is updated in place, in the orientation it already
+	 * has. The unique index is on the pair, and flipping the columns to match the
+	 * direction somebody happened to ask from would rewrite `remoteServiceId` into a lie.
+	 */
+	public async pairByHand(id: string, otherId: string): Promise<MediaMatch> {
+		const item = await this._require(id);
+		const other = await this._require(otherId);
+
+		if (item.serviceId === other.serviceId) {
+			throw new ConflictException(ErrorKey.MEDIA_PAIR_SAME_SERVICE);
+		}
+
+		if (item.kind !== other.kind) {
+			throw new ConflictException(ErrorKey.MEDIA_PAIR_OTHER_KIND);
+		}
+
+		const held = await this._matches.findOne({
+			where: [
+				{ localItemId: item.id, remoteItemId: other.id },
+				{ localItemId: other.id, remoteItemId: item.id },
+			],
+		});
+		const service = await this._services.findOne({ where: { id: other.serviceId } });
+		const row = held ?? this._matches.create({
+			localItemId: item.id,
+			remoteItemId: other.id,
+			remoteServiceId: other.serviceId,
+			remotePeerId: service?.peerId ?? null,
+		});
+		// The near side as the row has it, which is not always the side that asked.
+		const flipped = held !== null && held.localItemId === other.id;
+
+		row.strategy = MatchStrategy.MANUAL;
+		row.confidence = 1;
+		row.confirmedAt = new Date();
+		row.state = this._matching.deriveState(
+			candidateOf(flipped ? other : item),
+			candidateOf(flipped ? item : other),
+		);
+		// Nothing to say: a reason explains a state the gateway inferred, and this one
+		// was given to it.
+		row.reason = null;
+
+		const saved = await this._matches.save(row);
+
+		this._logger.log(`Paired ${item.title} with ${other.title} by hand`);
+		this.recorrelate(item.serviceId);
+
+		return toMediaMatch(saved);
 	}
 
 	/**

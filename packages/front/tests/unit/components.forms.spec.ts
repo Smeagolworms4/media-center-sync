@@ -948,6 +948,58 @@ describe('components/media/MatchesDialog', () => {
 		await settle();
 
 		expect(wrapper.find('[data-test="empty-state"]').exists()).toBe(true);
+		// And the search for something to correlate it with is there anyway: a media with
+		// no correlation at all is the one that needs it most.
+		expect(wrapper.find('[data-test="match-pair-search"]').exists()).toBe(true);
+	});
+
+	/**
+	 * Correlating two media by hand, which until now could not be said at all.
+	 *
+	 * A correlation could be confirmed or deleted, never created, so two cards for one
+	 * film stayed two for ever — reported as *corriger la corrélation devrait permettre
+	 * de chercher le média à corréler*.
+	 */
+	it('looks for a media to correlate with, and pairs the one somebody picks', async () => {
+		const candidate = {
+			id: 'other-1',
+			serviceId: 's1',
+			title: 'Vision Quest',
+			year: 1985,
+			kind: 'movie',
+		};
+		const stub = stubFetchRoutes({
+			'/api/media/m1/matches/candidates': { body: [candidate] },
+			'/api/media/m1/matches/pair': {
+				body: { ...match, id: 'match-made', strategy: 'manual', confidence: 1 },
+			},
+			'/api/media/m1/matches': { body: [] },
+			'/api/services': { body: [service()] },
+		});
+		const { wrapper } = mountWithApp(MatchesDialog, {
+			props: { itemId: 'm1', modelValue: false },
+			global: { stubs: { ...tooltipStub, ...dialogStub } },
+		});
+
+		await wrapper.setProps({ modelValue: true });
+		await settle();
+
+		await wrapper.find('[data-test="match-pair-search"] input').setValue('vision');
+		await wrapper.find('[data-test="match-pair-search"] input').trigger('keyup.enter');
+		await settle();
+
+		const row = wrapper.find('[data-test="match-pair-row"]');
+		expect(row.text()).toContain('Vision Quest');
+		expect(row.text()).toContain('1985');
+
+		stub.mockClear();
+		await wrapper.find('[data-test="match-pair-apply"]').trigger('click');
+		await settle();
+
+		const posted = stub.mock.calls.find(one => String(one[1]?.method) === 'POST');
+		expect(JSON.parse(String(posted?.[1]?.body))).toEqual({ otherItemId: 'other-1' });
+		// Taken out of the options: the same row cannot be both an offer and a pair.
+		expect(wrapper.findAll('[data-test="match-pair-row"]')).toHaveLength(0);
 	});
 });
 

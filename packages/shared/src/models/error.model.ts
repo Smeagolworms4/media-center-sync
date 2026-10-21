@@ -180,6 +180,27 @@ export const ErrorKey = {
 	MEDIA_HAS_NO_FILE: 'error.media.has_no_file',
 
 	/**
+	 * Asked to correlate two rows of the same service, which includes a row with itself.
+	 *
+	 * A correlation says "these are the same media on two servers". Two rows of one
+	 * server are two files that server has already told us about separately, and joining
+	 * them would make one media hold itself: the grouping would fold the pair, the sync
+	 * would read a copy as its own counterpart, and nothing on any screen could explain
+	 * it. A duplicate inside one library is a job for that library.
+	 */
+	MEDIA_PAIR_SAME_SERVICE: 'error.media.pair_same_service',
+
+	/**
+	 * Asked to correlate a film with a series, or an episode with a season.
+	 *
+	 * The same refusal the automatic pass makes first — *an episode is never a season and
+	 * a film is never a series* — and it is not a formality: the tree is what decides
+	 * which rows hang under which, so a pair across two kinds would put a film inside a
+	 * show's seasons. Offered by hand or not, it is the one correlation nothing can mean.
+	 */
+	MEDIA_PAIR_OTHER_KIND: 'error.media.pair_other_kind',
+
+	/**
 	 * The path asked for is outside every root this gateway allows browsing.
 	 *
 	 * A refusal, not an absence: the directory may very well exist, and saying so

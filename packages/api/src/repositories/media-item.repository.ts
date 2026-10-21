@@ -426,6 +426,45 @@ export class MediaItemRepository extends Repository<MediaItem> {
 	}
 
 	/**
+	 * Rows somebody could pair this one with by hand, narrowed by what they typed.
+	 *
+	 * The automatic pass answers "what links these two"; this answers a different
+	 * question — "which media did I mean" — and it is asked precisely when every rule has
+	 * said nothing. Two works with one name and twenty-five years between them are a
+	 * remake to the scorer and the right pair to the person looking at both posters, and
+	 * until this there was no way to say so: a correlation could be confirmed or deleted,
+	 * never created.
+	 *
+	 * Another service's rows only, and the same kind only, which are the two constraints
+	 * that are not a matter of opinion — see `MEDIA_PAIR_SAME_SERVICE` and
+	 * `MEDIA_PAIR_OTHER_KIND`, which refuse the same two things on the way in. Everything
+	 * else is left to the person: they are looking at what the rules could not read.
+	 *
+	 * Matched against the normalised title like every other search here, so `Amelie`
+	 * typed without its accent finds the film.
+	 */
+	public async pairable(
+		item: Pick<MediaItem, 'id' | 'serviceId' | 'kind'>,
+		search: string,
+		take = 20,
+	): Promise<MediaItem[]> {
+		const builder = this.createQueryBuilder('item')
+			.where('item.serviceId != :serviceId', { serviceId: item.serviceId })
+			.andWhere('item.kind = :kind', { kind: item.kind });
+
+		if (search !== '') {
+			builder.andWhere('item.normalizedTitle LIKE :search', {
+				search: `%${search.toLowerCase()}%`,
+			});
+		}
+
+		return builder
+			.orderBy('item.title', 'ASC')
+			.take(Math.min(50, Math.max(1, take)))
+			.getMany();
+	}
+
+	/**
 	 * The handful of rows worth scoring against an item we are trying to correlate.
 	 *
 	 * Comparing everything with everything is quadratic and, on a catalogue of tens of

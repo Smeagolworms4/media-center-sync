@@ -360,6 +360,28 @@ export class MediaGroupQueryDto {
 	public direction?: 'asc' | 'desc';
 }
 
+/**
+ * Correlate this media with one somebody picked, because no rule could.
+ *
+ * One identifier and nothing else: the strategy, the confidence and the confirmation are
+ * not the caller's to state — a correlation a browser could score itself would be one
+ * anybody could post at any confidence. See `MediaManager.pairByHand`.
+ */
+export class PairMatchDto {
+	@ApiProperty()
+	@IsUUID()
+	public otherItemId!: string;
+}
+
+/** What somebody typed into the box that looks for the media to correlate with. */
+export class PairCandidatesDto {
+	@ApiPropertyOptional()
+	@IsOptional()
+	@IsString()
+	@MaxLength(200)
+	public search?: string;
+}
+
 /** Accept or reject a correlation the score alone would not have applied. */
 export class ConfirmMatchDto {
 	@ApiPropertyOptional()

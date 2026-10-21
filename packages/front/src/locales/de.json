@@ -394,7 +394,14 @@
 			"confirm": "Bestätigen",
 			"confirmed": "Korrelation bestätigt.",
 			"confirmed_at": "bestätigt",
-			"removed": "Korrelation entfernt."
+			"removed": "Korrelation entfernt.",
+			"paired": "Medien verknüpft.",
+			"pair": {
+				"label": "Nach dem zu verknüpfenden Medium suchen",
+				"hint": "Eine Kopie derselben Art auf einem anderen Server. Für den Fall, dass keine Regel die beiden verbindet – derselbe Titel Jahre auseinander ist für das Gateway ein Remake und für Sie ein Film.",
+				"action": "Verknüpfen",
+				"none": "Dazu passt nichts auf einem anderen Server."
+			}
 		},
 		"preference": {
 			"own": "Dieses Medium hat eine eigene Suchreihenfolge, eine Suche dazu ist also nicht wie der Rest seines Regals sortiert.",
@@ -1521,7 +1528,9 @@
 			"not_found": "Dieses Medienelement gibt es nicht mehr.",
 			"not_on_our_disk": "Diese Kopie liegt nicht auf einer Festplatte, auf die dieses Gateway schreiben kann; es wurde nichts gelöscht.",
 			"has_no_file": "Dieser Eintrag enthält keine Datei zum Löschen.",
-			"not_identified": "Dieses Medium trägt keine Kennung, die eine Anfragequelle erkennen würde."
+			"not_identified": "Dieses Medium trägt keine Kennung, die eine Anfragequelle erkennen würde.",
+			"pair_same_service": "Zwei Einträge desselben Servers sind zwei Dateien, nicht ein Medium.",
+			"pair_other_kind": "Ein Film ist nie eine Serie, und eine Episode ist nie eine Staffel."
 		},
 		"peer": {
 			"not_found": "Diesen Peer gibt es nicht mehr.",

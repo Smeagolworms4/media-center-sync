@@ -21,6 +21,7 @@ import {
 	SyncState,
 	type MediaFileInfo,
 } from '@mcs/shared';
+import { ConflictException } from '@nestjs/common';
 import type { MediaItem, MediaMatch, MediaService as MediaServiceEntity } from '@/entities';
 import type {
 	LibraryRepository,
@@ -33,6 +34,8 @@ import {
 	type RemoteFingerprintService,
 	type CacheService,
 	type HandlerRegistry,
+	MatchingService,
+	QualityService,
 	type SettingsService,
 	type WorkerPoolService,
 } from '@/services';
@@ -125,6 +128,7 @@ interface Fakes {
 		findByExternalId: jest.Mock;
 		findChildren: jest.Mock;
 		findCandidatesForMatch: jest.Mock;
+		pairable: jest.Mock;
 		findPlacements: jest.Mock;
 		search: jest.Mock;
 		setSyncState: jest.Mock;
@@ -136,6 +140,7 @@ interface Fakes {
 	matches: {
 		find: jest.Mock;
 		findOne: jest.Mock;
+		create: jest.Mock;
 		findForLocalItem: jest.Mock;
 		findForRemoteItem: jest.Mock;
 		findAppliedPairs: jest.Mock;
@@ -226,6 +231,19 @@ const build = (
 				Promise.resolve(items.filter((candidate) => candidate.parentId === parentId)),
 			),
 			findCandidatesForMatch: jest.fn().mockResolvedValue([]),
+			// What somebody could pair a row with by hand: another service's rows of the
+			// same kind. The repository does the narrowing in SQL; the fake does it here
+			// so a test can see which rows were offered.
+			pairable: jest.fn((row: MediaItem, search: string) =>
+				Promise.resolve(
+					items.filter(
+						(candidate) =>
+							candidate.serviceId !== row.serviceId &&
+							candidate.kind === row.kind &&
+							(search === '' || candidate.normalizedTitle.includes(search.toLowerCase())),
+					),
+				),
+			),
 			findPlacements: jest.fn((serviceId: string) =>
 				Promise.resolve(
 					items
@@ -274,13 +292,21 @@ const build = (
 		matches: {
 			find: jest.fn().mockResolvedValue(pairs),
 			findOne: jest.fn().mockResolvedValue(null),
+			create: jest.fn((values: Partial<MediaMatch>) => ({ id: 'match-made', ...values })),
 			findForLocalItem: jest.fn().mockResolvedValue([]),
 			findForRemoteItem: jest.fn().mockResolvedValue([]),
 			// What is already paired, which is the gate the season/episode strategy opens
 			// on. Empty unless a test says otherwise.
 			findAppliedPairs: jest.fn().mockResolvedValue([]),
 			upsertPair: jest.fn((claim: unknown) => Promise.resolve(claim as MediaMatch)),
-			save: jest.fn((value: MediaMatch) => Promise.resolve(value)),
+			// The timestamps the database fills, filled here for the same reason: a row
+			// this fake invented would otherwise be a row the wire mapper cannot read.
+			save: jest.fn((value: MediaMatch) =>
+				Promise.resolve(Object.assign(value, {
+					createdAt: value.createdAt ?? new Date('2026-01-01T00:00:00.000Z'),
+					updatedAt: value.updatedAt ?? new Date('2026-01-01T00:00:00.000Z'),
+				})),
+			),
 			delete: jest.fn((where: { id: string }) => {
 				const at = pairs.findIndex((pair) => pair.id === where.id);
 
@@ -332,6 +358,10 @@ const build = (
 		fakes.matches as unknown as MediaMatchRepository,
 		fakes.services as unknown as MediaServiceRepository,
 		fakes.correlation as unknown as CorrelationService,
+		// The real one, over the real quality service: what a hand-made pair says about
+		// the two copies is measured, and a fake that answered a state would prove
+		// nothing about the only part of `pairByHand` that is not bookkeeping.
+		new MatchingService(new QualityService()),
 		fakes.workers as unknown as WorkerPoolService,
 		fakes.settings as unknown as SettingsService,
 		fakes.cache as unknown as CacheService,
@@ -351,6 +381,143 @@ const build = (
 };
 
 describe('MediaManager', () => {
+	/**
+	 * Correlating two rows no rule will ever link, which until now could not be said.
+	 *
+	 * The owner's case: one film, his own copy on one server and the catalogue's row from
+	 * another, and nothing paired them. *Corriger la corrélation devrait permettre de
+	 * chercher le média à corréler* — and a correlation could be confirmed or deleted,
+	 * never created, so the two cards stayed two for ever.
+	 */
+	describe('pairing by hand', () => {
+		const theirs = (overrides: Partial<MediaItem> = {}): MediaItem =>
+			item({
+				id: 'item-b',
+				serviceId: 'service-b',
+				externalId: 'b-9',
+				kind: MediaKind.MOVIE,
+				title: 'Vision Quest',
+				normalizedTitle: 'vision quest',
+				year: 1985,
+				seasonNumber: null,
+				episodeNumber: null,
+				...overrides,
+			});
+		const ours = (overrides: Partial<MediaItem> = {}): MediaItem =>
+			item({
+				id: 'item-a',
+				serviceId: 'service-a',
+				kind: MediaKind.MOVIE,
+				title: 'Vision Quest',
+				normalizedTitle: 'vision quest',
+				year: 2026,
+				seasonNumber: null,
+				episodeNumber: null,
+				...overrides,
+			});
+
+		it('offers another service’s rows of the same kind, narrowed by what was typed', async () => {
+			const { manager } = build({
+				items: [
+					ours(),
+					theirs(),
+					// The same service, which is a second file and never a second media.
+					theirs({ id: 'item-c', serviceId: 'service-a' }),
+					// Another kind: a film is never a series, by hand or otherwise.
+					theirs({ id: 'item-d', kind: MediaKind.SERIES }),
+					theirs({ id: 'item-e', title: 'Rocky', normalizedTitle: 'rocky' }),
+				],
+			});
+
+			const offered = await manager.pairCandidates('item-a', 'vision');
+
+			expect(offered.map((one) => one.id)).toEqual(['item-b']);
+		});
+
+		it('records the pair as a person’s decision, which no pass overturns', async () => {
+			const { manager, fakes } = build({ items: [ours(), theirs()] });
+
+			const paired = await manager.pairByHand('item-a', 'item-b');
+
+			expect(paired).toEqual(
+				expect.objectContaining({
+					localItemId: 'item-a',
+					remoteItemId: 'item-b',
+					remoteServiceId: 'service-b',
+					strategy: MatchStrategy.MANUAL,
+					confidence: 1,
+				}),
+			);
+			expect(paired.confirmedAt).not.toBeNull();
+			// Both halves of what makes it survive: `decidedByHand` reads the strategy or
+			// the confirmation, and `findAppliedPairs` reads the confirmation or the score.
+			expect(fakes.correlation.correlate).toHaveBeenCalled();
+		});
+
+		it('measures what the two copies are to each other, since nothing else will', async () => {
+			/*
+			 * A pair the rules refuse is never re-proposed, so `_respectHumanDecision`
+			 * never sees it and no later pass computes its state. Left at `unknown` the
+			 * pair would exist and say nothing about which copy is better, which is most of
+			 * what a pair is for.
+			 */
+			const { manager } = build({
+				items: [
+					ours({ file: file({ width: 1280, height: 720 }) }),
+					theirs({ file: file({ width: 3840, height: 2160 }) }),
+				],
+			});
+
+			const paired = await manager.pairByHand('item-a', 'item-b');
+
+			expect(paired.state).toBe(SyncState.OUTDATED);
+		});
+
+		it('refuses two rows of one service, which includes a row with itself', async () => {
+			const { manager } = build({ items: [ours(), theirs({ serviceId: 'service-a' })] });
+
+			await expect(manager.pairByHand('item-a', 'item-b')).rejects.toThrow(ConflictException);
+			await expect(manager.pairByHand('item-a', 'item-a')).rejects.toThrow(ConflictException);
+		});
+
+		it('refuses a film and a series, whatever their titles say', async () => {
+			const { manager } = build({ items: [ours(), theirs({ kind: MediaKind.SERIES })] });
+
+			await expect(manager.pairByHand('item-a', 'item-b')).rejects.toThrow(ConflictException);
+		});
+
+		it('updates the row already between the two rather than making a second', async () => {
+			// The unique index is on the pair. Asked from the other side, the orientation
+			// it already has is kept: flipping the columns would rewrite `remoteServiceId`
+			// into a lie about which server the far copy is on.
+			const { manager, fakes } = build({ items: [ours(), theirs()] });
+
+			fakes.matches.findOne.mockResolvedValue(
+				match({
+					id: 'match-held',
+					localItemId: 'item-b',
+					remoteItemId: 'item-a',
+					remoteServiceId: 'service-a',
+					strategy: MatchStrategy.NORMALIZED_TITLE,
+					confidence: 0.4,
+				}),
+			);
+
+			const paired = await manager.pairByHand('item-a', 'item-b');
+
+			expect(fakes.matches.create).not.toHaveBeenCalled();
+			expect(paired).toEqual(
+				expect.objectContaining({
+					id: 'match-held',
+					localItemId: 'item-b',
+					remoteItemId: 'item-a',
+					strategy: MatchStrategy.MANUAL,
+					confidence: 1,
+				}),
+			);
+		});
+	});
+
 	describe('matches', () => {
 		it('lists both sides, because an item is the remote half of somebody else’s', async () => {
 			const { manager, fakes } = build({ items: [item()] });
