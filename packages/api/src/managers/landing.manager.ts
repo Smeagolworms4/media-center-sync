@@ -49,6 +49,17 @@ import { toConnection } from './mappers';
 export type RescanListener = (serviceId: string) => void;
 
 /**
+ * How long a row stays "already asked" after a landing asked the server about it.
+ *
+ * Long enough to cover one pack being filed file by file, which is what it is for, and
+ * short enough that a show somebody is still adding to gets asked again this evening.
+ */
+const ASK_WINDOW_MS = 10 * 60 * 1000;
+
+/** How many of those to remember, which is a bound on the map and nothing more. */
+const ASKED_KEPT = 500;
+
+/**
  * One file that has just been put into a library, whoever put it there.
  *
  * Named apart from the transfer it usually comes from because it does not always come
@@ -125,6 +136,20 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 	 * that never exits and a failure that names nothing.
 	 */
 	private readonly _settling = new Map<string, NodeJS.Timeout>();
+
+	/**
+	 * What has just been asked of a server, so a pack of eighty episodes asks once.
+	 *
+	 * A landing asks for the metadata of the row that landed *and of the rows above it*,
+	 * which is what a new show needs — and a season pack lands seventy-eight times. The
+	 * season and the series would be asked for seventy-eight times each, which is the
+	 * provider traffic the owner said must never happen, at a smaller scale.
+	 *
+	 * Keyed by service and external identifier, held for `ASK_WINDOW_MS`, and bounded:
+	 * this is a cache of what was asked, not a record of it, and nothing is lost by
+	 * forgetting an entry early beyond one redundant question.
+	 */
+	private readonly _asked = new Map<string, number>();
 
 	public constructor(
 		private readonly _landings: MediaLandingRepository,
@@ -394,12 +419,84 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 				return;
 			}
 
-			if (await handler.refreshItem(toConnection(service), item.externalId)) {
-				this._logger.log(`Asked ${service.name} for the metadata of ${item.title}`);
+			/*
+			 * The row that landed **and the rows above it**, which is the half that was
+			 * missing and the one a new show is made of.
+			 *
+			 * A server builds a series and its seasons the moment the first file of a show
+			 * is indexed, and it builds them from the folder names: a title and nothing
+			 * else. Asking for the episode leaves those two rows exactly as they were
+			 * created — no poster, no overview, no identifier — so a brand new show appears
+			 * as a card with no artwork whose episodes are all complete, reported as *les
+			 * images manquantes ne se chargent pas sur les nouveaux médias*. Nothing else
+			 * ever goes back for them: a refresh reads a server, it does not ask one to
+			 * fetch anything, and the only place that asks is this one.
+			 *
+			 * Each is asked for itself rather than the series being asked recursively. The
+			 * recursive form would walk every episode of the show again at every landing,
+			 * and the episodes are the rows that are already right.
+			 */
+			for (const row of await this._items.ancestry(item)) {
+				if (!this._worthAsking(row)) {
+					continue;
+				}
+
+				if (await handler.refreshItem(toConnection(service), row.externalId)) {
+					this._logger.log(`Asked ${service.name} for the metadata of ${row.title}`);
+				}
 			}
 		} catch (error: unknown) {
 			this._logger.warn(`Could not ask for the metadata of ${item.title}: ${String(error)}`);
 		}
+	}
+
+	/**
+	 * Whether this row is worth a question, and record that it was asked.
+	 *
+	 * The window is the whole point: a season pack lands file by file, so the show above
+	 * them would be asked for once per episode. Ten minutes covers the longest pack this
+	 * has been seen to file and costs, at worst, one redundant question per show per ten
+	 * minutes — which is the right side to err on, since the alternative is seventy-eight
+	 * provider lookups for one poster.
+	 *
+	 * Trimmed from the oldest when it grows past what a household can plausibly be filing
+	 * at once. Re-inserted rather than updated in place so the map's own order is
+	 * recency: `Map.set` on an existing key keeps its original position, which would make
+	 * the trim below drop whatever was asked for most often.
+	 */
+	private _worthAsking(row: { serviceId: string; externalId: string }): boolean {
+		if (row.externalId === '') {
+			return false;
+		}
+
+		const key = `${row.serviceId}:${row.externalId}`;
+		const now = Date.now();
+		const asked = this._asked.get(key);
+
+		if (asked !== undefined && now - asked < ASK_WINDOW_MS) {
+			return false;
+		}
+
+		for (const [held, at] of this._asked) {
+			if (now - at >= ASK_WINDOW_MS) {
+				this._asked.delete(held);
+			}
+		}
+
+		while (this._asked.size >= ASKED_KEPT) {
+			const oldest = this._asked.keys().next();
+
+			if (oldest.done === true) {
+				break;
+			}
+
+			this._asked.delete(oldest.value);
+		}
+
+		this._asked.delete(key);
+		this._asked.set(key, now);
+
+		return true;
 	}
 
 	/**

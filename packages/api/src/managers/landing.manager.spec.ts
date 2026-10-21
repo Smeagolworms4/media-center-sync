@@ -120,6 +120,8 @@ interface Fakes {
 	deleted: string[];
 	/** Exposed so a test can hand back a row the ordinary query would never produce. */
 	findForTransfers: jest.Mock;
+	/** External identifiers the server was asked to fetch the metadata of, in order. */
+	refreshed: string[];
 }
 
 const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => {
@@ -129,6 +131,7 @@ const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => 
 	const libraries = world.libraries ?? [];
 	const services = world.services ?? [service(), service({ id: THEIR_SERVICE, filesMounted: false })];
 	const deleted: string[] = [];
+	const refreshed: string[] = [];
 
 	const requestRescan = jest.fn(() =>
 		world.rescan instanceof Error
@@ -145,6 +148,12 @@ const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => 
 		return Promise.resolve();
 	});
 	const rescanListener = jest.fn();
+	/** What the server was asked to go and fetch the metadata of. */
+	const refreshItem = jest.fn((_connection: unknown, externalId: string) => {
+		refreshed.push(externalId);
+
+		return Promise.resolve(true);
+	});
 
 	const landingRepository = {
 		create: jest.fn((value: Partial<MediaLanding>) => ({ ...value })),
@@ -198,6 +207,27 @@ const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => 
 				Promise.resolve(items.filter((one) => JSON.stringify(one.file ?? {}).includes(hint))),
 			),
 			setSyncState,
+			// The row and its parents, nearest first, exactly as the repository answers
+			// it: the landing asks the server about a new show's series and seasons as
+			// well as the episode, because those are the rows a server invents empty.
+			ancestry: jest.fn((row: MediaItem) => {
+				const chain = [row];
+
+				for (let step = 0; step < 3; step += 1) {
+					const parentId = chain[chain.length - 1].parentId ?? null;
+					const parent = parentId === null
+						? undefined
+						: items.find((one) => one.id === parentId);
+
+					if (parent === undefined) {
+						break;
+					}
+
+					chain.push(parent);
+				}
+
+				return Promise.resolve(chain);
+			}),
 		} as unknown as MediaItemRepository,
 		{
 			findForRemoteItem: jest.fn((id: string) =>
@@ -219,7 +249,7 @@ const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => 
 				Promise.resolve(services.find((one) => one.id === id) ?? null),
 			),
 		} as unknown as MediaServiceRepository,
-		{ find: jest.fn(() => ({ requestRescan })) } as unknown as HandlerRegistry,
+		{ find: jest.fn(() => ({ requestRescan, refreshItem })) } as unknown as HandlerRegistry,
 		{ getValue: jest.fn().mockResolvedValue(0.8) } as unknown as SettingsService,
 		{ onTransferState: jest.fn() } as unknown as TransferEngineService,
 		// Told when a landing goes stale, which is the one state nothing else announces:
@@ -239,6 +269,7 @@ const build = (world: World = {}): { manager: LandingManager; fakes: Fakes } => 
 			rescanListener,
 			deleted,
 			findForTransfers: landingRepository.findForTransfers,
+			refreshed,
 			events,
 		},
 	};
@@ -480,6 +511,79 @@ describe('LandingManager', () => {
 					...overrides,
 				},
 			});
+
+		/**
+		 * What a new show needs, which is not what the episode needs.
+		 *
+		 * A server builds the series and its seasons when the first file of a show is
+		 * indexed, and it builds them out of the folder names: a title and nothing else.
+		 * Asking only about the episode leaves those two rows with no poster for ever,
+		 * reported as *les images manquantes ne se chargent pas sur les nouveaux médias —
+		 * c'est la série*.
+		 */
+		describe('asking the server for what it did not fetch', () => {
+			const series = (): MediaItem =>
+				item({
+					id: 'our-series',
+					serviceId: OUR_SERVICE,
+					libraryId: OUR_LIBRARY,
+					externalId: 'jf-series',
+					kind: MediaKind.SERIES,
+					title: 'The Expanse',
+				});
+			const season = (): MediaItem =>
+				item({
+					id: 'our-season',
+					serviceId: OUR_SERVICE,
+					libraryId: OUR_LIBRARY,
+					externalId: 'jf-season',
+					kind: MediaKind.SEASON,
+					title: 'Season 1',
+					parentId: 'our-series',
+				});
+			const episode = (overrides: Partial<MediaItem> = {}): MediaItem => ({
+				...scanned(),
+				externalId: 'jf-episode',
+				parentId: 'our-season',
+				...overrides,
+			}) as MediaItem;
+
+			it('asks about the series and the season as well as the episode', async () => {
+				const { manager, fakes } = make(
+					world({
+						items: [item(), series(), season(), episode()],
+						landings: [waiting()],
+					}),
+				);
+
+				await manager.reconcile();
+
+				// Nearest first, which is the order the ancestry answers in and costs
+				// three calls about one show rather than hours over a shelf.
+				expect(fakes.refreshed).toEqual(['jf-episode', 'jf-season', 'jf-series']);
+			});
+
+			it('asks about the show once however many of its files land', async () => {
+				/*
+				 * A season pack lands file by file — seventy-eight times, on the report
+				 * that produced this — and the show above them is one row. Asked once per
+				 * episode it would be seventy-eight provider lookups for one poster, which
+				 * is the traffic the whole design avoids.
+				 */
+				const { manager, fakes } = make(
+					world({
+						items: [item(), series(), season(), episode()],
+						landings: [waiting()],
+					}),
+				);
+
+				await manager.reconcile();
+				fakes.landings.push(waiting({ id: 'landing-2' }));
+				await manager.reconcile();
+
+				expect(fakes.refreshed.filter((one) => one === 'jf-series')).toHaveLength(1);
+			});
+		});
 
 		it('forgets the landing once one of our services reports the file', async () => {
 			const { manager, fakes } = make(
