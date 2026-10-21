@@ -405,11 +405,32 @@ export class JellyfinHandler implements MediaServiceHandler {
 				IncludeItemTypes: this._includeTypes(library),
 				Fields: `${ITEM_FIELDS},DateLastSaved`,
 				sortBy: 'DateLastSaved',
-				sortOrder: 'Descending',
+				/*
+				 * **Oldest change first**, as soon as there is a cursor to walk forward
+				 * from, and that order is the whole correctness of a refresh.
+				 *
+				 * It used to ask for the newest first, and the page below is capped. So a
+				 * library that saved more than a page's worth since the last tick handed
+				 * back its two hundred newest changes, the cursor jumped to the newest of
+				 * them, and **everything between the old cursor and that page was never
+				 * asked for again** — lost until the next full scan, which is nightly. The
+				 * comment that used to sit here claimed the cursor stayed put; it did not,
+				 * and the symptom was the one reported: a file that is in Jellyfin, is not
+				 * in the catalogue, and matches nothing.
+				 *
+				 * Ascending cannot skip: the page is the oldest changes still owed, the
+				 * cursor lands on the last of them, and the next tick resumes there. A
+				 * backlog therefore drains a page per tick instead of being dropped, which
+				 * is how `PlexHandler.refreshLibrary` has always done it — `updatedAt:asc`,
+				 * same window, same reason.
+				 *
+				 * Without a cursor there is nothing to walk forward from and the newest is
+				 * what a first look wants, so that case keeps the descending order.
+				 */
+				sortOrder: cursor === null ? 'Descending' : 'Ascending',
 				minDateLastSaved: cursor ?? undefined,
-				// A refresh is meant to be cheap. If more than this changed, the next
-				// full scan is the right tool and the cursor stays where it was so
-				// nothing is lost in between.
+				// A refresh is meant to be cheap, and the cursor above makes a cap safe:
+				// what does not fit in this page is the next tick's first page.
 				Limit: 200,
 			},
 		});

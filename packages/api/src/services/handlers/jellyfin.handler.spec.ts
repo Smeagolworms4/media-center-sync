@@ -386,6 +386,43 @@ describe('JellyfinHandler', () => {
 			expect(refresh.cursor).toBe('2024-02-02T03:04:05.000Z');
 		});
 
+		it('asks for the oldest change first, so a full page loses nothing', async () => {
+			/*
+			 * The page is capped at two hundred. Asked newest first — which it used to be —
+			 * a library that saved more than that since the last tick handed back its two
+			 * hundred newest changes and the cursor jumped to the newest of them: every
+			 * change in between was never asked for again, until the nightly full scan.
+			 * The symptom is a file that is in Jellyfin, is not in the catalogue, and
+			 * therefore matches nothing of ours.
+			 *
+			 * Ascending cannot skip. The cursor lands on the last of the oldest changes
+			 * owed, and the next tick resumes exactly there.
+			 */
+			const fetchMock = stubFetch(() => ({
+				Items: [
+					{ ...EPISODE, Id: 'oldest', DateLastSaved: '2024-02-01T00:00:00.000Z' },
+					{ ...EPISODE, Id: 'newer', DateLastSaved: '2024-02-02T00:00:00.000Z' },
+				],
+				TotalRecordCount: 2,
+			}));
+
+			const refresh = await handler.refreshLibrary(connection, library, '2024-01-01T00:00:00Z');
+
+			expect(String(fetchMock.mock.calls[0][0])).toContain('sortOrder=Ascending');
+			// The last one of the page, which is where the next tick picks the walk up.
+			expect(refresh.cursor).toBe('2024-02-02T00:00:00.000Z');
+		});
+
+		it('takes the newest first when it has no cursor to walk forward from', async () => {
+			// Nothing to resume: the first look at a library wants what arrived last, and
+			// there is no backlog to drain in order yet.
+			const fetchMock = stubFetch(() => ({ Items: [EPISODE], TotalRecordCount: 1 }));
+
+			await handler.refreshLibrary(connection, library, null);
+
+			expect(String(fetchMock.mock.calls[0][0])).toContain('sortOrder=Descending');
+		});
+
 		it('starts a cursor somewhere rather than re-reading the library forever', async () => {
 			stubFetch(() => ({ Items: [], TotalRecordCount: 0 }));
 
