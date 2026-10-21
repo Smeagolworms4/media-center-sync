@@ -967,9 +967,23 @@ describe('components/media/MatchesDialog', () => {
 			title: 'Vision Quest',
 			year: 1985,
 			kind: 'movie',
+			seasonNumber: null,
+			episodeNumber: null,
+			episodeNumberEnd: null,
+		};
+		// What this is most used for: a season or an episode, where the title alone is
+		// `Season 4` on three servers and the coordinate is the only way to tell them
+		// apart.
+		const episode = {
+			...candidate,
+			id: 'other-2',
+			title: 'The Light',
+			seasonNumber: 4,
+			episodeNumber: 6,
+			kind: 'episode',
 		};
 		const stub = stubFetchRoutes({
-			'/api/media/m1/matches/candidates': { body: [candidate] },
+			'/api/media/m1/matches/candidates': { body: [candidate, episode] },
 			'/api/media/m1/matches/pair': {
 				body: { ...match, id: 'match-made', strategy: 'manual', confidence: 1 },
 			},
@@ -992,14 +1006,17 @@ describe('components/media/MatchesDialog', () => {
 		expect(row.text()).toContain('Vision Quest');
 		expect(row.text()).toContain('1985');
 
+		expect(wrapper.findAll('[data-test="match-pair-row"]')).toHaveLength(2);
+		expect(wrapper.findAll('[data-test="match-pair-row"]')[1].text()).toContain('S4E6');
+
 		stub.mockClear();
-		await wrapper.find('[data-test="match-pair-apply"]').trigger('click');
+		await wrapper.findAll('[data-test="match-pair-apply"]')[0].trigger('click');
 		await settle();
 
 		const posted = stub.mock.calls.find(one => String(one[1]?.method) === 'POST');
 		expect(JSON.parse(String(posted?.[1]?.body))).toEqual({ otherItemId: 'other-1' });
 		// Taken out of the options: the same row cannot be both an offer and a pair.
-		expect(wrapper.findAll('[data-test="match-pair-row"]')).toHaveLength(0);
+		expect(wrapper.findAll('[data-test="match-pair-row"]')).toHaveLength(1);
 	});
 });
 

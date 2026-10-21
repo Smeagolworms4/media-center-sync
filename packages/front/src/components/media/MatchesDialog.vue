@@ -6,6 +6,7 @@
 	import RelativeDate from '@/components/common/RelativeDate.vue';
 	import SyncStateIcon from '@/components/media/SyncStateIcon.vue';
 	import Window from '@/components/Window.vue';
+	import { useEpisodeLabel } from '@/composables';
 	import { useNotifier } from '@/hooks/useNotifier';
 	import { useMediaStore } from '@/stores/media';
 	import { useServicesStore } from '@/stores/services';
@@ -25,6 +26,11 @@
 	const mediaStore = useMediaStore();
 	const servicesStore = useServicesStore();
 	const { notify, tryCallback } = useNotifier();
+	// A season and an episode are what this is most used for — the owner's words: *des
+	// fois le local ne matche pas entre les distants, donc corréler les saisons et
+	// épisodes serait bien* — and `Season 4` on three servers is three identical lines
+	// without their coordinate.
+	const { episodeLabel } = useEpisodeLabel();
 
 	const matches = ref<MediaMatch[]>([]);
 	const loading = ref(false);
@@ -157,6 +163,7 @@
 						<v-list-item-title>{{ one.title }}</v-list-item-title>
 
 						<v-list-item-subtitle>
+							<template v-if="episodeLabel(one)">{{ episodeLabel(one) }} · </template>
 							{{ serviceName(one.serviceId) }}
 							<template v-if="one.year"> · {{ one.year }}</template>
 						</v-list-item-subtitle>
