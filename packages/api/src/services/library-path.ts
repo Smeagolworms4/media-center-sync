@@ -10,6 +10,39 @@ export interface PathMappedLibrary {
 }
 
 /**
+ * Where the gateway reaches one declared root of a library.
+ *
+ * `localPath` is the library's single answer, and it is only ever true of one of its
+ * roots. A shelf called `Series TV` is five directories on five disks here, and every
+ * path reported under the second, third, fourth or fifth of them used to be rewritten
+ * onto the first: a path that does not exist, on another disk. Nothing failed. The
+ * gateway simply believed a show it holds on disk five sat on disk one, so it filed
+ * season two there — beside nothing, while season one stayed where it was, and no media
+ * server shows the two as one series. In the owner's words: *il a mal rangé la saison 2*.
+ *
+ * So the root that matched is translated through the service's own mappings, which are
+ * the only statement of one directory per disk. `localPath` still answers for the root
+ * it was derived from — somebody typing a path there is correcting that one, and a
+ * mapping must not undo it — and for everything the mappings cannot translate, which is
+ * what a library on a single disk has always relied on.
+ */
+const reachableRoot = (
+	library: PathMappedLibrary,
+	root: string,
+	service: ServiceRootMappings | null,
+): string | null => {
+	// Guarded rather than trusted, the way every other reader of this column guards it:
+	// it is JSON on a row that may predate it, and a service with nothing stated is a
+	// service that cannot tell its own roots apart — which is the state this answers for
+	// by falling back to the library.
+	const mappings = service?.rootMappings ?? [];
+	const mapped = mappedLocalPath(root, mappings);
+	const primary = derivedLocalPath(library.paths, { rootMappings: mappings });
+
+	return mapped === null || mapped === primary ? (library.localPath ?? mapped) : mapped;
+};
+
+/**
  * The path as the gateway sees it, from the path a service reported.
  *
  * The two differ as soon as the service runs in its own container: Jellyfin says
@@ -22,20 +55,33 @@ export interface PathMappedLibrary {
  *
  * Only a root the library actually declares is rewritten. Anything else yields null,
  * because a prefix guessed here is a read outside the library.
+ *
+ * The service is optional and carries the mappings that tell its roots apart — see
+ * `reachableRoot`. Without it the library's single `localPath` answers for every root,
+ * which is right for a library on one disk and a guess for a shelf spread over five:
+ * every caller holding a service should pass it.
  */
-export const toLocalPath = (library: PathMappedLibrary, reported: string | null): string | null => {
-	if (reported === null || reported === '' || library.localPath === null || library.localPath === '') {
+export const toLocalPath = (
+	library: PathMappedLibrary,
+	reported: string | null,
+	service: ServiceRootMappings | null = null,
+): string | null => {
+	if (reported === null || reported === '') {
 		return null;
 	}
 
 	for (const root of library.paths) {
-		if (reported === root) {
-			return library.localPath;
+		if (reported !== root && !reported.startsWith(`${root}/`)) {
+			continue;
 		}
 
-		if (reported.startsWith(`${root}/`)) {
-			return join(library.localPath, reported.slice(root.length));
+		const base = reachableRoot(library, root, service);
+
+		if (base === null || base === '') {
+			return null;
 		}
+
+		return reported === root ? base : join(base, reported.slice(root.length));
 	}
 
 	return null;

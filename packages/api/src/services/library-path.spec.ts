@@ -31,6 +31,60 @@ describe('toLocalPath', () => {
 
 		expect(toLocalPath(multi, '/media/b/deep/file.mkv')).toBe('/mnt/x/deep/file.mkv');
 	});
+
+	describe('a shelf spread over several disks', () => {
+		// The shape that filed a season on the wrong disk: one library, five roots, and
+		// one `localPath` standing for the first of them.
+		const shelf = {
+			paths: ['/media/SeriesTV', '/media/SeriesTV2', '/media/SeriesTV5'],
+			localPath: '/share/SeriesTV',
+		};
+		const service = {
+			rootMappings: [
+				{ remoteRoot: '/media/SeriesTV', localRoot: '/share/SeriesTV' },
+				{ remoteRoot: '/media/SeriesTV2', localRoot: '/share/SeriesTV2' },
+				{ remoteRoot: '/media/SeriesTV5', localRoot: '/share/SeriesTV5' },
+			],
+		};
+
+		it('keeps a path on the disk the service reported it on', () => {
+			expect(toLocalPath(shelf, '/media/SeriesTV5/Show/Saison 1/a.mkv', service))
+				.toBe('/share/SeriesTV5/Show/Saison 1/a.mkv');
+		});
+
+		it('answers the library root for the root it was derived from', () => {
+			expect(toLocalPath(shelf, '/media/SeriesTV/Show/Saison 1/a.mkv', service))
+				.toBe('/share/SeriesTV/Show/Saison 1/a.mkv');
+		});
+
+		it('maps a root of its own, not only a file under one', () => {
+			expect(toLocalPath(shelf, '/media/SeriesTV2', service)).toBe('/share/SeriesTV2');
+		});
+
+		it('honours a path somebody typed for the library, over the mapping', () => {
+			// Typing one is how a library that needs another directory says so, and the
+			// mapping it overrides is the one it was derived from.
+			const typed = { ...shelf, localPath: '/share/elsewhere' };
+
+			expect(toLocalPath(typed, '/media/SeriesTV/Show/a.mkv', service))
+				.toBe('/share/elsewhere/Show/a.mkv');
+			expect(toLocalPath(typed, '/media/SeriesTV5/Show/a.mkv', service))
+				.toBe('/share/SeriesTV5/Show/a.mkv');
+		});
+
+		it('falls back to the library when the mappings cannot answer for a root', () => {
+			// Nothing better is known about `/media/SeriesTV2`, and the library's own
+			// answer is what a single-disk library has always relied on.
+			const partial = { rootMappings: [{ remoteRoot: '/media/SeriesTV', localRoot: '/share/SeriesTV' }] };
+
+			expect(toLocalPath(shelf, '/media/SeriesTV2/Show/a.mkv', partial))
+				.toBe('/share/SeriesTV/Show/a.mkv');
+		});
+
+		it('still refuses a path under no declared root', () => {
+			expect(toLocalPath(shelf, '/media/SeriesTV3/Show/a.mkv', service)).toBeNull();
+		});
+	});
 });
 
 describe('derivedLocalPath', () => {

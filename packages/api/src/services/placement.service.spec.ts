@@ -74,6 +74,44 @@ describe('PlacementService', () => {
 	});
 
 	/*
+	 * One shelf, several directories on several disks, which is what a `Series TV`
+	 * library is for a household with five of them.
+	 *
+	 * The copy sat on the fifth root and the library answered with its first. Two things
+	 * followed and both were silent: nothing was found to hold the copy, so the rule that
+	 * keeps a show together was skipped, and the naming was handed a root the show is not
+	 * under, so it imitated nothing. Season two was filed on disk one, beside nothing,
+	 * while season one stayed on disk five — in the owner's words, *il a mal rangé la
+	 * saison 2*.
+	 */
+	it('places beside the copy on the root that actually holds it', async () => {
+		const fifth = join(root, 'shows5');
+
+		await mkdir(fifth, { recursive: true });
+
+		const offered: string[] = [];
+		const target = await service.resolve({
+			kind: MediaKind.EPISODE,
+			settings: settings({ placement: PlacementStrategy.BESIDE_EXISTING }),
+			libraries: [library({ localRoots: [shows, fifth] })],
+			relativeName: (chosen: string) => {
+				offered.push(chosen);
+
+				return join('Show', 'Saison 2', 'S02E01.mkv');
+			},
+			existingPath: join(fifth, 'Show', 'Saison 1', 'S01E01.mkv'),
+		});
+
+		expect(target.libraryId).toBe('lib-shows');
+		expect(target.strategy).toBe(PlacementStrategy.BESIDE_EXISTING);
+		expect(target.root).toBe(fifth);
+		expect(target.path).toBe(join(fifth, 'Show', 'Saison 2', 'S02E01.mkv'));
+		// The naming imitates the folders under the root it is handed, so the root is
+		// half the answer: given the library's first one it cannot see the show at all.
+		expect(offered[0]).toBe(fifth);
+	});
+
+	/*
 	 * A folder somebody typed, against every rule that would have answered otherwise.
 	 *
 	 * The failure this comes from, in the owner's words: "j'avais prérempli un dossier

@@ -514,7 +514,7 @@ export class PlacementService {
 		 * hold is not new.
 		 */
 		if (request.existingPath) {
-			const host = this._libraryHolding(usable, request.existingPath);
+			const host = this._rootHolding(usable, request.existingPath);
 
 			if (!host) {
 				// The rule the settings call unconditional, quietly not applying. Worth a
@@ -528,8 +528,10 @@ export class PlacementService {
 
 			if (host) {
 				attempts.push({
-					library: host,
-					root: host.localPath as string,
+					library: host.library,
+					// The root the copy is on, which is not always the library's first one
+					// — see `_rootHolding`.
+					root: host.root,
 					strategy: PlacementStrategy.BESIDE_EXISTING,
 					fallback: false,
 				});
@@ -798,20 +800,47 @@ export class PlacementService {
 		libraries: PlacementLibrary[],
 		path: string,
 	): PlacementLibrary | undefined {
+		return this._rootHolding(libraries, path)?.library;
+	}
+
+	/**
+	 * The library and the one of its roots that contains a path.
+	 *
+	 * Every root, not only `localPath`: a shelf here is five directories on five disks,
+	 * and a copy sitting on the fifth was held by no library at all — so the rule that
+	 * keeps a show together was found not to apply, said so in a warning nobody reads,
+	 * and the configured destination filed season two away from season one.
+	 *
+	 * The root travels with the answer because it is the one the file has to be written
+	 * under. Handing back the library and then writing to its `localPath` is the same
+	 * defect one level further down: the show is held on disk five and the episode lands
+	 * on disk one, which is the state no media server shows as one series.
+	 */
+	private _rootHolding(
+		libraries: PlacementLibrary[],
+		path: string,
+	): { library: PlacementLibrary; root: string } | undefined {
 		const target = resolve(path);
 
 		return libraries
-			.filter((library) => {
-				const root = resolve(library.localPath as string);
+			.flatMap((library) => {
+				const roots = [library.localPath, ...(library.localRoots ?? [])]
+					.filter((one): one is string => typeof one === 'string' && one !== '');
+
+				return [...new Set(roots)].map((root) => ({ library, root }));
+			})
+			.filter(({ root }) => {
+				const resolved = resolve(root);
 
 				// A prefix test on the raw strings would put `/mnt/media2` inside
 				// `/mnt/media`, which is exactly the kind of near-miss that puts a
 				// transfer on the wrong disk.
-				return target === root || target.startsWith(root.endsWith(sep) ? root : root + sep);
+				return target === resolved
+					|| target.startsWith(resolved.endsWith(sep) ? resolved : resolved + sep);
 			})
 			// The deepest match wins when libraries are nested, because the deeper one
 			// is the more specific statement about where these files belong.
-			.sort((left, right) => (right.localPath as string).length - (left.localPath as string).length)[0];
+			.sort((left, right) => right.root.length - left.root.length)[0];
 	}
 
 	private _syntheticLibrary(path: string): PlacementLibrary {

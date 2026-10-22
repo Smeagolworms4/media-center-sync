@@ -65,7 +65,6 @@ import {
 	searchTerms,
 	SettingsService,
 	spanOf,
-	toLocalPath,
 	type IndexerQuery,
 	type NameableItem,
 	type SuggestionHolding,
@@ -2152,15 +2151,21 @@ export class ReleaseManager implements OnApplicationBootstrap {
 		return twins;
 	}
 
-	/** Where one row's file is on **our** disk, or null when it is on nobody's we can read. */
+	/**
+	 * Where one row's file is on **our** disk, or null when it is on nobody's we can read.
+	 *
+	 * Through the library manager, which translates with the mappings of the service that
+	 * reported the path. Translating with the library's single `localPath` sent every
+	 * path on a shelf's second disk onto its first — and this answer is what the whole
+	 * placement then imitates, so a show held on disk five had its next season filed on
+	 * disk one, beside nothing. See `toLocalPath`.
+	 */
 	private async _heldAt(item: MediaItemEntity): Promise<string | null> {
 		if (!item.file?.path) {
 			return null;
 		}
 
-		const library = await this._libraries.read(item.libraryId).catch(() => null);
-
-		return library === null ? null : toLocalPath(library, item.file.path);
+		return this._libraries.localPathOf(item.libraryId, item.file.path).catch(() => null);
 	}
 
 	/**

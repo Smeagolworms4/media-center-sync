@@ -825,7 +825,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 		await this._media.refileService(service.id);
 
 		for (const { library, itemsSeen } of walked) {
-			await this._fingerprint(library);
+			await this._fingerprint(library, service);
 			await this._recompute(library);
 			this._progress(service.id, library.id, itemsSeen, true, itemsSeen);
 		}
@@ -917,7 +917,7 @@ export class ServiceManager implements OnApplicationBootstrap {
 	 * any other way: no media server reports whether a description file exists, only
 	 * what it managed to read out of one.
 	 */
-	private async _fingerprint(library: LibraryEntity): Promise<void> {
+	private async _fingerprint(library: LibraryEntity, service: MediaServiceEntity): Promise<void> {
 		if (library.localPath === null || library.localPath === '') {
 			return;
 		}
@@ -926,7 +926,11 @@ export class ServiceManager implements OnApplicationBootstrap {
 		let done = 0;
 
 		for (const item of items) {
-			const path = toLocalPath(library, item.file?.path ?? null);
+			// With the service, so a path reported on the shelf's second disk is not
+			// rewritten onto its first — where there is no file to read, and the
+			// fingerprint of everything outside the first root silently never happens.
+			// See `toLocalPath`.
+			const path = toLocalPath(library, item.file?.path ?? null, service);
 
 			if (path === null || item.file === null) {
 				continue;

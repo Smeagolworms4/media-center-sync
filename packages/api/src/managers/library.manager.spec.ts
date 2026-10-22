@@ -604,6 +604,55 @@ describe('LibraryManager', () => {
 	});
 
 	/**
+	 * Where a file a media server reported is for us.
+	 *
+	 * Asked of this manager because the answer needs the library's roots *and* the
+	 * mappings of the service that declared them. A shelf here is five directories on
+	 * five disks: translating a path on the fifth with the library's single `localPath`
+	 * answers the first, and everything downstream — the fingerprint, the imitation of a
+	 * library's folders, the rule that keeps a show together — then reasons about a
+	 * directory that holds nothing.
+	 */
+	describe('localPathOf', () => {
+		const shelf = library({
+			paths: ['/media/SeriesTV', '/media/SeriesTV5'],
+			localPath: '/share/SeriesTV',
+		});
+		const mapped = [
+			{ remoteRoot: '/media/SeriesTV', localRoot: '/share/SeriesTV' },
+			{ remoteRoot: '/media/SeriesTV5', localRoot: '/share/SeriesTV5' },
+		];
+
+		it('keeps a file on the disk it was reported on', async () => {
+			const { manager, fakes } = build(shelf);
+
+			fakes.services.findOne.mockResolvedValue({ id: 'service-1', rootMappings: mapped });
+
+			await expect(manager.localPathOf('library-1', '/media/SeriesTV5/Show/Saison 1/a.mkv'))
+				.resolves.toBe('/share/SeriesTV5/Show/Saison 1/a.mkv');
+		});
+
+		it('answers nothing for a path under no root of it, or for no path at all', async () => {
+			const { manager, fakes } = build(shelf);
+
+			fakes.services.findOne.mockResolvedValue({ id: 'service-1', rootMappings: mapped });
+
+			await expect(manager.localPathOf('library-1', '/media/Elsewhere/a.mkv')).resolves.toBeNull();
+			await expect(manager.localPathOf('library-1', null)).resolves.toBeNull();
+		});
+
+		it('answers nothing for a library that is gone', async () => {
+			// A row pointing at a deleted library holds no file we can reach, which is the
+			// same answer as a path nobody can translate.
+			const { manager, fakes } = build(shelf);
+
+			fakes.libraries.findOne.mockResolvedValue(null);
+
+			await expect(manager.localPathOf('ghost', '/media/SeriesTV5/Show/a.mkv')).resolves.toBeNull();
+		});
+	});
+
+	/**
 	 * The two things about this gateway's setup that nothing else reports.
 	 *
 	 * Both are read at a glance and both cost an evening when nobody says them: every

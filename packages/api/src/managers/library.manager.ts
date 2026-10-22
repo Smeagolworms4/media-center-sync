@@ -45,6 +45,7 @@ import {
 	SettingsService,
 	type ServiceRootMappings,
 	type PlacementLibrary,
+	toLocalPath,
 } from '@/services';
 import { toLibrary } from './mappers';
 
@@ -165,6 +166,37 @@ export class LibraryManager {
 		const library = await this._require(id);
 
 		return toLibrary(library, await this._services.findOne({ where: { id: library.serviceId } }));
+	}
+
+	/**
+	 * Where a file a media server reported is on our disk.
+	 *
+	 * Asked of this manager because the translation needs two things a caller rarely has
+	 * together: the library's declared roots and the mappings of the service that
+	 * declared them. A caller holding only the library translates every root with the
+	 * library's single `localPath`, which is right for a library on one disk and puts a
+	 * file on the wrong one for a shelf spread over five — see `toLocalPath`.
+	 *
+	 * Null for a library that no longer exists, like every other read of a path: a row
+	 * pointing at a deleted library holds no file we can reach, which is the same answer
+	 * as a path we cannot translate.
+	 */
+	public async localPathOf(libraryId: string, reported: string | null): Promise<string | null> {
+		if (reported === null || reported === '') {
+			return null;
+		}
+
+		const library = await this._libraries.findOne({ where: { id: libraryId } });
+
+		if (library === null) {
+			return null;
+		}
+
+		return toLocalPath(
+			library,
+			reported,
+			await this._services.findOne({ where: { id: library.serviceId } }),
+		);
 	}
 
 	/**

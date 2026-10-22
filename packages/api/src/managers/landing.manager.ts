@@ -339,10 +339,14 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 		const libraries = new Map(
 			(await this._libraries.find()).map((library) => [library.id, library]),
 		);
+		// And the services, for the same reason one pass reads the libraries: the
+		// translation needs the mappings of the service that reported the path, which are
+		// what tells one directory of a shelf from another — see `toLocalPath`.
+		const services = new Map((await this._services.find()).map((one) => [one.id, one]));
 		const surviving: MediaLandingEntity[] = [];
 
 		for (const landing of open) {
-			const indexed = await this._indexed(landing, local, libraries);
+			const indexed = await this._indexed(landing, local, libraries, services);
 
 			if (indexed !== null) {
 				await this._landings.delete({ id: landing.id });
@@ -660,6 +664,7 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 		landing: MediaLandingEntity,
 		local: Set<string>,
 		libraries: Map<string, LibraryEntity>,
+		services: Map<string, MediaServiceEntity>,
 	): Promise<MediaItemEntity | null> {
 		const isOurs = (item: MediaItemEntity): boolean =>
 			local.has(item.serviceId) && item.id !== landing.itemId;
@@ -680,7 +685,8 @@ export class LandingManager implements OnApplicationBootstrap, OnModuleDestroy {
 			return (
 				isOurs(item)
 				&& library !== undefined
-				&& toLocalPath(library, item.file?.path ?? null) === landing.path
+				&& toLocalPath(library, item.file?.path ?? null, services.get(item.serviceId) ?? null)
+					=== landing.path
 			);
 		});
 

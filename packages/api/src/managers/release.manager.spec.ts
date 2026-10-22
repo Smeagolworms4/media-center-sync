@@ -33,7 +33,7 @@ import {
 } from '@nestjs/common';
 import type { MediaItem as MediaItemEntity, ReleaseGrab as GrabEntity } from '@/entities';
 import type { MediaItemRepository, PeerRepository, ReleaseGrabRepository } from '@/repositories';
-import { PeerSuggestionService, QualityService } from '@/services';
+import { PeerSuggestionService, QualityService, toLocalPath } from '@/services';
 import type {
 	CacheService,
 	DownloadClientRegistry,
@@ -84,7 +84,12 @@ interface Fakes {
 	cache: { get: jest.Mock; set: jest.Mock };
 	naming: { render: jest.Mock };
 	placement: { resolve: jest.Mock; prepare: jest.Mock };
-	libraries: { placementLibraries: jest.Mock; categoryKeysByLibrary: jest.Mock; read: jest.Mock };
+	libraries: {
+		placementLibraries: jest.Mock;
+		categoryKeysByLibrary: jest.Mock;
+		read: jest.Mock;
+		localPathOf: jest.Mock;
+	};
 	groups: { group: jest.Mock; groupChildren: jest.Mock };
 	filesystem: { rights: jest.Mock; filesUnder: jest.Mock; largestFileUnder: jest.Mock };
 	mover: { move: jest.Mock };
@@ -503,6 +508,18 @@ const build = (): { manager: ReleaseManager; fakes: Fakes } => {
 				paths: ['/media/shows'],
 				localPath: '/media/shows',
 			}),
+			/*
+			 * The real translation over that shelf, not a stub answering the path back.
+			 *
+			 * What the manager asks for is "where is this file for us", and the shape of
+			 * that answer is what the placement then imitates — a fake that skipped the
+			 * rewrite would prove the imitation works on paths no gateway ever sees.
+			 */
+			localPathOf: jest.fn((_libraryId: string, reported: string | null) =>
+				Promise.resolve(
+					toLocalPath({ paths: ['/media/shows'], localPath: '/media/shows' }, reported),
+				),
+			),
 		},
 		groups: {
 			group: jest.fn((id: string) => Promise.resolve(GROUPS[id] ?? GROUPS['series-1'])),

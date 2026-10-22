@@ -2432,13 +2432,19 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			return new Map();
 		}
 
-		const localServices = (await this._services.find())
-			.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL)
-			.map((service) => service.id);
+		const local = (await this._services.find())
+			.filter((service) => serviceMode(service) === MediaServiceMode.LOCAL);
+		const localServices = local.map((service) => service.id);
 
 		if (localServices.length === 0) {
 			return new Map();
 		}
+
+		// Kept whole, not reduced to identifiers: translating a reported path needs the
+		// mappings of the service that reported it, one directory per disk. The library's
+		// single `localPath` answers for its first root and sends everything on the others
+		// to that one — see `toLocalPath`.
+		const services = new Map(local.map((service) => [service.id, service]));
 
 		const rows = await this._items.find({
 			where: { normalizedTitle: In(titles), serviceId: In(localServices) },
@@ -2460,7 +2466,9 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			// `/mnt/nas/Shows/…`, and an untranslated path simply never matches the
 			// destination root: the imitation is skipped in silence and every pull
 			// lands in a folder a template invented.
-			const path = library ? toLocalPath(library, row.file?.path ?? null) : null;
+			const path = library
+				? toLocalPath(library, row.file?.path ?? null, services.get(row.serviceId) ?? null)
+				: null;
 
 			if (path === null) {
 				if (row.file === null) {
@@ -2475,7 +2483,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 			}
 		}
 
-		for (const [title, path] of await this._fileUnder(containers, libraries)) {
+		for (const [title, path] of await this._fileUnder(containers, libraries, services)) {
 			if (!siblings.has(title)) {
 				siblings.set(title, path);
 			}
@@ -2496,6 +2504,9 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 	private async _fileUnder(
 		containers: MediaItem[],
 		libraries: Map<string, LibraryEntity>,
+		// The mappings of the service each row came from, because a reported path is
+		// translated through them and the library's own answer covers one of its roots.
+		services: Map<string, MediaServiceEntity>,
 	): Promise<Map<string, string>> {
 		const found = new Map<string, string>();
 
@@ -2525,6 +2536,7 @@ export class SyncManager implements OnModuleInit, OnApplicationBootstrap {
 				const path = toLocalPath(
 					libraries.get(child.libraryId) ?? { paths: [], localPath: null },
 					child.file?.path ?? null,
+					services.get(child.serviceId) ?? null,
 				);
 
 				if (path === null) {
